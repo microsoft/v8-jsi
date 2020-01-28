@@ -69,7 +69,7 @@ jobs:
         displayName: 'NuGet Pack'
         inputs:
           command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi.nuspec
+          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\V8Jsi.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
           buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
           versioningScheme: off
