@@ -106,8 +106,9 @@ Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\inc\jsi\"
 Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\inc\jsi\"
 
 # The NuSpec
-$config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
-(Get-Content "$SourcesPath\V8Jsi.nuspec") -replace ('$Version$', $config.version) | Set-Content "$OutputPath\V8Jsi.nuspec"
-#Copy-Item "$SourcesPath\V8Jsi.nuspec" -Destination "$OutputPath\"
+#$config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
+#(Get-Content "$SourcesPath\V8Jsi.nuspec") -replace ('$Version$', $config.version) | Set-Content "$OutputPath\V8Jsi.nuspec"
+Copy-Item "$SourcesPath\V8Jsi.nuspec" -Destination "$OutputPath\"
+Copy-Item "$SourcesPath\config.json" -Destination "$OutputPath\"
 
 Write-Host "Done!"

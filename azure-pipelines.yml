@@ -65,6 +65,10 @@ jobs:
           artifactName: V8Jsi
           downloadPath: $(System.DefaultWorkingDirectory)
 
+      - powershell: |
+        $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | Out-String | ConvertFrom-Json
+        Write-Host "##vso[task.setvariable variable=Version]$config.version"
+
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
@@ -72,7 +76,8 @@ jobs:
           packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\V8Jsi.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
           buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
-          versioningScheme: off
+          versioningScheme: byEnvVar
+          versionEnvVar: Version
 
       - task: PublishBuildArtifacts@1
         displayName: "Publish final nuget artifacts"
