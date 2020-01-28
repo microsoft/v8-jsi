@@ -70,7 +70,8 @@ jobs:
           targetType: 'inline'
           script: |
             $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | Out-String | ConvertFrom-Json
-            Write-Host "##vso[task.setvariable variable=Version]$config.version"
+            $Version = $config.version
+            Write-Host "##vso[task.setvariable variable=Version]$Version"
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
