@@ -4,8 +4,15 @@
 
 #include <jsi/jsi.h>
 #include <memory>
-#include "ScriptStore.h"
 
+namespace facebook {
+namespace jsi {
+
+struct PreparedScriptStore;
+struct ScriptStore;
+
+} // namespace jsi
+} // namespace facebook
 
 namespace v8 {
 template <class T>
@@ -86,10 +93,12 @@ struct V8RuntimeArgs {
   size_t maximum_heap_size_in_bytes{0};
 };
 
+#ifdef BUILDING_V8_SHARED
 #ifdef _WIN32
 __declspec(dllexport)
 #else
 __attribute__((visibility("default")))
+#endif
 #endif
 std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
 

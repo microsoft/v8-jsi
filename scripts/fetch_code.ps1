@@ -10,11 +10,6 @@ $workpath = Join-Path $SourcesPath "build"
 Push-Location (Join-Path $workpath "v8build")
 & fetch v8
 
-if (!$?) {
-    Write-Host "Unable to fetch v8"
-    exit 1
-}
-
 if ($Configuration -like "*android") {
     $target_os = @'
 target_os= ['android']
@@ -25,11 +20,6 @@ target_os= ['android']
 
 & gclient sync --with_branch_heads
 
-if (!$?) {
-    Write-Host "Unable to sync v8"
-    exit 1
-}
-
 Push-Location (Join-Path $workpath "v8build\v8")
 
 $env:GIT_REDIRECT_STDERR = '2>&1'
@@ -39,11 +29,6 @@ $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | Conv
 & git fetch origin $config.v8ref
 & git checkout FETCH_HEAD
 & gclient sync
-
-if (!$?) {
-    Write-Host "Unable to sync v8"
-    exit 1
-}
 
 #TODO (#2): Submit PR upstream to Google for this fix
 $FixNeededPath = Join-Path $workpath "v8build\v8\src\base\template-utils.h"

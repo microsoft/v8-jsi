@@ -6,6 +6,7 @@
 #include "v8.h"
 
 #include "V8Platform.h"
+#include "public/ScriptStore.h"
 
 #include <atomic>
 #include <cstdlib>

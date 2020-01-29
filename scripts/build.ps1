@@ -85,8 +85,11 @@ if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildou
 }
 
 # Build is complete, prepare for NuGet packaging
-if (!(Test-Path -Path "$OutputPath\inc\jsi")) {
-    New-Item -ItemType "directory" -Path "$OutputPath\inc\jsi" | Out-Null
+if (!(Test-Path -Path "$OutputPath\build\native\include\jsi")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\jsi" | Out-Null
+}
+if (!(Test-Path -Path "$OutputPath\license")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\license" | Out-Null
 }
 if (!(Test-Path -Path "$OutputPath\lib\$Configuration\$Platform")) {
     New-Item -ItemType "directory" -Path "$OutputPath\lib\$Configuration\$Platform" | Out-Null
@@ -105,19 +108,21 @@ else {
 Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$Configuration\$Platform"
 
 # Headers
-Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\inc\"
-Copy-Item "$jsigitpath\public\V8JsiRuntime.h" -Destination "$OutputPath\inc\"
-Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\inc\jsi\"
-Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\inc\jsi\"
+Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\build\native\include\"
+Copy-Item "$jsigitpath\public\V8JsiRuntime.h" -Destination "$OutputPath\build\native\include\"
+Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\include\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\build\native\include\jsi\"
 
 # Source code - won't be needed after we have a proper ABI layer
-Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\inc\jsi\"
-Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\inc\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\include\jsi\"
+Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\include\jsi\"
 
-# The NuSpec
-#$config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
-#(Get-Content "$SourcesPath\V8Jsi.nuspec") -replace ('$Version$', $config.version) | Set-Content "$OutputPath\V8Jsi.nuspec"
-Copy-Item "$SourcesPath\V8Jsi.nuspec" -Destination "$OutputPath\"
+# Miscellaneous
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination "$OutputPath\"
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
 Copy-Item "$SourcesPath\config.json" -Destination "$OutputPath\"
+Copy-Item "$SourcesPath\LICENSE" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\LICENSE.jsi.md" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\LICENSE.v8.md" -Destination "$OutputPath\license\"
 
 Write-Host "Done!"

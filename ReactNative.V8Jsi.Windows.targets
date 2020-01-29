@@ -1,0 +1,30 @@
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">$(MSBuildThisFileDirectory)..\..\lib\Debug\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Release' And '$(Platform)' == 'x64'">$(MSBuildThisFileDirectory)..\..\lib\Release\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Debug' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">$(MSBuildThisFileDirectory)..\..\lib\Debug\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Release' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">$(MSBuildThisFileDirectory)..\..\lib\Release\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>v8jsi.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Debug' And '$(Platform)' == 'x64'">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Debug\x64\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Debug\x64\v8jsi.dll.pdb" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Release' And '$(Platform)' == 'x64'">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Release\x64\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Release\x64\v8jsi.dll.pdb" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Debug' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Debug\x86\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Debug\x86\v8jsi.dll.pdb" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'Release' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Release\x86\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\Release\x86\v8jsi.dll.pdb" />
+  </ItemGroup>
+</Project>
