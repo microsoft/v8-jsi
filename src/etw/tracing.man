@@ -1,5 +1,10 @@
 <?xml version="1.0"?>
-<instrumentationManifest xsi:schemaLocation="http://schemas.microsoft.com/win/2004/08/events eventman.xsd" xmlns="http://schemas.microsoft.com/win/2004/08/events" xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:trace="http://schemas.microsoft.com/win/2004/08/events/trace">
+<instrumentationManifest xsi:schemaLocation="http://schemas.microsoft.com/win/2004/08/events eventman.xsd" 
+	xmlns="http://schemas.microsoft.com/win/2004/08/events" 
+	xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+	xmlns:trace="http://schemas.microsoft.com/win/2004/08/events/trace">
 	<instrumentation>
 		<events>
 			<provider name="v8jsi-Provider" guid="{F5D420D2-9256-431B-B64B-A0E80C097839}" symbol="V8JSI" resourceFileName="v8jsi_etw_res.dll" messageFileName="v8jsi_etw_res.dll">
@@ -9,7 +14,7 @@
 					<event symbol="DUMPT_COUNTERS" value="3" version="0" level="win:Informational" task="DumptCounters" opcode="DumpsCountersOp" template="tidCounter"></event>
 					<event symbol="JIT_CODE_EVENT" value="4" version="0" level="win:Informational" task="JITCodeEvent" opcode="JITCodeEventOp" template="tidJitCodeEvent"></event>
 					<event symbol="MESSAGE" value="5" version="0" level="win:Informational" task="Message" template="tidMessage"></event>
-          <event symbol="V8JSI_LOG" value="6" version="0" level="win:Informational" task="Log" template="tidLog"></event>
+					<event symbol="V8JSI_LOG" value="6" version="0" level="win:Informational" task="Log" template="tidLog"></event>
 				</events>
 				<levels></levels>
 				<tasks>
@@ -18,7 +23,7 @@
 					<task name="DumptCounters" value="3" eventGUID="{00000000-0000-0000-0000-000000000000}"></task>
 					<task name="JITCodeEvent" value="4" eventGUID="{00000000-0000-0000-0000-000000000000}"></task>
 					<task name="Message" value="5" eventGUID="{00000000-0000-0000-0000-000000000000}"></task>
-          <task name="Log" value="6" eventGUID="{00000000-0000-0000-0000-000000000000}"></task>
+					<task name="Log" value="6" eventGUID="{00000000-0000-0000-0000-000000000000}"></task>
 				</tasks>
 				<opcodes>
 					<opcode name="GenericV8Op" symbol="GENERIC_V8_OP" value="10"></opcode>
@@ -27,12 +32,12 @@
 					<opcode name="JITCodeEventOp" symbol="JIT_CODE_EVENT_OP" value="13"></opcode>
 				</opcodes>
 				<templates>
-          <template tid="tidLog">
-            <data name="message1" inType="win:AnsiString" outType="xs:string"></data>
-            <data name="message2" inType="win:AnsiString" outType="xs:string"></data>
-            <data name="message3" inType="win:AnsiString" outType="xs:string"></data>
-            <data name="message4" inType="win:AnsiString" outType="xs:string"></data>
-          </template>
+					<template tid="tidLog">
+						<data name="message1" inType="win:AnsiString" outType="xs:string"></data>
+						<data name="message2" inType="win:AnsiString" outType="xs:string"></data>
+						<data name="message3" inType="win:AnsiString" outType="xs:string"></data>
+						<data name="message4" inType="win:AnsiString" outType="xs:string"></data>
+					</template>
 					<template tid="tidMessage">
 						<data name="message" inType="win:AnsiString" outType="xs:string"></data>
 						<data name="source_line" inType="win:AnsiString" outType="xs:string"></data>

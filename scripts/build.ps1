@@ -24,7 +24,7 @@ if (!(Select-String -Path (Join-Path $workpath "v8build\v8\BUILD.gn") -Pattern '
     Add-Content -Path (Join-Path $workpath "v8build\v8\BUILD.gn") $gn_snippet
 }
 
-# TODO: This is ugly, but it's the least intrusive way to override this config across all targets
+#TODO (#2): This is ugly, but it's the least intrusive way to override this config across all targets
 $FixNeededPath = Join-Path $workpath "v8build\v8\build\config\win\BUILD.gn"
 (Get-Content $FixNeededPath) -replace (":static_crt", ":dynamic_crt") | Set-Content $FixNeededPath
 
@@ -43,7 +43,7 @@ else {
     $gnargs += ' use_custom_libcxx=false target_cpu=\"' + $Platform + '\"'
 
     if ($Configuration -like "*clang") {
-        # TODO: we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
+        #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
     }
     else {
@@ -65,13 +65,22 @@ else {
 
 $buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
 
-gn gen $buildoutput --args="$gnargs"
-ninja -j 16 -C $buildoutput v8jsi
+& gn gen $buildoutput --args="$gnargs"
+if (!$?) {
+    Write-Host "Failed during build system generation (gn)"
+    exit 1
+}
+
+& ninja -j 16 -C $buildoutput v8jsi
+if (!$?) {
+    Write-Host "Build failure, check logs for details"
+    exit 1
+}
 
 Pop-Location
 
 if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so")) {
-    Write-Host "Build failure!"
+    Write-Host "Build failure"
     exit 1
 }
 
@@ -90,7 +99,7 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
     Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$Configuration\$Platform"
 }
 else {
-    #TODO: .so
+    #TODO (#2): .so
 }
 
 Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$Configuration\$Platform"

@@ -47,7 +47,7 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
 
-  - job: V8JsiNuget
+  - job: V8JsiPublishNuget
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget

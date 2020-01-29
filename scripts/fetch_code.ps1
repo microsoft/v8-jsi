@@ -8,7 +8,12 @@ param(
 $workpath = Join-Path $SourcesPath "build"
 
 Push-Location (Join-Path $workpath "v8build")
-fetch v8
+& fetch v8
+
+if (!$?) {
+    Write-Host "Unable to fetch v8"
+    exit 1
+}
 
 if ($Configuration -like "*android") {
     $target_os = @'
@@ -18,7 +23,12 @@ target_os= ['android']
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 
-gclient sync --with_branch_heads
+& gclient sync --with_branch_heads
+
+if (!$?) {
+    Write-Host "Unable to sync v8"
+    exit 1
+}
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
@@ -26,16 +36,21 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
-git fetch origin $config.v8ref
-git checkout FETCH_HEAD
-gclient sync
+& git fetch origin $config.v8ref
+& git checkout FETCH_HEAD
+& gclient sync
 
-# TODO: Submit PR upstream to Google for this fix
+if (!$?) {
+    Write-Host "Unable to sync v8"
+    exit 1
+}
+
+#TODO (#2): Submit PR upstream to Google for this fix
 $FixNeededPath = Join-Path $workpath "v8build\v8\src\base\template-utils.h"
 (Get-Content $FixNeededPath) -replace ("#include <utility>", "#include <utility>`n#include <functional>") | Set-Content $FixNeededPath
 
 if (!$PSVersionTable.Platform -or $IsWindows) {
-    # TODO: once the fix for the upstream hack lands, we can remove this patch (see https://bugs.chromium.org/p/chromium/issues/detail?id=1033106)
+    #TODO (#2): once the fix for the upstream hack lands, we can remove this patch (see https://bugs.chromium.org/p/chromium/issues/detail?id=1033106)
     Copy-Item -Path ( Join-Path $SourcesPath "scripts\patch\tool_wrapper.py") -Destination (Join-Path $workpath "v8build\v8\build\toolchain\win\tool_wrapper.py") -Force
 }
 
@@ -48,11 +63,10 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$config.version"
 if ($PSVersionTable.Platform -and !$IsWindows) {
     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
 
-    # TODO: this needs sudo
-    sudo bash $install_script_path
+    & sudo bash $install_script_path
 }
 
-#TODO: Use the .gzip for Android / Linux builds
+#TODO (#2): Use the .gzip for Android / Linux builds
 # Verify the Boost installation
 if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
 
