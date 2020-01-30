@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>ReactNative.V8Jsi.Windows</id>
+    <version>$Version$</version>
+    <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative</description>
+    <authors>Facebook, Google, Microsoft</authors>
+    <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <repository type="git" url="$RepoUri$" commit="$CommitId$" />
+  </metadata>
+  <files>
+    <file src="$nugetroot$\lib\**\*.*" target="lib" exclude="**\*.iobj;**\*.ipdb;**\*.exp;**\*.ilk" />
+    <file src="$nugetroot$\build\**\*.*" target="build"/>
+    <file src="$nugetroot$\license\*.*" target="license"/>
+  </files>
+</package>

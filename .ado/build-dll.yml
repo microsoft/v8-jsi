@@ -1,0 +1,37 @@
+parameters:
+  outputPath:
+
+steps:
+  - task: PowerShell@2
+    displayName: Download and extract depot_tools.zip
+    inputs:
+      targetType: filePath
+      filePath: $(Build.SourcesDirectory)\scripts\download_depottools.ps1
+      arguments:
+        -SourcesPath:$(Build.SourcesDirectory)
+
+  - task: PowerShell@2
+    displayName: Fetch the V8 source code and extra build tools
+    inputs:
+      targetType: filePath
+      filePath: $(Build.SourcesDirectory)\scripts\fetch_code.ps1
+      arguments:
+        -SourcesPath:$(Build.SourcesDirectory)
+        -Configuration:$(BuildConfiguration)
+
+  - task: PowerShell@2
+    displayName: Actually run the build
+    inputs:
+      targetType: filePath
+      filePath: $(Build.SourcesDirectory)\scripts\build.ps1
+      arguments:
+        -OutputPath:${{parameters.outputPath}}
+        -SourcesPath:$(Build.SourcesDirectory)
+        -Platform:$(BuildPlatform)
+        -Configuration:$(BuildConfiguration)
+
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish artifacts"
+    inputs:
+      artifactName: V8Jsi
+      pathtoPublish: ${{parameters.outputPath}}

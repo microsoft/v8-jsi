@@ -1,0 +1,59 @@
+target("shared_library", "v8jsi") {
+  sources = [
+    "jsi/decorator.h",
+    "jsi/instrumentation.h",
+    "jsi/jsi-inl.h",
+    "jsi/jsi.cpp",
+    "jsi/jsi.h",
+    "jsi/JSIDynamic.h",
+    "jsi/jsilib-windows.cpp",
+    "jsi/jsilib.h",
+    "jsi/threadsafe.h",
+    "public/ScriptStore.h",
+    "public/V8JsiRuntime.h",
+    "V8JsiRuntime_impl.h",
+    "V8JsiRuntime.cpp",
+    "V8Platform.cpp",
+    "V8Platform.h",
+  ]
+
+  if (is_win) {
+    sources += [
+      "etw/tracing.h",
+      "inspector/inspector_agent.cpp",
+      "inspector/inspector_agent.h",
+      "inspector/inspector_socket.cpp",
+      "inspector/inspector_socket.h",
+      "inspector/inspector_socket_server.cpp",
+      "inspector/inspector_socket_server.h",
+      "inspector/inspector_tcp.cpp",
+      "inspector/inspector_tcp.h",
+      "inspector/inspector_utils.cpp",
+      "inspector/inspector_utils.h",
+      "inspector/llhttp.c",
+      "inspector/llhttp.h",
+      "inspector/llhttp_api.c",
+      "inspector/llhttp_http.c"
+    ]
+  }
+
+  include_dirs = [ ".", "../include", "jsi", getenv("BOOST_ROOT") ]
+
+  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+
+  deps = [
+    "//:v8_headers",
+    "//:v8_monolith",
+  ]
+
+  if (is_win) {
+    defines = [ "BUILDING_V8_SHARED", "BOOST_ALL_NO_LIB" ]
+    libs = [
+      "dbghelp.lib",
+      "winmm.lib",
+      "bcrypt.lib",
+      "shlwapi.lib",
+    ]
+  }
+}
