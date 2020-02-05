@@ -57,3 +57,33 @@ target("shared_library", "v8jsi") {
     ]
   }
 }
+
+target("executable", "jsitests") {
+  testonly = true
+
+  deps = [
+    ":v8jsi",
+    "//build/win:default_exe_manifest",
+    "//testing/gtest",
+  ] 
+
+  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+
+  include_dirs = [ ".", "jsi" ]
+
+  sources = [
+    "jsi/decorator.h",
+    "jsi/instrumentation.h",
+    "jsi/jsi-inl.h",
+    "jsi/jsi.cpp",
+    "jsi/jsi.h",
+    "jsi/JSIDynamic.h",
+    "jsi/jsilib-windows.cpp",
+    "jsi/jsilib.h",
+    "jsi/threadsafe.h",
+    "jsi/test/testlib.h",
+    "jsi/test/testlib.cpp",
+    "testmain.cpp"
+  ]
+}
