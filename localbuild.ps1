@@ -3,7 +3,7 @@
 $OutputPath = "$PSScriptRoot\out"
 $SourcesPath = $PSScriptRoot
 $Platforms = "x64", "x86"
-$Configurations = "Debug", "Release", "Release-Clang"
+$Configurations = "Release", "Debug", "Release-Clang"
 
 Write-Host "Downloading environment..."
 & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath
@@ -14,7 +14,7 @@ if (!$?) {
 }
 
 Write-Host "Fetching code..."
-& ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -Configuration $Configurations[0]
+& ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configurations[0]
 
 if (!$?) {
     Write-Host "Failed to retrieve the v8 code"

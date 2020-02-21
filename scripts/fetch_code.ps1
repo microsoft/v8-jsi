@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 param(
     [string]$SourcesPath = $PSScriptRoot,
+    [string]$OutputPath = "$PSScriptRoot\out",
     [string]$Configuration = "Release"
 )
 
@@ -27,7 +28,7 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
 & git fetch origin $config.v8ref
-& git checkout FETCH_HEAD
+$CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 & gclient sync
 
 #TODO (#2): Submit PR upstream to Google for this fix
@@ -42,7 +43,26 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
 Pop-Location
 Pop-Location
 
-Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$config.version"
+$verString = $config.version
+
+$gitRevision = ""
+$v8Version = ""
+
+$Matches = $CheckOutVersion | Select-String -Pattern 'HEAD is now at (.+) Version (.+)'
+if ($Matches.Matches.Success) {
+    $gitRevision = $Matches.Matches.Groups[1].Value
+    $v8Version = $Matches.Matches.Groups[2].Value.Trim()
+    $verString = $verString + "-v8_" + $v8Version.Replace('.', '_')
+}
+
+# Save the revision information in the NuGet description
+if (!(Test-Path -Path $OutputPath)) {
+    New-Item -ItemType "directory" -Path $OutputPath | Out-Null
+}
+
+(Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec") -replace ('VERSION_DETAILS', "V8 version: $v8Version; Git revision: $gitRevision") | Set-Content "$OutputPath\ReactNative.V8Jsi.Windows.nuspec"
+
+Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build depndencies for Android
 if ($PSVersionTable.Platform -and !$IsWindows) {
