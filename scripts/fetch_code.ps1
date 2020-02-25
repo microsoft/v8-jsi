@@ -3,8 +3,7 @@
 param(
     [string]$SourcesPath = $PSScriptRoot,
     [string]$OutputPath = "$PSScriptRoot\out",
-    [string]$Configuration = "Release",
-    [switch]$ExternalBoost
+    [string]$Configuration = "Release"
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -80,7 +79,6 @@ if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
 
         $targetNugetExe = Join-Path $workpath "nuget.exe"
         Invoke-WebRequest "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $targetNugetExe
-        Set-Alias nuget $targetNugetExe -Scope Global -Verbose
 
         & $targetNugetExe install -OutputDirectory (Join-Path $workpath "v8build") boost -Version 1.71.0
     }
