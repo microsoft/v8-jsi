@@ -72,36 +72,19 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
     & sudo bash $install_script_path
 }
 
-if (-not $ExternalBoost) {
-    $env:BOOST_ROOT = Join-Path $SourcesPath "deps"
-    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
-}
-
 #TODO (#2): Use the .gzip for Android / Linux builds
 # Verify the Boost installation
 if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
-
-    if (-not (Test-Path (Join-Path $workpath "v8build\boost\boost_1_72_0\boost\asio.hpp"))) {
+    if (-not (Test-Path (Join-Path $workpath "v8build/boost.1.71.0.0/lib/native/include/boost/asio.hpp"))) {
         Write-Host "Boost ASIO not found, downloading..."
 
-        # This operation will take a long time, but it's required on the Azure Agents because they don't have ASIO headers
-        $output = [System.IO.Path]::GetTempFileName()
+        $targetNugetExe = Join-Path $workpath "nuget.exe"
+        Invoke-WebRequest "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $targetNugetExe
+        Set-Alias nuget $targetNugetExe -Scope Global -Verbose
 
-        # If 7-zip is available on path, use it as it's much faster and lets us unpack just the folder we need
-        if (Get-Command "7z.exe" -ErrorAction SilentlyContinue) { 
-            Invoke-WebRequest -Uri "https://dl.bintray.com/boostorg/release/1.72.0/source/boost_1_72_0.7z" -OutFile "$output.7z"
-            Write-Host "Unzipping archive..."
-            7z x "$output.7z" -o"$workpath\v8build\boost" -i!boost_1_72_0\boost
-            Remove-Item "$output.7z"
-        }
-        else {
-            Invoke-WebRequest -Uri "https://dl.bintray.com/boostorg/release/1.72.0/source/boost_1_72_0.zip" -OutFile "$output.zip"
-            Write-Host "Unzipping archive..."
-            Expand-Archive -path "$output.zip" -DestinationPath "$workpath\v8build\boost"
-            Remove-Item "$output.zip"
-        }
+        & $targetNugetExe install -OutputDirectory (Join-Path $workpath "v8build") boost -Version 1.71.0
     }
 
-    $env:BOOST_ROOT = Join-Path $workpath "v8build\boost\boost_1_72_0"
-    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$workpath\v8build\boost\boost_1_72_0"
+    $env:BOOST_ROOT = Join-Path $workpath "v8build/boost.1.71.0.0/lib/native/include"
+    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
 }

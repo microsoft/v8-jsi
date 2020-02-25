@@ -1,2 +1,0 @@
-This folder includes the boost ASIO library and its dependencies (as of Boost 1.72).
-This is needed because we were spending too much time during CI loops trying to download and unzip the entire Boost.
