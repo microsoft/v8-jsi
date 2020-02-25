@@ -15,12 +15,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
 #include <condition_variable>
-
-#include <boost/uuid/uuid.hpp>
-#include <boost/uuid/uuid_io.hpp>
-#include <boost/uuid/uuid_generators.hpp>
+#include <array>
+#include <random>
+#include <algorithm>
 
 namespace inspector {
 
@@ -42,9 +40,21 @@ std::string GetProcessTitle() {
 }
 
 std::string GenerateID() {
-  boost::uuids::uuid uuid = boost::uuids::random_generator()();
-  return boost::uuids::to_string(uuid);
-  //return "RANDON_UUID";
+  static std::random_device rd;
+  static std::mt19937 mte(rd());
+
+  std::uniform_int_distribution<uint16_t> dist;
+
+  std::array<uint16_t, 8> buffer;
+  std::generate(buffer.begin(), buffer.end(), [&] () { return dist(mte); });
+
+  char uuid[256];
+  snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
+          buffer[0], buffer[1], buffer[2],
+          (buffer[3] & 0x0fff) | 0x4000,
+          (buffer[4] & 0x3fff) | 0x8000,
+          buffer[5], buffer[6], buffer[7]);
+  return uuid;
 }
 
 std::string StringViewToUtf8(const v8_inspector::StringView &view) {

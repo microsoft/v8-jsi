@@ -46,7 +46,7 @@ public:
   int Port() const;
 
   // Session connection lifecycle
-  void Accept(boost::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);
+  void Accept(std::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);
   bool HandleGetRequest(int session_id, const std::string& host, const std::string& path);
   void SessionStarted(int session_id, const std::string& target_id, const std::string& ws_id);
   void SessionTerminated(int session_id);
@@ -58,7 +58,7 @@ public:
   //  return server_sockets_.empty() && connected_sessions_.empty();
   //}
 
-  static void InspectorSocketServer::SocketConnectedCallback(boost::shared_ptr<tcp_connection> connection, void* callbackData_);
+  static void InspectorSocketServer::SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_);
   static void InspectorSocketServer::SocketClosedCallback(void* callbackData_);
 
 private:

@@ -28,6 +28,19 @@ if (!(Select-String -Path (Join-Path $workpath "v8build\v8\BUILD.gn") -Pattern '
 $FixNeededPath = Join-Path $workpath "v8build\v8\build\config\win\BUILD.gn"
 (Get-Content $FixNeededPath) -replace (":static_crt", ":dynamic_crt") | Set-Content $FixNeededPath
 
+#TODO: This is temporary until Office moves to the new toolset with FH4 support (ETA: May 2020)
+(Get-Content $FixNeededPath) -replace ('/Zc:sizedDealloc-', @'
+/Zc:sizedDealloc-","-d2FH4-
+'@) | Set-Content $FixNeededPath
+
+(Get-Content $FixNeededPath) -replace ('ldflags = \[\]', @'
+if (is_clang) {
+    ldflags = []
+} else {
+    ldflags = ["-d2:-FH4-"]
+}
+'@) | Set-Content $FixNeededPath
+
 Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore
 Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
 
@@ -40,7 +53,11 @@ if ($Configuration -like "*android") {
     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
 else {
-    $gnargs += ' use_custom_libcxx=false target_cpu=\"' + $Platform + '\"'
+    if (-not ($Configuration -like "*libcpp*")) {
+        $gnargs += ' use_custom_libcxx=false'
+    }
+
+    $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
     if ($Configuration -like "*clang") {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
@@ -118,7 +135,7 @@ Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\inclu
 Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\include\jsi\"
 
 # Miscellaneous
-Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination "$OutputPath\"
+#Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination "$OutputPath\"
 Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
 Copy-Item "$SourcesPath\config.json" -Destination "$OutputPath\"
 Copy-Item "$SourcesPath\LICENSE" -Destination "$OutputPath\license\"

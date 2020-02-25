@@ -17,6 +17,8 @@ target("shared_library", "v8jsi") {
     "V8Platform.h",
   ]
 
+  cflags = [ "-DBOOST_ASIO_STANDALONE", "-DBOOST_ASIO_HEADER_ONLY" ]
+
   if (is_win) {
     sources += [
       "etw/tracing.h",

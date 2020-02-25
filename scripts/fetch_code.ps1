@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 param(
     [string]$SourcesPath = $PSScriptRoot,
+    [string]$OutputPath = "$PSScriptRoot\out",
     [string]$Configuration = "Release"
 )
 
@@ -27,7 +28,7 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
 & git fetch origin $config.v8ref
-& git checkout FETCH_HEAD
+$CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 & gclient sync
 
 #TODO (#2): Submit PR upstream to Google for this fix
@@ -42,7 +43,26 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
 Pop-Location
 Pop-Location
 
-Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$config.version"
+$verString = $config.version
+
+$gitRevision = ""
+$v8Version = ""
+
+$Matches = $CheckOutVersion | Select-String -Pattern 'HEAD is now at (.+) Version (.+)'
+if ($Matches.Matches.Success) {
+    $gitRevision = $Matches.Matches.Groups[1].Value
+    $v8Version = $Matches.Matches.Groups[2].Value.Trim()
+    $verString = $verString + "-v8_" + $v8Version.Replace('.', '_')
+}
+
+# Save the revision information in the NuGet description
+if (!(Test-Path -Path $OutputPath)) {
+    New-Item -ItemType "directory" -Path $OutputPath | Out-Null
+}
+
+(Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec") -replace ('VERSION_DETAILS', "V8 version: $v8Version; Git revision: $gitRevision") | Set-Content "$OutputPath\ReactNative.V8Jsi.Windows.nuspec"
+
+Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build depndencies for Android
 if ($PSVersionTable.Platform -and !$IsWindows) {
@@ -54,28 +74,15 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 #TODO (#2): Use the .gzip for Android / Linux builds
 # Verify the Boost installation
 if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
-
-    if (-not (Test-Path (Join-Path $workpath "v8build\boost\boost_1_72_0\boost\asio.hpp"))) {
+    if (-not (Test-Path (Join-Path $workpath "v8build/boost.1.71.0.0/lib/native/include/boost/asio.hpp"))) {
         Write-Host "Boost ASIO not found, downloading..."
 
-        # This operation will take a long time, but it's required on the Azure Agents because they don't have ASIO headers
-        $output = [System.IO.Path]::GetTempFileName()
+        $targetNugetExe = Join-Path $workpath "nuget.exe"
+        Invoke-WebRequest "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $targetNugetExe
 
-        # If 7-zip is available on path, use it as it's much faster and lets us unpack just the folder we need
-        if (Get-Command "7z.exe" -ErrorAction SilentlyContinue) { 
-            Invoke-WebRequest -Uri "https://dl.bintray.com/boostorg/release/1.72.0/source/boost_1_72_0.7z" -OutFile "$output.7z"
-            Write-Host "Unzipping archive..."
-            7z x "$output.7z" -o"$workpath\v8build\boost" -i!boost_1_72_0\boost
-            Remove-Item "$output.7z"
-        }
-        else {
-            Invoke-WebRequest -Uri "https://dl.bintray.com/boostorg/release/1.72.0/source/boost_1_72_0.zip" -OutFile "$output.zip"
-            Write-Host "Unzipping archive..."
-            Expand-Archive -path "$output.zip" -DestinationPath "$workpath\v8build\boost"
-            Remove-Item "$output.zip"
-        }
+        & $targetNugetExe install -OutputDirectory (Join-Path $workpath "v8build") boost -Version 1.71.0
     }
 
-    $env:BOOST_ROOT = Join-Path $workpath "v8build\boost\boost_1_72_0"
-    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$workpath\v8build\boost\boost_1_72_0"
+    $env:BOOST_ROOT = Join-Path $workpath "v8build/boost.1.71.0.0/lib/native/include"
+    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
 }
