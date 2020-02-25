@@ -38,7 +38,7 @@ class InspectorSocket {
   using DelegatePointer = std::unique_ptr<Delegate>;
   using Pointer = std::unique_ptr<InspectorSocket>;
 
-  static Pointer Accept(boost::shared_ptr<tcp_connection> connection, DelegatePointer delegate);
+  static Pointer Accept(std::shared_ptr<tcp_connection> connection, DelegatePointer delegate);
 
   ~InspectorSocket();
 

@@ -3,7 +3,7 @@
   <metadata>
     <id>ReactNative.V8Jsi.Windows</id>
     <version>$Version$</version>
-    <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative</description>
+    <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative (VERSION_DETAILS)</description>
     <authors>Facebook, Google, Microsoft</authors>
     <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
