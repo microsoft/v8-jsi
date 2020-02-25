@@ -30,12 +30,12 @@ jobs:
         X86Release:
           BuildConfiguration: Release
           BuildPlatform: x86
-        X64Release-Clang:
-          BuildConfiguration: Release-Clang
-          BuildPlatform: x64
-        X86Release-Clang:
-          BuildConfiguration: Release-Clang
-          BuildPlatform: x86
+        #X64Release-Clang:
+        #  BuildConfiguration: Release-Clang
+        #  BuildPlatform: x64
+        #X86Release-Clang:
+        #  BuildConfiguration: Release-Clang
+        #  BuildPlatform: x86
 
     steps:
       - task: UsePythonVersion@0

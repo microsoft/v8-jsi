@@ -3,7 +3,7 @@
 $OutputPath = "$PSScriptRoot\out"
 $SourcesPath = $PSScriptRoot
 $Platforms = "x64", "x86"
-$Configurations = "Release", "Debug", "Release-Clang"
+$Configurations = "Release", "Debug", "Release-Clang", "EXPERIMENTAL-libcpp-Clang"
 
 Write-Host "Downloading environment..."
 & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath

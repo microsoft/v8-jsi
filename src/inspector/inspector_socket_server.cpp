@@ -311,7 +311,7 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
   return frontend_url.str();
 }
 
-/*static */void InspectorSocketServer::SocketConnectedCallback(boost::shared_ptr<tcp_connection> connection, void* callbackData_) {
+/*static */void InspectorSocketServer::SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_) {
   InspectorSocketServer* server = reinterpret_cast<InspectorSocketServer*>(callbackData_);
   server->Accept(connection, server->port_);
 }
@@ -358,7 +358,7 @@ int InspectorSocketServer::Port() const {
   return port_;
 }
 
-void InspectorSocketServer::Accept(boost::shared_ptr<tcp_connection> connection, int server_port) {
+void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, int server_port) {
   std::unique_ptr<SocketSession> session(
     new SocketSession(this, next_session_id_++, server_port));
 

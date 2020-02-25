@@ -53,7 +53,11 @@ if ($Configuration -like "*android") {
     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
 else {
-    $gnargs += ' use_custom_libcxx=false target_cpu=\"' + $Platform + '\"'
+    if (-not ($Configuration -like "*libcpp*")) {
+        $gnargs += ' use_custom_libcxx=false'
+    }
+
+    $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
     if ($Configuration -like "*clang") {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)

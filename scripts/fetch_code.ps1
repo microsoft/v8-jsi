@@ -3,7 +3,8 @@
 param(
     [string]$SourcesPath = $PSScriptRoot,
     [string]$OutputPath = "$PSScriptRoot\out",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [switch]$ExternalBoost
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -69,6 +70,11 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
 
     & sudo bash $install_script_path
+}
+
+if (-not $ExternalBoost) {
+    $env:BOOST_ROOT = Join-Path $SourcesPath "deps"
+    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
 }
 
 #TODO (#2): Use the .gzip for Android / Linux builds

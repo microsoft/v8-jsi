@@ -3,9 +3,8 @@
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
 #include "inspector_tcp.h"
 
-#include <boost/bind.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/enable_shared_from_this.hpp>
+#include <memory>
+
 #include <boost/asio.hpp>
 
 namespace inspector {

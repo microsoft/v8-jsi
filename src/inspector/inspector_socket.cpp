@@ -73,7 +73,7 @@ class TcpHolder {
 
   void read_loop();
 
-  boost::shared_ptr<tcp_connection> connection() { return connection_; };
+  std::shared_ptr<tcp_connection> connection() { return connection_; };
   InspectorSocket::Delegate* delegate();
 
   static void OnClosedCallback(void*data);
@@ -84,7 +84,7 @@ class TcpHolder {
   
    tcp_connection::pointer connection_;
 
-  explicit TcpHolder(boost::shared_ptr<tcp_connection> connection, InspectorSocket::DelegatePointer delegate);
+  explicit TcpHolder(std::shared_ptr<tcp_connection> connection, InspectorSocket::DelegatePointer delegate);
   ~TcpHolder() = default;
    
    const InspectorSocket::DelegatePointer delegate_;
@@ -638,7 +638,7 @@ std::string ProtocolHandler::GetHost() const {
 }
 
 // RAII uv_tcp_t wrapper
-TcpHolder::TcpHolder(boost::shared_ptr<tcp_connection> connection, InspectorSocket::DelegatePointer delegate)
+TcpHolder::TcpHolder(std::shared_ptr<tcp_connection> connection, InspectorSocket::DelegatePointer delegate)
                      : delegate_(std::move(delegate)),
                        connection_(connection), handler_(nullptr) { }
 
@@ -712,7 +712,7 @@ void InspectorSocket::Shutdown(ProtocolHandler* handler) {
 }
 
 // static
-InspectorSocket::Pointer InspectorSocket::Accept(boost::shared_ptr<tcp_connection> connection, DelegatePointer delegate) {
+InspectorSocket::Pointer InspectorSocket::Accept(std::shared_ptr<tcp_connection> connection, DelegatePointer delegate) {
   auto tcp = TcpHolder::Accept(connection, std::move(delegate));
   if (tcp) {
     InspectorSocket* inspector = new InspectorSocket();

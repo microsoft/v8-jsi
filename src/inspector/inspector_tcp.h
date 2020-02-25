@@ -3,19 +3,17 @@
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
 #pragma once
 
-#include <boost/bind.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/enable_shared_from_this.hpp>
 #include <boost/asio.hpp>
 
 #include <queue>
+#include <memory>
 
 namespace inspector {
 
-class tcp_connection : public boost::enable_shared_from_this<tcp_connection>
+class tcp_connection : public std::enable_shared_from_this<tcp_connection>
 {
 public:
-  typedef boost::shared_ptr<tcp_connection> pointer;
+  typedef std::shared_ptr<tcp_connection> pointer;
 
   static pointer create(boost::asio::ip::tcp::socket socket);
   boost::asio::ip::tcp::socket& socket();
@@ -56,10 +54,10 @@ private:
   bool writing_{ false };
 };
 
-class tcp_server : public boost::enable_shared_from_this<tcp_server> {
+class tcp_server : public std::enable_shared_from_this<tcp_server> {
 public:
   typedef std::shared_ptr<tcp_server> pointer;
-  typedef void(*ConnectionCallback)(boost::shared_ptr<tcp_connection> connection, void* callbackData_);
+  typedef void(*ConnectionCallback)(std::shared_ptr<tcp_connection> connection, void* callbackData_);
 
   void run();
 
