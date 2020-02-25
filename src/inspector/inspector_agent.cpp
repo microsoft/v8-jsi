@@ -43,7 +43,7 @@ std::string GenerateID() {
   static std::random_device rd;
   static std::mt19937 mte(rd());
 
-  std::uniform_int_distribution<int> dist(1, 60000);
+  std::uniform_int_distribution<uint16_t> dist;
 
   std::array<uint16_t, 8> buffer;
   std::generate(buffer.begin(), buffer.end(), [&] () { return dist(mte); });
