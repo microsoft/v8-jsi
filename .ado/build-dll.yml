@@ -18,6 +18,7 @@ steps:
       arguments:
         -SourcesPath:$(Build.SourcesDirectory)
         -Configuration:$(BuildConfiguration)
+        -OutputPath:${{parameters.outputPath}}
 
   - task: PowerShell@2
     displayName: Actually run the build
