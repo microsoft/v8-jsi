@@ -1144,7 +1144,7 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
 
   HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
 
-  for (std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker :
+  for (const std::shared_ptr<HostObjectLifetimeTracker>& hostObjectLifetimeTracker :
        host_object_lifetime_tracker_list_) {
     if (hostObjectLifetimeTracker->IsEqual(hostObjectProxy)) {
       return true;
