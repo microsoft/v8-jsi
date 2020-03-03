@@ -6,6 +6,7 @@
       <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Debug' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">$(MSBuildThisFileDirectory)..\..\lib\Debug\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalLibraryDirectories Condition="'$(Configuration)' == 'Release' And ('$(Platform)' == 'Win32' Or '$(Platform)' == 'x86')">$(MSBuildThisFileDirectory)..\..\lib\Release\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>v8jsi.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>v8jsi.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
     <ClCompile>
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

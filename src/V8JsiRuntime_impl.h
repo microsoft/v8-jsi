@@ -98,12 +98,14 @@ while (!use_count_s_.compare_exchange_weak(current, current + 1))
   ;*/
 
     if (use_count_s_++ == 0) {
+      if (!platform_s_) {
 #ifdef USE_DEFAULT_PLATFORM
-      platform_s_ = v8::platform::NewDefaultPlatform();
+        platform_s_ = v8::platform::NewDefaultPlatform();
 #else
-      platform_s_ = std::make_unique<V8Platform>(true);
+        platform_s_ = std::make_unique<V8Platform>(true);
 #endif
-      v8::V8::InitializePlatform(platform_s_.get());
+        v8::V8::InitializePlatform(platform_s_.get());
+      }
     }
   }
 
@@ -114,8 +116,10 @@ while (!use_count_s_.compare_exchange_weak(current, current - 1))
   ;*/
 
     if (--use_count_s_ == 0) {
-      v8::V8::ShutdownPlatform();
-      platform_s_ = nullptr;
+      // We cannot shutdown the platform once created because V8 internally references bits of the platform from process-globals
+      // This cannot be worked around, the design of V8 is not currently embedder-friendly
+      //v8::V8::ShutdownPlatform();
+      //platform_s_ = nullptr;
     }
   }
 
@@ -188,6 +192,10 @@ class V8Runtime : public facebook::jsi::Runtime {
     ~HostObjectLifetimeTracker() {
       assert(isReset_);
       std::cout << "~HostObjectLifetimeTracker" << std::endl;
+    }
+
+    bool IsEqual(IHostProxy *hostProxy) const noexcept {
+      return hostProxy_ == hostProxy;
     }
 
    private:
