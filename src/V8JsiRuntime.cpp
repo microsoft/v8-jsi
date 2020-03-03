@@ -1128,7 +1128,30 @@ bool V8Runtime::isFunction(const jsi::Object &obj) const {
 
 bool V8Runtime::isHostObject(const jsi::Object &obj) const {
   _ISOLATE_CONTEXT_ENTER
-  std::abort();
+  if (objectRef(obj)->InternalFieldCount() < 1) {
+    return false;
+  }
+
+  auto internalFieldRef = objectRef(obj)->GetInternalField(0);
+  if (internalFieldRef.IsEmpty()) {
+    return false;
+  }
+
+  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(internalFieldRef);
+  if (!internalField->Value()) {
+    return false;
+  }
+
+  HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
+
+  for (std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker :
+       host_object_lifetime_tracker_list_) {
+    if (hostObjectLifetimeTracker->IsEqual(hostObjectProxy)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Very expensive
