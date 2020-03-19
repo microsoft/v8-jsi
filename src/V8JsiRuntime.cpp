@@ -368,9 +368,6 @@ struct SameCodeObjects {
     const v8::JitCodeEvent *event) {
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
-      if (event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE) {
-        std::cout << "B!!";
-      }
 #ifdef _WIN32
       EventWriteJIT_CODE_EVENT(
           event->type,
@@ -1245,11 +1242,16 @@ jsi::Value V8Runtime::call(
     argv.push_back(valueRef(args[i]));
   }
 
+  v8::TryCatch trycatch(isolate_);
   v8::MaybeLocal<v8::Value> result = func->Call(
       isolate_->GetCurrentContext(),
       valueRef(jsThis),
       static_cast<int>(count),
       argv.data());
+
+  if (trycatch.HasCaught()) {
+    ReportException(&trycatch);
+  }
 
   // Call can return
   if (result.IsEmpty()) {
@@ -1271,6 +1273,7 @@ jsi::Value V8Runtime::callAsConstructor(
     argv.push_back(valueRef(args[i]));
   }
 
+  v8::TryCatch trycatch(isolate_);
   v8::Local<v8::Object> newObject;
   if (!func->NewInstance(
                GetIsolate()->GetCurrentContext(),
@@ -1278,6 +1281,10 @@ jsi::Value V8Runtime::callAsConstructor(
                argv.data())
            .ToLocal(&newObject)) {
     new jsi::JSError(*this, "Object construction failed!!");
+  }
+
+  if (trycatch.HasCaught()) {
+    ReportException(&trycatch);
   }
 
   return createValue(newObject);
