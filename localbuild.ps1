@@ -1,8 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
+param(
+    [string]$Platform = "x64",
+    [string]$Configuration = "Debug"
+)
+
 $OutputPath = "$PSScriptRoot\out"
 $SourcesPath = $PSScriptRoot
-$Platforms = "x64", "x86"
+$Platforms = "x64", "x86", "arm64"
 $Configurations = "Debug", "Release", "Release-Clang", "EXPERIMENTAL-libcpp-Clang"
 
 Write-Host "Downloading environment..."
@@ -14,21 +19,24 @@ if (!$?) {
 }
 
 Write-Host "Fetching code..."
-& ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configurations[0]
+& ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration
 
 if (!$?) {
     Write-Host "Failed to retrieve the v8 code"
     exit 1
 }
 
-<#foreach ($Platform in $Platforms) {
-    foreach ($Configuration in $Configurations) {
-        Write-Host "Building $Platform $Configuration..."
-        & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Platform -Configuration $Configuration
+if ($Platform -like "all") {
+    foreach ($Plat in $Platforms) {
+        foreach ($Config in $Configurations) {
+            Write-Host "Building $Plat $Config..."
+            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config
+        }
     }
-}#>
-
-& ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Platforms[0] -Configuration $Configurations[0]
+}
+else {
+    & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Platform -Configuration $Configuration
+}
 
 if (!$?) {
     Write-Host "Build failure"

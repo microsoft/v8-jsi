@@ -191,7 +191,6 @@ class V8Runtime : public facebook::jsi::Runtime {
     // Useful for debugging.
     ~HostObjectLifetimeTracker() {
       assert(isReset_);
-      std::cout << "~HostObjectLifetimeTracker" << std::endl;
     }
 
     bool IsEqual(IHostProxy *hostProxy) const noexcept {

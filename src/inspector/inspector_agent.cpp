@@ -530,8 +530,8 @@ void AgentImpl::PostIncomingMessage(
     const std::string &message) {
   if (AppendMessage(
           &incoming_message_queue_, session_id, Utf8ToStringView(message))) {
-    platform_.CallOnForegroundThread(
-        isolate_, new DispatchOnInspectorBackendTask(this));
+
+    platform_.GetForegroundTaskRunner(isolate_)->PostTask(std::make_unique<DispatchOnInspectorBackendTask>(this));
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
   NotifyMessageReceived();
