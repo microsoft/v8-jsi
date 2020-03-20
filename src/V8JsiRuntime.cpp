@@ -364,8 +364,7 @@ struct SameCodeObjects {
   }
 };
 
-/*static */ void V8Runtime::JitCodeEventListener(
-    const v8::JitCodeEvent *event) {
+/*static */ void V8Runtime::JitCodeEventListener(const v8::JitCodeEvent *event) {
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
 #ifdef _WIN32
