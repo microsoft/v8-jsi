@@ -147,14 +147,6 @@ class V8Platform : public v8::Platform {
       std::unique_ptr<v8::Task> task,
       double delay_in_seconds) override;
 
-  void CallOnForegroundThread(v8::Isolate *isolate, v8::Task *task) override;
-  void CallDelayedOnForegroundThread(
-      v8::Isolate *isolate,
-      v8::Task *task,
-      double delay_in_seconds) override;
-
-  void CallIdleOnForegroundThread(v8::Isolate *isolate, v8::IdleTask *task)
-      override;
   bool IdleTasksEnabled(v8::Isolate *isolate) override;
 
   double MonotonicallyIncreasingTime() override;

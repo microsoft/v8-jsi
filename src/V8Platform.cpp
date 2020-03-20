@@ -318,25 +318,6 @@ void V8Platform::CallDelayedOnWorkerThread(
   worker_task_runner_->PostDelayedTask(std::move(task), delay_in_seconds);
 }
 
-void V8Platform::CallOnForegroundThread(v8::Isolate *isolate, v8::Task *task) {
-  GetForegroundTaskRunner(isolate)->PostTask(std::unique_ptr<v8::Task>(task));
-}
-
-void V8Platform::CallDelayedOnForegroundThread(
-    v8::Isolate *isolate,
-    v8::Task *task,
-    double delay_in_seconds) {
-  // We don't need it as of now.
-  std::abort();
-}
-
-void V8Platform::CallIdleOnForegroundThread(
-    v8::Isolate *isolate,
-    v8::IdleTask *task) {
-  GetForegroundTaskRunner(isolate)->PostIdleTask(
-      std::unique_ptr<v8::IdleTask>(task));
-}
-
 bool V8Platform::IdleTasksEnabled(v8::Isolate *isolate) {
   return GetForegroundTaskRunner(isolate)->IdleTasksEnabled();
 }

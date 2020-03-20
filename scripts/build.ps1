@@ -57,6 +57,10 @@ else {
         $gnargs += ' use_custom_libcxx=false'
     }
 
+    if ($Configuration -like "UWP*") {
+        $gnargs += ' target_os=\"winuwp\"'
+    }
+
     $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
     if ($Configuration -like "*clang") {
@@ -73,7 +77,7 @@ else {
     }
 }
 
-if ($Configuration -like "?ebug") {
+if ($Configuration -like "*ebug*") {
     $gnargs += ' enable_iterator_debugging=true is_debug=true'
 }
 else {
@@ -82,6 +86,7 @@ else {
 
 $buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
 
+Write-Host "gn command line: gn gen $buildoutput --args='$gnargs'"
 & gn gen $buildoutput --args="$gnargs"
 if (!$?) {
     Write-Host "Failed during build system generation (gn)"
