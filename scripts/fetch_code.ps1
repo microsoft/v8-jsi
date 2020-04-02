@@ -31,15 +31,15 @@ $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | Conv
 $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 & gclient sync
 
-#TODO (#2): Submit PR upstream to Google for this fix
-$FixNeededPath = Join-Path $workpath "v8build\v8\src\base\template-utils.h"
-(Get-Content $FixNeededPath) -replace ("#include <utility>", "#include <utility>`n#include <functional>") | Set-Content $FixNeededPath
+# Apply patches
+& git apply (Join-Path $SourcesPath "scripts\patch\src.diff")
 
-if (!$PSVersionTable.Platform -or $IsWindows) {
-    #TODO (#2): once the fix for the upstream hack lands, we can remove this patch (see https://bugs.chromium.org/p/chromium/issues/detail?id=1033106)
-    Copy-Item -Path ( Join-Path $SourcesPath "scripts\patch\tool_wrapper.py") -Destination (Join-Path $workpath "v8build\v8\build\toolchain\win\tool_wrapper.py") -Force
-}
+Push-Location (Join-Path $workpath "v8build\v8\build")
+& git apply (Join-Path $SourcesPath "scripts\patch\build.diff")
 
+# To re-generate these patches in the future use something like: 'git diff --output=path\src.diff --ignore-cr-at-eol' in the respective folders
+
+Pop-Location
 Pop-Location
 Pop-Location
 

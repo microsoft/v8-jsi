@@ -199,7 +199,7 @@ size_t base64_encode(const char* src, size_t slen, char* dst, size_t dlen) {
 
   i = 0;
   k = 0;
-  n = slen / 3 * 3;
+  n = static_cast<int>(slen) / 3 * 3;
 
   while (i < n) {
     a = src[i + 0] & 0xff;

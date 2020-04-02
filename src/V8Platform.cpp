@@ -44,6 +44,8 @@ uint64_t ETWTracingController::AddTraceEvent(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
+#pragma warning(push)
+#pragma warning(disable: 4002) // too many arguments for function-like macro invocation
   EventWriteGENERIC_EVENT(
       phase,
       name,
@@ -78,6 +80,7 @@ uint64_t ETWTracingController::AddTraceEvent(
       names[8],
       types[8],
       values[8]);
+#pragma warning(pop)
 #endif
 
   return 0;
@@ -108,6 +111,8 @@ uint64_t ETWTracingController::AddTraceEventWithTimestamp(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
+#pragma warning(push)
+#pragma warning(disable: 4002) // too many arguments for function-like macro invocation
   EventWriteGENERIC_EVENT(
       phase,
       name,
@@ -142,6 +147,7 @@ uint64_t ETWTracingController::AddTraceEventWithTimestamp(
       names[8],
       types[8],
       values[8]);
+#pragma warning(pop)
 #endif
 
   return 0;

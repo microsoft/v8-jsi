@@ -44,6 +44,10 @@ target("shared_library", "v8jsi") {
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
 
+  if (is_win) {
+    configs += [ "//build/config/win:win_msvc_cfg" ]
+  }
+
   deps = [
     "//:v8_headers",
     "//:v8_monolith",
