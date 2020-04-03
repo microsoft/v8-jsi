@@ -32,10 +32,10 @@ $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 & gclient sync
 
 # Apply patches
-& git apply (Join-Path $SourcesPath "scripts\patch\src.diff")
+& git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\src.diff")
 
 Push-Location (Join-Path $workpath "v8build\v8\build")
-& git apply (Join-Path $SourcesPath "scripts\patch\build.diff")
+& git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\build.diff")
 
 # To re-generate these patches in the future use something like: 'git diff --output=path\src.diff --ignore-cr-at-eol' in the respective folders
 
