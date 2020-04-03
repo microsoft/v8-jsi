@@ -1,0 +1,42 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 0ffa2b794d..e808e4bd79 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -4678,3 +4678,10 @@ if (!build_with_chromium && v8_use_perfetto) {
+     }
+   }  # host_toolchain
+ }  # if (!build_with_chromium && v8_use_perfetto)
++
++group("jsi") {
++  deps = [
++    "jsi:v8jsi",
++  ]
++}
++
+diff --git a/include/v8.h b/include/v8.h
+index d6f60c2562..e64ce7b803 100644
+--- a/include/v8.h
++++ b/include/v8.h
+@@ -9024,6 +9024,11 @@ class V8_EXPORT Isolate {
+    */
+   MicrotasksPolicy GetMicrotasksPolicy() const;
+ 
++#ifdef _MSC_VER
++#pragma warning(push)
++#pragma warning(disable: 4996)
++#endif
++
+   /**
+    * Adds a callback to notify the host application after
+    * microtasks were run on the default MicrotaskQueue. The callback is
+@@ -9050,6 +9055,10 @@ class V8_EXPORT Isolate {
+   void RemoveMicrotasksCompletedCallback(
+       MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
+ 
++#ifdef _MSC_VER
++#pragma warning(pop)
++#endif
++
+   /**
+    * Sets a callback for counting the number of times a feature of V8 is used.
+    */

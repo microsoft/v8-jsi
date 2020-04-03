@@ -372,13 +372,13 @@ void InspectorConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &info) {
         config_object->Set(context, in_call_key, v8::True(isolate)).FromJust());
     CHECK(
         !inspector_method.As<v8::Function>()
-             ->Call(context, info.Holder(), call_args.size(), call_args.data())
+             ->Call(context, info.Holder(), static_cast<int>(call_args.size()), call_args.data())
              .IsEmpty());
   }
 
   v8::TryCatch try_catch(info.GetIsolate());
   static_cast<void>(node_method.As<v8::Function>()->Call(
-      context, info.Holder(), call_args.size(), call_args.data()));
+      context, info.Holder(), static_cast<int>(call_args.size()), call_args.data()));
   CHECK(config_object->Delete(context, in_call_key).FromJust());
   if (try_catch.HasCaught())
     try_catch.ReThrow();
@@ -470,7 +470,7 @@ std::unique_ptr<v8_inspector::StringBuffer> ToProtocolString(
     return v8_inspector::StringBuffer::create(v8_inspector::StringView());
   }
   v8::Local<v8::String> string_value = v8::Local<v8::String>::Cast(value);
-  size_t len = string_value->Length();
+  int len = string_value->Length();
   std::basic_string<uint16_t> buffer(len, '\0');
   string_value->Write(v8::Isolate::GetCurrent(), &buffer[0], 0, len);
   return v8_inspector::StringBuffer::create(
