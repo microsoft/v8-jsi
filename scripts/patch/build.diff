@@ -1,0 +1,70 @@
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index d602b4494..29ee27ba2 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -1360,8 +1360,8 @@ config("default_warnings") {
+       "/wd4512",  # Assignment operator could not be generated.
+       "/wd4610",  # Class can never be instantiated, constructor required.
+       "/wd4838",  # Narrowing conversion. Doesn't seem to be very useful.
+-      "/wd4995",  # 'X': name was marked as #pragma deprecated
+-      "/wd4996",  # Deprecated function warning.
++      #"/wd4995",  # 'X': name was marked as #pragma deprecated
++      #"/wd4996",  # Deprecated function warning.
+ 
+       # These are variable shadowing warnings that are new in VS2015. We
+       # should work through these at some point -- they may be removed from
+@@ -1658,7 +1658,7 @@ config("no_chromium_code") {
+       "/W3",  # Warning level 3.
+       "/wd4800",  # Disable warning when forcing value to bool.
+       "/wd4267",  # TODO(jschuh): size_t to int.
+-      "/wd4996",  # Deprecated function warning.
++      #"/wd4996",  # Deprecated function warning.
+     ]
+     defines += [
+       "_CRT_NONSTDC_NO_WARNINGS",
+diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
+index 37a710e30..a657e1e91 100644
+--- a/config/win/BUILD.gn
++++ b/config/win/BUILD.gn
+@@ -75,7 +75,7 @@ config("compiler") {
+ 
+   cflags += [
+     # Work around crbug.com/526851, bug in VS 2015 RTM compiler.
+-    "/Zc:sizedDealloc-",
++    "/Zc:sizedDealloc-","-d2FH4-",
+   ]
+ 
+   if (is_clang) {
+@@ -136,7 +136,11 @@ config("compiler") {
+     cflags += [ "/Brepro" ]
+   }
+ 
+-  ldflags = []
++  if (is_clang) {
++    ldflags = []
++} else {
++    ldflags = ["-d2:-FH4-"]
++}
+ 
+   if (use_lld) {
+     # lld defaults to writing the current time in the pe/coff header.
+@@ -462,7 +466,7 @@ config("default_crt") {
+       configs = [ ":dynamic_crt" ]
+     } else {
+       # Desktop Windows: static CRT.
+-      configs = [ ":static_crt" ]
++      configs = [ ":dynamic_crt" ]
+     }
+   }
+ }
+@@ -616,3 +620,10 @@ config("cygprofile_instrumentation") {
+     "-finstrument-functions-after-inlining",
+   ]
+ }
++# Control Flow Guard (CFG)
++config("win_msvc_cfg") {
++  if (!is_clang && !is_debug) {
++    cflags = [ "/guard:cf", "/Qspectre" ]
++    ldflags = [ "/guard:cf" ]
++  }
++}

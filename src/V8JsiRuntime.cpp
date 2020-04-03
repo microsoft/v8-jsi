@@ -561,7 +561,10 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
         "JSIRuntime context",
         args_.inspectorPort);
     inspector_agent_->start();
-    inspector_agent_->waitForDebugger();
+
+    if (args_.waitForDebugger) {
+      inspector_agent_->waitForDebugger();
+    }
   }
 #endif
 

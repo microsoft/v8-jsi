@@ -249,7 +249,7 @@ static std::vector<char> encode_frame_hybi17(const std::vector<char>& message) {
 
 static ws_decode_result decode_frame_hybi17(const std::vector<char>& buffer,
                                             bool client_frame,
-                                            int* bytes_consumed,
+                                            size_t* bytes_consumed,
                                             std::vector<char>* output,
                                             bool* compressed) {
   *bytes_consumed = 0;
@@ -353,7 +353,7 @@ class WsHandler : public ProtocolHandler {
 
   void OnData(std::vector<char>* data) override {
     // 1. Parse.
-    int processed = 0;
+    size_t processed = 0;
     do {
       processed = ParseWsFrames(*data);
       // 2. Fix the data size & length
@@ -403,8 +403,8 @@ class WsHandler : public ProtocolHandler {
     SendClose();
   }
 
-  int ParseWsFrames(const std::vector<char>& buffer) {
-    int bytes_consumed = 0;
+  size_t ParseWsFrames(const std::vector<char>& buffer) {
+    size_t bytes_consumed = 0;
     std::vector<char> output;
     bool compressed = false;
 

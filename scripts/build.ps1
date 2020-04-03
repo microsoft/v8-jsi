@@ -10,37 +10,6 @@ param(
 $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 
-$gn_snippet = @'
-
-group("jsi") {
-  deps = [
-    "jsi:v8jsi",
-  ]
-}
-
-'@
-
-if (!(Select-String -Path (Join-Path $workpath "v8build\v8\BUILD.gn") -Pattern 'jsi:v8jsi' -Quiet)) {
-    Add-Content -Path (Join-Path $workpath "v8build\v8\BUILD.gn") $gn_snippet
-}
-
-#TODO (#2): This is ugly, but it's the least intrusive way to override this config across all targets
-$FixNeededPath = Join-Path $workpath "v8build\v8\build\config\win\BUILD.gn"
-(Get-Content $FixNeededPath) -replace (":static_crt", ":dynamic_crt") | Set-Content $FixNeededPath
-
-#TODO: This is temporary until Office moves to the new toolset with FH4 support (ETA: May 2020)
-(Get-Content $FixNeededPath) -replace ('/Zc:sizedDealloc-', @'
-/Zc:sizedDealloc-","-d2FH4-
-'@) | Set-Content $FixNeededPath
-
-(Get-Content $FixNeededPath) -replace ('ldflags = \[\]', @'
-if (is_clang) {
-    ldflags = []
-} else {
-    ldflags = ["-d2:-FH4-"]
-}
-'@) | Set-Content $FixNeededPath
-
 Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore
 Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
 

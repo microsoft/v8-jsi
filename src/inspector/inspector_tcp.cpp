@@ -64,7 +64,7 @@ void tcp_connection::read_loop_async() {
       std::vector<char> vc;
       //const char* start = boost::asio::buffer_cast<const char*>(input_buffer_.data());
       vc.reserve(bytes_transferred);
-      for (int c = 0; c < bytes_transferred; c++) {
+      for (size_t c = 0; c < bytes_transferred; c++) {
         vc.push_back(buffer_.data()[c]);
       }
 

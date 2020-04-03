@@ -85,9 +85,10 @@ struct V8RuntimeArgs {
   bool enableGCTracing{false};
 
   bool enableInspector{false};
+  bool waitForDebugger{false};
 
   // chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=localhost:8888
-  uint16_t inspectorPort{8888};
+  uint16_t inspectorPort{9229};
 
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};
