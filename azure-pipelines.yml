@@ -7,7 +7,8 @@ name: 0.0.$(Date:yyMM.d)$(Rev:rrr)
 trigger:
 - master
 
-pr: none # disable on PRs until stable
+pr:
+  - master
 
 pool:
   vmImage: 'windows-latest'
