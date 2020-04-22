@@ -597,23 +597,17 @@ jsi::Value V8Runtime::evaluateJavaScript(
     const std::string &sourceURL) {
   _ISOLATE_CONTEXT_ENTER
 
-  // TODO :: assert if not one byte.
-  ExternalOwningOneByteStringResource *external_string_resource =
-      new ExternalOwningOneByteStringResource(buffer);
   v8::Local<v8::String> sourceV8String;
-  if (!v8::String::NewExternalOneByte(isolate, external_string_resource)
-           .ToLocal(&sourceV8String)) {
-    // fallback.
-    if (!v8::String::NewFromUtf8(
-             isolate,
-             reinterpret_cast<const char *>(external_string_resource->data()),
-             v8::NewStringType::kNormal,
-             static_cast<int>(external_string_resource->length()))
-             .ToLocal(&sourceV8String)) {
-      std::abort();
-    }
+  // If we'd somehow know the buffer includes only ASCII characters, we could use External strings to avoid the copy
+  /* ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+  if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
+    std::abort();
+  }
+  delete external_string_resource; */
 
-    delete external_string_resource;
+  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(buffer->data()),
+      v8::NewStringType::kNormal, static_cast<int>(buffer->size())).ToLocal(&sourceV8String)) {
+    std::abort();
   }
 
   jsi::Value result = ExecuteString(sourceV8String, sourceURL);
