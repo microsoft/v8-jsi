@@ -44,6 +44,8 @@ else {
 # This syntax is used for setting variables in an ADO environment; in a normal local build it would just print these strings out to the console
 Write-Host "##vso[task.setvariable variable=PATH;]$path"
 Write-Host "##vso[task.setvariable variable=DEPOT_TOOLS_WIN_TOOLCHAIN;]0"
+Write-Host "##vso[task.setvariable variable=GCLIENT_PY3;]1"
 
 $env:PATH = $path
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
+$env:GCLIENT_PY3 = 1
