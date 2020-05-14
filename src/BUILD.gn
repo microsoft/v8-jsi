@@ -73,8 +73,8 @@ target("executable", "jsitests") {
     "//testing/gtest",
   ] 
 
-  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
-  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
+  configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
   include_dirs = [ ".", "jsi" ]
 
