@@ -47,7 +47,12 @@ else {
 }
 
 if ($Configuration -like "*ebug*") {
-    $gnargs += ' enable_iterator_debugging=true is_debug=true'
+    if ($Configuration -like "*clang") {
+        $gnargs += ' enable_iterator_debugging=false is_debug=true'
+    }
+    else {
+        $gnargs += ' enable_iterator_debugging=true is_debug=true'
+    }
 }
 else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
@@ -62,7 +67,7 @@ if (!$?) {
     exit 1
 }
 
-& ninja -j 16 -C $buildoutput v8jsi
+& ninja -v -j 16 -C $buildoutput v8jsi jsitests
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1
