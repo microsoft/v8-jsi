@@ -23,7 +23,7 @@ index d602b4494..29ee27ba2 100644
      defines += [
        "_CRT_NONSTDC_NO_WARNINGS",
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 37a710e30..a657e1e91 100644
+index 37a710e30..1e3c0e977 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
 @@ -75,7 +75,7 @@ config("compiler") {
@@ -31,7 +31,7 @@ index 37a710e30..a657e1e91 100644
    cflags += [
      # Work around crbug.com/526851, bug in VS 2015 RTM compiler.
 -    "/Zc:sizedDealloc-",
-+    "/Zc:sizedDealloc-","-d2FH4-",
++    "/Zc:sizedDealloc-","/d2FH4-",
    ]
  
    if (is_clang) {
@@ -43,7 +43,7 @@ index 37a710e30..a657e1e91 100644
 +  if (is_clang) {
 +    ldflags = []
 +} else {
-+    ldflags = ["-d2:-FH4-"]
++    ldflags = ["/d2:-FH4-"]
 +}
  
    if (use_lld) {
@@ -68,3 +68,30 @@ index 37a710e30..a657e1e91 100644
 +    ldflags = [ "/guard:cf" ]
 +  }
 +}
+diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
+index fa31688f3..28d33c2dc 100644
+--- a/toolchain/win/setup_toolchain.py
++++ b/toolchain/win/setup_toolchain.py
+@@ -157,6 +157,8 @@ def _LoadToolchainEnv(cpu, sdk_dir, target_store):
+     # Store target must come before any SDK version declaration
+     if (target_store):
+       args.append(['store'])
++    # Hardcode vc version to pre-FH4 regression
++    args.append(['-vcvars_ver=14.24'])
+     variables = _LoadEnvFromBat(args)
+   return _ExtractImportantEnvironment(variables)
+ 
+@@ -279,10 +281,10 @@ def main():
+   print('include_flags_imsvc = ' + gn_helpers.ToGNString(include_imsvc))
+   assert vc_lib_path
+   print('vc_lib_path = ' + gn_helpers.ToGNString(vc_lib_path))
+-  if (target_store != True):
++  #if (target_store != True):
+     # Path is assumed to exist for desktop applications.
+-    assert vc_lib_atlmfc_path, ("Microsoft.VisualStudio.Component.VC.ATLMFC " +
+-                                "is not found, check if it's installed.")
++    #assert vc_lib_atlmfc_path, ("Microsoft.VisualStudio.Component.VC.ATLMFC " +
++    #                            "is not found, check if it's installed.")
+   # Possible atlmfc library path gets introduced in the future for store thus
+   # output result if a result exists.
+   if (vc_lib_atlmfc_path != ''):
