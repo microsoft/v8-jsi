@@ -23,7 +23,7 @@ BEGIN
             VALUE "FileDescription", "React Native V8 JSI Adapter"
             VALUE "FileVersion", "V8JSIVER_MAJOR.V8JSIVER_MINOR.V8JSIVER_BUILD.V8JSIVER_V8REF"
             VALUE "InternalName", "v8jsi.dll"
-            VALUE "LegalCopyright", "(c) Microsoft Corporation. All rights reserved."
+            VALUE "LegalCopyright", "(c) Microsoft Corporation."
             VALUE "OriginalFilename", "v8jsi.dll"
             VALUE "ProductName", "React Native V8 JSI Adapter"
             VALUE "ProductVersion", "V8JSIVER_MAJOR.V8JSIVER_MINOR.V8JSIVER_BUILD.V8JSIVER_V8REF"
