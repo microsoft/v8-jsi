@@ -27,7 +27,8 @@ else {
     }
 
     if ($Configuration -like "UWP*") {
-        $gnargs += ' target_os=\"winuwp\"'
+        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
+        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
     }
 
     $gnargs += ' target_cpu=\"' + $Platform + '\"'
@@ -47,12 +48,7 @@ else {
 }
 
 if ($Configuration -like "*ebug*") {
-    if ($Configuration -like "*clang") {
-        $gnargs += ' enable_iterator_debugging=false is_debug=true'
-    }
-    else {
-        $gnargs += ' enable_iterator_debugging=true is_debug=true'
-    }
+    $gnargs += ' enable_iterator_debugging=true is_debug=true'
 }
 else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
@@ -67,7 +63,7 @@ if (!$?) {
     exit 1
 }
 
-& ninja -v -j 16 -C $buildoutput v8jsi jsitests
+& ninja -v -j 16 -C $buildoutput v8jsi jsitests | Tee-Object -FilePath "$SourcesPath\build.log"
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1
