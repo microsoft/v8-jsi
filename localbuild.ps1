@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$Platform = "x64",
-    [string]$Configuration = "Debug"
+    [string]$Platform = "x64", #"arm64",
+    [string]$Configuration = "Debug" # "UWP-Release" "Release-Clang"
 )
 
 $OutputPath = "$PSScriptRoot\out"

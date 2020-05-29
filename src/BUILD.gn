@@ -1,3 +1,11 @@
+#TODO: use this template to preprocess version information
+#import("//build/util/process_version.gni")
+#process_version("v8jsi_version") {
+#  template_file = "version.rc"
+#  sources = []
+#  output = "$target_gen_dir/v8jsi_version.rc"
+#}
+
 target("shared_library", "v8jsi") {
   sources = [
     "jsi/decorator.h",
@@ -21,6 +29,7 @@ target("shared_library", "v8jsi") {
 
   if (is_win) {
     sources += [
+      "version_gen.rc",
       "etw/tracing.h",
       "inspector/inspector_agent.cpp",
       "inspector/inspector_agent.h",
@@ -50,17 +59,20 @@ target("shared_library", "v8jsi") {
 
   deps = [
     "//:v8_headers",
-    "//:v8_monolith",
+    "//:v8_monolith"
   ]
 
   if (is_win) {
     defines = [ "BUILDING_V8_SHARED", "BOOST_ALL_NO_LIB" ]
     libs = [
-      "dbghelp.lib",
       "winmm.lib",
       "bcrypt.lib",
       "shlwapi.lib",
     ]
+
+    if (target_os != "winuwp") {
+      libs += [ "dbghelp.lib" ]
+    }
   }
 }
 
