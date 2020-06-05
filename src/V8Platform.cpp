@@ -193,6 +193,15 @@ WorkerThreadsTaskRunner::WorkerThreadsTaskRunner() {
   std::thread(&WorkerThreadsTaskRunner::TimerFunc, this).detach();
 }
 
+void WorkerThreadsTaskRunner::Shutdown() {
+  // When this gets called, all threads are already shut down (we're tearing down the process and destroying the global V8Platform)
+
+  // TODO: Consider adding a "global runtime shutdown" API to JSI to fit V8's model
+
+  worker_stopped_ = true;
+  timer_stopped_ = true;
+}
+
 void WorkerThreadsTaskRunner::PostTask(std::unique_ptr<v8::Task> task) {
   {
     std::lock_guard<std::mutex> lock(queue_access_mutex_);
@@ -225,6 +234,8 @@ void WorkerThreadsTaskRunner::PostDelayedTask(
 }
 
 void WorkerThreadsTaskRunner::WorkerFunc() {
+  worker_stopped_ = false;
+
   while (true) {
     std::unique_lock<std::mutex> lock(queue_access_mutex_);
     tasks_available_cond_.wait(
@@ -248,6 +259,8 @@ void WorkerThreadsTaskRunner::WorkerFunc() {
 }
 
 void WorkerThreadsTaskRunner::TimerFunc() {
+  timer_stopped_ = false;
+
   while (true) {
     std::unique_lock<std::mutex> delayed_lock(delayed_queue_access_mutex_);
     delayed_tasks_available_cond_.wait(delayed_lock, [this]() {
@@ -304,14 +317,15 @@ V8Platform::V8Platform(bool enable_tracing)
           std::make_unique<ETWTracingController>(enable_tracing)),
       worker_task_runner_(std::make_unique<WorkerThreadsTaskRunner>()) {}
 
-V8Platform::~V8Platform() {}
+V8Platform::~V8Platform() {
+  worker_task_runner_->Shutdown();
+}
 
 std::shared_ptr<v8::TaskRunner> V8Platform::GetForegroundTaskRunner(
     v8::Isolate *isolate) {
   IsolateData *isolate_data =
       reinterpret_cast<IsolateData *>(isolate->GetData(ISOLATE_DATA_SLOT));
-  return *reinterpret_cast<std::shared_ptr<v8::TaskRunner> *>(
-      (isolate_data->foreground_task_runner_));
+  return isolate_data->foreground_task_runner_;
 }
 
 void V8Platform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {

@@ -22,8 +22,6 @@
 
 #include <cstdlib>
 
-#define USE_DEFAULT_PLATFORM
-
 namespace v8runtime {
 
 // Note : Counter implementation based on d8

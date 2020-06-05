@@ -346,9 +346,14 @@ class WsHandler : public ProtocolHandler {
   void CancelHandshake() override {}
 
   void OnEof() override {
-    tcp_.reset();
-    if (dispose_)
+    if (tcp_)
+    {
+      tcp_.reset();
+    }
+    else if (dispose_)
+    {
       delete this;
+    }
   }
 
   void OnData(std::vector<char>* data) override {

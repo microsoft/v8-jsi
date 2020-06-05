@@ -20,6 +20,8 @@
 #include <random>
 #include <algorithm>
 
+#include "../V8Platform.h"
+
 namespace inspector {
 
 const char TAG_CONNECT[] = "#connect";
@@ -411,6 +413,8 @@ void AgentImpl::Start() {
         std::unique_ptr<InspectorAgentDelegate>(&delegate), port_);
     server_ = &server;
 
+    state_ = State::kAccepting;
+
     // This loops
     if (!server.Start()) {
       std::abort();
@@ -531,7 +535,16 @@ void AgentImpl::PostIncomingMessage(
   if (AppendMessage(
           &incoming_message_queue_, session_id, Utf8ToStringView(message))) {
 
-    platform_.GetForegroundTaskRunner(isolate_)->PostTask(std::make_unique<DispatchOnInspectorBackendTask>(this));
+  std::shared_ptr<v8::TaskRunner> foregroundTaskRunner;
+
+#ifdef USE_DEFAULT_PLATFORM
+    // Need to get the foreground runner from the isolate data slot
+    v8runtime::IsolateData* isolate_data = reinterpret_cast<v8runtime::IsolateData*>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
+    foregroundTaskRunner = isolate_data->foreground_task_runner_;
+#else
+    foregroundTaskRunner = platform_.GetForegroundTaskRunner(isolate_);
+#endif
+    foregroundTaskRunner->PostTask(std::make_unique<DispatchOnInspectorBackendTask>(this));
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
   NotifyMessageReceived();

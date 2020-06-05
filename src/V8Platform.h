@@ -16,6 +16,13 @@
 
 namespace v8runtime {
 
+constexpr int ISOLATE_DATA_SLOT = 0;
+
+// Platform needs to map every isolate to this data.
+struct IsolateData {
+  std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+};
+
 class ETWTracingController : public v8::TracingController {
  public:
   ETWTracingController(bool enabled) : enabled_(enabled) {}
@@ -89,6 +96,8 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
     return false;
   }
 
+  void Shutdown();
+
  private:
   void WorkerFunc();
   void TimerFunc();
@@ -125,11 +134,11 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
   // thread.
   std::mutex worker_stopped_mutex_;
   std::condition_variable worker_stopped_cond_;
-  bool worker_stopped_{false};
+  bool worker_stopped_{true};
 
   std::mutex timer_stopped_mutex_;
   std::condition_variable timer_stopped_cond_;
-  bool timer_stopped_{false};
+  bool timer_stopped_{true};
 };
 
 class V8Platform : public v8::Platform {
