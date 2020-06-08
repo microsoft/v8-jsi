@@ -25,7 +25,7 @@ $Components | ForEach-Object {
 
 $LocalVsInstaller = "$VsInstallerPath\vs_installershell.exe"
 
-$UseWebInstaller = $UseWebInstaller -or -not (Test-Path -Path "$LocalVsInstaller")
+$UseWebInstaller = $true #$UseWebInstaller -or -not (Test-Path -Path "$LocalVsInstaller")
 
 if ($UseWebInstaller) {
 	Write-Host "Downloading web installer..."
@@ -34,32 +34,16 @@ if ($UseWebInstaller) {
 		-Uri $InstallerUri `
 		-OutFile $VsInstaller
 
-	New-Item -ItemType directory -Path $VsInstallOutputDir
+	Write-Host "Running web installer to apply updates..."
 
-	Write-Host "Running web installer to download requested components..."
+	Start-Process -FilePath "$VsInstaller" -ArgumentList ('--passive', '--update') -Wait -PassThru
+
+	Write-Host "Running VS installer to add requested components..."
 
 	Start-Process `
 		-FilePath "$VsInstaller" `
-		-ArgumentList ( `
-			'--layout', "$VsInstallOutputDir",
-			'--wait',
-			'--norestart',
-			'--quiet' + `
-			$componentList
-		) `
-		-Wait `
-		-PassThru
-
-	Write-Host "Running downloaded VS installer to add requested components..."
-
-	Start-Process `
-		-FilePath "$VsInstallOutputDir\vs_Enterprise.exe" `
 		-ArgumentList (
-			'modify',
-			'--installPath', "`"$VsInstallPath`"" ,
-			'--wait',
-			'--norestart',
-			'--quiet' + `
+			'--passive' + `
 			$componentList
 		) `
 		-Wait `
@@ -70,7 +54,6 @@ if ($UseWebInstaller) {
 		Write-Host "Cleaning up..."
 
 		Remove-Item -Path $VsInstaller
-		Remove-Item -Path $VsInstallOutputDir -Recurse
 	}
 	
 } else {
