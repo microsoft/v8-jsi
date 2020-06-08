@@ -36,12 +36,12 @@ if ($UseWebInstaller) {
 
 	Write-Host "Running web installer to apply updates..."
 
-	Start-Process -FilePath "$VsInstaller" -ArgumentList ('--quiet', '--wait', '--update') -Wait -PassThru
+	Start-Process -FilePath "$LocalVsInstaller" -ArgumentList ('--quiet', '--wait', '--update') -Wait -PassThru
 
 	Write-Host "Running VS installer to add requested components..."
 
 	Start-Process `
-		-FilePath "$VsInstaller" `
+		-FilePath "$LocalVsInstaller" `
 		-ArgumentList (
 			'--quiet', '--wait' + `
 			$componentList
