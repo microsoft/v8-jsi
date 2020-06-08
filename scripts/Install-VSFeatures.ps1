@@ -71,6 +71,12 @@ if ($UseWebInstaller) {
 
 	Start-Process `
 		-FilePath "$LocalVsInstaller" `
+		-ArgumentList ( '--update', '--wait', '--quiet' ) `
+		-Wait `
+		-PassThru
+
+	Start-Process `
+		-FilePath "$LocalVsInstaller" `
 		-ArgumentList (
 			'modify',
 			'--installPath', "`"$VsInstallPath`"" ,
