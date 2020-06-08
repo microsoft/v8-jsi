@@ -9,7 +9,7 @@ param (
 	[switch] $Collect = $false,
 	[switch] $Cleanup = $false,
 	[switch] $UseWebInstaller = $false,
-	[string] $OutputPath = "$PSScriptRoot\out",
+	[string] $OutputPath = "$PSScriptRoot\out"
 )
 
 $Components | ForEach-Object {
