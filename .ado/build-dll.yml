@@ -11,6 +11,13 @@ steps:
         -Components Microsoft.VisualStudio.Component.VC.14.24.x86.x64
         -Cleanup:$true
         -Collect:$true
+        -OutputPath:${{parameters.outputPath}}
+
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish vs logs"
+    inputs:
+      artifactName: VSLogs
+      pathtoPublish: ${{parameters.outputPath}}\vslogs.zip
 
   - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
