@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index b2dde3f9d7..35d03d5e4b 100644
+index 167e63503c..6ea5beaa99 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -3805,11 +3805,18 @@ v8_component("v8_libbase") {
+@@ -3902,11 +3902,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,9 +26,9 @@ index b2dde3f9d7..35d03d5e4b 100644
  
      data_deps += [ "//build/win:runtime_libs" ]
    }
-@@ -4869,3 +4876,9 @@ if (!build_with_chromium && v8_use_perfetto) {
-     }
-   }  # host_toolchain
+@@ -5068,3 +5075,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+     ]
+   }
  }  # if (!build_with_chromium && v8_use_perfetto)
 +
 +group("jsi") {
@@ -36,11 +36,12 @@ index b2dde3f9d7..35d03d5e4b 100644
 +    "jsi:v8jsi",
 +  ]
 +}
+\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 1bc687beaf..b4204381a5 100644
+index 7b38c3dcd0..494a187ed9 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -538,4 +538,15 @@ hooks = [
+@@ -540,4 +540,15 @@ hooks = [
        'v8/tools/generate-header-include-checks.py',
      ],
    },
@@ -57,7 +58,7 @@ index 1bc687beaf..b4204381a5 100644
 +  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index b5fb1823b3..01d81d45a6 100644
+index b5fb1823b3..b5ddc1aba2 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
 @@ -66,6 +66,9 @@ if (v8_snapshot_toolchain == "") {
@@ -65,16 +66,16 @@ index b5fb1823b3..01d81d45a6 100644
      # in combination with qemu
      v8_snapshot_toolchain = current_toolchain
 +  } else if (target_os == "winuwp") {
-+      # cross compile UWP Windows with host toolchain (for x64 and x86)
-+      v8_snapshot_toolchain = host_toolchain
++    # cross compile UWP Windows with host toolchain (for x64 and x86)
++    v8_snapshot_toolchain = host_toolchain
    } else if (host_cpu == "x64") {
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/include/v8.h b/include/v8.h
-index 9926b308b1..411b8fe863 100644
+index 18d72f1630..fc47f43d1f 100644
 --- a/include/v8.h
 +++ b/include/v8.h
-@@ -9092,6 +9092,11 @@ class V8_EXPORT Isolate {
+@@ -9068,6 +9068,11 @@ class V8_EXPORT Isolate {
     */
    MicrotasksPolicy GetMicrotasksPolicy() const;
  
@@ -86,7 +87,7 @@ index 9926b308b1..411b8fe863 100644
    /**
     * Adds a callback to notify the host application after
     * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9118,6 +9123,10 @@ class V8_EXPORT Isolate {
+@@ -9094,6 +9099,10 @@ class V8_EXPORT Isolate {
    void RemoveMicrotasksCompletedCallback(
        MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
  
@@ -182,10 +183,10 @@ index f3b9a753af..ed9c79a5b3 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index 7a04a9dfab..4d734f4265 100644
+index 1cd402d8ba..c3c9df8fa1 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-@@ -121,7 +121,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
+@@ -138,7 +138,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
      return EmbeddedTargetOs::kFuchsia;
    } else if (string == "ios" || string == "mac") {
      return EmbeddedTargetOs::kMac;
@@ -195,10 +196,10 @@ index 7a04a9dfab..4d734f4265 100644
    } else {
      return EmbeddedTargetOs::kGeneric;
 diff --git a/src/torque/declaration-visitor.cc b/src/torque/declaration-visitor.cc
-index 5e3c8bbcb2..43f7770aa0 100644
+index 6ec1b74df5..3fd90a1c8d 100644
 --- a/src/torque/declaration-visitor.cc
 +++ b/src/torque/declaration-visitor.cc
-@@ -367,7 +367,9 @@ Callable* DeclarationVisitor::Specialize(
+@@ -371,7 +371,9 @@ Callable* DeclarationVisitor::Specialize(
  }
  
  void PredeclarationVisitor::ResolvePredeclarations() {

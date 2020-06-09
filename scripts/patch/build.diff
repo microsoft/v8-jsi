@@ -1,29 +1,26 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index 5fa34150a..6e8ac6562 100644
+index 01d97a360..6ee2813ef 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1332,8 +1332,8 @@ config("default_warnings") {
+@@ -1312,8 +1312,6 @@ config("default_warnings") {
        "/wd4512",  # Assignment operator could not be generated.
        "/wd4610",  # Class can never be instantiated, constructor required.
        "/wd4838",  # Narrowing conversion. Doesn't seem to be very useful.
 -      "/wd4995",  # 'X': name was marked as #pragma deprecated
 -      "/wd4996",  # Deprecated function warning.
-+      #"/wd4995",  # 'X': name was marked as #pragma deprecated
-+      #"/wd4996",  # Deprecated function warning.
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1637,7 +1637,7 @@ config("no_chromium_code") {
+@@ -1612,7 +1610,6 @@ config("no_chromium_code") {
        "/W3",  # Warning level 3.
        "/wd4800",  # Disable warning when forcing value to bool.
        "/wd4267",  # TODO(jschuh): size_t to int.
 -      "/wd4996",  # Deprecated function warning.
-+      #"/wd4996",  # Deprecated function warning.
      ]
      defines += [
        "_CRT_NONSTDC_NO_WARNINGS",
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 7b44f0e43..5eed0edc9 100644
+index 7b44f0e43..3104dbd83 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
 @@ -136,7 +136,12 @@ config("compiler") {
@@ -49,10 +46,11 @@ index 7b44f0e43..5eed0edc9 100644
      }
    }
  }
-@@ -581,3 +586,10 @@ config("cygprofile_instrumentation") {
+@@ -581,3 +586,11 @@ config("cygprofile_instrumentation") {
      "-finstrument-functions-after-inlining",
    ]
  }
++
 +# Control Flow Guard (CFG)
 +config("win_msvc_cfg") {
 +  if (!is_clang && !is_debug) {
@@ -61,7 +59,7 @@ index 7b44f0e43..5eed0edc9 100644
 +  }
 +}
 diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
-index fa31688f3..24e7deef9 100644
+index 9c936c69d..7d483cf95 100644
 --- a/toolchain/win/setup_toolchain.py
 +++ b/toolchain/win/setup_toolchain.py
 @@ -157,6 +157,8 @@ def _LoadToolchainEnv(cpu, sdk_dir, target_store):
@@ -73,17 +71,3 @@ index fa31688f3..24e7deef9 100644
      variables = _LoadEnvFromBat(args)
    return _ExtractImportantEnvironment(variables)
  
-@@ -279,10 +281,10 @@ def main():
-   print('include_flags_imsvc = ' + gn_helpers.ToGNString(include_imsvc))
-   assert vc_lib_path
-   print('vc_lib_path = ' + gn_helpers.ToGNString(vc_lib_path))
--  if (target_store != True):
-+  #if (target_store != True):
-     # Path is assumed to exist for desktop applications.
--    assert vc_lib_atlmfc_path, ("Microsoft.VisualStudio.Component.VC.ATLMFC " +
--                                "is not found, check if it's installed.")
-+    #assert vc_lib_atlmfc_path, ("Microsoft.VisualStudio.Component.VC.ATLMFC " +
-+    #                            "is not found, check if it's installed.")
-   # Possible atlmfc library path gets introduced in the future for store thus
-   # output result if a result exists.
-   if (vc_lib_atlmfc_path != ''):

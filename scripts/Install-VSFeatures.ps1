@@ -1,22 +1,15 @@
 param (
 	[Parameter(Mandatory=$true)]
 	[string[]] $Components,
-
-	[uri] $InstallerUri = "https://download.visualstudio.microsoft.com/download/pr/c4fef23e-cc45-4836-9544-70e213134bc8/1ee5717e9a1e05015756dff77eb27d554a79a6db91f2716d836df368381af9a1/vs_Enterprise.exe",
-
+	[uri] $InstallerUri = "https://aka.ms/vs/16/release/vs_enterprise.exe",
 	[string] $VsInstaller = "${env:System_DefaultWorkingDirectory}\vs_Enterprise.exe",
-
 	[string] $VsInstallOutputDir = "${env:System_DefaultWorkingDirectory}\vs",
-
 	[System.IO.FileInfo] $VsInstallPath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise",
-
 	[System.IO.FileInfo] $VsInstallerPath = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer",
-
 	[switch] $Collect = $false,
-
 	[switch] $Cleanup = $false,
-
-	[switch] $UseWebInstaller = $false
+	[switch] $UseWebInstaller = $false,
+	[string] $OutputPath = "$PSScriptRoot\out"
 )
 
 $Components | ForEach-Object {
@@ -74,6 +67,16 @@ if ($UseWebInstaller) {
 	}
 	
 } else {
+	Write-Host "Downloading latest Bootstrapper to update local installer..."
+
+	Invoke-WebRequest -Method Get -Uri $InstallerUri -OutFile $VsInstaller
+
+	Start-Process `
+		-FilePath "$VsInstaller" `
+		-ArgumentList ( '--update', '--wait', '--quiet' ) `
+		-Wait `
+		-PassThru
+
 	Write-Host "Running local installer to add requested components..."
 
 	Start-Process `
@@ -102,6 +105,7 @@ if ($Collect) {
 
 	New-Item -ItemType Directory -Force ${env:System_DefaultWorkingDirectory}\vslogs
 	Expand-Archive -Path ${env:TEMP}\vslogs.zip -DestinationPath ${env:System_DefaultWorkingDirectory}\vslogs\
+	Copy-Item -Path ${env:TEMP}\vslogs.zip -Destination $OutputPath
 
 	Write-Host "VC versions after installation:"
 	Get-ChildItem -Name "$VsInstallPath\VC\Tools\MSVC\"

@@ -87,7 +87,7 @@ struct V8RuntimeArgs {
   bool enableInspector{false};
   bool waitForDebugger{false};
 
-  // chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=localhost:8888
+  // chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=localhost:9229
   uint16_t inspectorPort{9229};
 
   size_t initial_heap_size_in_bytes{0};
@@ -102,17 +102,5 @@ __attribute__((visibility("default")))
 #endif
 #endif
 std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
-
-// TODO :: Following should go to a more private header
-
-constexpr int ISOLATE_DATA_SLOT = 0;
-
-// Platform needs to map every isolate to this data.
-struct IsolateData {
-  void *foreground_task_runner_;
-
-  // Weak reference.
-  void *runtime_;
-};
 
 } // namespace v8runtime

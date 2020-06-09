@@ -83,13 +83,22 @@ class TaskRunnerAdapter : public v8::TaskRunner {
         std::make_unique<TaskAdapter>(std::move(task)), delay_in_seconds);
   }
 
+  bool IdleTasksEnabled() override {
+    return taskRunner_->IdleTasksEnabled();
+  }
+
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
     taskRunner_->postIdleTask(
         std::make_unique<IdleTaskAdapter>(std::move(task)));
   }
 
-  bool IdleTasksEnabled() override {
-    return taskRunner_->IdleTasksEnabled();
+  void PostNonNestableTask(std::unique_ptr<v8::Task> task) override {
+    //TODO: non-nestable
+    taskRunner_->postTask(std::make_unique<TaskAdapter>(std::move(task)));
+  }
+
+  bool NonNestableTasksEnabled() const override {
+    return true;
   }
 
  private:
@@ -456,7 +465,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
       std::move(args_.foreground_task_runner));
   isolate_->SetData(
       v8runtime::ISOLATE_DATA_SLOT,
-      new v8runtime::IsolateData({&foreground_task_runner_, this}));
+      new v8runtime::IsolateData({foreground_task_runner_}));
 
   v8::Isolate::Initialize(isolate_, create_params_);
 
@@ -572,6 +581,12 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 }
 
 V8Runtime::~V8Runtime() {
+#ifdef _WIN32
+  if (inspector_agent_ && inspector_agent_->IsStarted()) {
+    inspector_agent_->stop();
+  }
+#endif
+
   host_object_constructor_.Reset();
   context_.Reset();
 
