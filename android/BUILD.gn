@@ -1,0 +1,37 @@
+target("loadable_module", "v8jsi") {
+  sources = [
+    "jsi/decorator.h",
+    "jsi/instrumentation.h",
+    "jsi/jsi-inl.h",
+    "jsi/jsi.cpp",
+    "jsi/jsi.h",
+    "jsi/JSIDynamic.h",
+    "jsi/jsilib-windows.cpp",
+    "jsi/jsilib.h",
+    "jsi/threadsafe.h",
+    "public/V8Runtime.h",
+    "V8Runtime_impl.h",
+    "V8Runtime_shared.cpp",
+    "V8Runtime_droid.cpp",
+    "V8Runtime_basic.cpp",
+    "V8Platform.h",
+    "FileUtils.h",
+    "FileUtils.cpp"
+  ]
+
+  cflags = [ "-DUSE_DEFAULT_PLATFORM" ]
+
+  include_dirs = [ ".", "../include", "jsi"]
+
+  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+
+  deps = [
+    "//:v8_headers",
+    "//:v8",
+    "//:v8_libbase",
+    "//:v8_libplatform",
+    "//:v8_libsampler",
+    "//:v8_maybe_snapshot",
+  ]
+}
