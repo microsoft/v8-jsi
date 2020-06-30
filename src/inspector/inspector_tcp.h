@@ -13,15 +13,9 @@ namespace inspector {
 class tcp_connection : public std::enable_shared_from_this<tcp_connection>
 {
 public:
-  typedef std::shared_ptr<tcp_connection> pointer;
-
-  static pointer create(boost::asio::ip::tcp::socket socket);
   boost::asio::ip::tcp::socket& socket();
 
   typedef void(*ReadCallback)(std::vector<char>&, bool iseof, void*data);
-  typedef void(*CloseCallback)(void*data);
-
-  inline void registerCloseCallback(CloseCallback callback, void*data) { closecallback_ = callback; closeCallbackData_ = data; }
   inline void registerReadCallback(ReadCallback callback, void*data) { readcallback_ = callback; callbackData_ = data; }
 
   void read_loop_async();
@@ -29,10 +23,10 @@ public:
   void do_write(bool cont);
   void close();
 
-private:
   inline tcp_connection(boost::asio::ip::tcp::socket socket)
     : socket_(std::move(socket)) {}
 
+private:
   int port_;
 
   boost::asio::ip::tcp::socket socket_;
@@ -44,9 +38,6 @@ private:
   void* callbackData_;
   ReadCallback readcallback_;
 
-  void* closeCallbackData_;
-  CloseCallback closecallback_;
-
   std::mutex queueAccessMutex;
   std::queue<std::vector<char>> outQueue;
 
@@ -56,14 +47,11 @@ private:
 
 class tcp_server : public std::enable_shared_from_this<tcp_server> {
 public:
-  typedef std::shared_ptr<tcp_server> pointer;
   typedef void(*ConnectionCallback)(std::shared_ptr<tcp_connection> connection, void* callbackData_);
 
   void run();
+  void stop();
 
-  static pointer create(int port, ConnectionCallback callback, void* data);
-
-private:
   tcp_server(int port, ConnectionCallback callback, void* data);
   void do_accept();
 

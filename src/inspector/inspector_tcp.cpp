@@ -9,11 +9,6 @@
 
 namespace inspector {
 
-/*static*/ tcp_server::pointer tcp_server::create(int port, ConnectionCallback callback, void* data)
-{
-  return pointer(new tcp_server(port, callback, data));
-}
-
 tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
   : io_service_(), acceptor_(io_service_), socket_(io_service_), connectioncallback_(callback), callbackData_(data)
 {
@@ -30,23 +25,27 @@ void tcp_server::run() {
   io_service_.run();
 }
 
+void tcp_server::stop() {
+  boost::system::error_code ec;
+  acceptor_.close(ec);
+  socket_.close(ec);
+
+  io_service_.stop();
+}
+
 void tcp_server::do_accept()
 {
+  std::shared_ptr<tcp_server> self;
   acceptor_.async_accept(socket_,
-    [this](boost::system::error_code ec)
+    [this, self](boost::system::error_code ec)
   {
     if (!ec)
     {
-      connectioncallback_(tcp_connection::create(std::move(socket_)), callbackData_);
+      connectioncallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
     }
 
     do_accept();
   });
-}
-
-/*static*/ tcp_connection::pointer tcp_connection::create(boost::asio::ip::tcp::socket socket)
-{
-  return pointer(new tcp_connection(std::move(socket)));
 }
 
 boost::asio::ip::tcp::socket& tcp_connection::socket()
@@ -84,7 +83,6 @@ void tcp_connection::read_loop_async() {
     }
     else
     {
-      closecallback_(closeCallbackData_);
       return;
     }
   });
@@ -153,8 +151,6 @@ void tcp_connection::close() {
   socket_.close(ec);
   if (ec)
     std::abort();
-
-  closecallback_(closeCallbackData_);
 }
 
 }
