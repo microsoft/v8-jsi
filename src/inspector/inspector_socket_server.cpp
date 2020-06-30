@@ -190,7 +190,7 @@ private:
 };
 
 InspectorSocketServer::InspectorSocketServer(
-  std::unique_ptr<InspectorAgentDelegate> delegate, int port, FILE* out)
+  std::unique_ptr<InspectorAgentDelegate>&& delegate, int port, FILE* out)
   : delegate_(std::move(delegate)), port_(port),
   next_session_id_(0), out_(out) {
   state_ = ServerState::kNew;

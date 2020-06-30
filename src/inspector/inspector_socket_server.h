@@ -48,7 +48,7 @@ class InspectorAgentDelegate {
 
 class InspectorSocketServer {
 public:
-  InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate> delegate, int port,
+  InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, int port,
     FILE* out = stderr);
   ~InspectorSocketServer();
 

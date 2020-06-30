@@ -3,9 +3,9 @@
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
 
 #include "inspector_tcp.h"
 
@@ -30,7 +30,7 @@ class InspectorSocket {
     virtual ~Delegate() {}
   };
 
-  static std::unique_ptr<InspectorSocket> Accept(std::shared_ptr<tcp_connection> connection, std::unique_ptr<Delegate> delegate);
+  static std::unique_ptr<InspectorSocket> Accept(std::shared_ptr<tcp_connection> connection, std::unique_ptr<Delegate>&& delegate);
 
   void AcceptUpgrade(const std::string& accept_key);
   void CancelHandshake();

@@ -381,8 +381,6 @@ void AgentImpl::Start() {
 
     state_ = State::kAccepting;
 
-    state_ = State::kAccepting;
-
     // This loops
     if (!server_->Start()) {
       std::abort();

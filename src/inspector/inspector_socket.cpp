@@ -88,7 +88,7 @@ class TcpHolder : public std::enable_shared_from_this<TcpHolder> {
 
 class ProtocolHandler {
  public:
-  ProtocolHandler(InspectorSocket* inspector, std::shared_ptr<TcpHolder> tcp);
+  ProtocolHandler(InspectorSocket* inspector, std::shared_ptr<TcpHolder>&& tcp);
   virtual ~ProtocolHandler() = default;
 
   virtual void AcceptUpgrade(const std::string& accept_key) = 0;
@@ -435,7 +435,7 @@ class HttpEvent {
 
 class HttpHandler : public ProtocolHandler {
  public:
-  explicit HttpHandler(InspectorSocket* inspector, std::shared_ptr<TcpHolder> tcp)
+  explicit HttpHandler(InspectorSocket* inspector, std::shared_ptr<TcpHolder>&& tcp)
                        : ProtocolHandler(inspector, std::move(tcp)),
                          parsing_value_(false) {
     llhttp_init(&parser_, HTTP_REQUEST, &parser_settings);
@@ -599,7 +599,7 @@ class HttpHandler : public ProtocolHandler {
 
 // Any protocol
 ProtocolHandler::ProtocolHandler(InspectorSocket* inspector,
-                                 std::shared_ptr<TcpHolder> tcp)
+                                 std::shared_ptr<TcpHolder>&& tcp)
                                  : inspector_(inspector), tcp_(std::move(tcp)) {
   CHECK_NOT_NULL(tcp_);
   tcp_->SetHandler(this);
@@ -675,7 +675,7 @@ void TcpHolder::OnDataReceivedCb(std::vector<char>& wiredata, bool iseof, void*d
 InspectorSocket::~InspectorSocket() = default;
 
 // static
-std::unique_ptr<InspectorSocket> InspectorSocket::Accept(std::shared_ptr<tcp_connection> connection, std::unique_ptr<InspectorSocket::Delegate> delegate) {
+std::unique_ptr<InspectorSocket> InspectorSocket::Accept(std::shared_ptr<tcp_connection> connection, std::unique_ptr<InspectorSocket::Delegate>&& delegate) {
   auto tcp = std::make_shared<TcpHolder>(std::move(connection), std::move(delegate));
 
   auto inspector = std::make_unique<InspectorSocket>();

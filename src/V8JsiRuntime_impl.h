@@ -90,7 +90,6 @@ class V8PlatformHolder {
   }
 
   V8PlatformHolder() {
-    //addUsage();
   }
 
   void addUsage() {
