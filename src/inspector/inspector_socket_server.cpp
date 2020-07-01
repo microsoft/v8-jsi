@@ -145,7 +145,7 @@ public:
     ws_socket_.reset();
   }
   void Send(const std::string& message);
-  void Own(InspectorSocket::Pointer ws_socket) {
+  void Own(std::unique_ptr<InspectorSocket> ws_socket) {
     ws_socket_ = std::move(ws_socket);
   }
   int id() const { return id_; }
@@ -185,15 +185,14 @@ public:
 
 private:
   const int id_;
-  InspectorSocket::Pointer ws_socket_;
+  std::unique_ptr<InspectorSocket> ws_socket_;
   const int server_port_;
 };
 
 InspectorSocketServer::InspectorSocketServer(
-  std::unique_ptr<SocketServerDelegate> delegate, int port, FILE* out)
+  std::unique_ptr<InspectorAgentDelegate>&& delegate, int port, FILE* out)
   : delegate_(std::move(delegate)), port_(port),
   next_session_id_(0), out_(out) {
-  delegate_->AssignServer(this);
   state_ = ServerState::kNew;
 }
 
@@ -322,9 +321,9 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
 }
 
 bool InspectorSocketServer::Start() {
-  tcp_server::pointer server = tcp_server::create(port_, InspectorSocketServer::SocketConnectedCallback, this);
+  tcp_server_ = std::make_shared<tcp_server>(port_, InspectorSocketServer::SocketConnectedCallback, this);
   state_ = ServerState::kRunning;
-  server->run();
+  tcp_server_->run();
   return true;
 }
 
@@ -332,11 +331,10 @@ void InspectorSocketServer::Stop() {
   if (state_ == ServerState::kStopped)
     return;
   CHECK_EQ(state_, ServerState::kRunning);
-  
+
   state_ = ServerState::kStopped;
-  
-  // TODODO
-  // Stop the server.
+
+  tcp_server_->stop();
 
   if (state_ == ServerState::kStopped) {
     delegate_.reset();
@@ -362,11 +360,9 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
   std::unique_ptr<SocketSession> session(
     new SocketSession(this, next_session_id_++, server_port));
 
-  InspectorSocket::DelegatePointer delegate =
-    InspectorSocket::DelegatePointer(
-      new SocketSession::Delegate(this, session->id()));
+  auto delegate = std::make_unique<SocketSession::Delegate>(this, session->id());
 
-  InspectorSocket::Pointer inspector =
+  std::unique_ptr<InspectorSocket> inspector =
     InspectorSocket::Accept(connection, std::move(delegate));
   if (inspector) {
     session->Own(std::move(inspector));

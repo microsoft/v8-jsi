@@ -16,16 +16,31 @@ class InspectorSocketServer;
 class SocketSession;
 class ServerSocket;
 
-class SocketServerDelegate {
-public:
-  virtual void AssignServer(InspectorSocketServer* server) = 0;
-  virtual void StartSession(int session_id, const std::string& target_id) = 0;
-  virtual void EndSession(int session_id) = 0;
-  virtual void MessageReceived(int session_id, const std::string& message) = 0;
-  virtual std::vector<std::string> GetTargetIds() = 0;
-  virtual std::string GetTargetTitle(const std::string& id) = 0;
-  virtual std::string GetTargetUrl(const std::string& id) = 0;
-  virtual ~SocketServerDelegate() {}
+class InspectorAgentDelegate {
+ public:
+  InspectorAgentDelegate(
+      AgentImpl& agent,
+      const std::string &script_path,
+      const std::string &script_name,
+      bool wait);
+  void StartSession(int session_id, const std::string &target_id);
+  void MessageReceived(int session_id, const std::string &message);
+  void EndSession(int session_id);
+  std::vector<std::string> GetTargetIds();
+  std::string GetTargetTitle(const std::string &id);
+  std::string GetTargetUrl(const std::string &id);
+  bool IsConnected() {
+    return connected_;
+  }
+
+ private:
+  AgentImpl& agent_;
+  bool connected_;
+  int session_id_;
+  const std::string script_name_;
+  const std::string script_path_;
+  const std::string target_id_;
+  bool waiting_;
 };
 
 // HTTP Server, writes messages requested as TransportActions, and responds
@@ -33,7 +48,7 @@ public:
 
 class InspectorSocketServer {
 public:
-  InspectorSocketServer(std::unique_ptr<SocketServerDelegate> delegate, int port,
+  InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, int port,
     FILE* out = stderr);
   ~InspectorSocketServer();
 
@@ -53,6 +68,9 @@ public:
   void MessageReceived(int session_id, const std::string& message) {
     delegate_->MessageReceived(session_id, message);
   }
+  bool IsConnected() {
+    return delegate_->IsConnected();
+  }
   SocketSession* Session(int session_id);
   //bool done() const {
   //  return server_sockets_.empty() && connected_sessions_.empty();
@@ -69,9 +87,11 @@ private:
   bool TargetExists(const std::string& id);
 
   enum class ServerState { kNew, kRunning, kStopping, kStopped };
-  std::unique_ptr<SocketServerDelegate> delegate_;
+  std::unique_ptr<InspectorAgentDelegate> delegate_;
   const std::string host_;
   int port_;
+
+  std::shared_ptr<tcp_server> tcp_server_;
   
   int next_session_id_;
   FILE* out_;

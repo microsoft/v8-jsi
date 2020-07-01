@@ -90,10 +90,10 @@ class V8PlatformHolder {
   }
 
   V8PlatformHolder() {
+  }
+
+  void addUsage() {
     std::lock_guard<std::mutex> guard(mutex_s_);
-    /*uint32_t current = use_count_s_;
-while (!use_count_s_.compare_exchange_weak(current, current + 1))
-  ;*/
 
     if (use_count_s_++ == 0) {
       if (!platform_s_) {
@@ -107,17 +107,14 @@ while (!use_count_s_.compare_exchange_weak(current, current + 1))
     }
   }
 
-  ~V8PlatformHolder() {
+  void releaseUsage() {
     std::lock_guard<std::mutex> guard(mutex_s_);
-    /*uint32_t current = use_count_s_;
-while (!use_count_s_.compare_exchange_weak(current, current - 1))
-  ;*/
 
     if (--use_count_s_ == 0) {
       // We cannot shutdown the platform once created because V8 internally references bits of the platform from process-globals
       // This cannot be worked around, the design of V8 is not currently embedder-friendly
-      //v8::V8::ShutdownPlatform();
-      //platform_s_ = nullptr;
+      v8::V8::ShutdownPlatform();
+      platform_s_ = nullptr;
     }
   }
 
