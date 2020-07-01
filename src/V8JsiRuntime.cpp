@@ -552,6 +552,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   if (tls_isolate_usage_counter_++ > 0) {
     isolate_ = v8::Isolate::GetCurrent();
   } else {
+    platform_holder_.addUsage();
     CreateNewIsolate();
   }
 
@@ -581,10 +582,12 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 }
 
 V8Runtime::~V8Runtime() {
+  // TODO: add check that destruction happens on the same thread id as construction
 #ifdef _WIN32
   if (inspector_agent_ && inspector_agent_->IsStarted()) {
     inspector_agent_->stop();
   }
+  inspector_agent_.reset();
 #endif
 
   host_object_constructor_.Reset();
@@ -596,12 +599,17 @@ V8Runtime::~V8Runtime() {
   }
 
   if (--tls_isolate_usage_counter_ == 0) {
+    IsolateData* isolate_data = reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
+    delete isolate_data;
+
     isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, nullptr);
 
     isolate_->Exit();
     isolate_->Dispose();
 
     delete create_params_.array_buffer_allocator;
+
+    platform_holder_.releaseUsage();
   }
 
   // Note :: We never dispose V8 here. Is it required ?

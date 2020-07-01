@@ -196,10 +196,10 @@ index 1cd402d8ba..c3c9df8fa1 100644
    } else {
      return EmbeddedTargetOs::kGeneric;
 diff --git a/src/torque/declaration-visitor.cc b/src/torque/declaration-visitor.cc
-index 6ec1b74df5..3fd90a1c8d 100644
+index 99b7bdddcd..8a227a614a 100644
 --- a/src/torque/declaration-visitor.cc
 +++ b/src/torque/declaration-visitor.cc
-@@ -371,7 +371,9 @@ Callable* DeclarationVisitor::Specialize(
+@@ -372,7 +372,9 @@ Callable* DeclarationVisitor::Specialize(
  }
  
  void PredeclarationVisitor::ResolvePredeclarations() {
@@ -210,3 +210,20 @@ index 6ec1b74df5..3fd90a1c8d 100644
      if (const TypeAlias* alias = TypeAlias::DynamicCast(p.get())) {
        CurrentScope::Scope scope_activator(alias->ParentScope());
        CurrentSourcePosition::Scope position_activator(alias->Position());
+diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
+index 12dfaf9572..b16b0b0020 100644
+--- a/src/utils/allocation.cc
++++ b/src/utils/allocation.cc
+@@ -74,8 +74,10 @@ const int kAllocationTries = 2;
+ }  // namespace
+ 
+ v8::PageAllocator* GetPlatformPageAllocator() {
+-  DCHECK_NOT_NULL(GetPageTableInitializer()->page_allocator());
+-  return GetPageTableInitializer()->page_allocator();
++  //DCHECK_NOT_NULL(GetPageTableInitializer()->page_allocator());
++  //return GetPageTableInitializer()->page_allocator();
++
++  return V8::GetCurrentPlatform()->GetPageAllocator();
+ }
+ 
+ v8::PageAllocator* SetPlatformPageAllocatorForTesting(
