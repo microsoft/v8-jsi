@@ -3,23 +3,6 @@ parameters:
 
 steps:
   - task: PowerShell@2
-    displayName: Install Visual Studio dependencies
-    inputs:
-      targetType: filePath
-      filePath: $(Build.SourcesDirectory)\scripts\Install-VsFeatures.ps1
-      arguments:
-        -Components Microsoft.VisualStudio.Component.VC.14.24.x86.x64
-        -Cleanup:$true
-        -Collect:$true
-        -OutputPath:${{parameters.outputPath}}
-
-  - task: PublishBuildArtifacts@1
-    displayName: "Publish vs logs"
-    inputs:
-      artifactName: VSLogs
-      pathtoPublish: ${{parameters.outputPath}}\vslogs.zip
-
-  - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
     inputs:
       targetType: filePath

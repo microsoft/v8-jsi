@@ -23,20 +23,6 @@ diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
 index 7b44f0e43..3104dbd83 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -136,7 +136,12 @@ config("compiler") {
-     cflags += [ "/Brepro" ]
-   }
- 
--  ldflags = []
-+  if (is_clang) {
-+    ldflags = []
-+  } else {
-+    ldflags = ["/d2:-FH4-"]
-+    cflags += [ "/d2FH4-" ]
-+  }
- 
-   if (use_lld) {
-     # lld defaults to writing the current time in the pe/coff header.
 @@ -455,7 +460,7 @@ config("default_crt") {
        configs = [ ":dynamic_crt" ]
      } else {
@@ -58,16 +44,3 @@ index 7b44f0e43..3104dbd83 100644
 +    ldflags = [ "/guard:cf" ]
 +  }
 +}
-diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
-index 9c936c69d..7d483cf95 100644
---- a/toolchain/win/setup_toolchain.py
-+++ b/toolchain/win/setup_toolchain.py
-@@ -157,6 +157,8 @@ def _LoadToolchainEnv(cpu, sdk_dir, target_store):
-     # Store target must come before any SDK version declaration
-     if (target_store):
-       args.append(['store'])
-+    # Hardcode vc version to pre-FH4 regression
-+    args.append(['-vcvars_ver=14.24'])
-     variables = _LoadEnvFromBat(args)
-   return _ExtractImportantEnvironment(variables)
- 
