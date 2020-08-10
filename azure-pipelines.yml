@@ -22,21 +22,43 @@ jobs:
         X64Debug:
           BuildConfiguration: Debug
           BuildPlatform: x64
+          TargetArchitecture: win32
         X86Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
+          TargetArchitecture: win32
         X64Release:
           BuildConfiguration: Release
           BuildPlatform: x64
+          TargetArchitecture: win32
         X86Release:
           BuildConfiguration: Release
           BuildPlatform: x86
-        #X64Release-Clang:
-        #  BuildConfiguration: Release-Clang
-        #  BuildPlatform: x64
-        #X86Release-Clang:
-        #  BuildConfiguration: Release-Clang
-        #  BuildPlatform: x86
+          TargetArchitecture: win32
+        UWPX64Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x64
+          TargetArchitecture: uwp
+        UWPX86Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x86
+          TargetArchitecture: uwp
+        UWPARM64Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          TargetArchitecture: uwp
+        UWPX64Release:
+          BuildConfiguration: Release
+          BuildPlatform: x64
+          TargetArchitecture: uwp
+        UWPX86Release:
+          BuildConfiguration: Release
+          BuildPlatform: x86
+          TargetArchitecture: uwp
+        UWPARM64Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
+          TargetArchitecture: uwp
 
     steps:
       - task: UsePythonVersion@0
@@ -47,6 +69,7 @@ jobs:
       - template: .ado/build-dll.yml
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
+          architecture: $(TargetArchitecture)
 
   - job: V8JsiPublishNuget
     dependsOn:

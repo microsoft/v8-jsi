@@ -1,15 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$Platform = "x64", #"arm64",
-    [string]$Configuration = "Debug", # "UWP-Release" "Release-Clang"
+    [string]$SourcesPath = $PSScriptRoot,
+    [string]$OutputPath = "$PSScriptRoot\out",
+    [string]$Platform = "all",
+    [string]$Configuration = "all",
+    [string]$Architecture = "all",
     [bool]$Setup = $true
 )
-
-$OutputPath = "$PSScriptRoot\out"
-$SourcesPath = $PSScriptRoot
-$Platforms = "x64", "x86"#, "arm64"
-$Configurations = "Debug", "Release", "UWP-Release"#, "Release-Clang", "EXPERIMENTAL-libcpp-Clang"
 
 if ($Setup) {
     Write-Host "Downloading environment..."
@@ -29,16 +27,31 @@ if ($Setup) {
     }
 }
 
-if ($Platform -like "all") {
-    foreach ($Plat in $Platforms) {
-        foreach ($Config in $Configurations) {
-            Write-Host "Building $Plat $Config..."
-            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config
+if ($Configuration -eq "all") {
+    $Configurations = "debug", "release"
+} else {
+    $Configurations = @($Configuration)
+}
+
+if ($Platform -eq "all") {
+    $Platforms = "x64", "x86" #, "arm64"
+} else {
+    $Platforms = @($Platform)
+}
+
+if ($Architecture -eq "all") {
+    $Architectures = "win32", "uwp"
+} else {
+    $Architectures = @($Architecture)
+}
+
+foreach ($Plat in $Platforms) {
+    foreach ($Config in $Configurations) {
+        foreach ($Arch in $Architectures) {
+            Write-Host "Building $Arch $Plat $Config..."
+            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config -Architecture $Arch
         }
     }
-}
-else {
-    & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Platform -Configuration $Configuration
 }
 
 if (!$?) {

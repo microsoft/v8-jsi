@@ -4,7 +4,10 @@ param(
     [string]$OutputPath = "$PSScriptRoot\out",
     [string]$SourcesPath = $PSScriptRoot,
     [string]$Platform = "x64",
-    [string]$Configuration = "Release"
+    [string]$Configuration = "Release",
+    [string]$Architecture = "win32",
+    [switch]$UseClang,
+    [switch]$UseLibCpp
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -22,18 +25,18 @@ if ($Configuration -like "*android") {
     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
 else {
-    if (-not ($Configuration -like "*libcpp*")) {
+    if (-not ($UseLibCpp)) {
         $gnargs += ' use_custom_libcxx=false'
     }
 
-    if ($Configuration -like "UWP*") {
+    if ($Architecture -eq "uwp") {
         # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
         $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
     }
 
     $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
-    if ($Configuration -like "*clang") {
+    if ($UseClang) {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
     }
@@ -54,7 +57,7 @@ else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
 }
 
-$buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
+$buildoutput = Join-Path $workpath "v8build\v8\out\$Architecture\$Platform\$Configuration"
 
 Write-Host "gn command line: gn gen $buildoutput --args='$gnargs'"
 & gn gen $buildoutput --args="$gnargs"
@@ -83,21 +86,21 @@ if (!(Test-Path -Path "$OutputPath\build\native\include\jsi")) {
 if (!(Test-Path -Path "$OutputPath\license")) {
     New-Item -ItemType "directory" -Path "$OutputPath\license" | Out-Null
 }
-if (!(Test-Path -Path "$OutputPath\lib\$Configuration\$Platform")) {
-    New-Item -ItemType "directory" -Path "$OutputPath\lib\$Configuration\$Platform" | Out-Null
+if (!(Test-Path -Path "$OutputPath\lib\$Architecture\$Configuration\$Platform")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\lib\$Architecture\$Configuration\$Platform" | Out-Null
 }
 
 # Binaries
 if (!$PSVersionTable.Platform -or $IsWindows) {
-    Copy-Item "$buildoutput\v8jsi.dll" -Destination "$OutputPath\lib\$Configuration\$Platform"
-    Copy-Item "$buildoutput\v8jsi.dll.lib" -Destination "$OutputPath\lib\$Configuration\$Platform"
-    Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$Configuration\$Platform"
+    Copy-Item "$buildoutput\v8jsi.dll" -Destination "$OutputPath\lib\$Architecture\$Configuration\$Platform"
+    Copy-Item "$buildoutput\v8jsi.dll.lib" -Destination "$OutputPath\lib\$Architecture\$Configuration\$Platform"
+    Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$Architecture\$Configuration\$Platform"
 }
 else {
     #TODO (#2): .so
 }
 
-Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$Configuration\$Platform"
+Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$Architecture\$Configuration\$Platform"
 
 # Headers
 Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\build\native\include\"
