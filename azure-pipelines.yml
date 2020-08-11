@@ -100,13 +100,8 @@ jobs:
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
-          command: pack
-          includeSymbols: true
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
-          packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
-          versioningScheme: byEnvVar
-          versionEnvVar: Version
+          command: 'custom'
+          arguments: 'pack $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec -NonInteractive -OutputDirectory $(System.DefaultWorkingDirectory)\NugetRootFinal -Properties CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri) -Symbols -SymbolPackageFormat snupkg -version $(Version) -Verbosity Detailed'
 
       - task: PublishBuildArtifacts@1
         displayName: "Publish final nuget artifacts"
