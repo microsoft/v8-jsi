@@ -3,9 +3,12 @@
 param(
     [string]$SourcesPath = $PSScriptRoot,
     [string]$OutputPath = "$PSScriptRoot\out",
-    [string]$Platform = "all",
-    [string]$Configuration = "all",
-    [string]$Architecture = "all",
+    [ValidateSet("x64", "x86", "arm64")]
+    [String[]]$Platform = @("x64"),
+    [ValidateSet("debug", "release")]
+    [String[]]$Configuration = @("debug"),
+    [ValidateSet("win32", "uwp")]
+    [String[]]$AppPlatform = @("win32"),
     [bool]$Setup = $true
 )
 
@@ -19,7 +22,7 @@ if ($Setup) {
     }
 
     Write-Host "Fetching code..."
-    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration
+    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration[0]
 
     if (!$?) {
         Write-Host "Failed to retrieve the v8 code"
@@ -27,29 +30,11 @@ if ($Setup) {
     }
 }
 
-if ($Configuration -eq "all") {
-    $Configurations = "debug", "release"
-} else {
-    $Configurations = @($Configuration)
-}
-
-if ($Platform -eq "all") {
-    $Platforms = "x64", "x86" #, "arm64"
-} else {
-    $Platforms = @($Platform)
-}
-
-if ($Architecture -eq "all") {
-    $Architectures = "win32", "uwp"
-} else {
-    $Architectures = @($Architecture)
-}
-
-foreach ($Plat in $Platforms) {
-    foreach ($Config in $Configurations) {
-        foreach ($Arch in $Architectures) {
-            Write-Host "Building $Arch $Plat $Config..."
-            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config -Architecture $Arch
+foreach ($Plat in $Platform) {
+    foreach ($Config in $Configuration) {
+        foreach ($AppPlat in $AppPlatform) {
+            Write-Host "Building $AppPlat $Plat $Config..."
+            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config -AppPlatform $AppPlat
         }
     }
 }

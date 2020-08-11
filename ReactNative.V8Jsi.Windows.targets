@@ -1,15 +1,15 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <!-- Set V8_ARCH to "win32" for desktop builds -->
-    <V8_ARCH Condition="'$(V8_ARCH)' == ''">uwp</V8_ARCH>
+    <V8AppPlatform Condition="'$(V8AppPlatform)' == ''">uwp</V8AppPlatform>
 
-    <V8_PLATFORM Condition="'$(V8_PLATFORM)' == ''">$(Platform)</V8_PLATFORM>
+    <V8Platform Condition="'$(V8Platform)' == ''">$(Platform)</V8Platform>
     <!-- Fix platform name (win32 should be x86) -->
-    <V8_PLATFORM Condition="'$(V8_PLATFORM)' == 'Win32'">x86</V8_PLATFORM>
+    <V8Platform Condition="'$(V8Platform)' == 'Win32'">x86</V8Platform>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <Link>
-      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\..\lib\$(V8_ARCH)\$(Configuration)\$(V8_PLATFORM);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>v8jsi.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <DelayLoadDLLs>v8jsi.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
@@ -17,8 +17,8 @@
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
-  <ItemGroup Condition="'$(V8JSI_NODLLCOPY)' == ''">
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8_ARCH)\$(Configuration)\$(V8_PLATFORM)\v8jsi.dll" />
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8_ARCH)\$(Configuration)\$(V8_PLATFORM)\v8jsi.dll.pdb" />
+  <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
   </ItemGroup>
 </Project>

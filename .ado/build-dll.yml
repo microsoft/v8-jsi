@@ -1,6 +1,6 @@
 parameters:
   outputPath:
-  architecture:
+  appPlatform:
 
 steps:
   - task: PowerShell@2
@@ -31,7 +31,7 @@ steps:
         -SourcesPath:$(Build.SourcesDirectory)
         -Platform:$(BuildPlatform)
         -Configuration:$(BuildConfiguration)
-        -Architecture:${{parameters.architecture}}
+        -AppPlatform:${{parameters.appPlatform}}
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
