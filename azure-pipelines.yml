@@ -101,6 +101,7 @@ jobs:
         displayName: 'NuGet Pack'
         inputs:
           command: pack
+          includeSymbols: true
           packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
           buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
