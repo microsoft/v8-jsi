@@ -1,15 +1,16 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$Platform = "x64", #"arm64",
-    [string]$Configuration = "Debug", # "UWP-Release" "Release-Clang"
+    [string]$SourcesPath = $PSScriptRoot,
+    [string]$OutputPath = "$PSScriptRoot\out",
+    [ValidateSet("x64", "x86", "arm64")]
+    [String[]]$Platform = @("x64"),
+    [ValidateSet("debug", "release")]
+    [String[]]$Configuration = @("debug"),
+    [ValidateSet("win32", "uwp")]
+    [String[]]$AppPlatform = @("win32"),
     [bool]$Setup = $true
 )
-
-$OutputPath = "$PSScriptRoot\out"
-$SourcesPath = $PSScriptRoot
-$Platforms = "x64", "x86"#, "arm64"
-$Configurations = "Debug", "Release", "UWP-Release"#, "Release-Clang", "EXPERIMENTAL-libcpp-Clang"
 
 if ($Setup) {
     Write-Host "Downloading environment..."
@@ -21,7 +22,7 @@ if ($Setup) {
     }
 
     Write-Host "Fetching code..."
-    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration
+    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration[0]
 
     if (!$?) {
         Write-Host "Failed to retrieve the v8 code"
@@ -29,16 +30,13 @@ if ($Setup) {
     }
 }
 
-if ($Platform -like "all") {
-    foreach ($Plat in $Platforms) {
-        foreach ($Config in $Configurations) {
-            Write-Host "Building $Plat $Config..."
-            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config
+foreach ($Plat in $Platform) {
+    foreach ($Config in $Configuration) {
+        foreach ($AppPlat in $AppPlatform) {
+            Write-Host "Building $AppPlat $Plat $Config..."
+            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config -AppPlatform $AppPlat
         }
     }
-}
-else {
-    & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Platform -Configuration $Configuration
 }
 
 if (!$?) {
