@@ -15,7 +15,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 120
+    timeoutInMinutes: 150
     displayName: Build the v8jsi.dll binary for supported architectures and flavors
     strategy:
       matrix:
@@ -97,15 +97,18 @@ jobs:
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
 
+      # Disabled for now until we figure out the right set of variables
+      #- task: PublishSymbols@2
+      #  inputs:
+      #    SymbolsFolder: '$(System.DefaultWorkingDirectory)\V8Jsi\'
+      #    SearchPattern: 'lib/**/*.pdb'
+      #    SymbolServerType: 'TeamServices'
+
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
-          command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
-          packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
-          versioningScheme: byEnvVar
-          versionEnvVar: Version
+          command: 'custom'
+          arguments: 'pack $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec -NonInteractive -OutputDirectory $(System.DefaultWorkingDirectory)\NugetRootFinal -Properties CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri) -Symbols -SymbolPackageFormat snupkg -version $(Version) -Verbosity Detailed'
 
       - task: PublishBuildArtifacts@1
         displayName: "Publish final nuget artifacts"
