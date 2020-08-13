@@ -66,7 +66,10 @@ if (!$?) {
     exit 1
 }
 
-& ninja -v -j 16 -C $buildoutput v8jsi jsitests | Tee-Object -FilePath "$SourcesPath\build.log"
+# We'll use 2x the number of cores for parallel execution
+$numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
+
+& ninja -v -j $numberOfThreads -C $buildoutput v8jsi jsitests | Tee-Object -FilePath "$SourcesPath\build.log"
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1

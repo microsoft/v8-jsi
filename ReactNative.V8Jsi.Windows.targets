@@ -19,6 +19,7 @@
   </ItemDefinitionGroup>
   <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
     <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
+    <!-- Disable publishing PDBs due to increased package size; symbols are indexed instead and available through symweb internally -->
+    <!-- ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" / -->
   </ItemGroup>
 </Project>
