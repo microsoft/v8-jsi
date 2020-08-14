@@ -73,12 +73,6 @@ jobs:
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
 
-      - task: PublishSymbols@2
-        inputs:
-          SymbolsFolder: '$(System.DefaultWorkingDirectory)\V8Jsi\'
-          SearchPattern: 'lib/**/*.pdb'
-          SymbolServerType: 'TeamServices'
-
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
