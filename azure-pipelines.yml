@@ -1,8 +1,4 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-name: 0.0.$(Date:yyMM.d)$(Rev:rrr)
+name: v8jsi_win32.0.0.$(Date:yyMM.d)$(Rev:rrr)
 
 trigger:
 - master
@@ -54,7 +50,6 @@ jobs:
     steps:
       - checkout: none
 
-      # The commit tag in the nuspec requires that we use at least nuget 4.6
       - task: NuGetToolInstaller@0
         inputs:
           versionSpec: ">=4.6.0"
