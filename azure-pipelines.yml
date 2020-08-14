@@ -97,12 +97,11 @@ jobs:
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
 
-      # Disabled for now until we figure out the right set of variables
-      #- task: PublishSymbols@2
-      #  inputs:
-      #    SymbolsFolder: '$(System.DefaultWorkingDirectory)\V8Jsi\'
-      #    SearchPattern: 'lib/**/*.pdb'
-      #    SymbolServerType: 'TeamServices'
+      - task: PublishSymbols@2
+        inputs:
+          SymbolsFolder: '$(System.DefaultWorkingDirectory)\V8Jsi\'
+          SearchPattern: 'lib/**/*.pdb'
+          SymbolServerType: 'TeamServices'
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
