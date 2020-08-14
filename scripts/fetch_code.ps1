@@ -66,6 +66,7 @@ $buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
 (Get-Content "$SourcesPath\src\version.rc") -replace ('V8JSIVER_MAJOR', $vermap[0]) -replace ('V8JSIVER_MINOR', $vermap[1]) -replace ('V8JSIVER_BUILD', $vermap[2]) -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) | Set-Content "$SourcesPath\src\version_gen.rc"
 
 (Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec") -replace ('VERSION_DETAILS', "V8 version: $v8Version; Git revision: $gitRevision") | Set-Content "$OutputPath\ReactNative.V8Jsi.Windows.nuspec"
+(Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec") -replace ('VERSION_DETAILS', "UWP, V8 version: $v8Version; Git revision: $gitRevision") | Set-Content "$OutputPath\ReactNative.V8Jsi.Windows.UWP.nuspec"
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
