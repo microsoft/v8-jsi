@@ -20,6 +20,7 @@ steps:
         -SourcesPath:$(Build.SourcesDirectory)
         -Configuration:$(BuildConfiguration)
         -OutputPath:${{parameters.outputPath}}
+        -AppPlatform:${{parameters.appPlatform}}
 
   - task: PowerShell@2
     displayName: Actually run the build
