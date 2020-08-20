@@ -1182,7 +1182,7 @@ jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &) {
   throw std::logic_error("Not implemented");
 }
 
-jsi::Value V8Runtime::lockWeakObject(const jsi::WeakObject &) {
+jsi::Value V8Runtime::lockWeakObject(jsi::WeakObject &) {
   throw std::logic_error("Not implemented");
 }
 
