@@ -341,7 +341,7 @@ namespace facebook { namespace v8runtime {
     jsi::Array getPropertyNames(const jsi::Object&) override;
 
     jsi::WeakObject createWeakObject(const jsi::Object&) override;
-    jsi::Value lockWeakObject(const jsi::WeakObject&) override;
+    jsi::Value lockWeakObject(jsi::WeakObject&) override;
 
     jsi::Array createArray(size_t length) override;
     size_t size(const jsi::Array&) override;

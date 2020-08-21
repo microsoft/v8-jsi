@@ -516,7 +516,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   facebook::jsi::WeakObject createWeakObject(
       const facebook::jsi::Object &) override;
   facebook::jsi::Value lockWeakObject(
-      const facebook::jsi::WeakObject &) override;
+      facebook::jsi::WeakObject &) override;
 
   facebook::jsi::Array createArray(size_t length) override;
   size_t size(const facebook::jsi::Array &) override;
