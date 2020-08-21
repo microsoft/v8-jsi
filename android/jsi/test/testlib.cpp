@@ -176,7 +176,7 @@ TEST_P(JSITest, ObjectTest) {
   EXPECT_EQ(names.getValueAtIndex(rt, 0).getString(rt).utf8(rt), "a");
 }
 
-/*TEST_P(JSITest, HostObjectTest) {
+TEST_P(JSITest, HostObjectTest) {
   class ConstantHostObject : public HostObject {
     Value get(Runtime&, const PropNameID& sym) override {
       return 9000;
@@ -460,7 +460,7 @@ TEST_P(JSITest, ArrayTest) {
   Array alpha2 = Array(rt, 1);
   alpha2 = std::move(alpha);
   EXPECT_EQ(alpha2.size(rt), 4);
-}*/
+}
 
 TEST_P(JSITest, FunctionTest) {
   // test move ctor
@@ -602,7 +602,7 @@ TEST_P(JSITest, InstanceOfTest) {
                   .instanceOf(rt, ctor));
 }
 
-/*TEST_P(JSITest, HostFunctionTest) {
+TEST_P(JSITest, HostFunctionTest) {
   auto one = std::make_shared<int>(1);
   Function plusOne = Function::createFromHostFunction(
       rt,
@@ -752,7 +752,7 @@ TEST_P(JSITest, InstanceOfTest) {
   EXPECT_TRUE(function("function(value) { return value.prop == 'strval2'; }")
                   .call(rt, obj)
                   .getBool());
-}*/
+}
 
 TEST_P(JSITest, ValueTest) {
   EXPECT_TRUE(checkValue(Value::undefined(), "undefined"));
@@ -981,19 +981,6 @@ TEST_P(JSITest, JSErrorsCanBeConstructedWithStack) {
 }
 
 TEST_P(JSITest, JSErrorDoesNotInfinitelyRecurse) {
-  Value globalString = rt.global().getProperty(rt, "String");
-  rt.global().setProperty(rt, "String", Value::undefined());
-  try {
-    eval("throw Error('whoops')");
-    FAIL() << "expected exception";
-  } catch (const JSError& ex) {
-    EXPECT_EQ(
-        ex.getMessage(),
-        "[Exception while creating message string: callGlobalFunction: "
-        "JS global property 'String' is undefined, expected a Function]");
-  }
-  rt.global().setProperty(rt, "String", globalString);
-
   Value globalError = rt.global().getProperty(rt, "Error");
   rt.global().setProperty(rt, "Error", Value::undefined());
   try {
@@ -1174,7 +1161,7 @@ TEST_P(JSITest, DecoratorTest) {
   EXPECT_EQ(crt.count(), kInit + 6);
 }
 
-/*TEST_P(JSITest, MultiDecoratorTest) {
+TEST_P(JSITest, MultiDecoratorTest) {
   struct Inc {
     void before() {
       ++count;
@@ -1197,10 +1184,11 @@ TEST_P(JSITest, DecoratorTest) {
     int nest = 0;
   };
 
-  class MultiRuntime final : public WithRuntimeDecorator<WithTuple<Inc, Nest>> {
+  class MultiRuntime final
+      : public WithRuntimeDecorator<std::tuple<Inc, Nest>> {
    public:
     explicit MultiRuntime(std::unique_ptr<Runtime> rt)
-        : WithRuntimeDecorator<WithTuple<Inc, Nest>>(*rt, tuple_),
+        : WithRuntimeDecorator<std::tuple<Inc, Nest>>(*rt, tuple_),
           rt_(std::move(rt)) {}
 
     int count() {
@@ -1212,7 +1200,7 @@ TEST_P(JSITest, DecoratorTest) {
 
    private:
     std::unique_ptr<Runtime> rt_;
-    WithTuple<Inc, Nest> tuple_;
+    std::tuple<Inc, Nest> tuple_;
   };
 
   MultiRuntime mrt(factory());
@@ -1233,7 +1221,7 @@ TEST_P(JSITest, DecoratorTest) {
 
   EXPECT_EQ(mrt.count(), 3);
   EXPECT_EQ(mrt.nest(), 0);
-}*/
+}
 
 TEST_P(JSITest, SymbolTest) {
   if (!rt.global().hasProperty(rt, "Symbol")) {
@@ -1269,6 +1257,70 @@ TEST_P(JSITest, SymbolTest) {
   EXPECT_TRUE(Value::strictEquals(
       rt, eval("Symbol.for('a')"), eval("Symbol.for('a')")));
   EXPECT_FALSE(Value::strictEquals(rt, eval("Symbol('a')"), eval("'a'")));
+}
+
+TEST_P(JSITest, JSErrorTest) {
+  // JSError creation can lead to further errors.  Make sure these
+  // cases are handled and don't cause weird crashes or other issues.
+  //
+  // Getting message property can throw
+
+  EXPECT_THROW(
+      eval("var GetMessageThrows = {get message() { throw Error('ex'); }};"
+           "throw GetMessageThrows;"),
+      JSIException);
+
+  EXPECT_THROW(
+      eval("var GetMessageThrows = {get message() { throw GetMessageThrows; }};"
+           "throw GetMessageThrows;"),
+      JSIException);
+
+  // Converting exception message to String can throw
+
+  EXPECT_THROW(
+      eval(
+          "Object.defineProperty("
+          "  globalThis, 'String', {configurable:true, get() { var e = Error(); e.message = 23; throw e; }});"
+          "var e = Error();"
+          "e.message = 17;"
+          "throw e;"),
+      JSIException);
+
+  EXPECT_THROW(
+      eval(
+          "var e = Error();"
+          "Object.defineProperty("
+          "  e, 'message', {configurable:true, get() { throw Error('getter'); }});"
+          "throw e;"),
+      JSIException);
+
+  EXPECT_THROW(
+      eval("var e = Error();"
+           "String = function() { throw Error('ctor'); };"
+           "throw e;"),
+      JSIException);
+
+  // Converting an exception message to String can return a non-String
+
+  EXPECT_THROW(
+      eval("String = function() { return 42; };"
+           "var e = Error();"
+           "e.message = 17;"
+           "throw e;"),
+      JSIException);
+
+  // Exception can be non-Object
+
+  EXPECT_THROW(eval("throw 17;"), JSIException);
+
+  EXPECT_THROW(eval("throw undefined;"), JSIException);
+
+  // Converting exception with no message or stack property to String can throw
+
+  EXPECT_THROW(
+      eval("var e = {toString() { throw new Error('errstr'); }};"
+           "throw e;"),
+      JSIException);
 }
 
 //----------------------------------------------------------------------

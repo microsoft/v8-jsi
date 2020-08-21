@@ -2,9 +2,11 @@ name: v8jsi_win32.0.0.$(Date:yyMM.d)$(Rev:rrr)
 
 trigger:
 - master
+- "*-stable"
 
 pr:
   - master
+  - "*-stable"
 
 pool:
   vmImage: 'windows-latest'

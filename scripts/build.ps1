@@ -86,6 +86,9 @@ if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildou
 if (!(Test-Path -Path "$OutputPath\build\native\include\jsi")) {
     New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\jsi" | Out-Null
 }
+if (!(Test-Path -Path "$OutputPath\build\native\jsi\jsi")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\jsi\jsi" | Out-Null
+}
 if (!(Test-Path -Path "$OutputPath\license")) {
     New-Item -ItemType "directory" -Path "$OutputPath\license" | Out-Null
 }
@@ -108,12 +111,13 @@ Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$AppPlatform\$Con
 # Headers
 Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\build\native\include\"
 Copy-Item "$jsigitpath\public\V8JsiRuntime.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\include\jsi\"
-Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\build\native\include\jsi\"
+
+Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\jsi\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\build\native\jsi\jsi\"
 
 # Source code - won't be needed after we have a proper ABI layer
-Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\include\jsi\"
-Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\include\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\jsi\jsi\"
+Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\jsi\jsi\"
 
 # Miscellaneous
 if ($AppPlatform -eq "uwp") {
