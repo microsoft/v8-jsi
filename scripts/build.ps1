@@ -97,7 +97,13 @@ if (!(Test-Path -Path "$OutputPath\lib\$AppPlatform\$Configuration\$Platform")) 
 if (!$PSVersionTable.Platform -or $IsWindows) {
     Copy-Item "$buildoutput\v8jsi.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
     Copy-Item "$buildoutput\v8jsi.dll.lib" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-    Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+
+    if ($Platform -eq "arm64") {
+        # Due to size limitations, copy only the stripped PDBs for ARM64
+        Copy-Item "$buildoutput\v8jsi_stripped.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
+    } else {
+        Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+    }
 }
 else {
     #TODO (#2): .so
