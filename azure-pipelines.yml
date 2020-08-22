@@ -13,7 +13,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 120
+    timeoutInMinutes: 150
     displayName: Build the Win32 v8jsi.dll binary for supported architectures and flavors
     strategy:
       matrix:
