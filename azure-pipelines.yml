@@ -13,7 +13,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 120
+    timeoutInMinutes: 150
     displayName: Build the Win32 v8jsi.dll binary for supported architectures and flavors
     strategy:
       matrix:
@@ -25,6 +25,10 @@ jobs:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: win32
+        ARM64Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          AppPlatform: win32
         X64Release:
           BuildConfiguration: Release
           BuildPlatform: x64
@@ -32,6 +36,10 @@ jobs:
         X86Release:
           BuildConfiguration: Release
           BuildPlatform: x86
+          AppPlatform: win32
+        ARM64Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
           AppPlatform: win32
 
     steps:
