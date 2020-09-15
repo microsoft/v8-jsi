@@ -34,6 +34,26 @@ steps:
         -Configuration:$(BuildConfiguration)
         -AppPlatform:${{parameters.appPlatform}}
 
+  - powershell: |
+      Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$((Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\" -Recurse -Include GoogleTestAdapter.Core.dll).Directory.FullName)"
+      Write-Host "Set environment variable to ($env:GoogleTestAdapterPath)"
+    displayName: Set GoogleTestAdapterPath
+
+  - task: VSTest@2
+    displayName: Run Unit Tests
+    timeoutInMinutes: 2
+    inputs:
+      testSelector: testAssemblies
+      testAssemblyVer2: jsitests.exe
+      pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
+      searchFolder: $(Build.SourcesDirectory)/build/v8build/v8/out/${{parameters.appPlatform}}/$(BuildPlatform)/$(BuildConfiguration)
+      runTestsInIsolation: true
+      platform: $(BuildPlatform)
+      configuration: $(BuildConfiguration)
+      publishRunAttachments: true
+      collectDumpOn: onAbortOnly
+      vsTestVersion: latest
+
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
     inputs:
