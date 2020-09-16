@@ -922,7 +922,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
 
 jsi::Object V8Runtime::global() {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(context_.Get(isolate)->Global());
+  return make<jsi::Object>(V8ObjectValue::make(context_.Get(isolate)->Global()));
 }
 
 std::string V8Runtime::description() {
@@ -936,28 +936,6 @@ bool V8Runtime::isInspectable() {
   return false;
 }
 
-V8Runtime::V8StringValue::V8StringValue(v8::Local<v8::String> str)
-    : v8String_(v8::Isolate::GetCurrent(), str) {}
-
-void V8Runtime::V8StringValue::invalidate() {
-  delete this;
-}
-
-V8Runtime::V8StringValue::~V8StringValue() {
-  v8String_.Reset();
-}
-
-V8Runtime::V8ObjectValue::V8ObjectValue(v8::Local<v8::Object> obj)
-    : v8Object_(v8::Isolate::GetCurrent(), obj) {}
-
-void V8Runtime::V8ObjectValue::invalidate() {
-  delete this;
-}
-
-V8Runtime::V8ObjectValue::~V8ObjectValue() {
-  v8Object_.Reset();
-}
-
 // Shallow clone
 jsi::Runtime::PointerValue *V8Runtime::cloneString(
     const jsi::Runtime::PointerValue *pv) {
@@ -967,7 +945,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneString(
 
   _ISOLATE_CONTEXT_ENTER
   const V8StringValue *string = static_cast<const V8StringValue *>(pv);
-  return makeStringValue(string->v8String_.Get(GetIsolate()));
+  return V8StringValue::make(string->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::cloneObject(
@@ -978,7 +956,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneObject(
 
   _ISOLATE_CONTEXT_ENTER
   const V8ObjectValue *object = static_cast<const V8ObjectValue *>(pv);
-  return makeObjectValue(object->v8Object_.Get(GetIsolate()));
+  return V8ObjectValue::make(object->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::clonePropNameID(
@@ -989,17 +967,23 @@ jsi::Runtime::PointerValue *V8Runtime::clonePropNameID(
 
   _ISOLATE_CONTEXT_ENTER
   const V8StringValue *string = static_cast<const V8StringValue *>(pv);
-  return makeStringValue(string->v8String_.Get(GetIsolate()));
+  return V8StringValue::make(string->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(
-    const jsi::Runtime::PointerValue *) {
-  throw jsi::JSINativeException("V8Runtime::cloneSymbol is not implemented!");
+    const jsi::Runtime::PointerValue *pv) {
+  if (!pv) {
+    return nullptr;
+  }
+
+  _ISOLATE_CONTEXT_ENTER
+  const V8PointerValue<v8::Symbol>* symbol = static_cast<const V8PointerValue<v8::Symbol>*>(pv);
+  return V8PointerValue<v8::Symbol>::make(symbol->get(GetIsolate()));
 }
 
-std::string V8Runtime::symbolToString(const jsi::Symbol &) {
-  throw jsi::JSINativeException(
-      "V8Runtime::symbolToString is not implemented!");
+std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
+  _ISOLATE_CONTEXT_ENTER
+  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description())) + ")";
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromAscii(
@@ -1018,7 +1002,8 @@ jsi::PropNameID V8Runtime::createPropNameIDFromAscii(
     throw jsi::JSError(*this, strstream.str());
   }
 
-  auto res = createPropNameID(v8String);
+  auto res = make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(v8String)));
   return res;
 }
 
@@ -1038,13 +1023,15 @@ jsi::PropNameID V8Runtime::createPropNameIDFromUtf8(
     throw jsi::JSError(*this, strstream.str());
   }
 
-  auto res = createPropNameID(v8String);
+  auto res = make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(v8String)));
   return res;
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
   _ISOLATE_CONTEXT_ENTER
-  return createPropNameID(stringRef(str));
+  return make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(stringRef(str))));
 }
 
 std::string V8Runtime::utf8(const jsi::PropNameID &sym) {
@@ -1077,7 +1064,7 @@ jsi::String V8Runtime::createStringFromUtf8(const uint8_t *str, size_t length) {
     throw jsi::JSError(*this, "V8 string creation failed.");
   }
 
-  jsi::String jsistr = createString(v8string);
+  jsi::String jsistr = make<jsi::String>(V8StringValue::make(v8string));
   return jsistr;
 }
 
@@ -1088,7 +1075,7 @@ std::string V8Runtime::utf8(const jsi::String &str) {
 
 jsi::Object V8Runtime::createObject() {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(v8::Object::New(GetIsolate()));
+  return make<jsi::Object>(V8ObjectValue::make(v8::Object::New(GetIsolate())));
 }
 
 jsi::Object V8Runtime::createObject(
@@ -1110,7 +1097,7 @@ jsi::Object V8Runtime::createObject(
   AddHostObjectLifetimeTracker(std::make_shared<HostObjectLifetimeTracker>(
       *this, newObject, hostObjectProxy));
 
-  return createObject(newObject);
+  return make<jsi::Object>(V8ObjectValue::make(newObject));
 }
 
 std::shared_ptr<jsi::HostObject> V8Runtime::getHostObject(
@@ -1245,7 +1232,7 @@ jsi::Array V8Runtime::getPropertyNames(const jsi::Object &obj) {
               static_cast<v8::PropertyFilter>(v8::ONLY_ENUMERABLE | v8::SKIP_SYMBOLS),
               v8::IndexFilter::kIncludeIndices,
               v8::KeyConversionMode::kConvertToString).ToLocalChecked();
-  return createObject(propNames).getArray(*this);
+  return make<jsi::Object>(V8ObjectValue::make(propNames)).getArray(*this);
 }
 
 jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &) {
@@ -1258,7 +1245,7 @@ jsi::Value V8Runtime::lockWeakObject(jsi::WeakObject &) {
 
 jsi::Array V8Runtime::createArray(size_t length) {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(v8::Array::New(GetIsolate(), static_cast<int>(length)))
+  return make<jsi::Object>(V8ObjectValue::make(v8::Array::New(GetIsolate(), static_cast<int>(length))))
       .getArray(*this);
 }
 
@@ -1308,7 +1295,7 @@ jsi::Function V8Runtime::createFunctionFromHostFunction(
   AddHostObjectLifetimeTracker(std::make_shared<HostObjectLifetimeTracker>(
       *this, newFunction, hostFunctionProxy));
 
-  return createObject(newFunction).getFunction(*this);
+  return make<jsi::Object>(V8ObjectValue::make(newFunction)).getFunction(*this);
 }
 
 bool V8Runtime::isHostFunction(const jsi::Function &obj) const {
@@ -1391,8 +1378,9 @@ bool V8Runtime::strictEquals(const jsi::Object &a, const jsi::Object &b) const {
   return objectRef(a)->StrictEquals(objectRef(b));
 }
 
-bool V8Runtime::strictEquals(const jsi::Symbol &, const jsi::Symbol &) const {
-  throw jsi::JSINativeException("Not implemented!");
+bool V8Runtime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
+  _ISOLATE_CONTEXT_ENTER
+  return symbolRef(a)->StrictEquals(symbolRef(b));
 }
 
 bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
@@ -1400,32 +1388,6 @@ bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
   return objectRef(o)
       ->InstanceOf(GetIsolate()->GetCurrentContext(), objectRef(f))
       .ToChecked();
-}
-
-jsi::Runtime::PointerValue *V8Runtime::makeStringValue(
-    v8::Local<v8::String> string) const {
-  return new V8StringValue(string);
-}
-
-jsi::String V8Runtime::createString(v8::Local<v8::String> str) const {
-  return make<jsi::String>(makeStringValue(str));
-}
-
-jsi::PropNameID V8Runtime::createPropNameID(v8::Local<v8::Value> str) {
-  _ISOLATE_CONTEXT_ENTER
-  return make<jsi::PropNameID>(
-      makeStringValue(v8::Local<v8::String>::Cast(str)));
-}
-
-jsi::Runtime::PointerValue *V8Runtime::makeObjectValue(
-    v8::Local<v8::Object> objectRef) const {
-  _ISOLATE_CONTEXT_ENTER
-  return new V8ObjectValue(objectRef);
-}
-
-jsi::Object V8Runtime::createObject(v8::Local<v8::Object> obj) const {
-  _ISOLATE_CONTEXT_ENTER
-  return make<jsi::Object>(makeObjectValue(obj));
 }
 
 jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
@@ -1443,13 +1405,13 @@ jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     return jsi::Value();
   } else if (value.IsEmpty() || value->IsNull()) {
     return jsi::Value(nullptr);
-  }
-
-  else if (value->IsString()) {
+  } else if (value->IsString()) {
     // Note :: Non copy create
-    return createString(v8::Local<v8::String>::Cast(value));
+    return make<jsi::String>(V8StringValue::make(v8::Local<v8::String>::Cast(value)));
   } else if (value->IsObject()) {
-    return createObject(v8::Local<v8::Object>::Cast(value));
+    return make<jsi::Object>(V8ObjectValue::make(v8::Local<v8::Object>::Cast(value)));
+  } else if (value->IsSymbol()) {
+    return make<jsi::Symbol>(V8PointerValue<v8::Symbol>::make(v8::Local<v8::Symbol>::Cast(value)));
   } else {
     // What are you?
     std::abort();
@@ -1472,34 +1434,12 @@ v8::Local<v8::Value> V8Runtime::valueRef(const jsi::Value &value) {
     return handle_scope.Escape(stringRef(value.asString(*this)));
   } else if (value.isObject()) {
     return handle_scope.Escape(objectRef(value.getObject(*this)));
+  } else if (value.isSymbol()) {
+    return handle_scope.Escape(symbolRef(value.getSymbol(*this)));
   } else {
     // What are you?
     std::abort();
   }
-}
-
-v8::Local<v8::String> V8Runtime::stringRef(const jsi::String &str) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8StringValue *v8StringValue =
-      static_cast<const V8StringValue *>(getPointerValue(str));
-  return handle_scope.Escape(
-      v8StringValue->v8String_.Get(v8::Isolate::GetCurrent()));
-}
-
-v8::Local<v8::Value> V8Runtime::valueRef(const jsi::PropNameID &sym) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8StringValue *v8StringValue =
-      static_cast<const V8StringValue *>(getPointerValue(sym));
-  return handle_scope.Escape(
-      v8StringValue->v8String_.Get(v8::Isolate::GetCurrent()));
-}
-
-v8::Local<v8::Object> V8Runtime::objectRef(const jsi::Object &obj) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8ObjectValue *v8ObjectValue =
-      static_cast<const V8ObjectValue *>(getPointerValue(obj));
-  return handle_scope.Escape(
-      v8ObjectValue->v8Object_.Get(v8::Isolate::GetCurrent()));
 }
 
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {

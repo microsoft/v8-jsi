@@ -475,30 +475,37 @@ class V8Runtime : public facebook::jsi::Runtime {
     V8Runtime &runtime_;
   };
 
-  class V8StringValue final : public PointerValue {
-    V8StringValue(v8::Local<v8::String> str);
-    ~V8StringValue();
+  template<typename T>
+  class V8PointerValue final : public PointerValue {
+    static V8PointerValue<T>* make(v8::Local<T> objectRef) {
+      return new V8PointerValue<T>(objectRef);
+    }
 
-    void invalidate() override;
+    V8PointerValue(v8::Local<T> obj) :
+      v8Object_(v8::Isolate::GetCurrent(), obj)
+    {}
 
-    v8::Persistent<v8::String> v8String_;
+    ~V8PointerValue() {
+      v8Object_.Reset();
+    }
+
+    void invalidate() override {
+      delete this;
+    }
+
+    v8::Local<T> get(v8::Isolate* isolate) const {
+      return v8Object_.Get(isolate);
+    }
+
+   private:
+    v8::Persistent<T> v8Object_;
 
    protected:
     friend class V8Runtime;
   };
 
-  class V8ObjectValue final : public PointerValue {
-    V8ObjectValue(v8::Local<v8::Object> obj);
-
-    ~V8ObjectValue();
-
-    void invalidate() override;
-
-    v8::Persistent<v8::Object> v8Object_;
-
-   protected:
-    friend class V8Runtime;
-  };
+  using V8StringValue = V8PointerValue<v8::String>;
+  using V8ObjectValue = V8PointerValue<v8::Object>;
 
   class ExternalOwningOneByteStringResource
       : public v8::String::ExternalOneByteStringResource {
@@ -526,10 +533,10 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   std::string symbolToString(const facebook::jsi::Symbol &) override;
 
-  PointerValue *cloneString(const Runtime::PointerValue *pv) override;
-  PointerValue *cloneObject(const Runtime::PointerValue *pv) override;
-  PointerValue *clonePropNameID(const Runtime::PointerValue *pv) override;
-  PointerValue *cloneSymbol(const PointerValue *) override;
+  PointerValue *cloneString(const PointerValue *pv) override;
+  PointerValue *cloneObject(const PointerValue *pv) override;
+  PointerValue *clonePropNameID(const PointerValue *pv) override;
+  PointerValue *cloneSymbol(const PointerValue *pv) override;
 
   facebook::jsi::PropNameID createPropNameIDFromAscii(
       const char *str,
@@ -674,23 +681,20 @@ class V8Runtime : public facebook::jsi::Runtime {
   void createHostObjectConstructorPerContext();
 
   // Basically convenience casts
-  static v8::Local<v8::String> stringRef(const facebook::jsi::String &str);
-  static v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym);
-  static v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj);
+  template<typename T>
+  static v8::Local<T> pvRef(const PointerValue* pv) {
+    v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
+    const V8PointerValue<T> *v8PValue = static_cast<const V8PointerValue<T>*>(pv);
+    return handle_scope.Escape(v8PValue->get(v8::Isolate::GetCurrent()));
+  }
+
+  static v8::Local<v8::String> stringRef(const facebook::jsi::String &str) { return pvRef<v8::String>(getPointerValue(str)); }
+  static v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym) { return pvRef<v8::Value>(getPointerValue(sym)); }
+  static v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj) { return pvRef<v8::Object>(getPointerValue(obj)); }
+  static v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) { return pvRef<v8::Symbol>(getPointerValue(sym)); }
 
   v8::Local<v8::Value> valueRef(const facebook::jsi::Value &value);
   facebook::jsi::Value createValue(v8::Local<v8::Value> value) const;
-
-  // Factory methods for creating String/Object
-  facebook::jsi::String createString(v8::Local<v8::String> stringRef) const;
-  facebook::jsi::PropNameID createPropNameID(v8::Local<v8::Value> propValRef);
-  facebook::jsi::Object createObject(v8::Local<v8::Object> objectRef) const;
-
-  // Used by factory methods and clone methods
-  facebook::jsi::Runtime::PointerValue *makeStringValue(
-      v8::Local<v8::String> str) const;
-  facebook::jsi::Runtime::PointerValue *makeObjectValue(
-      v8::Local<v8::Object> obj) const;
 
 #ifdef _WIN32
   std::unique_ptr<inspector::Agent> inspector_agent_;
