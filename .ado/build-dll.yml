@@ -53,6 +53,7 @@ steps:
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
+    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')))
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
