@@ -1,6 +1,6 @@
 parameters:
-  outputPath:
-  appPlatform:
+  outputPath: ''
+  appPlatform: ''
 
 steps:
   - task: PowerShell@2
@@ -38,6 +38,8 @@ steps:
       Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$((Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\" -Recurse -Include GoogleTestAdapter.Core.dll).Directory.FullName)"
       Write-Host "Set environment variable to ($env:GoogleTestAdapterPath)"
     displayName: Set GoogleTestAdapterPath
+
+  - script: echo appPlatform parameter value is '${{ parameters.appPlatform }}'
 
   - task: VSTest@2
     displayName: Run Unit Tests
