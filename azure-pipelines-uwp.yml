@@ -13,7 +13,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 150
+    timeoutInMinutes: 180
     displayName: Build the UWP v8jsi.dll binary for supported architectures and flavors
     strategy:
       matrix:
