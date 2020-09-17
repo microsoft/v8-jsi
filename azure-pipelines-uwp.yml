@@ -52,6 +52,7 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
+          runUnitTests: false
 
   - job: V8JsiPublishNuget
     dependsOn:

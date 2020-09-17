@@ -1,6 +1,11 @@
 parameters:
-  outputPath: ''
-  appPlatform: ''
+- name: runUnitTests
+  default: true
+  type: boolean
+- name: appPlatform
+  type: string
+- name: outputPath
+  type: string
 
 steps:
   - task: PowerShell@2
@@ -39,8 +44,6 @@ steps:
       Write-Host "Set environment variable to ($env:GoogleTestAdapterPath)"
     displayName: Set GoogleTestAdapterPath
 
-  - script: echo appPlatform parameter value is '${{ parameters.appPlatform }}'
-
   - task: VSTest@2
     displayName: Run Unit Tests
     timeoutInMinutes: 2
@@ -55,7 +58,7 @@ steps:
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), ne('uwp', '${{ parameters.appPlatform }}'))
+    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq('${{ parameters.runUnitTests }}', true))
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
