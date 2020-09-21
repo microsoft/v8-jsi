@@ -69,7 +69,13 @@ if (!$?) {
 # We'll use 2x the number of cores for parallel execution
 $numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
 
-& ninja -v -j $numberOfThreads -C $buildoutput v8jsi jsitests | Tee-Object -FilePath "$SourcesPath\build.log"
+$ninjaExtraTargets = ""
+
+if ($AppPlatform -ne "uwp") {
+    $ninjaExtraTargets += "v8windbg"
+}
+
+& ninja -v -j $numberOfThreads -C $buildoutput v8jsi jsitests $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1
@@ -103,6 +109,11 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
         Copy-Item "$buildoutput\v8jsi_stripped.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
     } else {
         Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+    }
+
+    # Debugging extension
+    if ($AppPlatform -ne "uwp") {
+        Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
     }
 }
 else {

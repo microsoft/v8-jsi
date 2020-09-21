@@ -1252,6 +1252,13 @@ class JSI_EXPORT JSError : public JSIException {
     return stack_;
   }
 
+  /// In V8's case, creating an Error object in JS doesn't record the callstack
+  /// To preserve it, we need a way to manually add the stack here and on the JS side
+  void setStack(std::string stack) {
+    stack_ = std::move(stack);
+    what_ = message_ + "\n\n" + stack_;
+  }
+
   const std::string& getMessage() const {
     return message_;
   }
