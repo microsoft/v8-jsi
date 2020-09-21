@@ -514,6 +514,10 @@ void V8Runtime::createHostObjectConstructorPerContext() {
       nullptr,
       nullptr,
       HostObjectProxy::Enumerator));
+
+  // V8 distinguishes between named properties (strings and symbols) and indexed properties (number)
+  // Note that we're not passing an Enumerator here, otherwise we'd be double-counting since JSI doesn't make the distinction
+  hostObjectTemplate->SetIndexedPropertyHandler(HostObjectProxy::GetIndexed, HostObjectProxy::SetIndexed);
   hostObjectTemplate->SetInternalFieldCount(1);
   host_object_constructor_.Reset(
       isolate_,
@@ -539,9 +543,6 @@ void V8Runtime::initializeV8() {
 
   int argc = static_cast<int>(argv.size());
   v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
-
-  // Assuming Initialize can be called multiple times in process.
-  v8::V8::Initialize();
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
@@ -637,23 +638,6 @@ jsi::Value V8Runtime::evaluateJavaScript(
   return result;
 }
 
-v8::Local<v8::Script> V8Runtime::GetCompiledScript(
-    const v8::Local<v8::String> &source,
-    const std::string &sourceURL) {
-  v8::Isolate *isolate = GetIsolate();
-  v8::TryCatch try_catch(isolate);
-  v8::MaybeLocal<v8::String> name = v8::String::NewFromUtf8(
-      isolate, reinterpret_cast<const char *>(sourceURL.c_str()));
-  v8::ScriptOrigin origin(name.ToLocalChecked());
-  v8::Local<v8::Context> context(isolate->GetCurrentContext());
-
-  v8::Local<v8::Script> script;
-  if (!v8::Script::Compile(context, source, &origin).ToLocal(&script)) {
-    ReportException(&try_catch);
-  }
-  return script;
-}
-
 // The callback that is invoked by v8 whenever the JavaScript 'print'
 // function is called.  Prints its arguments on stdout separated by
 // spaces and ending with a newline.
@@ -713,8 +697,6 @@ class ByteArrayBuffer final : public jsi::Buffer {
 jsi::Value V8Runtime::ExecuteString(
     const v8::Local<v8::String> &source,
     const std::string &sourceURL) {
-  // jsi::Value V8Runtime::ExecuteString(v8::Local<v8::String> source, const
-  // jsi::Buffer* cache, v8::Local<v8::Value> name, bool report_exceptions) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
@@ -789,35 +771,101 @@ jsi::Value V8Runtime::ExecuteString(
   }
 }
 
+class V8PreparedJavaScript : public facebook::jsi::PreparedJavaScript {
+public:
+  jsi::ScriptSignature scriptSignature;
+  jsi::JSRuntimeSignature runtimeSignature;
+  std::vector<uint8_t> buffer;
+
+  // What's the point of bytecode if we need to preserve the full source too?
+  // TODO: Figure out if there's a way to use the bytecode only with V8
+  std::shared_ptr<const facebook::jsi::Buffer> sourceBuffer;
+};
+
 std::shared_ptr<const facebook::jsi::PreparedJavaScript>
-V8Runtime::prepareJavaScript(
-    const std::shared_ptr<const facebook::jsi::Buffer> &,
-    std::string) {
-  throw jsi::JSINativeException(
-      "V8Runtime::prepareJavaScript is not implemented!");
+V8Runtime::prepareJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::string sourceURL) {
+  _ISOLATE_CONTEXT_ENTER
+  v8::TryCatch try_catch(isolate);
+  v8::Local<v8::String> source;
+  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(buffer->data()),
+      v8::NewStringType::kNormal, static_cast<int>(buffer->size())).ToLocal(&source)) {
+    std::abort();
+  }
+
+  v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
+  v8::ScriptOrigin origin(urlV8String);
+  v8::Local<v8::Context> context(isolate->GetCurrentContext());
+  v8::Local<v8::Script> script;
+  v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
+  v8::ScriptCompiler::CachedData *cached_data = nullptr;
+
+  v8::ScriptCompiler::Source script_source(source, origin, cached_data);
+
+  if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
+    ReportException(&try_catch);
+    return nullptr;
+  } else {
+    v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
+
+    auto prepared = std::make_shared<V8PreparedJavaScript>();
+    prepared->scriptSignature = {sourceURL, 1};
+    prepared->runtimeSignature = {"V8", 76};
+    prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
+    prepared->sourceBuffer = buffer;
+    return prepared;
+  }
 }
 
-facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
-    const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &) {
-  throw jsi::JSINativeException(
-      "V8Runtime::evaluatePreparedJavaScript is not implemented!");
+facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(const std::shared_ptr<const facebook::jsi::PreparedJavaScript> & js) {
+  _ISOLATE_CONTEXT_ENTER
+
+  auto prepared = static_cast<const V8PreparedJavaScript*>(js.get());
+
+  v8::TryCatch try_catch(isolate);
+  v8::Local<v8::String> source;
+  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->sourceBuffer->data()),
+      v8::NewStringType::kNormal, static_cast<int>(prepared->sourceBuffer->size())).ToLocal(&source)) {
+    std::abort();
+  }
+  v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->scriptSignature.url.c_str())).ToLocalChecked();
+  v8::ScriptOrigin origin(urlV8String);
+  v8::Local<v8::Context> context(isolate->GetCurrentContext());
+  v8::Local<v8::Script> script;
+
+  v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kConsumeCodeCache;
+  v8::ScriptCompiler::CachedData *cached_data = new v8::ScriptCompiler::CachedData(prepared->buffer.data(), static_cast<int>(prepared->buffer.size()));
+
+  v8::ScriptCompiler::Source script_source(source, origin, cached_data);
+
+  if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
+    ReportException(&try_catch);
+    return createValue(v8::Undefined(GetIsolate()));
+  } else {
+    v8::Local<v8::Value> result;
+    if (!script->Run(context).ToLocal(&result)) {
+      assert(try_catch.HasCaught());
+      ReportException(&try_catch);
+      return createValue(v8::Undefined(GetIsolate()));
+    } else {
+      assert(!try_catch.HasCaught());
+      return createValue(result);
+    }
+  }
 }
 
 void V8Runtime::ReportException(v8::TryCatch *try_catch) {
   _ISOLATE_CONTEXT_ENTER
-  v8::String::Utf8Value exception(isolate, try_catch->Exception());
-  const char *exception_string = ToCString(exception);
   v8::Local<v8::Message> message = try_catch->Message();
   if (message.IsEmpty()) {
     // V8 didn't provide any extra information about this error; just
     // throw the exception.
-    throw jsi::JSError(*this, "<Unknown exception>");
+    v8::String::Utf8Value exception(isolate, try_catch->Exception());
+    throw jsi::JSError(*this, ToCString(exception));
   } else {
-    // Print (filename):(line number): (message).
-
     std::stringstream sstr;
-
-    v8::String::Utf8Value filename(
+ 
+    // Print (filename):(line number): (message) - this would differ from what JSI expects (it wants the plain stacktrace)
+    /*v8::String::Utf8Value filename(
         isolate, message->GetScriptOrigin().ResourceName());
     v8::Local<v8::Context> context(isolate->GetCurrentContext());
     const char *filename_string = ToCString(filename);
@@ -825,7 +873,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     sstr << filename_string << ":" << linenum << ": " << exception_string
          << std::endl;
 
-    // Print line of source code.
+    // Print line of source code
     v8::String::Utf8Value sourceline(
         isolate, message->GetSourceLine(context).ToLocalChecked());
     const char *sourceline_string = ToCString(sourceline);
@@ -840,10 +888,10 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     for (int i = start; i < end; i++) {
       sstr << "^";
     }
-    sstr << std::endl;
+    sstr << std::endl;*/
 
     v8::Local<v8::Value> stack_trace_string;
-    if (try_catch->StackTrace(context).ToLocal(&stack_trace_string) &&
+    if (try_catch->StackTrace(context_.Get(isolate)).ToLocal(&stack_trace_string) &&
         stack_trace_string->IsString() &&
         v8::Local<v8::String>::Cast(stack_trace_string)->Length() > 0) {
       v8::String::Utf8Value stack_trace(isolate, stack_trace_string);
@@ -851,13 +899,30 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       sstr << stack_trace_string2 << std::endl;
     }
 
-    throw jsi::JSError(*this, sstr.str());
+    v8::String::Utf8Value ex_message(isolate, message->Get());
+    std::string ex_messages = ToCString(ex_message);
+    if (ex_messages.rfind("Uncaught Error:", 0) == 0) {
+      // V8 adds an "Uncaught Error: " before any message string any time we read it, this strips it out.
+      ex_messages.erase(0, 16);
+    }
+
+    // V8 doesn't actually capture the current callstack (as we're outside of scope when this gets called)
+    // See also https://v8.dev/docs/stack-trace-api
+    if (ex_messages.find("Maximum call stack size exceeded") == std::string::npos) {
+      auto err = jsi::JSError(*this, ex_messages);
+      err.value().getObject(*this).setProperty(*this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
+      err.setStack(sstr.str());
+      throw err;
+    } else {
+      // If we're already in stack overflow, calling the Error constructor pushes it overboard
+      throw jsi::JSError(*this, ex_messages, sstr.str());
+    }
   }
 }
 
 jsi::Object V8Runtime::global() {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(context_.Get(isolate)->Global());
+  return make<jsi::Object>(V8ObjectValue::make(context_.Get(isolate)->Global()));
 }
 
 std::string V8Runtime::description() {
@@ -871,28 +936,6 @@ bool V8Runtime::isInspectable() {
   return false;
 }
 
-V8Runtime::V8StringValue::V8StringValue(v8::Local<v8::String> str)
-    : v8String_(v8::Isolate::GetCurrent(), str) {}
-
-void V8Runtime::V8StringValue::invalidate() {
-  delete this;
-}
-
-V8Runtime::V8StringValue::~V8StringValue() {
-  v8String_.Reset();
-}
-
-V8Runtime::V8ObjectValue::V8ObjectValue(v8::Local<v8::Object> obj)
-    : v8Object_(v8::Isolate::GetCurrent(), obj) {}
-
-void V8Runtime::V8ObjectValue::invalidate() {
-  delete this;
-}
-
-V8Runtime::V8ObjectValue::~V8ObjectValue() {
-  v8Object_.Reset();
-}
-
 // Shallow clone
 jsi::Runtime::PointerValue *V8Runtime::cloneString(
     const jsi::Runtime::PointerValue *pv) {
@@ -902,7 +945,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneString(
 
   _ISOLATE_CONTEXT_ENTER
   const V8StringValue *string = static_cast<const V8StringValue *>(pv);
-  return makeStringValue(string->v8String_.Get(GetIsolate()));
+  return V8StringValue::make(string->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::cloneObject(
@@ -913,7 +956,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneObject(
 
   _ISOLATE_CONTEXT_ENTER
   const V8ObjectValue *object = static_cast<const V8ObjectValue *>(pv);
-  return makeObjectValue(object->v8Object_.Get(GetIsolate()));
+  return V8ObjectValue::make(object->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::clonePropNameID(
@@ -924,17 +967,23 @@ jsi::Runtime::PointerValue *V8Runtime::clonePropNameID(
 
   _ISOLATE_CONTEXT_ENTER
   const V8StringValue *string = static_cast<const V8StringValue *>(pv);
-  return makeStringValue(string->v8String_.Get(GetIsolate()));
+  return V8StringValue::make(string->get(GetIsolate()));
 }
 
 jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(
-    const jsi::Runtime::PointerValue *) {
-  throw jsi::JSINativeException("V8Runtime::cloneSymbol is not implemented!");
+    const jsi::Runtime::PointerValue *pv) {
+  if (!pv) {
+    return nullptr;
+  }
+
+  _ISOLATE_CONTEXT_ENTER
+  const V8PointerValue<v8::Symbol>* symbol = static_cast<const V8PointerValue<v8::Symbol>*>(pv);
+  return V8PointerValue<v8::Symbol>::make(symbol->get(GetIsolate()));
 }
 
-std::string V8Runtime::symbolToString(const jsi::Symbol &) {
-  throw jsi::JSINativeException(
-      "V8Runtime::symbolToString is not implemented!");
+std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
+  _ISOLATE_CONTEXT_ENTER
+  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description())) + ")";
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromAscii(
@@ -953,7 +1002,8 @@ jsi::PropNameID V8Runtime::createPropNameIDFromAscii(
     throw jsi::JSError(*this, strstream.str());
   }
 
-  auto res = createPropNameID(v8String);
+  auto res = make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(v8String)));
   return res;
 }
 
@@ -973,13 +1023,15 @@ jsi::PropNameID V8Runtime::createPropNameIDFromUtf8(
     throw jsi::JSError(*this, strstream.str());
   }
 
-  auto res = createPropNameID(v8String);
+  auto res = make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(v8String)));
   return res;
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
   _ISOLATE_CONTEXT_ENTER
-  return createPropNameID(stringRef(str));
+  return make<jsi::PropNameID>(
+      V8StringValue::make(v8::Local<v8::String>::Cast(stringRef(str))));
 }
 
 std::string V8Runtime::utf8(const jsi::PropNameID &sym) {
@@ -1012,7 +1064,7 @@ jsi::String V8Runtime::createStringFromUtf8(const uint8_t *str, size_t length) {
     throw jsi::JSError(*this, "V8 string creation failed.");
   }
 
-  jsi::String jsistr = createString(v8string);
+  jsi::String jsistr = make<jsi::String>(V8StringValue::make(v8string));
   return jsistr;
 }
 
@@ -1023,7 +1075,7 @@ std::string V8Runtime::utf8(const jsi::String &str) {
 
 jsi::Object V8Runtime::createObject() {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(v8::Object::New(GetIsolate()));
+  return make<jsi::Object>(V8ObjectValue::make(v8::Object::New(GetIsolate())));
 }
 
 jsi::Object V8Runtime::createObject(
@@ -1045,7 +1097,7 @@ jsi::Object V8Runtime::createObject(
   AddHostObjectLifetimeTracker(std::make_shared<HostObjectLifetimeTracker>(
       *this, newObject, hostObjectProxy));
 
-  return createObject(newObject);
+  return make<jsi::Object>(V8ObjectValue::make(newObject));
 }
 
 std::shared_ptr<jsi::HostObject> V8Runtime::getHostObject(
@@ -1174,8 +1226,13 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
 jsi::Array V8Runtime::getPropertyNames(const jsi::Object &obj) {
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Array> propNames =
-      objectRef(obj)->GetPropertyNames(context_.Get(isolate_)).ToLocalChecked();
-  return createObject(propNames).getArray(*this);
+      objectRef(obj)->GetPropertyNames(
+              context_.Get(isolate_),
+              v8::KeyCollectionMode::kIncludePrototypes,
+              static_cast<v8::PropertyFilter>(v8::ONLY_ENUMERABLE | v8::SKIP_SYMBOLS),
+              v8::IndexFilter::kIncludeIndices,
+              v8::KeyConversionMode::kConvertToString).ToLocalChecked();
+  return make<jsi::Object>(V8ObjectValue::make(propNames)).getArray(*this);
 }
 
 jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &) {
@@ -1188,7 +1245,7 @@ jsi::Value V8Runtime::lockWeakObject(jsi::WeakObject &) {
 
 jsi::Array V8Runtime::createArray(size_t length) {
   _ISOLATE_CONTEXT_ENTER
-  return createObject(v8::Array::New(GetIsolate(), static_cast<int>(length)))
+  return make<jsi::Object>(V8ObjectValue::make(v8::Array::New(GetIsolate(), static_cast<int>(length))))
       .getArray(*this);
 }
 
@@ -1228,15 +1285,17 @@ jsi::Function V8Runtime::createFunctionFromHostFunction(
            HostFunctionProxy::HostFunctionCallback,
            v8::Local<v8::External>::New(
                GetIsolate(),
-               v8::External::New(GetIsolate(), hostFunctionProxy)))
+               v8::External::New(GetIsolate(), hostFunctionProxy)), paramCount)
            .ToLocal(&newFunction)) {
     throw jsi::JSError(*this, "Creation of HostFunction failed.");
   }
 
+  newFunction->SetName(v8::Local<v8::String>::Cast(valueRef(name)));
+
   AddHostObjectLifetimeTracker(std::make_shared<HostObjectLifetimeTracker>(
       *this, newFunction, hostFunctionProxy));
 
-  return createObject(newFunction).getFunction(*this);
+  return make<jsi::Object>(V8ObjectValue::make(newFunction)).getFunction(*this);
 }
 
 bool V8Runtime::isHostFunction(const jsi::Function &obj) const {
@@ -1319,8 +1378,9 @@ bool V8Runtime::strictEquals(const jsi::Object &a, const jsi::Object &b) const {
   return objectRef(a)->StrictEquals(objectRef(b));
 }
 
-bool V8Runtime::strictEquals(const jsi::Symbol &, const jsi::Symbol &) const {
-  throw jsi::JSINativeException("Not implemented!");
+bool V8Runtime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
+  _ISOLATE_CONTEXT_ENTER
+  return symbolRef(a)->StrictEquals(symbolRef(b));
 }
 
 bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
@@ -1328,32 +1388,6 @@ bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
   return objectRef(o)
       ->InstanceOf(GetIsolate()->GetCurrentContext(), objectRef(f))
       .ToChecked();
-}
-
-jsi::Runtime::PointerValue *V8Runtime::makeStringValue(
-    v8::Local<v8::String> string) const {
-  return new V8StringValue(string);
-}
-
-jsi::String V8Runtime::createString(v8::Local<v8::String> str) const {
-  return make<jsi::String>(makeStringValue(str));
-}
-
-jsi::PropNameID V8Runtime::createPropNameID(v8::Local<v8::Value> str) {
-  _ISOLATE_CONTEXT_ENTER
-  return make<jsi::PropNameID>(
-      makeStringValue(v8::Local<v8::String>::Cast(str)));
-}
-
-jsi::Runtime::PointerValue *V8Runtime::makeObjectValue(
-    v8::Local<v8::Object> objectRef) const {
-  _ISOLATE_CONTEXT_ENTER
-  return new V8ObjectValue(objectRef);
-}
-
-jsi::Object V8Runtime::createObject(v8::Local<v8::Object> obj) const {
-  _ISOLATE_CONTEXT_ENTER
-  return make<jsi::Object>(makeObjectValue(obj));
 }
 
 jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
@@ -1371,13 +1405,13 @@ jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     return jsi::Value();
   } else if (value.IsEmpty() || value->IsNull()) {
     return jsi::Value(nullptr);
-  }
-
-  else if (value->IsString()) {
+  } else if (value->IsString()) {
     // Note :: Non copy create
-    return createString(v8::Local<v8::String>::Cast(value));
+    return make<jsi::String>(V8StringValue::make(v8::Local<v8::String>::Cast(value)));
   } else if (value->IsObject()) {
-    return createObject(v8::Local<v8::Object>::Cast(value));
+    return make<jsi::Object>(V8ObjectValue::make(v8::Local<v8::Object>::Cast(value)));
+  } else if (value->IsSymbol()) {
+    return make<jsi::Symbol>(V8PointerValue<v8::Symbol>::make(v8::Local<v8::Symbol>::Cast(value)));
   } else {
     // What are you?
     std::abort();
@@ -1400,34 +1434,12 @@ v8::Local<v8::Value> V8Runtime::valueRef(const jsi::Value &value) {
     return handle_scope.Escape(stringRef(value.asString(*this)));
   } else if (value.isObject()) {
     return handle_scope.Escape(objectRef(value.getObject(*this)));
+  } else if (value.isSymbol()) {
+    return handle_scope.Escape(symbolRef(value.getSymbol(*this)));
   } else {
     // What are you?
     std::abort();
   }
-}
-
-v8::Local<v8::String> V8Runtime::stringRef(const jsi::String &str) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8StringValue *v8StringValue =
-      static_cast<const V8StringValue *>(getPointerValue(str));
-  return handle_scope.Escape(
-      v8StringValue->v8String_.Get(v8::Isolate::GetCurrent()));
-}
-
-v8::Local<v8::Value> V8Runtime::valueRef(const jsi::PropNameID &sym) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8StringValue *v8StringValue =
-      static_cast<const V8StringValue *>(getPointerValue(sym));
-  return handle_scope.Escape(
-      v8StringValue->v8String_.Get(v8::Isolate::GetCurrent()));
-}
-
-v8::Local<v8::Object> V8Runtime::objectRef(const jsi::Object &obj) {
-  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-  const V8ObjectValue *v8ObjectValue =
-      static_cast<const V8ObjectValue *>(getPointerValue(obj));
-  return handle_scope.Escape(
-      v8ObjectValue->v8Object_.Get(v8::Isolate::GetCurrent()));
 }
 
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {

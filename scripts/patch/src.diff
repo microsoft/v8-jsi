@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 167e63503c..6ea5beaa99 100644
+index 65d137cbed..56b1bd6779 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -3902,11 +3902,18 @@ v8_component("v8_libbase") {
+@@ -3985,11 +3985,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,7 +26,7 @@ index 167e63503c..6ea5beaa99 100644
  
      data_deps += [ "//build/win:runtime_libs" ]
    }
-@@ -5068,3 +5075,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -5208,3 +5215,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -38,10 +38,10 @@ index 167e63503c..6ea5beaa99 100644
 +}
 \ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 7b38c3dcd0..494a187ed9 100644
+index 4c02904d70..87ac0c20e0 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -540,4 +540,15 @@ hooks = [
+@@ -549,4 +549,15 @@ hooks = [
        'v8/tools/generate-header-include-checks.py',
      ],
    },
@@ -72,10 +72,10 @@ index b5fb1823b3..b5ddc1aba2 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/include/v8.h b/include/v8.h
-index 18d72f1630..fc47f43d1f 100644
+index 13b40db28e..65335f4047 100644
 --- a/include/v8.h
 +++ b/include/v8.h
-@@ -9068,6 +9068,11 @@ class V8_EXPORT Isolate {
+@@ -9089,6 +9089,11 @@ class V8_EXPORT Isolate {
     */
    MicrotasksPolicy GetMicrotasksPolicy() const;
  
@@ -87,7 +87,7 @@ index 18d72f1630..fc47f43d1f 100644
    /**
     * Adds a callback to notify the host application after
     * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9094,6 +9099,10 @@ class V8_EXPORT Isolate {
+@@ -9115,6 +9120,10 @@ class V8_EXPORT Isolate {
    void RemoveMicrotasksCompletedCallback(
        MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
  
@@ -227,3 +227,16 @@ index 12dfaf9572..b16b0b0020 100644
  }
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
+diff --git a/tools/debug_helper/get-object-properties.cc b/tools/debug_helper/get-object-properties.cc
+index 0e8fbf02a6..9eaf2ab7d3 100644
+--- a/tools/debug_helper/get-object-properties.cc
++++ b/tools/debug_helper/get-object-properties.cc
+@@ -331,7 +331,7 @@ class ReadStringVisitor : public TqObjectVisitor {
+           Isolate::FromRoot(GetIsolateRoot(heap_addresses_.any_heap_pointer)),
+           resource_data));
+ #else
+-      uintptr_t data_address = reinterpret_cast<uintptr_t>(resource_data);
++      uintptr_t data_address = static_cast<uintptr_t>(resource_data);
+ #endif  // V8_COMPRESS_POINTERS
+       if (done_) return;
+       ReadStringCharacters<TChar>(object, data_address);
