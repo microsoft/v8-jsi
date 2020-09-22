@@ -176,7 +176,7 @@ TEST_P(JSITest, ObjectTest) {
   EXPECT_EQ(names.getValueAtIndex(rt, 0).getString(rt).utf8(rt), "a");
 }
 
-/*TEST_P(JSITest, HostObjectTest) {
+TEST_P(JSITest, HostObjectTest) {
   class ConstantHostObject : public HostObject {
     Value get(Runtime&, const PropNameID& sym) override {
       return 9000;
@@ -460,7 +460,7 @@ TEST_P(JSITest, ArrayTest) {
   Array alpha2 = Array(rt, 1);
   alpha2 = std::move(alpha);
   EXPECT_EQ(alpha2.size(rt), 4);
-}*/
+}
 
 TEST_P(JSITest, FunctionTest) {
   // test move ctor
@@ -602,7 +602,7 @@ TEST_P(JSITest, InstanceOfTest) {
                   .instanceOf(rt, ctor));
 }
 
-/*TEST_P(JSITest, HostFunctionTest) {
+TEST_P(JSITest, HostFunctionTest) {
   auto one = std::make_shared<int>(1);
   Function plusOne = Function::createFromHostFunction(
       rt,
@@ -721,8 +721,12 @@ TEST_P(JSITest, InstanceOfTest) {
           .getString(rt)
           .utf8(rt),
       "A cat was called with std::function::target");
+
+  // Disabling these tests for V8 because we'd incur unnecessary cost to implement the functionality
+#if 0
   EXPECT_TRUE(callable.isHostFunction(rt));
   EXPECT_NE(callable.getHostFunction(rt).target<Callable>(), nullptr);
+#endif
 
   std::string strval = "strval1";
   auto getter = Object(rt);
@@ -752,7 +756,7 @@ TEST_P(JSITest, InstanceOfTest) {
   EXPECT_TRUE(function("function(value) { return value.prop == 'strval2'; }")
                   .call(rt, obj)
                   .getBool());
-}*/
+}
 
 TEST_P(JSITest, ValueTest) {
   EXPECT_TRUE(checkValue(Value::undefined(), "undefined"));
@@ -1174,7 +1178,7 @@ TEST_P(JSITest, DecoratorTest) {
   EXPECT_EQ(crt.count(), kInit + 6);
 }
 
-/*TEST_P(JSITest, MultiDecoratorTest) {
+TEST_P(JSITest, MultiDecoratorTest) {
   struct Inc {
     void before() {
       ++count;
@@ -1233,7 +1237,7 @@ TEST_P(JSITest, DecoratorTest) {
 
   EXPECT_EQ(mrt.count(), 3);
   EXPECT_EQ(mrt.nest(), 0);
-}*/
+}
 
 TEST_P(JSITest, SymbolTest) {
   if (!rt.global().hasProperty(rt, "Symbol")) {
