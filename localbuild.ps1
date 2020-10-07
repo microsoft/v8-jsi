@@ -5,14 +5,14 @@ param(
 
     [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
 
-    [ValidateSet("x64", "x86", "arm64")]
-    [String[]]$Platform = @("x64"),
+    [ValidateSet('x64', 'x86', 'arm64')]
+    [String[]]$Platform = @('x64'),
 
-    [ValidateSet("debug", "release")]
-    [String[]]$Configuration = @("debug"),
+    [ValidateSet('Debug', 'Release')]
+    [String[]]$Configuration = @('Debug'),
 
-    [ValidateSet("win32", "uwp")]
-    [String[]]$AppPlatform = @("win32"),
+    [ValidateSet('win32', 'uwp')]
+    [String[]]$AppPlatform = @('win32'),
 
     [bool]$Setup = $true
 )
