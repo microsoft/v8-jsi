@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$SourcesPath = $PSScriptRoot,
-    [string]$OutputPath = "$PSScriptRoot\out",
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
+    [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
     [string]$Configuration = "Release",
     [string]$AppPlatform = "win32"
 )
