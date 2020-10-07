@@ -84,13 +84,14 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 #TODO (#2): Use the .gzip for Android / Linux builds
 # Verify the Boost installation
 if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
+    #TODO: Don't use hard-coded package version.
     if (-not (Test-Path (Join-Path $workpath "v8build/boost.1.72.0.0/lib/native/include/boost/asio.hpp"))) {
         Write-Host "Boost ASIO not found, downloading..."
 
         $targetNugetExe = Join-Path $workpath "nuget.exe"
         Invoke-WebRequest "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $targetNugetExe
 
-        & $targetNugetExe install -OutputDirectory (Join-Path $workpath "v8build") boost -Version 1.72.0
+        & $targetNugetExe restore
     }
 
     $env:BOOST_ROOT = Join-Path $workpath "v8build/boost.1.72.0.0/lib/native/include"
