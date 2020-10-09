@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 65d137cbed..56b1bd6779 100644
+index bda33c185f..ce04afc460 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -3985,11 +3985,18 @@ v8_component("v8_libbase") {
+@@ -4077,11 +4077,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,7 +26,7 @@ index 65d137cbed..56b1bd6779 100644
  
      data_deps += [ "//build/win:runtime_libs" ]
    }
-@@ -5208,3 +5215,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -5323,3 +5330,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -38,11 +38,20 @@ index 65d137cbed..56b1bd6779 100644
 +}
 \ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 4c02904d70..87ac0c20e0 100644
+index 7726a6973e..9516602b5b 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -549,4 +549,15 @@ hooks = [
-       'v8/tools/generate-header-include-checks.py',
+@@ -206,7 +206,7 @@ deps = {
+   'test/mozilla/data':
+     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
+   'test/test262/data':
+-    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + 'e73054f75e08e329e73e0f77bf92503ad5b83d0f',
++    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '323905b70e644d90faa957235f8ac59eac4ba8ba',
+   'test/test262/harness':
+     Var('chromium_url') + '/external/github.com/test262-utils/test262-harness-py.git' + '@' + '4555345a943d0c99a9461182705543fb171dda4b',
+   'third_party/qemu-linux-x64': {
+@@ -562,4 +562,15 @@ hooks = [
+       'tools/generate-header-include-checks.py',
      ],
    },
 +  {
@@ -53,7 +62,7 @@ index 4c02904d70..87ac0c20e0 100644
 +                '--no_resume',
 +                '--no_auth',
 +                '--bucket', 'chromium-browser-clang/rc',
-+                '-s', 'v8/build/toolchain/win/rc/win/rc.exe.sha1',
++                '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
 +    ],
 +  }
  ]
@@ -72,10 +81,10 @@ index b5fb1823b3..b5ddc1aba2 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/include/v8.h b/include/v8.h
-index 13b40db28e..65335f4047 100644
+index a839165324..75b5f4b664 100644
 --- a/include/v8.h
 +++ b/include/v8.h
-@@ -9089,6 +9089,11 @@ class V8_EXPORT Isolate {
+@@ -9124,6 +9124,11 @@ class V8_EXPORT Isolate {
     */
    MicrotasksPolicy GetMicrotasksPolicy() const;
  
@@ -87,7 +96,7 @@ index 13b40db28e..65335f4047 100644
    /**
     * Adds a callback to notify the host application after
     * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9115,6 +9120,10 @@ class V8_EXPORT Isolate {
+@@ -9150,6 +9155,10 @@ class V8_EXPORT Isolate {
    void RemoveMicrotasksCompletedCallback(
        MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
  
@@ -195,23 +204,8 @@ index 1cd402d8ba..c3c9df8fa1 100644
      return EmbeddedTargetOs::kWin;
    } else {
      return EmbeddedTargetOs::kGeneric;
-diff --git a/src/torque/declaration-visitor.cc b/src/torque/declaration-visitor.cc
-index 99b7bdddcd..8a227a614a 100644
---- a/src/torque/declaration-visitor.cc
-+++ b/src/torque/declaration-visitor.cc
-@@ -372,7 +372,9 @@ Callable* DeclarationVisitor::Specialize(
- }
- 
- void PredeclarationVisitor::ResolvePredeclarations() {
--  for (auto& p : GlobalContext::AllDeclarables()) {
-+  const std::vector<std::unique_ptr<Declarable>>& all_declarables = GlobalContext::AllDeclarables();
-+  for (size_t i = 0; i < all_declarables.size(); ++i) {
-+    auto& p = all_declarables[i];
-     if (const TypeAlias* alias = TypeAlias::DynamicCast(p.get())) {
-       CurrentScope::Scope scope_activator(alias->ParentScope());
-       CurrentSourcePosition::Scope position_activator(alias->Position());
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 12dfaf9572..b16b0b0020 100644
+index 6169acbfd6..3f390778e7 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -74,8 +74,10 @@ const int kAllocationTries = 2;

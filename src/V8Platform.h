@@ -162,6 +162,11 @@ class V8Platform : public v8::Platform {
   double CurrentClockTimeMillis() override;
   v8::TracingController *GetTracingController() override;
 
+  // TODO: validate this implementation
+  std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> job_task) override {
+    return v8::platform::NewDefaultJobHandle(this, priority, std::move(job_task), NumberOfWorkerThreads());
+  }
+
  private:
   V8Platform(const V8Platform &) = delete;
   void operator=(const V8Platform &) = delete;
