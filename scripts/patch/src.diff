@@ -1,5 +1,5 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index bda33c185f..ce04afc460 100644
+index bda33c185f..dc2354535d 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
 @@ -4077,11 +4077,18 @@ v8_component("v8_libbase") {
@@ -218,6 +218,19 @@ index 1cd402d8ba..c3c9df8fa1 100644
      return EmbeddedTargetOs::kWin;
    } else {
      return EmbeddedTargetOs::kGeneric;
+diff --git a/src/snapshot/embedded/platform-embedded-file-writer-win.cc b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
+index 1aed75eccc..3811ced3df 100644
+--- a/src/snapshot/embedded/platform-embedded-file-writer-win.cc
++++ b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
+@@ -503,7 +503,7 @@ void PlatformEmbeddedFileWriterWin::SourceInfo(int fileid, const char* filename,
+ void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
+                                                          uint32_t size) {
+   if (target_arch_ == EmbeddedTargetArch::kArm64) {
+-    fprintf(fp_, "%s%s FUNCTION\n", SYMBOL_PREFIX, name);
++    fprintf(fp_, "\n%s%s FUNCTION\n", SYMBOL_PREFIX, name);
+ 
+   } else {
+     fprintf(fp_, "%s%s PROC\n", SYMBOL_PREFIX, name);
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
 index 6169acbfd6..3f390778e7 100644
 --- a/src/utils/allocation.cc
