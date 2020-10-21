@@ -9,6 +9,8 @@ param(
 
 $workpath = Join-Path $SourcesPath "build"
 
+$env:GIT_REDIRECT_STDERR = '2>&1'
+
 Push-Location (Join-Path $workpath "v8build")
 & fetch v8
 
@@ -24,8 +26,6 @@ target_os= ['android']
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
-$env:GIT_REDIRECT_STDERR = '2>&1'
-
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
 & git fetch origin $config.v8ref
@@ -34,6 +34,7 @@ $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 # Apply patches
 & git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\src.diff")
 
+& gclient runhooks
 & gclient sync
 
 Push-Location (Join-Path $workpath "v8build\v8\build")
