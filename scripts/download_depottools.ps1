@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$SourcesPath = $PSScriptRoot
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot
 )
 
 $workpath = Join-Path $SourcesPath "build"

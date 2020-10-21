@@ -1,18 +1,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$SourcesPath = $PSScriptRoot,
-    [string]$OutputPath = "$PSScriptRoot\out",
-    [ValidateSet("x64", "x86", "arm64")]
-    [String[]]$Platform = @("x64"),
-    [ValidateSet("debug", "release")]
-    [String[]]$Configuration = @("debug"),
-    [ValidateSet("win32", "uwp")]
-    [String[]]$AppPlatform = @("win32"),
-    [bool]$Setup = $true
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
+
+    [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
+
+    [ValidateSet('x64', 'x86', 'arm64')]
+    [String[]]$Platform = @('x64'),
+
+    [ValidateSet('Debug', 'Release')]
+    [String[]]$Configuration = @('Debug'),
+
+    [ValidateSet('win32', 'uwp')]
+    [String[]]$AppPlatform = @('win32'),
+
+    [switch]$NoSetup
 )
 
-if ($Setup) {
+if (! $NoSetup.IsPresent) {
     Write-Host "Downloading environment..."
     & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath
 
