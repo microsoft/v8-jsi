@@ -1,10 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$SourcesPath = $PSScriptRoot,
-    [string]$OutputPath = "$PSScriptRoot\out",
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
+    [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
     [string]$Configuration = "Release",
-    [string]$AppPlatform = "win32"
+    [string]$AppPlatform = "win32",
+    [string]$NugetDownloadLocation = 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe'
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -83,17 +84,15 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 }
 
 #TODO (#2): Use the .gzip for Android / Linux builds
-# Verify the Boost installation
-if (-not (Test-Path "$env:BOOST_ROOT\boost\asio.hpp")) {
-    if (-not (Test-Path (Join-Path $workpath "v8build/boost.1.72.0.0/lib/native/include/boost/asio.hpp"))) {
-        Write-Host "Boost ASIO not found, downloading..."
 
-        $targetNugetExe = Join-Path $workpath "nuget.exe"
-        Invoke-WebRequest "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile $targetNugetExe
+# Restore NuGet packages
+$nugetExe = Join-Path $workpath 'nuget.exe'
+Invoke-WebRequest -Uri "$NugetDownloadLocation" -OutFile $nugetExe
+& $nugetExe restore
 
-        & $targetNugetExe install -OutputDirectory (Join-Path $workpath "v8build") boost -Version 1.72.0
-    }
+$boostPkg = Select-Xml  -Path (Join-Path $SourcesPath 'packages.config') -XPath '//packages/package' |
+            Select-Object -ExpandProperty Node |
+            Where-Object { $_.id -eq 'boost' }
 
-    $env:BOOST_ROOT = Join-Path $workpath "v8build/boost.1.72.0.0/lib/native/include"
-    Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
-}
+$env:BOOST_ROOT = Join-Path $workpath "v8build/boost.$($boostPkg.version)\lib\native\include"
+Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
