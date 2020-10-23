@@ -100,7 +100,7 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
-          runUnitTests: eq('true', variables['RunUnitTests'])
+          runUnitTests: ${{ variables.RunUnitTests }}
 
   - job: V8JsiPublishNuget
     dependsOn:
