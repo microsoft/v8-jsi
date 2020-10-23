@@ -21,76 +21,95 @@ jobs:
           BuildConfiguration: Debug
           BuildPlatform: x64
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x86|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|ARM64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: arm64
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x64|Release:
           BuildConfiguration: Release
           BuildPlatform: x64
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x86|Release:
           BuildConfiguration: Release
           BuildPlatform: x86
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|ARM64|Release:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: win32
-          RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          #RunUnitTests: true
+          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Universal|x64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x64
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x86|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|ARM64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: arm64
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x64|Release:
           BuildConfiguration: Release
           BuildPlatform: x64
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x86|Release:
           BuildConfiguration: Release
           BuildPlatform: x86
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|ARM64|Release:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: uwp
-          RunUnitTests: false
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          #RunUnitTests: false
+          #NuGetId: ReactNative.V8Jsi.Windows.UWP
 
     steps:
+      - pwsh: |
+          $vars = @{
+            'win32' = @{
+              'RunUnitTests' = $true
+              'NuGetId' = 'ReactNative.V8Jsi.Windows'
+            };
+            'uwp' = @{
+              'RunUnitTests' = $false
+              'NuGetId' = 'ReactNative.V8Jsi.Windows.UWP'
+            }
+          }
+          Write-Host "Setting variables for app platform ${env:AppPlatform}"
+          Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
+          Write-Host "##vso[task.setvariable variable=NuGetId]$($vars[$env:AppPlatform]['NuGetId'])"
+          Write-Host "Using RunUnitTests: $env:RunUnitTests"
+          Write-Host "Using NuGetId: $env:NuGetId"
+
+        displayName: Set AppPlatform-dependent variables
+
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '2.x'
