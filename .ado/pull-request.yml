@@ -21,80 +21,50 @@ jobs:
           BuildConfiguration: Debug
           BuildPlatform: x64
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x86|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|ARM64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: arm64
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x64|Release:
           BuildConfiguration: Release
           BuildPlatform: x64
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|x86|Release:
           BuildConfiguration: Release
           BuildPlatform: x86
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Desktop|ARM64|Release:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: win32
-          #RunUnitTests: true
-          #NuGetId: ReactNative.V8Jsi.Windows.nuspec
         Universal|x64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x64
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x86|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|ARM64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: arm64
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x64|Release:
           BuildConfiguration: Release
           BuildPlatform: x64
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|x86|Release:
           BuildConfiguration: Release
           BuildPlatform: x86
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
         Universal|ARM64|Release:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: uwp
-          #RunUnitTests: false
-          #NuGetId: ReactNative.V8Jsi.Windows.UWP
-
-    # variables:
-    #   - name: RunUnitTests
-    #     value: false
-    #   - name: NuGetId
-    #     value: ''
 
     steps:
       - pwsh: |
@@ -113,11 +83,6 @@ jobs:
           Write-Host "##vso[task.setvariable variable=NuGetId]$($vars[$env:AppPlatform]['NuGetId'])"
         displayName: Set AppPlatform-dependent variables
 
-      - pwsh: |
-          Write-Host "Using RunUnitTests: $env:RunUnitTests"
-          Write-Host "Using NuGetId: $env:NuGetId"
-        displayName: Verify AppPlatform-dependent variables
-
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '2.x'
@@ -127,10 +92,6 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
-          # runUnitTests: $[ eq(1, 1) ]
-          # runUnitTests: ${ variables['RunUnitTests'] }
-          # runUnitTests: $[ variables['RunUnitTests'] ]
-          #runUnitTests: $(RunUnitTests)
 
   - job: V8JsiPublishNuget
     dependsOn:
@@ -153,9 +114,10 @@ jobs:
         inputs:
           targetType: 'inline'
           script: |
-            $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | Out-String | ConvertFrom-Json
+            $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | ConvertFrom-Json
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
+        displayName: Retrieve V8 version
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
