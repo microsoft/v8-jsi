@@ -96,7 +96,7 @@ jobs:
           versionSpec: '2.x'
           addToPath: true
           architecture: 'x64'
-      - template: .ado/build-dll.yml
+      - template: $(Build.SourcesDirectory)/.ado/build-dll.yml
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
