@@ -90,6 +90,10 @@ jobs:
           #RunUnitTests: false
           #NuGetId: ReactNative.V8Jsi.Windows.UWP
 
+    variables:
+      RunUnitTests:
+      NuGetId:
+
     steps:
       - pwsh: |
           $vars = @{
