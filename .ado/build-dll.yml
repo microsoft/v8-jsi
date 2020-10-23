@@ -40,7 +40,7 @@ steps:
         -AppPlatform:${{parameters.appPlatform}}
 
   - powershell: |
-      Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$((Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\" -Recurse -Include GoogleTestAdapter.Core.dll).Directory.FullName)"
+      Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$((Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\" -Directory | Where-Object -FilterScript { Test-Path $_\GoogleTestAdapter.Core.dll}).FullName)"
       Write-Host "Set environment variable to ($env:GoogleTestAdapterPath)"
     displayName: Set GoogleTestAdapterPath
 
