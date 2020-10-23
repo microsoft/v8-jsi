@@ -123,7 +123,7 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
-          runUnitTests: $(RunUnitTests)
+          runUnitTests: $[ variables['RunUnitTests'] ]
 
   - job: V8JsiPublishNuget
     dependsOn:
