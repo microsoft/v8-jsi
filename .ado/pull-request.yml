@@ -111,10 +111,12 @@ jobs:
           Write-Host "Setting variables for app platform ${env:AppPlatform}"
           Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
           Write-Host "##vso[task.setvariable variable=NuGetId]$($vars[$env:AppPlatform]['NuGetId'])"
+        displayName: Set AppPlatform-dependent variables
+
+      - pwsh: |
           Write-Host "Using RunUnitTests: $env:RunUnitTests"
           Write-Host "Using NuGetId: $env:NuGetId"
-
-        displayName: Set AppPlatform-dependent variables
+        displayName: Verify AppPlatform-dependent variables
 
       - task: UsePythonVersion@0
         inputs:
