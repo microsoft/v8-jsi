@@ -1,12 +1,13 @@
 name: v8jsi_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-trigger:
-- master
-- "*-stable"
+#TODO: Uncomment before merging into master
+# trigger:
+# - master
+# - "*-stable"
 
-pr:
-  - master
-  - "*-stable"
+# pr:
+#   - master
+#   - "*-stable"
 
 pool:
   vmImage: 'windows-2019'
