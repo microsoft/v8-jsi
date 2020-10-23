@@ -90,11 +90,11 @@ jobs:
           #RunUnitTests: false
           #NuGetId: ReactNative.V8Jsi.Windows.UWP
 
-    variables:
-      - name: RunUnitTests
-        value: false
-      - name: NuGetId
-        value: ''
+    # variables:
+    #   - name: RunUnitTests
+    #     value: false
+    #   - name: NuGetId
+    #     value: ''
 
     steps:
       - pwsh: |
@@ -125,8 +125,8 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
-          #runUnitTests: $[ variables['RunUnitTests'] ]
-          runUnitTests: $(RunUnitTests)
+          runUnitTests: $[ variables['RunUnitTests'] ]
+          #runUnitTests: $(RunUnitTests)
 
   - job: V8JsiPublishNuget
     dependsOn:
