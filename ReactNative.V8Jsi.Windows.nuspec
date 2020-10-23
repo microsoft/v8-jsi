@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
   <metadata>
-    <id>ReactNative.V8Jsi.Windows</id>
+    <id>$Id$</id>
     <version>$Version$</version>
     <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative (VERSION_DETAILS)</description>
     <authors>Facebook, Google, Microsoft</authors>

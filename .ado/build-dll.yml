@@ -1,7 +1,7 @@
+# Expected variables:
+#   RunUnitTests
+
 parameters:
-- name: runUnitTests
-  default: true
-  type: boolean
 - name: appPlatform
   type: string
 - name: outputPath
@@ -58,7 +58,7 @@ steps:
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq('${{ parameters.runUnitTests }}', true))
+    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq(variables.RunUnitTests, true))
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
