@@ -58,6 +58,12 @@ jobs:
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
+    strategy:
+      matrix:
+        Desktop:
+          NuGetId: ReactNative.V8Jsi.Windows
+        Universal:
+          NuGetId: ReactNative.V8Jsi.Windows.UWP
     steps:
       - checkout: none
 
@@ -83,9 +89,9 @@ jobs:
         displayName: 'NuGet Pack'
         inputs:
           command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
+          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\$(NuGetId).nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
           versioningScheme: byEnvVar
           versionEnvVar: Version
 
