@@ -81,7 +81,8 @@ jobs:
           }
           Write-Host "Setting variables for app platform ${env:AppPlatform}"
           Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
-          Write-Host "##vso[task.setvariable variable=NuGetId]$($vars[$env:AppPlatform]['NuGetId'])"
+          Write-Host "##vso[task.setvariable variable=NuGetId;isOutput=true]$($vars[$env:AppPlatform]['NuGetId'])"
+        name: setvarStep
         displayName: Set AppPlatform-dependent variables
 
       - task: UsePythonVersion@0
@@ -98,6 +99,8 @@ jobs:
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
+    variables:
+      NuGetId: $[ dependencies.V8JsiBuild.outputs['setvarStep.NuGetId'] ]
     steps:
       - checkout: none
 
