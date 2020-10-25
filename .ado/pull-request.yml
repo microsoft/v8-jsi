@@ -22,37 +22,37 @@ jobs:
           BuildPlatform: x64
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Desktop|x86|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x86
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Desktop|ARM64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: arm64
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Desktop|x64|Release:
           BuildConfiguration: Release
           BuildPlatform: x64
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Desktop|x86|Release:
           BuildConfiguration: Release
           BuildPlatform: x86
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Desktop|ARM64|Release:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: win32
           RunUnitTests: true
-          NuGetId: ReactNative.V8Jsi.Windows.nuspec
+          NuGetId: ReactNative.V8Jsi.Windows
         Universal|x64|Debug:
           BuildConfiguration: Debug
           BuildPlatform: x64
