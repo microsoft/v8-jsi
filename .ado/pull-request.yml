@@ -72,16 +72,13 @@ jobs:
           $vars = @{
             'win32' = @{
               'RunUnitTests' = $true
-              'NuGetId' = 'ReactNative.V8Jsi.Windows'
             };
             'uwp' = @{
               'RunUnitTests' = $false
-              'NuGetId' = 'ReactNative.V8Jsi.Windows.UWP'
             }
           }
           Write-Host "Setting variables for app platform ${env:AppPlatform}"
           Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
-          Write-Host "##vso[task.setvariable variable=NuGetId;isOutput=true]$($vars[$env:AppPlatform]['NuGetId'])"
         name: setvarStep
         displayName: Set AppPlatform-dependent variables
 
@@ -99,8 +96,12 @@ jobs:
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
-    variables:
-      NuGetId: $[ dependencies.V8JsiBuild.outputs['setvarStep.NuGetId'] ]
+    strategy:
+      matrix:
+        Desktop:
+          NuGetId: ReactNative.V8Jsi.Windows
+        Universal:
+          NuGetId: ReactNative.V8Jsi.Windows.UWP
     steps:
       - checkout: none
 
@@ -127,7 +128,7 @@ jobs:
         displayName: 'NuGet Pack'
         inputs:
           command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
+          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\$(NuGetId).nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
           buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
           versioningScheme: byEnvVar
