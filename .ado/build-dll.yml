@@ -2,9 +2,6 @@
 #   RunUnitTests
 
 parameters:
-# - name: runUnitTests
-#   default: true
-#   type: boolean
 - name: appPlatform
   type: string
 - name: outputPath
