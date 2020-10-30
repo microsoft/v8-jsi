@@ -14,7 +14,7 @@ pool:
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 180
-    displayName: Build and publish v8jsi.dll
+    displayName: Build v8jsi.dll
     strategy:
       matrix:
         Desktop|x64|Debug:
@@ -99,8 +99,10 @@ jobs:
       matrix:
         Desktop:
           NuGetId: ReactNative.V8Jsi.Windows
+          NuGetExcludeExtensions: ipdb
         Universal:
           NuGetId: ReactNative.V8Jsi.Windows.UWP
+          NuGetExcludeExtensions: pdb
     steps:
       - checkout: none
 
@@ -121,15 +123,16 @@ jobs:
             $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | ConvertFrom-Json
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
-        displayName: Retrieve V8 version
+            Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
+        displayName: Set AppPlatform-dependent variables
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
           command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\$(NuGetId).nuspec
+          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri)
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions)
           versioningScheme: byEnvVar
           versionEnvVar: Version
           includeSymbols: true
