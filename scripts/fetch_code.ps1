@@ -45,13 +45,13 @@ Pop-Location
 Pop-Location
 Pop-Location
 
-$verString = $config.version
+$version = [version]$config.version
 
 $gitRevision = ""
 $v8Version = ""
 
-$vermap = $verString.Split(".")
-
+#TODO: Remove before merging
+Write-Warning "CheckoutVersion: [$CheckoutVersion]"
 $Matches = $CheckOutVersion | Select-String -Pattern 'HEAD is now at (.+) Version (.+)'
 if ($Matches.Matches.Success) {
     $gitRevision = $Matches.Matches.Groups[1].Value
@@ -66,7 +66,12 @@ if (!(Test-Path -Path $OutputPath)) {
 
 $buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
 
-(Get-Content "$SourcesPath\src\version.rc") -replace ('V8JSIVER_MAJOR', $vermap[0]) -replace ('V8JSIVER_MINOR', $vermap[1]) -replace ('V8JSIVER_BUILD', $vermap[2]) -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) | Set-Content "$SourcesPath\src\version_gen.rc"
+(Get-Content "$SourcesPath\src\version.rc") `
+    -replace ('V8JSIVER_MAJOR', $version.Major) `
+    -replace ('V8JSIVER_MINOR', $version.Minor) `
+    -replace ('V8JSIVER_BUILD', $version.Build) `
+    -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) |`
+    Set-Content "$SourcesPath\src\version_gen.rc"
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
