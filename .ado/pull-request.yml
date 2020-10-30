@@ -99,10 +99,10 @@ jobs:
       matrix:
         Desktop:
           NuGetId: ReactNative.V8Jsi.Windows
-          PdbExtension: ipdb
+          NuGetExcludeExtensions: ipdb
         Universal:
           NuGetId: ReactNative.V8Jsi.Windows.UWP
-          PdbExtension: pdb
+          NuGetExcludeExtensions: pdb
     steps:
       - checkout: none
 
@@ -132,7 +132,7 @@ jobs:
           command: pack
           packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);PdbExtension=$(PdbExtension)
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions)
           versioningScheme: byEnvVar
           versionEnvVar: Version
           includeSymbols: true
