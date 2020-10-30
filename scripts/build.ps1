@@ -137,15 +137,11 @@ Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\jsi\j
 Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\jsi\jsi\"
 
 # Miscellaneous
-if ($AppPlatform -eq "uwp") {
-    (Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.targets") -replace ('win32</V8AppPlatform>', "uwp</V8AppPlatform>") | Set-Content "$OutputPath\build\native\ReactNative.V8Jsi.Windows.UWP.targets"
-} else {
-    Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
-}
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
 
-Copy-Item "$SourcesPath\config.json" -Destination "$OutputPath\"
-Copy-Item "$SourcesPath\LICENSE" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\config.json"    -Destination "$OutputPath\"
+Copy-Item "$SourcesPath\LICENSE"        -Destination "$OutputPath\license\"
 Copy-Item "$SourcesPath\LICENSE.jsi.md" -Destination "$OutputPath\license\"
-Copy-Item "$SourcesPath\LICENSE.v8.md" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\LICENSE.v8.md"  -Destination "$OutputPath\license\"
 
 Write-Host "Done!"

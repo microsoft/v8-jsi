@@ -3,15 +3,18 @@
   <metadata>
     <id>$Id$</id>
     <version>$Version$</version>
-    <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative (VERSION_DETAILS)</description>
+    <!-- VERSION_DETAILS => [UWP,] V8 version: $v8Version; Git revision: $gitRevision -->
+    <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative ($VersionDetails$)</description>
     <authors>Facebook, Google, Microsoft</authors>
     <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <repository type="git" url="$RepoUri$" commit="$CommitId$" />
   </metadata>
   <files>
-    <file src="$nugetroot$\lib\**\*.*" target="lib" exclude="**\*.iobj;**\*.ipdb;**\*.exp;**\*.ilk" />
-    <file src="$nugetroot$\build\**\*.*" target="build"/>
+    <!-- PdbExtension: win32 => ipdb, uwp => pdb -->
+    <file src="$nugetroot$\lib\**\*.*" target="lib" exclude="**\*.iobj;**\*.$PdbExtension$;**\*.exp;**\*.ilk" />
+    <file src="$nugetroot$\build\**\*.*" target="build" exclude="**\*.targets" />
+    <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\native\$Id$.targets" />
     <file src="$nugetroot$\license\*.*" target="license"/>
   </files>
 </package>
