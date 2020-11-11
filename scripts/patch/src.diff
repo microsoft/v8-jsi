@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index bda33c185f..dc2354535d 100644
+index 94b598bc9a..8af8340efe 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4077,11 +4077,18 @@ v8_component("v8_libbase") {
+@@ -4131,11 +4131,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,7 +26,7 @@ index bda33c185f..dc2354535d 100644
  
      data_deps += [ "//build/win:runtime_libs" ]
    }
-@@ -5323,3 +5330,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -5403,3 +5410,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -36,21 +36,11 @@ index bda33c185f..dc2354535d 100644
 +    "jsi:v8jsi",
 +  ]
 +}
-\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 7726a6973e..9516602b5b 100644
+index 6bddd2cc9f..4af4c2b5b2 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -206,7 +206,7 @@ deps = {
-   'test/mozilla/data':
-     Var('chromium_url') + '/v8/deps/third_party/mozilla-tests.git' + '@' + 'f6c578a10ea707b1a8ab0b88943fe5115ce2b9be',
-   'test/test262/data':
--    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + 'e73054f75e08e329e73e0f77bf92503ad5b83d0f',
-+    Var('chromium_url') + '/external/github.com/tc39/test262.git' + '@' + '323905b70e644d90faa957235f8ac59eac4ba8ba',
-   'test/test262/harness':
-     Var('chromium_url') + '/external/github.com/test262-utils/test262-harness-py.git' + '@' + '4555345a943d0c99a9461182705543fb171dda4b',
-   'third_party/qemu-linux-x64': {
-@@ -562,4 +562,15 @@ hooks = [
+@@ -566,4 +566,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -81,10 +71,10 @@ index b5fb1823b3..b5ddc1aba2 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/include/v8.h b/include/v8.h
-index a839165324..75b5f4b664 100644
+index 32687d90b5..9b1db3db1b 100644
 --- a/include/v8.h
 +++ b/include/v8.h
-@@ -9124,6 +9124,11 @@ class V8_EXPORT Isolate {
+@@ -9158,6 +9158,11 @@ class V8_EXPORT Isolate {
     */
    MicrotasksPolicy GetMicrotasksPolicy() const;
  
@@ -96,7 +86,7 @@ index a839165324..75b5f4b664 100644
    /**
     * Adds a callback to notify the host application after
     * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9150,6 +9155,10 @@ class V8_EXPORT Isolate {
+@@ -9184,6 +9189,10 @@ class V8_EXPORT Isolate {
    void RemoveMicrotasksCompletedCallback(
        MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
  
@@ -157,10 +147,10 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 5db3e34310..bc3522a1de 100644
+index 3eb11d88f5..9af389c6a8 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1065,7 +1065,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+@@ -1064,7 +1064,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
  #endif
  
  // DbgHelp isn't supported on MinGW yet
@@ -170,7 +160,7 @@ index 5db3e34310..bc3522a1de 100644
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
 diff --git a/src/compiler/machine-operator.h b/src/compiler/machine-operator.h
-index d5c03e63ca..d90c2bfe0d 100644
+index 702c050223..880aa8957e 100644
 --- a/src/compiler/machine-operator.h
 +++ b/src/compiler/machine-operator.h
 @@ -198,6 +198,9 @@ ShiftKind ShiftKindOf(Operator const*) V8_WARN_UNUSED_RESULT;
@@ -219,12 +209,12 @@ index 1cd402d8ba..c3c9df8fa1 100644
    } else {
      return EmbeddedTargetOs::kGeneric;
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-win.cc b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
-index 1aed75eccc..3811ced3df 100644
+index 310da35a7e..aef6b2830b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-win.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
-@@ -503,7 +503,7 @@ void PlatformEmbeddedFileWriterWin::SourceInfo(int fileid, const char* filename,
- void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
-                                                          uint32_t size) {
+@@ -507,7 +507,7 @@ void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
+   }
+ 
    if (target_arch_ == EmbeddedTargetArch::kArm64) {
 -    fprintf(fp_, "%s%s FUNCTION\n", SYMBOL_PREFIX, name);
 +    fprintf(fp_, "\n%s%s FUNCTION\n", SYMBOL_PREFIX, name);
@@ -248,16 +238,3 @@ index 6169acbfd6..3f390778e7 100644
  }
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
-diff --git a/tools/debug_helper/get-object-properties.cc b/tools/debug_helper/get-object-properties.cc
-index 0e8fbf02a6..9eaf2ab7d3 100644
---- a/tools/debug_helper/get-object-properties.cc
-+++ b/tools/debug_helper/get-object-properties.cc
-@@ -331,7 +331,7 @@ class ReadStringVisitor : public TqObjectVisitor {
-           Isolate::FromRoot(GetIsolateRoot(heap_addresses_.any_heap_pointer)),
-           resource_data));
- #else
--      uintptr_t data_address = reinterpret_cast<uintptr_t>(resource_data);
-+      uintptr_t data_address = static_cast<uintptr_t>(resource_data);
- #endif  // V8_COMPRESS_POINTERS
-       if (done_) return;
-       ReadStringCharacters<TChar>(object, data_address);
