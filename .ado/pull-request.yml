@@ -135,6 +135,14 @@ jobs:
         displayName: Set AppPlatform-dependent variables
 
       - task: NuGetCommand@2
+        inputs:
+          command: pack
+          packagesToPack: $(System.DefaultWorkingDirectory)\NONEXISTING.nuspec
+          versioningScheme: byEnvVar
+          versionEnvVar: Version
+          packDestination: $(System.DefaultWorkingDirectory)
+
+      - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
           command: pack
@@ -145,6 +153,10 @@ jobs:
           versionEnvVar: Version
           includeSymbols: true
           verbosityPack: Detailed
+
+      - pwsh: |
+          Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg
+        displayName: Verify NuGet packages creation
 
       # - task: PublishBuildArtifacts@1
       #   displayName: "Publish final nuget artifacts"
