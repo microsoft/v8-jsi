@@ -145,6 +145,7 @@ jobs:
           versionEnvVar: Version
           includeSymbols: true
           verbosityPack: Detailed
+        continueOnError: false
 
       - pwsh: |
           if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
