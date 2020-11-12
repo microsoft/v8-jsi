@@ -119,7 +119,7 @@ jobs:
           artifactName: V8Jsi
           downloadPath: $(System.DefaultWorkingDirectory)
           buildType: specific
-          #buildVersionToDownload: latest
+          buildVersionToDownload: specific
           buildId: 119681
           project: v8-jsi
           pipeline: Pull Request
