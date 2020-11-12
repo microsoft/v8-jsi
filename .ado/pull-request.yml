@@ -15,88 +15,88 @@ variables:
   System.Debug: true
 
 jobs:
-  # - job: V8JsiBuild
-  #   timeoutInMinutes: 180
-  #   displayName: Build v8jsi.dll
-  #   strategy:
-  #     matrix:
-  #       Desktop|x64|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: x64
-  #         AppPlatform: win32
-  #       Desktop|x86|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: x86
-  #         AppPlatform: win32
-  #       Desktop|ARM64|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: arm64
-  #         AppPlatform: win32
-  #       Desktop|x64|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: x64
-  #         AppPlatform: win32
-  #       Desktop|x86|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: x86
-  #         AppPlatform: win32
-  #       Desktop|ARM64|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: arm64
-  #         AppPlatform: win32
-  #       Universal|x64|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: x64
-  #         AppPlatform: uwp
-  #       Universal|x86|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: x86
-  #         AppPlatform: uwp
-  #       Universal|ARM64|Debug:
-  #         BuildConfiguration: Debug
-  #         BuildPlatform: arm64
-  #         AppPlatform: uwp
-  #       Universal|x64|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: x64
-  #         AppPlatform: uwp
-  #       Universal|x86|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: x86
-  #         AppPlatform: uwp
-  #       Universal|ARM64|Release:
-  #         BuildConfiguration: Release
-  #         BuildPlatform: arm64
-  #         AppPlatform: uwp
+  - job: V8JsiBuild
+    timeoutInMinutes: 180
+    displayName: Build v8jsi.dll
+    strategy:
+      matrix:
+        Desktop|x64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x64
+          AppPlatform: win32
+        Desktop|x86|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x86
+          AppPlatform: win32
+        Desktop|ARM64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          AppPlatform: win32
+        Desktop|x64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x64
+          AppPlatform: win32
+        Desktop|x86|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x86
+          AppPlatform: win32
+        Desktop|ARM64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
+          AppPlatform: win32
+        Universal|x64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x64
+          AppPlatform: uwp
+        Universal|x86|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x86
+          AppPlatform: uwp
+        Universal|ARM64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          AppPlatform: uwp
+        Universal|x64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x64
+          AppPlatform: uwp
+        Universal|x86|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x86
+          AppPlatform: uwp
+        Universal|ARM64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
+          AppPlatform: uwp
 
-  #   steps:
-  #     - pwsh: |
-  #         $vars = @{
-  #           'win32' = @{
-  #             'RunUnitTests' = $true
-  #           };
-  #           'uwp' = @{
-  #             'RunUnitTests' = $false
-  #           }
-  #         }
-  #         Write-Host "Setting variables for app platform ${env:AppPlatform}"
-  #         Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
-  #       name: setvarStep
-  #       displayName: Set AppPlatform-dependent variables
+    steps:
+      - pwsh: |
+          $vars = @{
+            'win32' = @{
+              'RunUnitTests' = $true
+            };
+            'uwp' = @{
+              'RunUnitTests' = $false
+            }
+          }
+          Write-Host "Setting variables for app platform ${env:AppPlatform}"
+          Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
+        name: setvarStep
+        displayName: Set AppPlatform-dependent variables
 
-  #     - task: UsePythonVersion@0
-  #       inputs:
-  #         versionSpec: '2.x'
-  #         addToPath: true
-  #         architecture: 'x64'
-  #     - template: build-dll.yml
-  #       parameters:
-  #         outputPath: $(Build.ArtifactStagingDirectory)
-  #         appPlatform: $(AppPlatform)
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '2.x'
+          addToPath: true
+          architecture: 'x64'
+      - template: build-dll.yml
+        parameters:
+          outputPath: $(Build.ArtifactStagingDirectory)
+          appPlatform: $(AppPlatform)
 
   - job: V8JsiPublishNuget
-    # dependsOn:
-    #   - V8JsiBuild
+    dependsOn:
+      - V8JsiBuild
     displayName: Publish Nuget
     strategy:
       matrix:
@@ -118,11 +118,6 @@ jobs:
         inputs:
           artifactName: V8Jsi
           downloadPath: $(System.DefaultWorkingDirectory)
-          buildType: specific
-          buildVersionToDownload: specific
-          buildId: 119681
-          project: v8-jsi
-          pipeline: Pull Request
 
       - task: PowerShell@2
         inputs:
@@ -144,8 +139,6 @@ jobs:
           versioningScheme: byEnvVar
           versionEnvVar: Version
           includeSymbols: true
-          verbosityPack: Detailed
-        continueOnError: false
 
       - pwsh: |
           if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
@@ -153,8 +146,8 @@ jobs:
           }
         displayName: Verify NuGet packages creation
 
-      # - task: PublishBuildArtifacts@1
-      #   displayName: "Publish final nuget artifacts"
-      #   inputs:
-      #     PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
-      #     ArtifactName: "V8Jsi-final-nuget"
+      - task: PublishBuildArtifacts@1
+        displayName: "Publish final nuget artifacts"
+        inputs:
+          PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
+          ArtifactName: "V8Jsi-final-nuget"
