@@ -118,6 +118,7 @@ jobs:
           buildType: specific
           buildVersionToDownload: latest
           buildId: 119681
+          pipeline: Pull Request
 
       - task: PowerShell@2
         inputs:
