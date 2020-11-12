@@ -97,3 +97,6 @@ $boostPkg = Select-Xml  -Path (Join-Path $SourcesPath 'packages.config') -XPath 
 
 $env:BOOST_ROOT = Join-Path $workpath "v8build/boost.$($boostPkg.version)\lib\native\include"
 Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
+
+echo 'outpath:'
+Get-ChildItem -Name -Recurse $OutputPath
