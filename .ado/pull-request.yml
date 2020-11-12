@@ -144,6 +144,7 @@ jobs:
           versioningScheme: byEnvVar
           versionEnvVar: Version
           includeSymbols: true
+          verbosityPack: Detailed
 
       # - task: PublishBuildArtifacts@1
       #   displayName: "Publish final nuget artifacts"
