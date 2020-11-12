@@ -11,6 +11,9 @@ pr:
 pool:
   vmImage: 'windows-2019'
 
+variables:
+  System.Debug: true
+
 jobs:
   # - job: V8JsiBuild
   #   timeoutInMinutes: 180
@@ -118,6 +121,7 @@ jobs:
           buildType: specific
           buildVersionToDownload: latest
           buildId: 119681
+          project: v8-jsi
           pipeline: Pull Request
 
       - task: PowerShell@2
