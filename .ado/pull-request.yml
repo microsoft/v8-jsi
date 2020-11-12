@@ -135,14 +135,6 @@ jobs:
         displayName: Set AppPlatform-dependent variables
 
       - task: NuGetCommand@2
-        inputs:
-          command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\NONEXISTING.nuspec
-          versioningScheme: byEnvVar
-          versionEnvVar: Version
-          packDestination: $(System.DefaultWorkingDirectory)
-
-      - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
           command: pack
@@ -155,7 +147,9 @@ jobs:
           verbosityPack: Detailed
 
       - pwsh: |
-          Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg
+          if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
+            Write-Error 'No NUPKG generated'
+          }
         displayName: Verify NuGet packages creation
 
       # - task: PublishBuildArtifacts@1
