@@ -11,9 +11,6 @@ pr:
 pool:
   vmImage: 'windows-2019'
 
-variables:
-  System.Debug: true
-
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 180
