@@ -137,6 +137,12 @@ jobs:
           versionEnvVar: Version
           includeSymbols: true
 
+      - pwsh: |
+          if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
+            Write-Error 'No NUPKG generated'
+          }
+        displayName: Verify NuGet packages creation
+
       - task: PublishBuildArtifacts@1
         displayName: "Publish final nuget artifacts"
         inputs:

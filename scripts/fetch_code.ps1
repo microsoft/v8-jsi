@@ -73,6 +73,8 @@ $buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
     -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) |`
     Set-Content "$SourcesPath\src\version_gen.rc"
 
+Copy-Item $SourcesPath\ReactNative.V8Jsi.Windows.nuspec $OutputPath
+
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build depndencies for Android
