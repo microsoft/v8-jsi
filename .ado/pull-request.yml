@@ -100,9 +100,11 @@ jobs:
         Desktop:
           NuGetId: ReactNative.V8Jsi.Windows
           NuGetExcludeExtensions: ipdb
+          NuGetIncludeSymbols: false
         Universal:
           NuGetId: ReactNative.V8Jsi.Windows.UWP
           NuGetExcludeExtensions: pdb
+          NuGetIncludeSymbols: true
     steps:
       - checkout: none
 
@@ -135,7 +137,7 @@ jobs:
           buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions)
           versioningScheme: byEnvVar
           versionEnvVar: Version
-          includeSymbols: true
+          includeSymbols: $(NuGetIncludeSymbols)
 
       - pwsh: |
           if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
