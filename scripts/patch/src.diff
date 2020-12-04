@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 65d137cbed..56b1bd6779 100644
+index 94b598bc9a..8af8340efe 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -3985,11 +3985,18 @@ v8_component("v8_libbase") {
+@@ -4131,11 +4131,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,7 +26,7 @@ index 65d137cbed..56b1bd6779 100644
  
      data_deps += [ "//build/win:runtime_libs" ]
    }
-@@ -5208,3 +5215,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -5403,3 +5410,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -36,13 +36,12 @@ index 65d137cbed..56b1bd6779 100644
 +    "jsi:v8jsi",
 +  ]
 +}
-\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 4c02904d70..87ac0c20e0 100644
+index 6bddd2cc9f..4af4c2b5b2 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -549,4 +549,15 @@ hooks = [
-       'v8/tools/generate-header-include-checks.py',
+@@ -566,4 +566,15 @@ hooks = [
+       'tools/generate-header-include-checks.py',
      ],
    },
 +  {
@@ -53,7 +52,7 @@ index 4c02904d70..87ac0c20e0 100644
 +                '--no_resume',
 +                '--no_auth',
 +                '--bucket', 'chromium-browser-clang/rc',
-+                '-s', 'v8/build/toolchain/win/rc/win/rc.exe.sha1',
++                '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
 +    ],
 +  }
  ]
@@ -72,10 +71,10 @@ index b5fb1823b3..b5ddc1aba2 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/include/v8.h b/include/v8.h
-index 13b40db28e..65335f4047 100644
+index 32687d90b5..9b1db3db1b 100644
 --- a/include/v8.h
 +++ b/include/v8.h
-@@ -9089,6 +9089,11 @@ class V8_EXPORT Isolate {
+@@ -9158,6 +9158,11 @@ class V8_EXPORT Isolate {
     */
    MicrotasksPolicy GetMicrotasksPolicy() const;
  
@@ -87,7 +86,7 @@ index 13b40db28e..65335f4047 100644
    /**
     * Adds a callback to notify the host application after
     * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9115,6 +9120,10 @@ class V8_EXPORT Isolate {
+@@ -9184,6 +9189,10 @@ class V8_EXPORT Isolate {
    void RemoveMicrotasksCompletedCallback(
        MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
  
@@ -148,10 +147,10 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 5db3e34310..bc3522a1de 100644
+index 3eb11d88f5..9af389c6a8 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1065,7 +1065,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+@@ -1064,7 +1064,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
  #endif
  
  // DbgHelp isn't supported on MinGW yet
@@ -160,6 +159,48 @@ index 5db3e34310..bc3522a1de 100644
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
+diff --git a/src/compiler/c-linkage.cc b/src/compiler/c-linkage.cc
+index af467f2bb1..48ce5b8e51 100644
+--- a/src/compiler/c-linkage.cc
++++ b/src/compiler/c-linkage.cc
+@@ -139,7 +139,7 @@ namespace {
+ #endif
+ }  // namespace
+ 
+-#ifdef V8_TARGET_OS_WIN
++#if defined(V8_TARGET_OS_WIN) && defined(V8_TARGET_ARCH_X64)
+ // As defined in
+ // https://docs.microsoft.com/en-us/cpp/build/x64-calling-convention?view=vs-2019#parameter-passing,
+ // Windows calling convention doesn't differentiate between GP and FP params
+@@ -176,11 +176,12 @@ void BuildParameterLocations(const MachineSignature* msig,
+     }
+   }
+ }
+-#else  // V8_TARGET_OS_WIN
++#else  // defined(V8_TARGET_OS_WIN) && defined(V8_TARGET_ARCH_X64)
+ // As defined in https://www.agner.org/optimize/calling_conventions.pdf,
+ // Section 7, Linux and Mac place parameters in consecutive registers,
+ // differentiating between GP and FP params. That's why we maintain two
+-// separate counters here.
++// separate counters here. This also applies to Arm systems following
++// the AAPCS and Windows on Arm.
+ void BuildParameterLocations(const MachineSignature* msig,
+                              size_t kFPParamRegisterCount,
+                              size_t kParamRegisterCount,
+diff --git a/src/compiler/machine-operator.h b/src/compiler/machine-operator.h
+index 702c050223..880aa8957e 100644
+--- a/src/compiler/machine-operator.h
++++ b/src/compiler/machine-operator.h
+@@ -198,6 +198,9 @@ ShiftKind ShiftKindOf(Operator const*) V8_WARN_UNUSED_RESULT;
+ // like x64 and ia32 where a range overflow does not result in INT_MAX.
+ enum class TruncateKind { kArchitectureDefault, kSetOverflowToMin };
+ 
++size_t hash_value(TruncateKind);
++V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, TruncateKind);
++
+ // Interface for building machine-level operators. These operators are
+ // machine-level but machine-independent and thus define a language suitable
+ // for generating code to run on architectures such as ia32, x64, arm, etc.
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
 index f3b9a753af..ed9c79a5b3 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
@@ -195,23 +236,21 @@ index 1cd402d8ba..c3c9df8fa1 100644
      return EmbeddedTargetOs::kWin;
    } else {
      return EmbeddedTargetOs::kGeneric;
-diff --git a/src/torque/declaration-visitor.cc b/src/torque/declaration-visitor.cc
-index 99b7bdddcd..8a227a614a 100644
---- a/src/torque/declaration-visitor.cc
-+++ b/src/torque/declaration-visitor.cc
-@@ -372,7 +372,9 @@ Callable* DeclarationVisitor::Specialize(
- }
+diff --git a/src/snapshot/embedded/platform-embedded-file-writer-win.cc b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
+index 310da35a7e..aef6b2830b 100644
+--- a/src/snapshot/embedded/platform-embedded-file-writer-win.cc
++++ b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
+@@ -507,7 +507,7 @@ void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
+   }
  
- void PredeclarationVisitor::ResolvePredeclarations() {
--  for (auto& p : GlobalContext::AllDeclarables()) {
-+  const std::vector<std::unique_ptr<Declarable>>& all_declarables = GlobalContext::AllDeclarables();
-+  for (size_t i = 0; i < all_declarables.size(); ++i) {
-+    auto& p = all_declarables[i];
-     if (const TypeAlias* alias = TypeAlias::DynamicCast(p.get())) {
-       CurrentScope::Scope scope_activator(alias->ParentScope());
-       CurrentSourcePosition::Scope position_activator(alias->Position());
+   if (target_arch_ == EmbeddedTargetArch::kArm64) {
+-    fprintf(fp_, "%s%s FUNCTION\n", SYMBOL_PREFIX, name);
++    fprintf(fp_, "\n%s%s FUNCTION\n", SYMBOL_PREFIX, name);
+ 
+   } else {
+     fprintf(fp_, "%s%s PROC\n", SYMBOL_PREFIX, name);
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 12dfaf9572..b16b0b0020 100644
+index 6169acbfd6..3f390778e7 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -74,8 +74,10 @@ const int kAllocationTries = 2;
@@ -227,16 +266,3 @@ index 12dfaf9572..b16b0b0020 100644
  }
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
-diff --git a/tools/debug_helper/get-object-properties.cc b/tools/debug_helper/get-object-properties.cc
-index 0e8fbf02a6..9eaf2ab7d3 100644
---- a/tools/debug_helper/get-object-properties.cc
-+++ b/tools/debug_helper/get-object-properties.cc
-@@ -331,7 +331,7 @@ class ReadStringVisitor : public TqObjectVisitor {
-           Isolate::FromRoot(GetIsolateRoot(heap_addresses_.any_heap_pointer)),
-           resource_data));
- #else
--      uintptr_t data_address = reinterpret_cast<uintptr_t>(resource_data);
-+      uintptr_t data_address = static_cast<uintptr_t>(resource_data);
- #endif  // V8_COMPRESS_POINTERS
-       if (done_) return;
-       ReadStringCharacters<TChar>(object, data_address);

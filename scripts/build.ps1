@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [string]$OutputPath = "$PSScriptRoot\out",
-    [string]$SourcesPath = $PSScriptRoot,
+    [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
     [string]$Platform = "x64",
     [string]$Configuration = "Release",
     [string]$AppPlatform = "win32",
@@ -92,6 +92,9 @@ if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildou
 if (!(Test-Path -Path "$OutputPath\build\native\include\jsi")) {
     New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\jsi" | Out-Null
 }
+if (!(Test-Path -Path "$OutputPath\build\native\jsi\jsi")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\jsi\jsi" | Out-Null
+}
 if (!(Test-Path -Path "$OutputPath\license")) {
     New-Item -ItemType "directory" -Path "$OutputPath\license" | Out-Null
 }
@@ -125,23 +128,20 @@ Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$AppPlatform\$Con
 # Headers
 Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\build\native\include\"
 Copy-Item "$jsigitpath\public\V8JsiRuntime.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\include\jsi\"
-Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\build\native\include\jsi\"
+
+Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\jsi\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi-inl.h" -Destination "$OutputPath\build\native\jsi\jsi\"
 
 # Source code - won't be needed after we have a proper ABI layer
-Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\include\jsi\"
-Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\include\jsi\"
+Copy-Item "$jsigitpath\jsi\jsi.cpp" -Destination "$OutputPath\build\native\jsi\jsi\"
+Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\native\jsi\jsi\"
 
 # Miscellaneous
-if ($AppPlatform -eq "uwp") {
-    (Get-Content "$SourcesPath\ReactNative.V8Jsi.Windows.targets") -replace ('win32</V8AppPlatform>', "uwp</V8AppPlatform>") | Set-Content "$OutputPath\build\native\ReactNative.V8Jsi.Windows.UWP.targets"
-} else {
-    Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
-}
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
 
-Copy-Item "$SourcesPath\config.json" -Destination "$OutputPath\"
-Copy-Item "$SourcesPath\LICENSE" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\config.json"    -Destination "$OutputPath\"
+Copy-Item "$SourcesPath\LICENSE"        -Destination "$OutputPath\license\"
 Copy-Item "$SourcesPath\LICENSE.jsi.md" -Destination "$OutputPath\license\"
-Copy-Item "$SourcesPath\LICENSE.v8.md" -Destination "$OutputPath\license\"
+Copy-Item "$SourcesPath\LICENSE.v8.md"  -Destination "$OutputPath\license\"
 
 Write-Host "Done!"
