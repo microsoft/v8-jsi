@@ -47,7 +47,11 @@ target("shared_library", "v8jsi") {
       "inspector/llhttp_http.c"
     ]
 
-    ldflags = [ "/OPT:REF", "/INCREMENTAL:NO", "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
+    ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
+
+    if (!is_clang) {
+      ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
+    }
   }
 
   include_dirs = [ ".", "../include", "jsi", getenv("BOOST_ROOT") ]
