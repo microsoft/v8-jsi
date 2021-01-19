@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 94b598bc9a..8af8340efe 100644
+index f39529a3a9..b0275712b9 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4131,11 +4131,18 @@ v8_component("v8_libbase") {
+@@ -4270,11 +4270,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -24,9 +24,9 @@ index 94b598bc9a..8af8340efe 100644
 +      ]
 +    }
  
-     data_deps += [ "//build/win:runtime_libs" ]
-   }
-@@ -5403,3 +5410,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+     if (v8_enable_system_instrumentation) {
+       libs += [ "advapi32.lib" ]  # Needed for TraceLoggingProvider.h
+@@ -5636,3 +5643,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -37,25 +37,26 @@ index 94b598bc9a..8af8340efe 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 6bddd2cc9f..4af4c2b5b2 100644
+index e6c2e762e0..d31cad8f1d 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -566,4 +566,15 @@ hooks = [
+@@ -568,4 +568,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
-+  {
-+    'name': 'rc_win',
-+    'pattern': '.',
-+    'condition': 'checkout_win and host_os == "win"',
-+    'action': [ 'download_from_google_storage',
-+                '--no_resume',
-+                '--no_auth',
-+                '--bucket', 'chromium-browser-clang/rc',
-+                '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
-+    ],
-+  }
++ {
++   'name': 'rc_win',
++   'pattern': '.',
++   'condition': 'checkout_win and host_os == "win"',
++   'action': [ 'download_from_google_storage',
++               '--no_resume',
++               '--no_auth',
++               '--bucket', 'chromium-browser-clang/rc',
++               '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
++   ],
++ }
  ]
+\ No newline at end of file
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
 index b5fb1823b3..b5ddc1aba2 100644
 --- a/gni/snapshot_toolchain.gni
@@ -70,33 +71,6 @@ index b5fb1823b3..b5ddc1aba2 100644
    } else if (host_cpu == "x64") {
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
-diff --git a/include/v8.h b/include/v8.h
-index 32687d90b5..9b1db3db1b 100644
---- a/include/v8.h
-+++ b/include/v8.h
-@@ -9158,6 +9158,11 @@ class V8_EXPORT Isolate {
-    */
-   MicrotasksPolicy GetMicrotasksPolicy() const;
- 
-+#ifdef _MSC_VER
-+#pragma warning(push)
-+#pragma warning(disable: 4996)
-+#endif
-+
-   /**
-    * Adds a callback to notify the host application after
-    * microtasks were run on the default MicrotaskQueue. The callback is
-@@ -9184,6 +9189,10 @@ class V8_EXPORT Isolate {
-   void RemoveMicrotasksCompletedCallback(
-       MicrotasksCompletedCallbackWithData callback, void* data = nullptr);
- 
-+#ifdef _MSC_VER
-+#pragma warning(pop)
-+#endif
-+
-   /**
-    * Sets a callback for counting the number of times a feature of V8 is used.
-    */
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
 index f981bec610..c054ba8dc9 100644
 --- a/src/base/debug/stack_trace_win.cc
@@ -147,10 +121,10 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 3eb11d88f5..9af389c6a8 100644
+index 7f6c0e97d2..3a752cf789 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1064,7 +1064,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+@@ -1069,7 +1069,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
  #endif
  
  // DbgHelp isn't supported on MinGW yet
@@ -159,53 +133,11 @@ index 3eb11d88f5..9af389c6a8 100644
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
-diff --git a/src/compiler/c-linkage.cc b/src/compiler/c-linkage.cc
-index af467f2bb1..48ce5b8e51 100644
---- a/src/compiler/c-linkage.cc
-+++ b/src/compiler/c-linkage.cc
-@@ -139,7 +139,7 @@ namespace {
- #endif
- }  // namespace
- 
--#ifdef V8_TARGET_OS_WIN
-+#if defined(V8_TARGET_OS_WIN) && defined(V8_TARGET_ARCH_X64)
- // As defined in
- // https://docs.microsoft.com/en-us/cpp/build/x64-calling-convention?view=vs-2019#parameter-passing,
- // Windows calling convention doesn't differentiate between GP and FP params
-@@ -176,11 +176,12 @@ void BuildParameterLocations(const MachineSignature* msig,
-     }
-   }
- }
--#else  // V8_TARGET_OS_WIN
-+#else  // defined(V8_TARGET_OS_WIN) && defined(V8_TARGET_ARCH_X64)
- // As defined in https://www.agner.org/optimize/calling_conventions.pdf,
- // Section 7, Linux and Mac place parameters in consecutive registers,
- // differentiating between GP and FP params. That's why we maintain two
--// separate counters here.
-+// separate counters here. This also applies to Arm systems following
-+// the AAPCS and Windows on Arm.
- void BuildParameterLocations(const MachineSignature* msig,
-                              size_t kFPParamRegisterCount,
-                              size_t kParamRegisterCount,
-diff --git a/src/compiler/machine-operator.h b/src/compiler/machine-operator.h
-index 702c050223..880aa8957e 100644
---- a/src/compiler/machine-operator.h
-+++ b/src/compiler/machine-operator.h
-@@ -198,6 +198,9 @@ ShiftKind ShiftKindOf(Operator const*) V8_WARN_UNUSED_RESULT;
- // like x64 and ia32 where a range overflow does not result in INT_MAX.
- enum class TruncateKind { kArchitectureDefault, kSetOverflowToMin };
- 
-+size_t hash_value(TruncateKind);
-+V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream&, TruncateKind);
-+
- // Interface for building machine-level operators. These operators are
- // machine-level but machine-independent and thus define a language suitable
- // for generating code to run on architectures such as ia32, x64, arm, etc.
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index f3b9a753af..ed9c79a5b3 100644
+index 9a5f7069e7..a53c0ad644 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
-@@ -527,7 +527,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
+@@ -528,7 +528,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
    // by the embedder (like Crashpad).
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
@@ -214,7 +146,7 @@ index f3b9a753af..ed9c79a5b3 100644
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
-@@ -566,7 +566,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
+@@ -567,7 +567,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
    DCHECK(CanRegisterUnwindInfoForNonABICompliantCodeRange());
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
@@ -223,11 +155,72 @@ index f3b9a753af..ed9c79a5b3 100644
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
+diff --git a/src/handles/global-handles.h b/src/handles/global-handles.h
+index 237cedbbb5..9a583b028f 100644
+--- a/src/handles/global-handles.h
++++ b/src/handles/global-handles.h
+@@ -347,7 +347,12 @@ class GlobalHandleVector {
+   };
+ 
+   explicit GlobalHandleVector(Heap* heap)
+-      : locations_(StrongRootBlockAllocator(heap)) {}
++#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
++      : locations_()
++#else
++      : locations_(StrongRootBlockAllocator(heap))
++#endif
++      {}
+ 
+   Handle<T> operator[](size_t i) { return Handle<T>(&locations_[i]); }
+ 
+diff --git a/src/heap/heap.cc b/src/heap/heap.cc
+index 235d17615d..36f566a3a0 100644
+--- a/src/heap/heap.cc
++++ b/src/heap/heap.cc
+@@ -6755,6 +6755,8 @@ void Heap::IncrementObjectCounters() {
+ }
+ #endif  // DEBUG
+ 
++#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
++#else
+ // StrongRootBlocks are allocated as a block of addresses, prefixed with a
+ // StrongRootsEntry pointer:
+ //
+@@ -6790,6 +6792,7 @@ void StrongRootBlockAllocator::deallocate(Address* p, size_t n) noexcept {
+ 
+   base::Free(block);
+ }
++#endif
+ 
+ }  // namespace internal
+ }  // namespace v8
+diff --git a/src/heap/heap.h b/src/heap/heap.h
+index 24b92e8bc8..4e985e6cc6 100644
+--- a/src/heap/heap.h
++++ b/src/heap/heap.h
+@@ -2639,6 +2639,9 @@ T ForwardingAddress(T heap_obj) {
+ 
+ // Address block allocator compatible with standard containers which registers
+ // its allocated range as strong roots.
++#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
++using StrongRootBlockAllocator = std::allocator<Address>;
++#else
+ class StrongRootBlockAllocator {
+  public:
+   using pointer = Address*;
+@@ -2662,6 +2665,7 @@ class StrongRootBlockAllocator {
+  private:
+   Heap* heap_;
+ };
++#endif
+ 
+ }  // namespace internal
+ }  // namespace v8
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index 1cd402d8ba..c3c9df8fa1 100644
+index cf380b015d..e5461ea89e 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-@@ -138,7 +138,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
+@@ -139,7 +139,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
      return EmbeddedTargetOs::kFuchsia;
    } else if (string == "ios" || string == "mac") {
      return EmbeddedTargetOs::kMac;
@@ -236,24 +229,11 @@ index 1cd402d8ba..c3c9df8fa1 100644
      return EmbeddedTargetOs::kWin;
    } else {
      return EmbeddedTargetOs::kGeneric;
-diff --git a/src/snapshot/embedded/platform-embedded-file-writer-win.cc b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
-index 310da35a7e..aef6b2830b 100644
---- a/src/snapshot/embedded/platform-embedded-file-writer-win.cc
-+++ b/src/snapshot/embedded/platform-embedded-file-writer-win.cc
-@@ -507,7 +507,7 @@ void PlatformEmbeddedFileWriterWin::DeclareFunctionBegin(const char* name,
-   }
- 
-   if (target_arch_ == EmbeddedTargetArch::kArm64) {
--    fprintf(fp_, "%s%s FUNCTION\n", SYMBOL_PREFIX, name);
-+    fprintf(fp_, "\n%s%s FUNCTION\n", SYMBOL_PREFIX, name);
- 
-   } else {
-     fprintf(fp_, "%s%s PROC\n", SYMBOL_PREFIX, name);
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 6169acbfd6..3f390778e7 100644
+index db4d3ac13b..fac0b2a643 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -74,8 +74,10 @@ const int kAllocationTries = 2;
+@@ -76,8 +76,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
