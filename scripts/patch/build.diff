@@ -1,8 +1,8 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index 06c166f71..e047333af 100644
+index 5ea2f2130..9a88e0651 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1354,8 +1354,6 @@ config("default_warnings") {
+@@ -1376,8 +1376,6 @@ config("default_warnings") {
        "/wd4512",  # Assignment operator could not be generated.
        "/wd4610",  # Class can never be instantiated, constructor required.
        "/wd4838",  # Narrowing conversion. Doesn't seem to be very useful.
@@ -11,7 +11,7 @@ index 06c166f71..e047333af 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1664,7 +1662,6 @@ config("no_chromium_code") {
+@@ -1676,7 +1674,6 @@ config("no_chromium_code") {
        "/W3",  # Warning level 3.
        "/wd4800",  # Disable warning when forcing value to bool.
        "/wd4267",  # TODO(jschuh): size_t to int.
@@ -20,10 +20,10 @@ index 06c166f71..e047333af 100644
      defines += [
        "_CRT_NONSTDC_NO_WARNINGS",
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 6cc4b1b9f..befe15776 100644
+index 51437c66c..728555267 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -458,7 +458,7 @@ config("default_crt") {
+@@ -486,7 +486,7 @@ config("default_crt") {
        configs = [ ":dynamic_crt" ]
      } else {
        # Desktop Windows: static CRT.
@@ -32,9 +32,9 @@ index 6cc4b1b9f..befe15776 100644
      }
    }
  }
-@@ -584,3 +584,11 @@ config("cygprofile_instrumentation") {
-     "-finstrument-functions-after-inlining",
-   ]
+@@ -594,3 +594,11 @@ config("lean_and_mean") {
+ config("nominmax") {
+   defines = [ "NOMINMAX" ]
  }
 +
 +# Control Flow Guard (CFG)
