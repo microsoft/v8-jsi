@@ -37,7 +37,7 @@ index f39529a3a9..b0275712b9 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index e6c2e762e0..d31cad8f1d 100644
+index e6c2e762e0..d7f0294a38 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -568,4 +568,15 @@ hooks = [
@@ -56,7 +56,6 @@ index e6c2e762e0..d31cad8f1d 100644
 +   ],
 + }
  ]
-\ No newline at end of file
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
 index b5fb1823b3..b5ddc1aba2 100644
 --- a/gni/snapshot_toolchain.gni
@@ -155,67 +154,46 @@ index 9a5f7069e7..a53c0ad644 100644
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
-diff --git a/src/handles/global-handles.h b/src/handles/global-handles.h
-index 237cedbbb5..9a583b028f 100644
---- a/src/handles/global-handles.h
-+++ b/src/handles/global-handles.h
-@@ -347,7 +347,12 @@ class GlobalHandleVector {
-   };
- 
-   explicit GlobalHandleVector(Heap* heap)
--      : locations_(StrongRootBlockAllocator(heap)) {}
-+#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
-+      : locations_()
-+#else
-+      : locations_(StrongRootBlockAllocator(heap))
-+#endif
-+      {}
- 
-   Handle<T> operator[](size_t i) { return Handle<T>(&locations_[i]); }
- 
-diff --git a/src/heap/heap.cc b/src/heap/heap.cc
-index 235d17615d..36f566a3a0 100644
---- a/src/heap/heap.cc
-+++ b/src/heap/heap.cc
-@@ -6755,6 +6755,8 @@ void Heap::IncrementObjectCounters() {
- }
- #endif  // DEBUG
- 
-+#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
-+#else
- // StrongRootBlocks are allocated as a block of addresses, prefixed with a
- // StrongRootsEntry pointer:
- //
-@@ -6790,6 +6792,7 @@ void StrongRootBlockAllocator::deallocate(Address* p, size_t n) noexcept {
- 
-   base::Free(block);
- }
-+#endif
- 
- }  // namespace internal
- }  // namespace v8
 diff --git a/src/heap/heap.h b/src/heap/heap.h
-index 24b92e8bc8..4e985e6cc6 100644
+index 24b92e8bc8..a636c5d8c4 100644
 --- a/src/heap/heap.h
 +++ b/src/heap/heap.h
-@@ -2639,6 +2639,9 @@ T ForwardingAddress(T heap_obj) {
+@@ -2649,10 +2649,7 @@ class StrongRootBlockAllocator {
+   using size_type = size_t;
+   using difference_type = ptrdiff_t;
+   template <class U>
+-  struct rebind {
+-    STATIC_ASSERT((std::is_same<Address, U>::value));
+-    using other = StrongRootBlockAllocator;
+-  };
++  struct rebind;
  
- // Address block allocator compatible with standard containers which registers
- // its allocated range as strong roots.
-+#if defined(_MSC_VER) && (_ITERATOR_DEBUG_LEVEL != 0)
-+using StrongRootBlockAllocator = std::allocator<Address>;
-+#else
- class StrongRootBlockAllocator {
-  public:
-   using pointer = Address*;
-@@ -2662,6 +2665,7 @@ class StrongRootBlockAllocator {
-  private:
+   explicit StrongRootBlockAllocator(Heap* heap) : heap_(heap) {}
+ 
+@@ -2663,6 +2660,23 @@ class StrongRootBlockAllocator {
    Heap* heap_;
  };
-+#endif
  
++// Rebinding to Address gives another StrongRootBlockAllocator.
++template <>
++struct StrongRootBlockAllocator::rebind<Address> {
++  using other = StrongRootBlockAllocator;
++};
++
++// Rebinding to something other than Address gives a std::allocator that
++// is copy-constructable from StrongRootBlockAllocator.
++template <class U>
++struct StrongRootBlockAllocator::rebind {
++  class other : public std::allocator<U> {
++   public:
++    // NOLINTNEXTLINE
++    other(const StrongRootBlockAllocator&) {}
++  };
++};
++
  }  // namespace internal
  }  // namespace v8
+ 
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index cf380b015d..e5461ea89e 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
