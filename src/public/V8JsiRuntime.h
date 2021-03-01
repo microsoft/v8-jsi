@@ -78,16 +78,20 @@ struct V8RuntimeArgs {
 
   bool backgroundMode{false};
 
-  bool enableTracing{false};
-  bool enableJitTracing{false};
-  bool enableMessageTracing{false};
-  bool enableLog{false};
-  bool enableGCTracing{false};
+  // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over them.
+  bool trackGCObjectStats{true};
+  bool enableTracing{true};
+  bool enableJitTracing{true};
+  bool enableMessageTracing{true};
+  bool enableLog{true};
+  bool enableGCTracing{true};
 
-  bool enableInspector{false};
-  bool waitForDebugger{false};
+  // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
+  // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket port open, which should be very small.
+  bool enableInspector{true };
+  bool waitForDebugger{false };
 
-  // To debug using vscode node adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
+  // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
   // {
   // "version" : "0.2.0",
   // "configurations" : [
@@ -101,7 +105,7 @@ struct V8RuntimeArgs {
   // ]
   //
   //
-  // To debug with edge, navigate to "edge:\\inspect", and configure netword target discovery by adding "localhost:9223" to the list.
+  // To debug with edge, navigate to "edge:\\inspect", and configure network target discovery by adding "localhost:9223" to the list. Debug target should soon appear ( < 5 seconds).
   // To debug with chrome, navigate to "chrome:\\inspect", and follow the same step as above.
   uint16_t inspectorPort{9223};
 
