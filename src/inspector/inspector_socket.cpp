@@ -11,6 +11,12 @@
 #include <cstdint>
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>
+#include "etw/tracing.h"
+#endif
+
+
 typedef llhttp_type_t parser_type_t;
 typedef llhttp_errno_t parser_errno_t;
 typedef llhttp_settings_t parser_settings_t;
@@ -151,7 +157,7 @@ enum ws_decode_result {
 
 static void generate_accept_string(const std::string& client_key,
                                    char (*buffer)[ACCEPT_KEY_LENGTH]) {
-  // Magic string from websockets spec.
+  // Magic string from websockets spec: https://tools.ietf.org/html/rfc6455
   static const char ws_magic[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
   std::string input(client_key + ws_magic);
 
@@ -339,10 +345,15 @@ class WsHandler : public ProtocolHandler {
     }
   }
 
-  void AcceptUpgrade(const std::string& accept_key) override { }
-  void CancelHandshake() override {}
+  void AcceptUpgrade(const std::string& accept_key) override {
+    TRACEV8INSPECTOR_VERBOSE("WsHandler::AcceptUpgrade");
+  }
+  void CancelHandshake() override {
+    TRACEV8INSPECTOR_VERBOSE("WsHandler::CancelHandshake");
+  }
 
   void OnEof() override {
+    TRACEV8INSPECTOR_VERBOSE("WsHandler::OnEof");
     if (tcp_)
     {
       tcp_.reset();
@@ -350,6 +361,8 @@ class WsHandler : public ProtocolHandler {
   }
 
   void OnData(std::vector<char>* data) override {
+    TRACEV8INSPECTOR_VERBOSE("WsHandler::OnData",
+                      TraceLoggingString(data->data(), "data"));
     // 1. Parse.
     size_t processed = 0;
     do {
@@ -362,6 +375,8 @@ class WsHandler : public ProtocolHandler {
   }
 
   void Write(const std::vector<char> data) override {
+    TRACEV8INSPECTOR_VERBOSE("WsHandler::Write");
+
     std::vector<char> output = encode_frame_hybi17(data);
     WriteRaw(output/*, WriteRequest::Cleanup*/);
   }
@@ -395,19 +410,21 @@ class WsHandler : public ProtocolHandler {
     size_t bytes_consumed = 0;
     std::vector<char> output;
     bool compressed = false;
-
     ws_decode_result r =  decode_frame_hybi17(buffer,
                                               true /* client_frame */,
                                               &bytes_consumed, &output,
                                               &compressed);
     // Compressed frame means client is ignoring the headers and misbehaves
     if (compressed || r == FRAME_ERROR) {
+      TRACEV8INSPECTOR_VERBOSE("WsHandler::ParseWsFrames::OnEof");
       OnEof();
       bytes_consumed = 0;
     } else if (r == FRAME_CLOSE) {
+      TRACEV8INSPECTOR_VERBOSE("WsHandler::ParseWsFrames::FRAME_CLOSE");
       (this->*OnCloseRecieved)();
       bytes_consumed = 0;
     } else if (r == FRAME_OK) {
+      TRACEV8INSPECTOR_VERBOSE("WsHandler::FRAME_OK");
       delegate()->OnWsFrame(output);
     }
     return bytes_consumed;
@@ -447,6 +464,8 @@ class HttpHandler : public ProtocolHandler {
   }
 
   void AcceptUpgrade(const std::string& accept_key) override {
+    TRACEV8INSPECTOR_VERBOSE("HttpHandler::AcceptUpgrade",
+                      TraceLoggingString(accept_key.c_str(), "accept_key"));
     char accept_string[ACCEPT_KEY_LENGTH];
     generate_accept_string(accept_key, &accept_string);
     const char accept_ws_prefix[] = "HTTP/1.1 101 Switching Protocols\r\n"
@@ -468,6 +487,8 @@ class HttpHandler : public ProtocolHandler {
   }
 
   void CancelHandshake() override {
+    TRACEV8INSPECTOR_VERBOSE("HttpHandler::CancelHandshake");
+
     const char HANDSHAKE_FAILED_RESPONSE[] =
         "HTTP/1.0 400 Bad Request\r\n"
         "Content-Type: text/html; charset=UTF-8\r\n\r\n"
@@ -479,10 +500,14 @@ class HttpHandler : public ProtocolHandler {
 
 
   void OnEof() override {
+    TRACEV8INSPECTOR_VERBOSE("HttpHandler::OnEof");
     tcp_.reset();
   }
 
   void OnData(std::vector<char>* data) override {
+
+    TRACEV8INSPECTOR_VERBOSE("HttpHandler::OnData");
+
     parser_errno_t err;
     err = llhttp_execute(&parser_, data->data(), data->size());
 
@@ -646,13 +671,6 @@ int TcpHolder::WriteRaw(const std::vector<char>& buffer/*, uv_write_cb write_cb*
   printf("\n");
 #endif
 
-  // Freed in write_request_cleanup
-  /*WriteRequest* wr = new WriteRequest(handler_, buffer);
-  uv_stream_t* stream = reinterpret_cast<uv_stream_t*>(&tcp_);
-  int err = uv_write(&wr->req, stream, &wr->buf, 1, write_cb);
-  if (err < 0)
-    delete wr;
-  return err < 0;*/
   connection_->write_async(buffer);
   return 0;
 }

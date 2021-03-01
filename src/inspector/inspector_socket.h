@@ -13,7 +13,6 @@ namespace inspector {
 
 class ProtocolHandler;
 
-// HTTP Wrapper around a uv_tcp_t
 class InspectorSocket {
  public:
   InspectorSocket() = default;

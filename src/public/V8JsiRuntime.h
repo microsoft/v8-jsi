@@ -87,8 +87,23 @@ struct V8RuntimeArgs {
   bool enableInspector{false};
   bool waitForDebugger{false};
 
-  // chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=localhost:9229
-  uint16_t inspectorPort{9229};
+  // To debug using vscode node adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
+  // {
+  // "version" : "0.2.0",
+  // "configurations" : [
+  //    {
+  //      "name" : "Attach",
+  //      "port" : 9223,
+  //      "request" : "attach",
+  //      "type" : "node",
+  //      "protocol" : "inspector"
+  //    },
+  // ]
+  //
+  //
+  // To debug with edge, navigate to "edge:\\inspect", and configure netword target discovery by adding "localhost:9223" to the list.
+  // To debug with chrome, navigate to "chrome:\\inspect", and follow the same step as above.
+  uint16_t inspectorPort{9223};
 
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};

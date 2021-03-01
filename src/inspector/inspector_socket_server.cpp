@@ -5,6 +5,11 @@
 #include "inspector_tcp.h"
 #include "inspector_utils.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#include "etw/tracing.h"
+#endif
+
 #include <algorithm>
 #include <map>
 #include <set>
@@ -23,13 +28,6 @@ namespace {
     for (char& c : *string) {
       c = (c == '\"' || c == '\\') ? '_' : c;
     }
-  }
-
-  std::string FormatWsAddress(const std::string& host, int port,
-    const std::string& target_id,
-    bool include_protocol) {
-    // return FormatAddress(FormatHostPort(host, port), target_id, include_protocol);
-    return "formatted address!!";
   }
 
   std::string FormatHostPort(const std::string& host, int port) {
@@ -56,6 +54,14 @@ namespace {
     url << host << '/' << target_id;
     return url.str();
   }
+
+  std::string FormatWsAddress(const std::string& host, int port,
+                              const std::string& target_id,
+                              bool include_protocol) {
+    return FormatAddress(FormatHostPort(host, port), target_id,
+                         include_protocol);
+  }
+
 
   std::string MapToString(const std::map<std::string, std::string>& object) {
     bool first = true;
@@ -208,12 +214,11 @@ void InspectorSocketServer::SessionStarted(int session_id,
   const std::string& id,
   const std::string& ws_key) {
   SocketSession* session = Session(session_id);
-      
-  //TODODO
-  //if (!TargetExists(id)) {
-  //  session->Decline();
-  //  return;
-  // }
+
+  if (!TargetExists(id)) {
+    session->Decline();
+    return;
+  }
       
   //TODODO
   // if (connected_session_) std::abort();
@@ -303,8 +308,8 @@ void InspectorSocketServer::SendListResponse(InspectorSocket* socket,
 std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
   const std::string &formatted_address) {
   std::ostringstream frontend_url;
-  frontend_url << "chrome-devtools://devtools/bundled/";
-  frontend_url << (is_compat ? "inspector" : "js_app");
+  frontend_url << "devtools://devtools/bundled/";
+  frontend_url << (is_compat ? "inspector" : "node_app");
   frontend_url << ".html?experiments=true&v8only=true&ws=";
   frontend_url << formatted_address;
   return frontend_url.str();
@@ -323,7 +328,9 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
 bool InspectorSocketServer::Start() {
   tcp_server_ = std::make_shared<tcp_server>(port_, InspectorSocketServer::SocketConnectedCallback, this);
   state_ = ServerState::kRunning;
-  tcp_server_->run();
+  std::thread([this]() {
+    tcp_server_->run();
+  }).detach();
   return true;
 }
 
@@ -334,6 +341,7 @@ void InspectorSocketServer::Stop() {
 
   state_ = ServerState::kStopped;
 
+  // This will stop the the server io_context which will result in stopping the server thread as well.
   tcp_server_->stop();
 
   if (state_ == ServerState::kStopped) {
@@ -371,6 +379,10 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
 }
 
 void InspectorSocketServer::Send(int session_id, const std::string& message) {
+
+  TRACEV8INSPECTOR_VERBOSE("OutMessage",
+                    TraceLoggingString(message.c_str(), "message"));
+
   SocketSession* session = Session(session_id);
   if (session != nullptr) {
     session->Send(message);
