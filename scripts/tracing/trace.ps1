@@ -1,12 +1,18 @@
 <#
   .SYNOPSIS
-  Starts a Trace recording session enabling Hermes TraceLogging provider.
+  Starts a Trace recording session enabling V8 TraceLogging provider.
 
   .DESCRIPTION
-  Starts a Trace recording session enabling Hermes TraceLogging provider.
+  Starts a Trace recording session enabling V8 TraceLogging provider.
 
-  .PARAMETER IncludeGeneralTrace
-  Include this switch if the session should record events from general system providers along with Hermes provider. This results in bigger trace files and it takes longer to load these traces into WPA.
+  .PARAMETER IncludeInspectorTraces
+  Include this switch if the session should record inspector traffic.
+
+  .PARAMETER Chatty
+  Include this switch if the session should record verbose traces.
+
+  .PARAMETER SessionName
+  Include this paramter if the trace session name needs to be overriden.
 
   .PARAMETER OutputPath
   None.
@@ -21,7 +27,8 @@
   PS> .\utils\tracing\win\Start-Tracing.ps1 -IncludeGeneralTrace
 
   .EXAMPLE
-  PS> .\utils\tracing\win\Start-Tracing.ps1
+  PS> .\scripts\tracing\trace.ps1
+  PS> .\scripts\tracing\trace.ps1 -IncludeInspectorTraces
 #>
 
 [CmdletBinding()]

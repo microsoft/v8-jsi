@@ -418,7 +418,7 @@ struct SameCodeObjects {
         code_details.append(std::to_string(iter->pos_) + ":");
       }
 #ifdef _WIN32
-      TRACEV8RUNTIME_VERBOSE(
+        TRACEV8RUNTIME_VERBOSE(
           "V8::JIT",
           TraceLoggingString("CODE_END_LINE_INFO_RECORDING", "type"),
           TraceLoggingString(
@@ -427,7 +427,7 @@ struct SameCodeObjects {
                                 : "JIT_CODE",
                             "cookie"),
           TraceLoggingString(
-              code_details.c_str(), "code_details");
+              code_details.c_str(), "code_details"));
 #endif
 
       break;
@@ -435,13 +435,12 @@ struct SameCodeObjects {
     default:
 #ifdef _WIN32
       TRACEV8RUNTIME_VERBOSE(
-          "V8::JIT",
-          TraceLoggingString("DEF", "type"),
+          "V8::JIT", TraceLoggingString("DEF", "type"),
           TraceLoggingString(
               event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
-                                ? "BYTE_CODE"
-                                : "JIT_CODE",
-                            "cookie"));
+                  ? "BYTE_CODE"
+                  : "JIT_CODE",
+              "cookie"));
 #endif
       break;
   }
@@ -762,11 +761,6 @@ jsi::Value V8Runtime::ExecuteString(
       v8::String::NewFromUtf8(
           isolate, reinterpret_cast<const char *>(sourceURL.c_str()))
           .ToLocalChecked();
-  /*v8::ScriptOrigin origin(
-      urlV8String, 0, 0, false, -1,
-      v8::String::NewFromUtf8(isolate,
-          reinterpret_cast<const char*>("file:///E:/github/fibonacci/dist/main.js.map"))
-          .ToLocalChecked());*/
   v8::ScriptOrigin origin(urlV8String);
   
   v8::Local<v8::Context> context(isolate->GetCurrentContext());

@@ -51,6 +51,9 @@ void tcp_server::do_accept()
   acceptor_.async_accept(socket_,
     [this, self](boost::system::error_code ec)
   {
+    TRACEV8INSPECTOR_VERBOSE("tcp_server::accept",
+                             TraceLoggingBool(ec.failed(), "failed"),
+                             TraceLoggingInt32(ec.value(), "error code"));
     if (!ec)
     {
       connectioncallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
@@ -100,7 +103,7 @@ void tcp_connection::read_loop_async() {
   });
 }
 
-void tcp_connection::write_async(const std::vector<char>& message_) {
+void tcp_connection::write_async(std::vector<char>&& message_) {
 
   {
     std::lock_guard<std::mutex> guard(queueAccessMutex);

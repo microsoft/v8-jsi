@@ -19,7 +19,7 @@ public:
   inline void registerReadCallback(ReadCallback callback, void*data) { readcallback_ = callback; callbackData_ = data; }
 
   void read_loop_async();
-  void write_async(const std::vector<char>&);
+  void write_async(std::vector<char>&&);
   void close();
 
   inline tcp_connection(boost::asio::ip::tcp::socket socket)
