@@ -31,6 +31,7 @@ target("shared_library", "v8jsi") {
     sources += [
       "version_gen.rc",
       "etw/tracing.h",
+      "etw/tracing.cpp",
       "inspector/inspector_agent.cpp",
       "inspector/inspector_agent.h",
       "inspector/inspector_socket.cpp",
