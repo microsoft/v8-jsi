@@ -14,11 +14,6 @@
 #include <mutex>
 #include <sstream>
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
-
 using namespace facebook;
 
 #ifndef _ISOLATE_CONTEXT_ENTER
@@ -143,16 +138,15 @@ void V8Runtime::AddHostObjectLifetimeTracker(
       message->GetSourceLine(isolate->GetCurrentContext()).ToLocalChecked());
 
 #ifdef _WIN32
-  EventWriteMESSAGE(
-      *msg,
-      *source_line,
-      "",
-      message->GetLineNumber(isolate->GetCurrentContext()).ToChecked(),
-      message->GetStartPosition(),
-      message->GetEndPosition(),
-      message->ErrorLevel(),
-      message->GetStartColumn(),
-      message->GetEndColumn());
+  TRACEV8RUNTIME_VERBOSE("V8::MessageFrom",
+                    TraceLoggingString(*msg, "message"),
+                    TraceLoggingString(*source_line, "source_line"),
+                    TraceLoggingInt32(message->GetLineNumber(isolate->GetCurrentContext()).ToChecked(), "Line"),
+                    TraceLoggingInt32(message->GetStartPosition(), "StartPos"),
+                    TraceLoggingInt32(message->GetEndPosition(), "EndPos"),
+                    TraceLoggingInt32(message->ErrorLevel(), "ErrorLevel"),
+                    TraceLoggingInt32(message->GetStartColumn(), "StartCol"),
+                    TraceLoggingInt32(message->GetEndColumn(), "EndCol"));
 #endif
 }
 
@@ -161,11 +155,9 @@ size_t V8Runtime::NearHeapLimitCallback(
     size_t current_heap_limit,
     size_t initial_heap_limit) {
 #ifdef _WIN32
-  EventWriteV8JSI_LOG(
-      "NearHeapLimitCallback",
-      std::to_string(current_heap_limit).c_str(),
-      std::to_string(initial_heap_limit).c_str(),
-      "");
+  TRACEV8RUNTIME_VERBOSE("V8::NearHeapLimitCallback",
+      TraceLoggingInt64(current_heap_limit, "current_heap_limit"),
+      TraceLoggingInt64(initial_heap_limit, "initial_heap_limit"));
 #endif
   // Add 5MB.
   return current_heap_limit + 5 * 1024 * 1024;
@@ -226,7 +218,10 @@ void V8Runtime::GCPrologueCallback(
     v8::GCType type,
     v8::GCCallbackFlags flags) {
   std::string prefix("GCPrologue");
-  DumpCounters(GCTypeToString(prefix, type, flags).c_str());
+  std::string gcTypeString = GCTypeToString(prefix, type, flags);
+  TRACEV8RUNTIME_VERBOSE("V8::GCPrologueCallback",
+                    TraceLoggingString(gcTypeString.c_str(), "GCType"));
+  DumpCounters(gcTypeString.c_str());
 }
 
 void V8Runtime::GCEpilogueCallback(
@@ -234,7 +229,11 @@ void V8Runtime::GCEpilogueCallback(
     v8::GCType type,
     v8::GCCallbackFlags flags) {
   std::string prefix("GCEpilogue");
-  DumpCounters(GCTypeToString(prefix, type, flags).c_str());
+  std::string gcTypeString = GCTypeToString(prefix, type, flags);
+  TRACEV8RUNTIME_VERBOSE("V8::GCEpilogueCallback",
+                    TraceLoggingString(gcTypeString.c_str(), "GCType"));
+
+  DumpCounters(gcTypeString.c_str());
 }
 
 CounterMap *V8Runtime::counter_map_;
@@ -274,14 +273,13 @@ void V8Runtime::DumpCounters(const char *when) {
   cookie++;
 #ifdef _WIN32
   for (std::pair<std::string, Counter *> element : *counter_map_) {
-    if (element.second->count() > 0)
-      EventWriteDUMPT_COUNTERS(
-          when,
-          cookie,
-          element.first.c_str(),
-          element.second->count(),
-          element.second->sample_total(),
-          element.second->is_histogram());
+    TRACEV8RUNTIME_VERBOSE("V8::PerfCounters",
+        TraceLoggingString(when, "when"),
+        TraceLoggingInt32(cookie, "cookie"),
+        TraceLoggingString(element.first.c_str(), "name"),
+        TraceLoggingInt32(element.second->count(), "count"),
+        TraceLoggingInt32(element.second->sample_total(), "sample_total"),
+        TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
   }
 #endif
 }
@@ -377,11 +375,16 @@ struct SameCodeObjects {
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
 #ifdef _WIN32
-      EventWriteJIT_CODE_EVENT(
-          event->type,
-          event->code_type,
-          std::string(event->name.str, event->name.len).c_str(),
-          "");
+      TRACEV8RUNTIME_VERBOSE(
+          "V8::JIT",
+          TraceLoggingString("CODE_ADDED", "type"),
+          TraceLoggingString(
+              event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
+                                ? "BYTE_CODE"
+                                : "JIT_CODE",
+                            "cookie"),
+          TraceLoggingString(
+              std::string(event->name.str, event->name.len).c_str(), "name"));
 #endif
       break;
 
@@ -415,21 +418,38 @@ struct SameCodeObjects {
         code_details.append(std::to_string(iter->pos_) + ":");
       }
 #ifdef _WIN32
-      EventWriteJIT_CODE_EVENT(
-          event->type, event->code_type, "###", code_details.c_str());
+        TRACEV8RUNTIME_VERBOSE(
+          "V8::JIT",
+          TraceLoggingString("CODE_END_LINE_INFO_RECORDING", "type"),
+          TraceLoggingString(
+              event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
+                                ? "BYTE_CODE"
+                                : "JIT_CODE",
+                            "cookie"),
+          TraceLoggingString(
+              code_details.c_str(), "code_details"));
 #endif
 
       break;
     }
     default:
 #ifdef _WIN32
-      EventWriteJIT_CODE_EVENT(event->type, event->code_type, "~~~", "");
+      TRACEV8RUNTIME_VERBOSE(
+          "V8::JIT", TraceLoggingString("DEF", "type"),
+          TraceLoggingString(
+              event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
+                  ? "BYTE_CODE"
+                  : "JIT_CODE",
+              "cookie"));
 #endif
       break;
   }
 }
 
 v8::Isolate *V8Runtime::CreateNewIsolate() {
+  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate",
+                    TraceLoggingString("start", "op"));
+
   if (args_.custom_snapshot_blob) {
     custom_snapshot_startup_data_ = {
         reinterpret_cast<const char *>(args_.custom_snapshot_blob->data()),
@@ -499,6 +519,10 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   isolate_->Enter();
 
+  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate",
+                    TraceLoggingString("end", "op"));
+  DumpCounters("isolate_created");
+
   return isolate_;
 }
 
@@ -527,8 +551,10 @@ void V8Runtime::createHostObjectConstructorPerContext() {
 
 void V8Runtime::initializeTracing() {
 #ifdef _WIN32
-  EventRegisterv8jsi_Provider();
+  globalInitializeTracing();
 #endif
+
+  TRACEV8RUNTIME_VERBOSE("Initializing");
 }
 
 void V8Runtime::initializeV8() {
@@ -549,8 +575,16 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   initializeTracing();
   initializeV8();
 
+  v8::V8::SetUnhandledExceptionCallback(
+      [](_EXCEPTION_POINTERS* exception_pointers) -> int {
+        TRACEV8RUNTIME_CRITICAL(
+            "V8::SetUnhandledExceptionCallback");
+        return 0;
+    });
+
   // Try to reuse the already existing isolate in this thread.
   if (tls_isolate_usage_counter_++ > 0) {
+    TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
     isolate_ = v8::Isolate::GetCurrent();
   } else {
     platform_holder_.addUsage();
@@ -565,6 +599,9 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
 #ifdef _WIN32
   if (args_.enableInspector) {
+
+    TRACEV8RUNTIME_VERBOSE(
+        "Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
         platform_holder_.Get(),
         isolate_,
@@ -574,6 +611,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     inspector_agent_->start();
 
     if (args_.waitForDebugger) {
+      TRACEV8RUNTIME_VERBOSE(
+          "Waiting for inspector frontend to attach");
       inspector_agent_->waitForDebugger();
     }
   }
@@ -619,6 +658,10 @@ V8Runtime::~V8Runtime() {
 jsi::Value V8Runtime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
     const std::string &sourceURL) {
+
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript",
+                    TraceLoggingString("start", "op"));
+  
   _ISOLATE_CONTEXT_ENTER
 
   v8::Local<v8::String> sourceV8String;
@@ -635,6 +678,11 @@ jsi::Value V8Runtime::evaluateJavaScript(
   }
 
   jsi::Value result = ExecuteString(sourceV8String, sourceURL);
+
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript",
+                    TraceLoggingString("end", "op"));
+  DumpCounters("script evaluated");
+
   return result;
 }
 
@@ -660,6 +708,10 @@ void Print(const v8::FunctionCallbackInfo<v8::Value> &args) {
 
 v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
   // Create a template for the global object.
+
+  TRACEV8RUNTIME_VERBOSE("CreateContext",
+                    TraceLoggingString("start", "op"));
+
   v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
 
   global->Set(
@@ -669,6 +721,11 @@ v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
 
   v8::Local<v8::Context> context = v8::Context::New(isolate, NULL, global);
   context->SetAlignedPointerInEmbedderData(1, this);
+
+  TRACEV8RUNTIME_VERBOSE("CreateContext",
+                    TraceLoggingString("end", "op"));
+  DumpCounters("context_created");
+
   return context;
 }
 
@@ -705,6 +762,7 @@ jsi::Value V8Runtime::ExecuteString(
           isolate, reinterpret_cast<const char *>(sourceURL.c_str()))
           .ToLocalChecked();
   v8::ScriptOrigin origin(urlV8String);
+  
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
 
@@ -905,6 +963,10 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       // V8 adds an "Uncaught Error: " before any message string any time we read it, this strips it out.
       ex_messages.erase(0, 16);
     }
+
+    TRACEV8RUNTIME_CRITICAL("Exception",
+        TraceLoggingString(ex_messages.c_str(), "ex_messages"),
+        TraceLoggingString(sstr.str().c_str(), "sstr"));
 
     // V8 doesn't actually capture the current callstack (as we're outside of scope when this gets called)
     // See also https://v8.dev/docs/stack-trace-api
@@ -1307,14 +1369,60 @@ jsi::HostFunctionType &V8Runtime::getHostFunction(const jsi::Function &obj) {
   std::abort();
 }
 
+namespace {
+std::string getFunctionName(v8::Isolate* isolate, v8::Local<v8::Function> func) {
+  std::string functionNameStr;
+  v8::Local<v8::String> functionNameV8Str =
+      v8::Local<v8::String>::Cast(func->GetName());
+  int functionNameLength = functionNameV8Str->Utf8Length(isolate);
+  if (functionNameLength > 0) {
+    functionNameStr.resize(functionNameLength);
+    functionNameV8Str->WriteUtf8(isolate, &functionNameStr[0]);
+  }
+
+  if (functionNameV8Str.IsEmpty()) {
+    functionNameV8Str = v8::Local<v8::String>::Cast(func->GetInferredName());
+    functionNameLength = functionNameV8Str->Utf8Length(isolate);
+    if (functionNameLength > 0) {
+      functionNameStr.resize(functionNameLength);
+      functionNameV8Str->WriteUtf8(isolate, &functionNameStr[0]);
+    }
+  }
+
+  if (functionNameV8Str.IsEmpty()) {
+    functionNameStr = "<anonymous>";
+  }
+
+  return functionNameStr;
+}
+}
+
 jsi::Value V8Runtime::call(
     const jsi::Function &jsiFunc,
     const jsi::Value &jsThis,
     const jsi::Value *args,
     size_t count) {
+ 
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Function> func =
       v8::Local<v8::Function>::Cast(objectRef(jsiFunc));
+
+  // TODO: This may be a bit costly when there are large number of JS function
+  // calls from native. Evaluate !
+  std::string functionName = getFunctionName(isolate_, func);
+
+  static uint8_t callCookie = 0;
+  if (callCookie > 0) {
+    TRACEV8RUNTIME_WARNING("CallFunctionNested",
+                           TraceLoggingString(functionName.c_str(), "name"),
+                           TraceLoggingString("Nested calls to JavaScript functions can be problematic !", "message"));
+  }
+  callCookie++;
+
+  TRACEV8RUNTIME_VERBOSE("CallFunction",
+                         TraceLoggingString(functionName.c_str(), "name"),
+                         TraceLoggingString("start", "op"));
+
   std::vector<v8::Local<v8::Value>> argv;
   for (size_t i = 0; i < count; i++) {
     argv.push_back(valueRef(args[i]));
@@ -1331,6 +1439,13 @@ jsi::Value V8Runtime::call(
     ReportException(&trycatch);
   }
 
+  TRACEV8RUNTIME_VERBOSE("CallFunction",
+                         TraceLoggingString(functionName.c_str(), "name"),
+                         TraceLoggingString("end", "op"));
+  DumpCounters("call_completed");
+
+  callCookie--;
+
   // Call can return
   if (result.IsEmpty()) {
     return createValue(v8::Undefined(GetIsolate()));
@@ -1343,9 +1458,18 @@ jsi::Value V8Runtime::callAsConstructor(
     const jsi::Function &jsiFunc,
     const jsi::Value *args,
     size_t count) {
+
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Function> func =
       v8::Local<v8::Function>::Cast(objectRef(jsiFunc));
+
+  // TODO: This may be a bit costly when there are large number of JS function
+  // calls from native. Evaluate !
+  std::string functionName = getFunctionName(isolate_, func);
+  TRACEV8RUNTIME_VERBOSE("CallConstructor",
+                        TraceLoggingString(functionName.c_str(), "name"),
+                        TraceLoggingString("start", "op"));
+
   std::vector<v8::Local<v8::Value>> argv;
   for (size_t i = 0; i < count; i++) {
     argv.push_back(valueRef(args[i]));
@@ -1364,6 +1488,11 @@ jsi::Value V8Runtime::callAsConstructor(
   if (trycatch.HasCaught()) {
     ReportException(&trycatch);
   }
+
+  TRACEV8RUNTIME_VERBOSE("CallConstructor",
+                         TraceLoggingString(functionName.c_str(), "name"),
+                         TraceLoggingString("end", "op"));
+  DumpCounters("callAsConstructor_completed");
 
   return createValue(newObject);
 }

@@ -19,12 +19,13 @@ public:
   inline void registerReadCallback(ReadCallback callback, void*data) { readcallback_ = callback; callbackData_ = data; }
 
   void read_loop_async();
-  void write_async(std::vector<char>);
-  void do_write(bool cont);
+  void write_async(std::vector<char>&&);
   void close();
 
   inline tcp_connection(boost::asio::ip::tcp::socket socket)
-    : socket_(std::move(socket)) {}
+      : socket_(std::move(socket)) {}
+private:
+  void do_write(bool cont);
 
 private:
   int port_;
@@ -53,10 +54,11 @@ public:
   void stop();
 
   tcp_server(int port, ConnectionCallback callback, void* data);
+
+private:
   void do_accept();
 
 private:
-
   boost::asio::io_service io_service_;
   boost::asio::ip::tcp::acceptor acceptor_;
   boost::asio::ip::tcp::socket socket_;
