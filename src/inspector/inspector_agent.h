@@ -37,6 +37,8 @@ class Agent {
   void start();
   void stop();
 
+  void ensureServerStarted();
+
   bool IsStarted();
   bool IsConnected();
   void WaitForDisconnect();

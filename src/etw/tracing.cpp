@@ -1,4 +1,5 @@
 #include "tracing.h"
+#include <mutex>
 
 // Define the GUID to use in TraceLoggingProviderRegister
 // {85A99459-1F1D-49BD-B3DC-E5EF2AD0C2C8}
@@ -15,9 +16,12 @@ TRACELOGGING_DEFINE_PROVIDER(g_hV8JSIInspectorTraceLoggingProvider,
                               0x8e, 0x41, 0xe6, 0xbc, 0x37));
 
 void globalInitializeTracing() {
+  static std::once_flag g_Once_;
 #ifdef _WIN32
-  TraceLoggingRegister(g_hV8JSIRuntimeTraceLoggingProvider);
-  TraceLoggingRegister(g_hV8JSIInspectorTraceLoggingProvider);
+  std::call_once(g_Once_, []() {
+    TraceLoggingRegister(g_hV8JSIRuntimeTraceLoggingProvider);
+    TraceLoggingRegister(g_hV8JSIInspectorTraceLoggingProvider);
+  });
 #endif
 
   TRACEV8RUNTIME_VERBOSE("Initializing providers.");

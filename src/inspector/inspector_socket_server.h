@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace inspector {
 
@@ -18,11 +19,7 @@ class ServerSocket;
 
 class InspectorAgentDelegate {
  public:
-  InspectorAgentDelegate(
-      AgentImpl& agent,
-      const std::string &script_path,
-      const std::string &script_name,
-      bool wait);
+  InspectorAgentDelegate();
   void StartSession(int session_id, const std::string &target_id);
   void MessageReceived(int session_id, const std::string &message);
   void EndSession(int session_id);
@@ -32,14 +29,14 @@ class InspectorAgentDelegate {
   bool IsConnected() {
     return connected_;
   }
+  static std::string GenerateID();
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
 
  private:
-  AgentImpl& agent_;
+  std::unordered_map<std::string, std::shared_ptr<AgentImpl>> targets_map_;
+  std::unordered_map<int, std::shared_ptr<AgentImpl>> session_targets_map_;
   bool connected_;
   int session_id_;
-  const std::string script_name_;
-  const std::string script_path_;
-  const std::string target_id_;
   bool waiting_;
 };
 
@@ -59,6 +56,8 @@ public:
   void Send(int session_id, const std::string& message);
   void TerminateConnections();
   int Port() const;
+
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
 
   // Session connection lifecycle
   void Accept(std::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);

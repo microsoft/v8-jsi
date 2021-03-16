@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Microsoft Corporation" Copyright="Microsoft Corporation" Company="Microsoft Corporation">
+  <Profiles>
+    <EventCollector Id="EventCollector_RNWTraceLoggingProvider" Name="RNWTraceLoggingProvider">
+      <BufferSize Value="64" />
+      <Buffers Value="4" />
+    </EventCollector>
+
+    <EventProvider Id="EventProvider_RNWTraceLoggingProvider" Name="910fb9a1-75dd-4cf4-beec-da21341f20c8" />
+    <EventProvider Id="EventProvider_V8JSITraceLoggingProvider" Name="85A99459-1F1D-49BD-B3DC-E5EF2AD0C2C8" />
+    <EventProvider Id="EventProvider_V8JSIInspectorLoggingProvider" Name="5509957C-25B6-4294-B2FA-8A8E41E6BC37" />
+
+    <Profile Id="RNWTraceLoggingProvider.Verbose.File" Name="RNWTraceLoggingProvider" Description="RNWTraceLoggingProvider" LoggingMode="File" DetailLevel="Verbose">
+      <Collectors>
+        <EventCollectorId Value="EventCollector_RNWTraceLoggingProvider">
+          <EventProviders>
+            <EventProviderId Value="EventProvider_RNWTraceLoggingProvider" />
+            <EventProviderId Value="EventProvider_V8JSITraceLoggingProvider" />
+            <EventProviderId Value="EventProvider_V8JSIInspectorLoggingProvider" />
+          </EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+
+    <Profile Id="RNWTraceLoggingProvider.Light.File" Name="RNWTraceLoggingProvider" Description="RNWTraceLoggingProvider" Base="RNWTraceLoggingProvider.Verbose.File" LoggingMode="File" DetailLevel="Light" />
+    <Profile Id="RNWTraceLoggingProvider.Verbose.Memory" Name="RNWTraceLoggingProvider" Description="RNWTraceLoggingProvider" Base="RNWTraceLoggingProvider.Verbose.File" LoggingMode="Memory" DetailLevel="Verbose" />
+    <Profile Id="RNWTraceLoggingProvider.Light.Memory" Name="RNWTraceLoggingProvider" Description="RNWTraceLoggingProvider" Base="RNWTraceLoggingProvider.Verbose.File" LoggingMode="Memory" DetailLevel="Light" />
+
+  </Profiles>
+</WindowsPerformanceRecorder>

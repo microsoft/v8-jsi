@@ -325,6 +325,10 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
   server->Stop();
 }
 
+void InspectorSocketServer::AddTarget(std::shared_ptr<AgentImpl> agent) {
+  delegate_->AddTarget(agent);
+}
+
 bool InspectorSocketServer::Start() {
   tcp_server_ = std::make_shared<tcp_server>(port_, InspectorSocketServer::SocketConnectedCallback, this);
   state_ = ServerState::kRunning;
