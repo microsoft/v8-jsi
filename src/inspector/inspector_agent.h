@@ -29,6 +29,7 @@ class Agent {
       v8::Isolate *isolate,
       v8::Local<v8::Context> context,
       const char *context_name,
+      uint32_t instanceId, /* Used for tracing */
       int port);
   ~Agent();
   

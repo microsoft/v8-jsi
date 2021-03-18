@@ -458,7 +458,7 @@ class V8Runtime : public facebook::jsi::Runtime {
     static void HostFunctionCallback(
         const v8::FunctionCallbackInfo<v8::Value> &info) {
 
-      TRACEV8RUNTIME_VERBOSE("HostFunctionCallback",
+      TRACEV8RUNTIME_VERBOSE_0("HostFunctionCallback",
                         TraceLoggingString("start", "op"));
 
       v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
@@ -467,7 +467,7 @@ class V8Runtime : public facebook::jsi::Runtime {
           reinterpret_cast<HostFunctionProxy *>(data->Value());
       hostFunctionProxy->call(*hostFunctionProxy, info);
 
-      TRACEV8RUNTIME_VERBOSE("HostFunctionCallback",
+      TRACEV8RUNTIME_VERBOSE_0("HostFunctionCallback",
                         TraceLoggingString("end", "op"));
     }
 
@@ -673,6 +673,10 @@ class V8Runtime : public facebook::jsi::Runtime {
     return args_;
   }
 
+  static std::mutex g_instance_counter_mutex_;
+  static uint32_t g_instance_counter_;
+  uint32_t instance_id_;
+  
  private:
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
 

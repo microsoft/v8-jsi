@@ -28,7 +28,7 @@ using namespace facebook;
 
 namespace v8runtime {
 
-thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
+thread_local uint16_t V8Runtime::tls_isolate_usage_counter_{0};
 
 #ifdef USE_DEFAULT_PLATFORM
 std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
@@ -37,6 +37,10 @@ std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
 #endif
 /*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
+
+
+/*static */ std::mutex V8Runtime::g_instance_counter_mutex_;
+/*static */ uint32_t V8Runtime::g_instance_counter_{1};
 
 class TaskAdapter : public v8runtime::JSITask {
  public:
@@ -138,7 +142,7 @@ void V8Runtime::AddHostObjectLifetimeTracker(
       message->GetSourceLine(isolate->GetCurrentContext()).ToLocalChecked());
 
 #ifdef _WIN32
-  TRACEV8RUNTIME_VERBOSE("V8::MessageFrom",
+  TRACEV8RUNTIME_VERBOSE_0("V8::MessageFrom",
                     TraceLoggingString(*msg, "message"),
                     TraceLoggingString(*source_line, "source_line"),
                     TraceLoggingInt32(message->GetLineNumber(isolate->GetCurrentContext()).ToChecked(), "Line"),
@@ -155,7 +159,7 @@ size_t V8Runtime::NearHeapLimitCallback(
     size_t current_heap_limit,
     size_t initial_heap_limit) {
 #ifdef _WIN32
-  TRACEV8RUNTIME_VERBOSE("V8::NearHeapLimitCallback",
+  TRACEV8RUNTIME_VERBOSE_0("V8::NearHeapLimitCallback",
       TraceLoggingInt64(current_heap_limit, "current_heap_limit"),
       TraceLoggingInt64(initial_heap_limit, "initial_heap_limit"));
 #endif
@@ -219,7 +223,7 @@ void V8Runtime::GCPrologueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCPrologue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
-  TRACEV8RUNTIME_VERBOSE("V8::GCPrologueCallback",
+  TRACEV8RUNTIME_VERBOSE_0("V8::GCPrologueCallback",
                     TraceLoggingString(gcTypeString.c_str(), "GCType"));
   DumpCounters(gcTypeString.c_str());
 }
@@ -230,7 +234,7 @@ void V8Runtime::GCEpilogueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCEpilogue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
-  TRACEV8RUNTIME_VERBOSE("V8::GCEpilogueCallback",
+  TRACEV8RUNTIME_VERBOSE_0("V8::GCEpilogueCallback",
                     TraceLoggingString(gcTypeString.c_str(), "GCType"));
 
   DumpCounters(gcTypeString.c_str());
@@ -273,13 +277,15 @@ void V8Runtime::DumpCounters(const char *when) {
   cookie++;
 #ifdef _WIN32
   for (std::pair<std::string, Counter *> element : *counter_map_) {
-    TRACEV8RUNTIME_VERBOSE("V8::PerfCounters",
-        TraceLoggingString(when, "when"),
-        TraceLoggingInt32(cookie, "cookie"),
-        TraceLoggingString(element.first.c_str(), "name"),
-        TraceLoggingInt32(element.second->count(), "count"),
-        TraceLoggingInt32(element.second->sample_total(), "sample_total"),
-        TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
+    if (element.second->count() != 0 || element.second->sample_total() != 0) {
+      TRACEV8RUNTIME_VERBOSE_0(
+          "V8::PerfCounters", TraceLoggingString(when, "when"),
+          TraceLoggingInt32(cookie, "cookie"),
+          TraceLoggingString(element.first.c_str(), "name"),
+          TraceLoggingInt32(element.second->count(), "count"),
+          TraceLoggingInt32(element.second->sample_total(), "sample_total"),
+          TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
+    }
   }
 #endif
 }
@@ -375,7 +381,7 @@ struct SameCodeObjects {
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
 #ifdef _WIN32
-      TRACEV8RUNTIME_VERBOSE(
+      TRACEV8RUNTIME_VERBOSE_0(
           "V8::JIT",
           TraceLoggingString("CODE_ADDED", "type"),
           TraceLoggingString(
@@ -418,7 +424,7 @@ struct SameCodeObjects {
         code_details.append(std::to_string(iter->pos_) + ":");
       }
 #ifdef _WIN32
-        TRACEV8RUNTIME_VERBOSE(
+        TRACEV8RUNTIME_VERBOSE_0(
           "V8::JIT",
           TraceLoggingString("CODE_END_LINE_INFO_RECORDING", "type"),
           TraceLoggingString(
@@ -434,7 +440,7 @@ struct SameCodeObjects {
     }
     default:
 #ifdef _WIN32
-      TRACEV8RUNTIME_VERBOSE(
+      TRACEV8RUNTIME_VERBOSE_0(
           "V8::JIT", TraceLoggingString("DEF", "type"),
           TraceLoggingString(
               event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
@@ -572,12 +578,17 @@ void V8Runtime::initializeV8() {
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
+  {
+    const std::lock_guard<std::mutex> lock(g_instance_counter_mutex_);
+    instance_id_ = g_instance_counter_++;
+  }
+
   initializeTracing();
-  initializeV8();
+  initializeV8(); 
 
   v8::V8::SetUnhandledExceptionCallback(
       [](_EXCEPTION_POINTERS* exception_pointers) -> int {
-        TRACEV8RUNTIME_CRITICAL(
+        TRACEV8RUNTIME_CRITICAL_0(
             "V8::SetUnhandledExceptionCallback");
         return 0;
     });
@@ -600,6 +611,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 #ifdef _WIN32
   if (args_.enableInspector) {
 
+
+
     TRACEV8RUNTIME_VERBOSE(
         "Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
@@ -607,6 +620,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
         isolate_,
         context_.Get(GetIsolate()),
         "JSIRuntime context",
+        instance_id_,
         args_.inspectorPort);
     inspector_agent_->start();
 
@@ -1574,6 +1588,13 @@ v8::Local<v8::Value> V8Runtime::valueRef(const jsi::Value &value) {
 }
 
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
+  args.enableInspector = true;
+  args.trackGCObjectStats = true;
+  args.enableGCTracing = true;
+  args.enableJitTracing = true;
+  args.enableLog = true;
+  args.enableMessageTracing = true;
+
   return std::make_unique<V8Runtime>(std::move(args));
 }
 

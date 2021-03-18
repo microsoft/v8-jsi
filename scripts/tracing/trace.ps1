@@ -44,12 +44,11 @@
 [CmdletBinding()]
 Param(
     [Parameter(ParameterSetName='Default', Position=0, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
-    [switch]$IncludeInspectorTraces,
     [switch]$Chatty,
-    [switch]$RealTime,
-    [switch]$RealTimeOutputToFile,
-    [switch]$IncludeGeneralTrace,
     [switch]$NoAnalysis,
+    [switch]$NoFormatting,
+    [switch]$IncludeInspectorTraces,
+    [switch]$IncludeGeneralTrace, # TBD
     [String]$SessionName = 'V8TraceSession'
 )
 
@@ -116,108 +115,61 @@ process {
     Import-Module (Join-Path $vsInstallPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
     Enter-VsDevShell -VsInstallPath $vsInstallPath -SkipAutomaticLocation
 
-    if ($RealTime.IsPresent)
-    {
-        # These guids should match the TraceLog provider definition in code.
-        $traceLogStartCmd = "tracelog -start $SessionName -guid #85A99459-1F1D-49BD-B3DC-E5EF2AD0C2C8 -rt"
-        $traceLogEnableInspectorCmd = "tracelog -enable $SessionName -guid #5509957C-25B6-4294-B2FA-8A8E41E6BC37"
-        
-        if(!$RealTimeOutputToFile.IsPresent) {
-            $traceLogDisplayCmd = "tracefmt -rt $SessionName -displayonly"
-        } else {
-            $scriptPath = split-path -parent $MyInvocation.MyCommand.Definition
-            $timestamp = [DateTime]::Now.ToString("yyyyMMdd_HHmmss") 
-            $outFileName = "trace_" + $timestamp + ".txt"
-            $outFilePath = Join-Path -Path $scriptPath -ChildPath $outFileName
+    $scriptPath = split-path -parent $MyInvocation.MyCommand.Definition
+    $timestamp = [DateTime]::Now.ToString("yyyyMMdd_HHmmss") 
+    $fileName = "rnw_" + $timestamp + ".etl"
+    $etlPath = Join-Path -Path $scriptPath -ChildPath $fileName
 
-            $traceLogDisplayCmd = "tracefmt -rt $SessionName -o $outFilePath"
-            Write-Host "Writing to $outFilePath ... \n"
-        }
-        
-        $traceLogStopCmd = "tracelog -stop $SessionName"
-        
-        $traceLogCmd = $traceLogStartCmd
-        if ($IncludeInspectorTraces.IsPresent)
-        {
-            $traceLogCmd = $traceLogCmd + " & $traceLogEnableInspectorCmd"
-        }
-
-        $traceLogCmd = $traceLogCmd + " & $traceLogDisplayCmd"
-        $traceLogCmd = $traceLogCmd + " & $traceLogStopCmd"
-
-        Write-Host $traceLogCmd
-        cmd /c "$traceLogCmd & pause"
-
-        Write-Host -NoNewLine 'Press any key to continue...';
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
+    # These guids should match the TraceLog provider definition in code.
+    $traceLogStartCmd = "tracelog -start $SessionName -guid #85A99459-1F1D-49BD-B3DC-E5EF2AD0C2C8 -rt -f $etlPath"
+    $traceLogEnableInspectorCmd = "tracelog -enable $SessionName -guid #5509957C-25B6-4294-B2FA-8A8E41E6BC37"
+    $traceLogEnableReactNativeSystraceCmd = "tracelog -enable $SessionName -guid #910FB9A1-75DD-4CF4-BEEC-DA21341F20C8"
+    
+    $traceFmtCmd = "tracefmt -rt $SessionName"
+    $WriteFormattedToFile = $False
+    if(!$WriteFormattedToFile) {
+        $traceFmtCmd = $traceFmtCmd + " -displayonly"
     } else {
         $scriptPath = split-path -parent $MyInvocation.MyCommand.Definition
-        $wprpPath = Join-Path -Path $scriptPath -ChildPath "trace.wprp"
-
-        if (!(Get-Command "wpr.exe" -ErrorAction SilentlyContinue)) { 
-            throw "
-            ################################################################
-            wpr.exe (Windows Performance Recorder) unavailable ! 
-            Ensure that WPT (Windows Performance Toolkit) is installed and its tools are added to the path 
-            ################################################################"
-        }
-
-        $wprArgs = "-start", $wprpPath
-
-        if ($IncludeGeneralTrace) {
-            $wprArgs += "-start", "GeneralProfile"
-        }
-
-        Write-Host "wpr.exe $wprArgs"
-        & Start-Process -Verb RunAs "wpr.exe" -ArgumentList $wprArgs -PassThru -Wait
-
-
-#        Write-Host -NoNewLine 'Press any key to stop the tracing sesion...';
-#        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
-        read-host 'Press ENTER to stop the tracing sesion...'
-
-        $scriptPath = split-path -parent $MyInvocation.MyCommand.Definition
         $timestamp = [DateTime]::Now.ToString("yyyyMMdd_HHmmss") 
-        $fileName = "rnw_" + $timestamp + ".etl"
-        $etlPath = Join-Path -Path $scriptPath -ChildPath $fileName
+        $outFileName = "trace_" + $timestamp + ".txt"
+        $outFilePath = Join-Path -Path $scriptPath -ChildPath $outFileName
 
-        if (!(Get-Command "wpr.exe" -ErrorAction SilentlyContinue)) { 
-            throw "
-        ################################################################
-        wpr.exe (Windows Performance Recorder) unavailable ! 
-        Ensure that WPT (Windows Performance Toolkit) is installed and its tools are added to the path 
-        ################################################################"
-        }
-        
-        $wprArgs = "-stop", $etlPath
-
-        Write-Host "wpr.exe $wprArgs"
-        & Start-Process -Verb RunAs "wpr.exe" -ArgumentList $wprArgs -PassThru -Wait
-
-        if (!(Get-Command "wpa.exe" -ErrorAction SilentlyContinue)) { 
-            Write-Host "wpa.exe (Windows Performance Analyzer) unavailable !"
-            Write-Host "Ensure that WPT (Windows Performance Toolkit) is installed and its tools are added to the path "
-        }
-
-        if ($NoAnalysis) {
-            Write-Host "To analys this trace, install WPT and run: 'wpa $etlPath'"
-        }
-        else {
-
-            if (!(Get-Command "wpa.exe" -ErrorAction SilentlyContinue)) { 
-                throw "
-                ################################################################
-                wpa.exe (Windows Performance Analyzer) unavailable ! 
-                Ensure that WPT (Windows Performance Toolkit) is installed and its tools are added to the path 
-                ################################################################"
-            }
-
-            $wpaArgs = $etlPath
-            Write-Host "wpa.exe $wpaArgs"
-            & Start-Process -Verb RunAs "wpa.exe" -ArgumentList $wpaArgs
-        }
-
-        Write-Host -NoNewLine 'Press any key to exit ...';
-        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
+        $traceFmtCmd = $traceFmtCmd + " -o $outFilePath"
+        Write-Host "Writing formatted traces to $outFilePath ... \n"
     }
+
+    # if(!$RealTimeOutputToFile.IsPresent) {
+    #     $traceLogDisplayCmd = "tracefmt -rt $SessionName -displayonly"
+    # } else {
+    #     $scriptPath = split-path -parent $MyInvocation.MyCommand.Definition
+    #     $timestamp = [DateTime]::Now.ToString("yyyyMMdd_HHmmss") 
+    #     $outFileName = "trace_" + $timestamp + ".txt"
+    #     $outFilePath = Join-Path -Path $scriptPath -ChildPath $outFileName
+
+    #     $traceLogDisplayCmd = "tracefmt -rt $SessionName -o $outFilePath"
+    #     Write-Host "Writing to $outFilePath ... \n"
+    # }
+    
+    $traceLogStopCmd = "tracelog -stop $SessionName"
+    
+    $traceLogCmd = $traceLogStartCmd
+    if ($IncludeInspectorTraces.IsPresent)
+    {
+        $traceLogCmd = $traceLogCmd + " & $traceLogEnableInspectorCmd"
+    }
+
+    $traceLogCmd = $traceLogCmd + " & $traceLogEnableReactNativeSystraceCmd"
+
+    if(!$NoFormatting.IsPresent) {
+        $traceLogCmd = $traceLogCmd + " & $traceFmtCmd"
+    }
+
+    
+
+    $traceLogCmd = $traceLogCmd + " & $traceLogStopCmd"
+
+    Write-Host $traceLogCmd
+    Write-Host -NoNewLine 'Press Ctrl+C to stop collection ...';
+    cmd /c "$traceLogCmd & pause"
 }

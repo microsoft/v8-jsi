@@ -73,6 +73,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
       v8::Isolate *isolate,
       v8::Local<v8::Context> context,
       const char *context_name,
+      uint32_t instanceId,
       int port);
   ~AgentImpl();
 
@@ -122,6 +123,8 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   std::condition_variable incoming_message_cond_;
 
   std::mutex state_m;
+
+  uint32_t instanceId_;
 
   int port_;
   bool wait_;
@@ -292,9 +295,11 @@ AgentImpl::AgentImpl(
     v8::Isolate *isolate,
     v8::Local<v8::Context> context,
     const char *context_name,
+    uint32_t instanceId,
     int port)
     : platform_(platform),
       isolate_(isolate),
+      instanceId_(instanceId),
       port_(port),
       wait_(false),
       shutting_down_(false),
@@ -389,7 +394,7 @@ void AgentImpl::Start() {
 
 void AgentImpl::waitForDebugger() {
   // TODO:: We should create more discrete events, and add the text as argument.
-  TRACEV8INSPECTOR_VERBOSE("Waiting for frontend message");
+  TRACEV8INSPECTOR_VERBOSE("Waiting for frontend message", instanceId_);
   WaitForFrontendMessage();
 
   if (state_ == State::kError) {
@@ -407,7 +412,7 @@ void AgentImpl::waitForDebugger() {
           reinterpret_cast<const uint8_t *>(reasonstr.c_str()),
           reasonstr.size());
   inspector_->session_->schedulePauseOnNextStatement(reason, details);
-  TRACEV8INSPECTOR_VERBOSE("Resuming after frontend attached.");
+  TRACEV8INSPECTOR_VERBOSE("Resuming after frontend attached.", instanceId_);
 }
 
 void AgentImpl::Stop() {
@@ -501,7 +506,8 @@ void AgentImpl::PostIncomingMessage(
     int session_id,
     const std::string &message) {
 
-  TRACEV8INSPECTOR_VERBOSE("InMessage",
+  TRACEV8INSPECTOR_VERBOSE(
+      "InMessage", instanceId_,
                     TraceLoggingString(message.c_str(), "message"));
 
   if (AppendMessage(
@@ -591,8 +597,12 @@ void AgentImpl::Write(
       if (view.length() == 0) {
         g_server_->Stop(); // GAMMADO -- should i stop ?
       } else {
-        g_server_->Send(
-            outgoing.first, StringViewToUtf8(outgoing.second->string()));
+
+        std::string message = StringViewToUtf8(outgoing.second->string());
+        TRACEV8INSPECTOR_VERBOSE(
+            "OutMessage", TraceLoggingString(message.c_str(), "message"));
+
+        g_server_->Send(outgoing.first, std::move(message));
       }
     }
   }
@@ -604,8 +614,10 @@ Agent::Agent(
     v8::Isolate *isolate,
     v8::Local<v8::Context> context,
     const char *context_name,
+    uint32_t instanceId,
     int port)
-    : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name, port)) {}
+    : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name,
+                                       instanceId, port)) {}
 
 Agent::~Agent() {
 }

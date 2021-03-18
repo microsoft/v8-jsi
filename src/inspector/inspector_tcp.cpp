@@ -23,7 +23,7 @@ tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
   acceptor_.bind(endpoint);
   acceptor_.listen();
 
-  TRACEV8INSPECTOR_VERBOSE("tcp_server::Init",
+  TRACEV8INSPECTOR_VERBOSE_0("tcp_server::Init",
                     TraceLoggingUInt16(port, "port"));
 
   do_accept();
@@ -38,7 +38,7 @@ void tcp_server::stop() {
   acceptor_.close(ec);
   socket_.close(ec);
 
-  TRACEV8INSPECTOR_VERBOSE("tcp_server::Stop",
+  TRACEV8INSPECTOR_VERBOSE_0("tcp_server::Stop",
                     TraceLoggingBool(ec.failed(), "failed"),
                     TraceLoggingInt32(ec.value(), "error code"));
 
@@ -51,7 +51,7 @@ void tcp_server::do_accept()
   acceptor_.async_accept(socket_,
     [this, self](boost::system::error_code ec)
   {
-    TRACEV8INSPECTOR_VERBOSE("tcp_server::accept",
+    TRACEV8INSPECTOR_VERBOSE_0("tcp_server::accept",
                              TraceLoggingBool(ec.failed(), "failed"),
                              TraceLoggingInt32(ec.value(), "error code"));
     if (!ec)
