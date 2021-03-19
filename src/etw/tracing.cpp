@@ -16,7 +16,9 @@ TRACELOGGING_DEFINE_PROVIDER(g_hV8JSIInspectorTraceLoggingProvider,
 
 void globalInitializeTracing() {
 #ifdef _WIN32
+  TraceLoggingUnregister(g_hV8JSIRuntimeTraceLoggingProvider);
   TraceLoggingRegister(g_hV8JSIRuntimeTraceLoggingProvider);
+  TraceLoggingUnregister(g_hV8JSIInspectorTraceLoggingProvider);
   TraceLoggingRegister(g_hV8JSIInspectorTraceLoggingProvider);
 #endif
 
