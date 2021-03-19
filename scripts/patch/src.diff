@@ -154,46 +154,6 @@ index 9a5f7069e7..a53c0ad644 100644
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
-diff --git a/src/heap/heap.h b/src/heap/heap.h
-index 24b92e8bc8..a636c5d8c4 100644
---- a/src/heap/heap.h
-+++ b/src/heap/heap.h
-@@ -2649,10 +2649,7 @@ class StrongRootBlockAllocator {
-   using size_type = size_t;
-   using difference_type = ptrdiff_t;
-   template <class U>
--  struct rebind {
--    STATIC_ASSERT((std::is_same<Address, U>::value));
--    using other = StrongRootBlockAllocator;
--  };
-+  struct rebind;
- 
-   explicit StrongRootBlockAllocator(Heap* heap) : heap_(heap) {}
- 
-@@ -2663,6 +2660,23 @@ class StrongRootBlockAllocator {
-   Heap* heap_;
- };
- 
-+// Rebinding to Address gives another StrongRootBlockAllocator.
-+template <>
-+struct StrongRootBlockAllocator::rebind<Address> {
-+  using other = StrongRootBlockAllocator;
-+};
-+
-+// Rebinding to something other than Address gives a std::allocator that
-+// is copy-constructable from StrongRootBlockAllocator.
-+template <class U>
-+struct StrongRootBlockAllocator::rebind {
-+  class other : public std::allocator<U> {
-+   public:
-+    // NOLINTNEXTLINE
-+    other(const StrongRootBlockAllocator&) {}
-+  };
-+};
-+
- }  // namespace internal
- }  // namespace v8
- 
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index cf380b015d..e5461ea89e 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
