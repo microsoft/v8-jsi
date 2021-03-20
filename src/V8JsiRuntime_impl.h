@@ -12,6 +12,11 @@
 #include "inspector/inspector_agent.h"
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#include "etw/tracing.h"
+#endif
+
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
@@ -452,11 +457,18 @@ class V8Runtime : public facebook::jsi::Runtime {
    public:
     static void HostFunctionCallback(
         const v8::FunctionCallbackInfo<v8::Value> &info) {
+
+      TRACEV8RUNTIME_VERBOSE("HostFunctionCallback",
+                        TraceLoggingString("start", "op"));
+
       v8::HandleScope handle_scope(v8::Isolate::GetCurrent());
       v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.Data());
       HostFunctionProxy *hostFunctionProxy =
           reinterpret_cast<HostFunctionProxy *>(data->Value());
       hostFunctionProxy->call(*hostFunctionProxy, info);
+
+      TRACEV8RUNTIME_VERBOSE("HostFunctionCallback",
+                        TraceLoggingString("end", "op"));
     }
 
     HostFunctionProxy(V8Runtime &runtime, facebook::jsi::HostFunctionType func)

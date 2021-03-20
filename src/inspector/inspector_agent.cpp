@@ -20,6 +20,11 @@
 #include <random>
 #include <algorithm>
 
+#ifdef _WIN32
+#include <windows.h>
+#include "etw/tracing.h"
+#endif
+
 #include "../V8Platform.h"
 
 namespace inspector {
@@ -38,7 +43,7 @@ OneByteString(v8::Isolate *isolate, const char *data, int length = -1) {
 }
 
 std::string GetProcessTitle() {
-  return "ReactNativeWindows";
+  return "V8JsiHost";
 }
 
 std::string GenerateID() {
@@ -374,26 +379,20 @@ void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &args) {
 }
 
 void AgentImpl::Start() {
-  auto self(shared_from_this());
-  std::thread([this, self]() {
-    auto delegate = std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, wait_);
-    server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
+  // auto self(shared_from_this());
+  auto delegate =
+      std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, wait_);
+  server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
+  if (!server_->Start()) {
+    std::abort();
+  }
 
-    state_ = State::kAccepting;
-
-    // This loops
-    if (!server_->Start()) {
-      std::abort();
-    }
-
-    server_->Stop();
-
-    server_.reset();
-  })
-      .detach();
+  state_ = State::kAccepting;
 }
 
 void AgentImpl::waitForDebugger() {
+  // TODO:: We should create more discrete events, and add the text as argument.
+  TRACEV8INSPECTOR_VERBOSE("Waiting for frontend message");
   WaitForFrontendMessage();
 
   if (state_ == State::kError) {
@@ -411,6 +410,7 @@ void AgentImpl::waitForDebugger() {
           reinterpret_cast<const uint8_t *>(reasonstr.c_str()),
           reasonstr.size());
   inspector_->session_->schedulePauseOnNextStatement(reason, details);
+  TRACEV8INSPECTOR_VERBOSE("Resuming after frontend attached.");
 }
 
 void AgentImpl::Stop() {
@@ -505,6 +505,10 @@ void AgentImpl::SwapBehindLock(MessageQueue *vector1, MessageQueue *vector2) {
 void AgentImpl::PostIncomingMessage(
     int session_id,
     const std::string &message) {
+
+  TRACEV8INSPECTOR_VERBOSE("InMessage",
+                    TraceLoggingString(message.c_str(), "message"));
+
   if (AppendMessage(
           &incoming_message_queue_, session_id, Utf8ToStringView(message))) {
 

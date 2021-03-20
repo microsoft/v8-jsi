@@ -44,43 +44,38 @@ uint64_t ETWTracingController::AddTraceEvent(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-#pragma warning(push)
-#pragma warning(disable: 4002) // too many arguments for function-like macro invocation
-  EventWriteGENERIC_EVENT(
-      phase,
-      name,
-      0,
-      scope,
-      id,
-      bind_id,
-      names[0],
-      types[0],
-      values[0],
-      names[1],
-      types[1],
-      values[1],
-      names[2],
-      types[2],
-      values[2],
-      names[3],
-      types[3],
-      values[3],
-      names[4],
-      types[4],
-      values[4],
-      names[5],
-      types[5],
-      values[5],
-      names[6],
-      types[6],
-      values[6],
-      names[7],
-      types[7],
-      values[7],
-      names[8],
-      types[8],
-      values[8]);
-#pragma warning(pop)
+  TRACEV8RUNTIME_VERBOSE("V8::Trace", TraceLoggingInt8(phase, phase),
+      TraceLoggingString(name, "name"),
+      TraceLoggingString(scope, "scope"), TraceLoggingUInt64(id, "id"),
+      TraceLoggingString(scope, "scope"),
+      TraceLoggingUInt64(bind_id, "bind_id"),
+      TraceLoggingString(names[0], "name0"),
+      TraceLoggingUInt8(types[0], "type0"),
+      TraceLoggingUInt64(values[0], "value0"),
+      TraceLoggingString(names[1], "name1"),
+      TraceLoggingUInt8(types[1], "type1"),
+      TraceLoggingUInt64(values[1], "value1"),
+      TraceLoggingString(names[2], "name2"),
+      TraceLoggingUInt8(types[2], "type2"),
+      TraceLoggingUInt64(values[2], "value2"),
+      TraceLoggingString(names[3], "name3"),
+      TraceLoggingUInt8(types[3], "type3"),
+      TraceLoggingUInt64(values[3], "value3"),
+      TraceLoggingString(names[4], "name4"),
+      TraceLoggingUInt8(types[4], "type4"),
+      TraceLoggingUInt64(values[4], "value4"),
+      TraceLoggingString(names[5], "name5"),
+      TraceLoggingUInt8(types[5], "type5"),
+      TraceLoggingUInt64(values[5], "value5"),
+      TraceLoggingString(names[6], "name6"),
+      TraceLoggingUInt8(types[6], "type6"),
+      TraceLoggingUInt64(values[6], "value6"),
+      TraceLoggingString(names[7], "name7"),
+      TraceLoggingUInt8(types[7], "type7"),
+      TraceLoggingUInt64(values[7], "value7"),
+      TraceLoggingString(names[8], "name8"),
+      TraceLoggingUInt8(types[8], "type8"),
+      TraceLoggingUInt64(values[8], "value8"));
 #endif
 
   return 0;
@@ -111,43 +106,41 @@ uint64_t ETWTracingController::AddTraceEventWithTimestamp(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-#pragma warning(push)
-#pragma warning(disable: 4002) // too many arguments for function-like macro invocation
-  EventWriteGENERIC_EVENT(
-      phase,
-      name,
-      timestamp,
-      scope,
-      id,
-      bind_id,
-      names[0],
-      types[0],
-      values[0],
-      names[1],
-      types[1],
-      values[1],
-      names[2],
-      types[2],
-      values[2],
-      names[3],
-      types[3],
-      values[3],
-      names[4],
-      types[4],
-      values[4],
-      names[5],
-      types[5],
-      values[5],
-      names[6],
-      types[6],
-      values[6],
-      names[7],
-      types[7],
-      values[7],
-      names[8],
-      types[8],
-      values[8]);
-#pragma warning(pop)
+  TRACEV8RUNTIME_VERBOSE("V8::Trace",
+      TraceLoggingInt8(phase, phase),
+      TraceLoggingString(name, "name"),
+      TraceLoggingInt64(timestamp, "timestamp"),
+      TraceLoggingString(scope, "scope"),
+      TraceLoggingUInt64(id, "id"),
+      TraceLoggingString(scope, "scope"),
+      TraceLoggingUInt64(bind_id, "bind_id"),
+      TraceLoggingString(names[0], "name0"),
+      TraceLoggingUInt8(types[0], "type0"),
+      TraceLoggingUInt64(values[0], "value0"),
+      TraceLoggingString(names[1], "name1"),
+      TraceLoggingUInt8(types[1], "type1"),
+      TraceLoggingUInt64(values[1], "value1"),
+      TraceLoggingString(names[2], "name2"),
+      TraceLoggingUInt8(types[2], "type2"),
+      TraceLoggingUInt64(values[2], "value2"),
+      TraceLoggingString(names[3], "name3"),
+      TraceLoggingUInt8(types[3], "type3"),
+      TraceLoggingUInt64(values[3], "value3"),
+      TraceLoggingString(names[4], "name4"),
+      TraceLoggingUInt8(types[4], "type4"),
+      TraceLoggingUInt64(values[4], "value4"),
+      TraceLoggingString(names[5], "name5"),
+      TraceLoggingUInt8(types[5], "type5"),
+      TraceLoggingUInt64(values[5], "value5"),
+      TraceLoggingString(names[6], "name6"),
+      TraceLoggingUInt8(types[6], "type6"),
+      TraceLoggingUInt64(values[6], "value6"),
+      TraceLoggingString(names[7], "name7"),
+      TraceLoggingUInt8(types[7], "type7"),
+      TraceLoggingUInt64(values[7], "value7"),
+      TraceLoggingString(names[8], "name8"),
+      TraceLoggingUInt8(types[8], "type8"),
+      TraceLoggingUInt64(values[8], "value8"));
 #endif
 
   return 0;
@@ -158,7 +151,7 @@ void ETWTracingController::UpdateTraceEventDuration(
     const char *name,
     uint64_t handle) {
 #if defined(_WIN32) && !defined(__clang__)
-  EventWriteUPDATE_TIMESTAMP(name, handle);
+  //EventWriteUPDATE_TIMESTAMP(name, handle);
 #endif
 }
 
