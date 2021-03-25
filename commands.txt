@@ -1,0 +1,17 @@
+powershell "E:\github\v8-jsi-mgan\scripts\tracing\trace.ps1"
+
+copy E:\github\v8-jsi-mgan\build\v8build\v8\out\win32\x64\Debug\v8jsi.dll E:\Off\ICache\current\opensource_reactnative\x64\debug\x-none
+
+"C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\Common7\Tools\VsDevCmd.bat"
+"E:\github\v8-jsi-mgan\build\v8build\v8\out\win32\x64\Debug\all.sln"
+
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\*.cpp E:\github\v8-jsi-mgan\src\*.cpp
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\*.h E:\github\v8-jsi-mgan\src\*.h
+
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\inspector\*.cpp E:\github\v8-jsi-mgan\src\inspector\*.cpp
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\inspector\*.h E:\github\v8-jsi-mgan\src\inspector\*.h
+
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\etw\*.cpp E:\github\v8-jsi-mgan\src\etw\*.cpp
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\etw\*.h E:\github\v8-jsi-mgan\src\etw\*.h
+
+copy E:\github\v8-jsi-mgan\build\v8build\v8\jsi\public\*.h E:\github\v8-jsi-mgan\src\public\*.h

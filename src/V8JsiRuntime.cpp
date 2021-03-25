@@ -223,9 +223,14 @@ void V8Runtime::GCPrologueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCPrologue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
-  TRACEV8RUNTIME_VERBOSE_0("V8::GCPrologueCallback",
+
+  IsolateData* isolate_data =
+      reinterpret_cast<IsolateData*>(isolate->GetData(ISOLATE_DATA_SLOT));
+  uint32_t instance_id_ = isolate_data->instance_id_;
+
+  TRACEV8RUNTIME_VERBOSE("V8::GCPrologueCallback",
                     TraceLoggingString(gcTypeString.c_str(), "GCType"));
-  DumpCounters(gcTypeString.c_str());
+  DumpCounters(gcTypeString.c_str(), instance_id_);
 }
 
 void V8Runtime::GCEpilogueCallback(
@@ -234,10 +239,15 @@ void V8Runtime::GCEpilogueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCEpilogue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
+
+  IsolateData* isolate_data =
+      reinterpret_cast<IsolateData*>(isolate->GetData(ISOLATE_DATA_SLOT));
+  uint32_t instance_id_ = isolate_data->instance_id_;
+
   TRACEV8RUNTIME_VERBOSE_0("V8::GCEpilogueCallback",
                     TraceLoggingString(gcTypeString.c_str(), "GCType"));
 
-  DumpCounters(gcTypeString.c_str());
+  DumpCounters(gcTypeString.c_str(), instance_id_);
 }
 
 CounterMap *V8Runtime::counter_map_;
@@ -272,13 +282,13 @@ Counter *CounterCollection::GetNextCounter() {
   return &counters_[counters_in_use_++];
 }
 
-void V8Runtime::DumpCounters(const char *when) {
+void V8Runtime::DumpCounters(const char *when, uint32_t instance_id_) {
   static int cookie = 0;
   cookie++;
 #ifdef _WIN32
   for (std::pair<std::string, Counter *> element : *counter_map_) {
     if (element.second->count() != 0 || element.second->sample_total() != 0) {
-      TRACEV8RUNTIME_VERBOSE_0(
+      TRACEV8RUNTIME_VERBOSE(
           "V8::PerfCounters", TraceLoggingString(when, "when"),
           TraceLoggingInt32(cookie, "cookie"),
           TraceLoggingString(element.first.c_str(), "name"),
@@ -491,7 +501,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
       std::move(args_.foreground_task_runner));
   isolate_->SetData(
       v8runtime::ISOLATE_DATA_SLOT,
-      new v8runtime::IsolateData({foreground_task_runner_}));
+      new v8runtime::IsolateData({foreground_task_runner_, instance_id_}));
 
   v8::Isolate::Initialize(isolate_, create_params_);
 
@@ -527,7 +537,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate",
                     TraceLoggingString("end", "op"));
-  DumpCounters("isolate_created");
+  DumpCounters("isolate_created", instance_id_);
 
   return isolate_;
 }
@@ -697,7 +707,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript",
                     TraceLoggingString("end", "op"),
                     TraceLoggingString(sourceURL.c_str(), "sourceURL"));
-  DumpCounters("script evaluated");
+  DumpCounters("script evaluated", instance_id_);
 
   return result;
 }
@@ -740,7 +750,7 @@ v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
 
   TRACEV8RUNTIME_VERBOSE("CreateContext",
                     TraceLoggingString("end", "op"));
-  DumpCounters("context_created");
+  DumpCounters("context_created", instance_id_);
 
   return context;
 }
@@ -1458,7 +1468,7 @@ jsi::Value V8Runtime::call(
   TRACEV8RUNTIME_VERBOSE("CallFunction",
                          TraceLoggingString(functionName.c_str(), "name"),
                          TraceLoggingString("end", "op"));
-  DumpCounters("call_completed");
+  DumpCounters("call_completed", instance_id_);
 
   callCookie--;
 
@@ -1508,7 +1518,7 @@ jsi::Value V8Runtime::callAsConstructor(
   TRACEV8RUNTIME_VERBOSE("CallConstructor",
                          TraceLoggingString(functionName.c_str(), "name"),
                          TraceLoggingString("end", "op"));
-  DumpCounters("callAsConstructor_completed");
+  DumpCounters("callAsConstructor_completed", instance_id_);
 
   return createValue(newObject);
 }

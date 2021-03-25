@@ -756,7 +756,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   static void *
   CreateHistogram(const char *name, int min, int max, size_t buckets);
   static void AddHistogramSample(void *histogram, int sample);
-  static void DumpCounters(const char *when);
+  static void DumpCounters(const char *when, uint32_t instance_id);
 
   static void JitCodeEventListener(const v8::JitCodeEvent *event);
 };

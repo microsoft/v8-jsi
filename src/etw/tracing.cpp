@@ -24,4 +24,5 @@ void globalInitializeTracing() {
   });
 #endif
 
+  // TRACEV8RUNTIME_VERBOSE("Initializing providers.");
 }

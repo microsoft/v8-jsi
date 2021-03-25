@@ -21,6 +21,7 @@ constexpr int ISOLATE_DATA_SLOT = 0;
 // Platform needs to map every isolate to this data.
 struct IsolateData {
   std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+  uint32_t instance_id_;
 };
 
 class ETWTracingController : public v8::TracingController {
