@@ -1239,16 +1239,19 @@ bool V8Runtime::isArray(const jsi::Object &obj) const {
   return objectRef(obj)->IsArray();
 }
 
-bool V8Runtime::isArrayBuffer(const jsi::Object & /*obj*/) const {
-  throw std::runtime_error("Unsupported");
+bool V8Runtime::isArrayBuffer(const jsi::Object &obj) const {
+  _ISOLATE_CONTEXT_ENTER
+  return objectRef(obj)->IsArrayBuffer();
 }
 
 uint8_t *V8Runtime::data(const jsi::ArrayBuffer &obj) {
-  throw std::runtime_error("Unsupported");
+  _ISOLATE_CONTEXT_ENTER
+  return reinterpret_cast<uint8_t*>(objectRef(obj).As<v8::ArrayBuffer>()->GetContents().Data());
 }
 
-size_t V8Runtime::size(const jsi::ArrayBuffer & /*obj*/) {
-  throw std::runtime_error("Unsupported");
+size_t V8Runtime::size(const jsi::ArrayBuffer &obj) {
+  _ISOLATE_CONTEXT_ENTER
+  return objectRef(obj).As<v8::ArrayBuffer>()->ByteLength();
 }
 
 bool V8Runtime::isFunction(const jsi::Object &obj) const {
