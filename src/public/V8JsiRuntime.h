@@ -76,13 +76,11 @@ struct V8RuntimeArgs {
 
   bool backgroundMode{false};
 
-  // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over them.
-  bool trackGCObjectStats{true};
-  bool enableTracing{true};
-  bool enableJitTracing{true};
-  bool enableMessageTracing{true};
-  bool enableLog{true};
-  bool enableGCTracing{true};
+  bool trackGCObjectStats{false};
+  bool enableTracing{false};
+  bool enableJitTracing{false};
+  bool enableMessageTracing{false};
+  bool enableGCTracing{false};
 
   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket port open, which should be very small.
