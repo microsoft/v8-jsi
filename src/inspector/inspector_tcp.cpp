@@ -22,10 +22,6 @@ tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
   acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
   acceptor_.bind(endpoint);
   acceptor_.listen();
-
-  TRACEV8INSPECTOR_VERBOSE("tcp_server::Init",
-                    TraceLoggingUInt16(port, "port"));
-
   do_accept();
 }
 
@@ -37,11 +33,6 @@ void tcp_server::stop() {
   boost::system::error_code ec;
   acceptor_.close(ec);
   socket_.close(ec);
-
-  TRACEV8INSPECTOR_VERBOSE("tcp_server::Stop",
-                    TraceLoggingBool(ec.failed(), "failed"),
-                    TraceLoggingInt32(ec.value(), "error code"));
-
   io_service_.stop();
 }
 
@@ -51,9 +42,6 @@ void tcp_server::do_accept()
   acceptor_.async_accept(socket_,
     [this, self](boost::system::error_code ec)
   {
-    TRACEV8INSPECTOR_VERBOSE("tcp_server::accept",
-                             TraceLoggingBool(ec.failed(), "failed"),
-                             TraceLoggingInt32(ec.value(), "error code"));
     if (!ec)
     {
       connectioncallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
@@ -135,6 +123,13 @@ void tcp_connection::do_write(bool cont) {
   auto self(shared_from_this());
 
   messageToWrite_ = std::move(message);
+
+
+  if (messageToWrite_.size() == 0) {
+    this->close();
+    std::vector<char> vc;
+    readcallback_(vc, true, callbackData_);
+  }
 
   std::string str;
   std::transform(messageToWrite_.begin(), messageToWrite_.end(), std::back_inserter(str), [](char c) { return c; });
