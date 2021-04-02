@@ -81,7 +81,6 @@ struct V8RuntimeArgs {
   bool enableTracing{false};
   bool enableJitTracing{false};
   bool enableMessageTracing{false};
-  bool enableGCTracing{false};
   bool enableLog{false};
 
   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
