@@ -46,24 +46,6 @@ std::string GetProcessTitle() {
   return "V8JsiHost";
 }
 
-std::string GenerateID() {
-  static std::random_device rd;
-  static std::mt19937 mte(rd());
-
-  std::uniform_int_distribution<uint16_t> dist;
-
-  std::array<uint16_t, 8> buffer;
-  std::generate(buffer.begin(), buffer.end(), [&] () { return dist(mte); });
-
-  char uuid[256];
-  snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
-          buffer[0], buffer[1], buffer[2],
-          (buffer[3] & 0x0fff) | 0x4000,
-          (buffer[4] & 0x3fff) | 0x8000,
-          buffer[5], buffer[6], buffer[7]);
-  return uuid;
-}
-
 std::string StringViewToUtf8(const v8_inspector::StringView &view) {
   if (view.is8Bit()) {
     return std::string(
@@ -94,14 +76,18 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
       int port);
   ~AgentImpl();
 
+  InspectorSocketServer& ensureServer();
+
   void Start();
   void Stop();
 
   void waitForDebugger();
 
   bool IsStarted();
-  bool IsConnected();
+  // bool IsConnected();
   void WaitForDisconnect();
+
+  void notifyLoadedUrl(const std::string& url);
 
   void FatalException(
       v8::Local<v8::Value> error,
@@ -109,6 +95,8 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
 
   void PostIncomingMessage(int session_id, const std::string &message);
   void ResumeStartup() {}
+
+  std::string getTitle();
 
  private:
   using MessageQueue =
@@ -152,9 +140,12 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   MessageQueue outgoing_message_queue_;
   bool dispatching_messages_;
   int session_id_;
-  std::unique_ptr<inspector::InspectorSocketServer> server_;
 
-  std::string script_name_;
+  static std::mutex g_mutex_server_init_;
+  static std::unordered_map<int, std::unique_ptr<inspector::InspectorSocketServer>> g_servers_;
+
+  std::string title_;
+  std::string loaded_urls_;
 
   v8::Platform &platform_;
 
@@ -166,6 +157,10 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
 
  public:
 };
+
+/*static*/ std::mutex AgentImpl::g_mutex_server_init_;
+/*static*/ std::unordered_map < int,
+    std::unique_ptr<inspector::InspectorSocketServer>> AgentImpl::g_servers_;
 
 void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
@@ -312,8 +307,7 @@ AgentImpl::AgentImpl(
       state_(State::kNew),
       inspector_(nullptr),
       dispatching_messages_(false),
-      session_id_(0),
-      server_(nullptr) {
+      session_id_(0) {
   inspector_ = std::make_unique<V8NodeInspector>(*this);
   inspector_->setupContext(context, context_name);
 }
@@ -378,16 +372,30 @@ void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &args) {
                                 .ToLocalChecked());
 }
 
-void AgentImpl::Start() {
-  // auto self(shared_from_this());
-  auto delegate =
-      std::make_unique<InspectorAgentDelegate>(*this, "", script_name_, wait_);
-  server_ = std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
-  if (!server_->Start()) {
-    std::abort();
+
+InspectorSocketServer& AgentImpl::ensureServer() {
+  const std::lock_guard<std::mutex> lock(g_mutex_server_init_);
+
+  auto server = g_servers_.find(port_);
+  if (server == g_servers_.end()) {
+    auto delegate = std::make_unique<InspectorAgentDelegate>();
+    auto newserver =
+        std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
+    if (!newserver->Start()) {
+      std::abort();
+    }
+
+    g_servers_[port_] = std::move(newserver);
   }
 
+  return *g_servers_[port_];
+
+}
+
+void AgentImpl::Start() {
+  auto& server = ensureServer();
   state_ = State::kAccepting;
+  server.AddTarget(shared_from_this());
 }
 
 void AgentImpl::waitForDebugger() {
@@ -413,16 +421,25 @@ void AgentImpl::waitForDebugger() {
   TRACEV8INSPECTOR_VERBOSE("Resuming after frontend attached.");
 }
 
+
 void AgentImpl::Stop() {
-  if (server_) {
-    server_->Stop();
-    inspector_.reset();
-  }
+  std::string msg("{\"method\":\"Runtime.executionContextsCleared\"}");
+  Write(session_id_,
+        v8_inspector::StringBuffer::create((v8_inspector::StringView(
+            reinterpret_cast<const uint8_t*>(msg.c_str()), msg.length()))));
+
+  Write(session_id_,
+        v8_inspector::StringBuffer::create((v8_inspector::StringView(
+            reinterpret_cast<const uint8_t*>(""), 0))));
+
+  WaitForDisconnect();
+  inspector_.reset();
 }
 
-bool AgentImpl::IsConnected() {
-  return server_ && server_->IsConnected();
-}
+//bool AgentImpl::IsConnected() {
+//  auto& server = ensureServer();
+//  return server.IsConnected();
+//}
 
 bool AgentImpl::IsStarted() {
   return true;
@@ -431,11 +448,6 @@ bool AgentImpl::IsStarted() {
 void AgentImpl::WaitForDisconnect() {
   if (state_ == State::kConnected) {
     shutting_down_ = true;
-    // Gives a signal to stop accepting new connections
-    // TODO(eugeneo): Introduce an API with explicit request names.
-    Write(0, v8_inspector::StringBuffer::create((v8_inspector::StringView())));
-    fprintf(stderr, "Waiting for the debugger to disconnect...\n");
-    fflush(stderr);
     inspector_->runMessageLoopOnPause(0);
   }
 }
@@ -506,9 +518,6 @@ void AgentImpl::PostIncomingMessage(
     int session_id,
     const std::string &message) {
 
-  TRACEV8INSPECTOR_VERBOSE("InMessage",
-                    TraceLoggingString(message.c_str(), "message"));
-
   if (AppendMessage(
           &incoming_message_queue_, session_id, Utf8ToStringView(message))) {
 
@@ -574,6 +583,13 @@ void AgentImpl::DispatchMessages() {
         inspector_->quitMessageLoopOnPause();
         inspector_->disconnectFrontend();
       } else {
+
+        TRACEV8INSPECTOR_VERBOSE(
+            "InMessage",
+            TraceLoggingCountedString16(
+                reinterpret_cast<const char16_t*>(message.characters16()), message.length(), "message"));
+
+
         inspector_->dispatchMessageFromFrontend(message);
       }
     }
@@ -584,24 +600,51 @@ void AgentImpl::DispatchMessages() {
 void AgentImpl::Write(
     int session_id,
     std::unique_ptr<v8_inspector::StringBuffer> inspector_message) {
-  AppendMessage(
-      &outgoing_message_queue_, session_id, std::move(inspector_message));
+  AppendMessage(&outgoing_message_queue_, session_id,
+                std::move(inspector_message));
 
   MessageQueue outgoing_messages;
   SwapBehindLock(&outgoing_message_queue_, &outgoing_messages);
-  for (const MessageQueue::value_type &outgoing : outgoing_messages) {
+  for (const MessageQueue::value_type& outgoing : outgoing_messages) {
     v8_inspector::StringView view = outgoing.second->string();
-    assert(server_);
-    if (server_) {
-      if (view.length() == 0) {
-        server_->Stop();
+    std::string message = StringViewToUtf8(outgoing.second->string());
+    TRACEV8INSPECTOR_VERBOSE("OutMessage",
+                             TraceLoggingString(message.c_str(), "message"));
+
+    ensureServer().Send(outgoing.first, std::move(message));
+  }
+}
+
+void AgentImpl::notifyLoadedUrl(const std::string& url) {
+  // We are trying to constuct a title shown on the inspector UI using the
+  // loaded script urls. Find upto last three segments from the url ...
+  std::string new_url_sufix;
+  std::size_t found = url.find_last_of("/\\");
+  if (found == std::string::npos) {
+    new_url_sufix.append(url);
+  } else {
+    found = url.find_last_of("/\\", found - 1);
+    if (found == std::string::npos) {
+      new_url_sufix.append("...");
+      new_url_sufix.append(url);
+    } else {
+      found = url.find_last_of("/\\", found - 1);
+      if (found == std::string::npos) {
+        new_url_sufix.append("...");
+        new_url_sufix.append(url);
       } else {
-        server_->Send(
-            outgoing.first, StringViewToUtf8(outgoing.second->string()));
+        new_url_sufix.append("...");
+        new_url_sufix.append(url.substr(found + 1));
       }
     }
   }
+
+  if (loaded_urls_.size() > 0) loaded_urls_.append(", ");
+  loaded_urls_.append(new_url_sufix);
+  title_ = "V8JSI Host(" + loaded_urls_ + ")";
 }
+
+std::string AgentImpl::getTitle() { return title_; }
 
 // Exported class Agent
 Agent::Agent(
@@ -610,7 +653,8 @@ Agent::Agent(
     v8::Local<v8::Context> context,
     const char *context_name,
     int port)
-    : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name, port)) {}
+    : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name,
+                                       port)) {}
 
 Agent::~Agent() {
 }
@@ -623,6 +667,7 @@ void Agent::stop() {
   impl->Stop();
 }
 
+
 void Agent::start() {
   impl->Start();
 }
@@ -631,13 +676,15 @@ bool Agent::IsStarted() {
   return impl->IsStarted();
 }
 
-bool Agent::IsConnected() {
-  return impl->IsConnected();
-}
+//bool Agent::IsConnected() {
+//  return impl->IsConnected();
+//}
 
 void Agent::WaitForDisconnect() {
   impl->WaitForDisconnect();
 }
+
+void Agent::notifyLoadedUrl(const std::string& url) { impl->notifyLoadedUrl(url); }
 
 void Agent::FatalException(
     v8::Local<v8::Value> error,
@@ -645,58 +692,70 @@ void Agent::FatalException(
   impl->FatalException(error, message);
 }
 
-InspectorAgentDelegate::InspectorAgentDelegate(
-    AgentImpl& agent,
-    const std::string &script_path,
-    const std::string &script_name,
-    bool wait)
-    : agent_(agent),
-      connected_(false),
-      session_id_(0),
-      script_name_(script_name),
-      script_path_(script_path),
-      target_id_(GenerateID()),
-      waiting_(wait) {}
+InspectorAgentDelegate::InspectorAgentDelegate(){}
 
 void InspectorAgentDelegate::StartSession(
     int session_id,
-    const std::string & /*target_id*/) {
-  connected_ = true;
-  agent_.PostIncomingMessage(session_id, TAG_CONNECT);
+    const std::string & target_id) {
+  auto agent = targets_map_[target_id];
+  session_targets_map_.emplace(session_id, agent);
+  agent->PostIncomingMessage(session_id, TAG_CONNECT);
 }
+
+namespace {
+std::string GenerateID() {
+  static std::random_device rd;
+  static std::mt19937 mte(rd());
+
+  std::uniform_int_distribution<uint16_t> dist;
+
+  std::array<uint16_t, 8> buffer;
+  std::generate(buffer.begin(), buffer.end(), [&]() { return dist(mte); });
+
+  char uuid[256];
+  snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
+           buffer[0], buffer[1], buffer[2], (buffer[3] & 0x0fff) | 0x4000,
+           (buffer[4] & 0x3fff) | 0x8000, buffer[5], buffer[6], buffer[7]);
+  return uuid;
+}
+}  // namespace
 
 void InspectorAgentDelegate::MessageReceived(
     int session_id,
     const std::string &message) {
-  // TODO(pfeldman): Instead of blocking execution while debugger
-  // engages, node should wait for the run callback from the remote client
-  // and initiate its startup. This is a change to node.cc that should be
-  // upstreamed separately.
-  if (waiting_) {
-    if (message.find("\"Runtime.runIfWaitingForDebugger\"") !=
-        std::string::npos) {
-      waiting_ = false;
-      agent_.ResumeStartup();
-    }
-  }
-  agent_.PostIncomingMessage(session_id, message);
+  session_targets_map_[session_id]->PostIncomingMessage(session_id, message);
 }
 
 void InspectorAgentDelegate::EndSession(int session_id) {
-  connected_ = false;
-  agent_.PostIncomingMessage(session_id, TAG_DISCONNECT);
+  // connected_ = false;
+  session_targets_map_[session_id]->PostIncomingMessage(session_id,
+                                                       TAG_DISCONNECT);
+}
+
+
+void InspectorAgentDelegate::AddTarget(std::shared_ptr<AgentImpl> agent) {
+  std::string targetId = GenerateID();
+  targets_map_.emplace(targetId, agent);
 }
 
 std::vector<std::string> InspectorAgentDelegate::GetTargetIds() {
-  return {target_id_};
+  std::vector<std::string> keys;
+  keys.reserve(targets_map_.size());
+  
+  for (auto kv : targets_map_) {
+    keys.push_back(kv.first);
+  }
+
+  return keys;
 }
 
-std::string InspectorAgentDelegate::GetTargetTitle(const std::string &id) {
-  return script_name_.empty() ? GetProcessTitle() : script_name_;
+std::string InspectorAgentDelegate::GetTargetTitle(const std::string& id) {
+  auto agent = targets_map_[id];
+  return agent->getTitle();
 }
 
 std::string InspectorAgentDelegate::GetTargetUrl(const std::string &id) {
-  return "file://" + script_path_;
+  return "file://" + id;
 }
 
 } // namespace inspector

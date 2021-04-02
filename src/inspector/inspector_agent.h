@@ -44,6 +44,8 @@ class Agent {
       v8::Local<v8::Value> error,
       v8::Local<v8::Message> message);
 
+  void notifyLoadedUrl(const std::string& url);
+
  private:
   std::shared_ptr<AgentImpl> impl;
 };
