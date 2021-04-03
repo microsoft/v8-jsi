@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 #include "V8JsiRuntime_impl.h"
-
-#include "libplatform/libplatform.h"
-#include "v8.h"
-
 #include "V8Platform.h"
+#include "libplatform/libplatform.h"
 #include "public/ScriptStore.h"
+#include "v8.h"
 
 #include <atomic>
 #include <cstdlib>
@@ -28,7 +26,9 @@ using namespace facebook;
 
 namespace v8runtime {
 
-thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
+thread_local uint16_t V8Runtime::tls_isolate_usage_counter_{0};
+thread_local std::weak_ptr<V8Runtime::CounterStores>
+    V8Runtime::tls_counter_stores_;
 
 #ifdef USE_DEFAULT_PLATFORM
 std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
@@ -88,7 +88,7 @@ class TaskRunnerAdapter : public v8::TaskRunner {
   }
 
   void PostNonNestableTask(std::unique_ptr<v8::Task> task) override {
-    //TODO: non-nestable
+    // TODO: non-nestable
     taskRunner_->postTask(std::make_unique<TaskAdapter>(std::move(task)));
   }
 
@@ -131,22 +131,24 @@ void V8Runtime::AddHostObjectLifetimeTracker(
     v8::Local<v8::Message> message,
     v8::Local<v8::Value> error) {
   v8::Isolate *isolate = v8::Isolate::GetCurrent();
-
   v8::String::Utf8Value msg(isolate, message->Get());
   v8::String::Utf8Value source_line(
       isolate,
       message->GetSourceLine(isolate->GetCurrentContext()).ToLocalChecked());
 
 #ifdef _WIN32
-  TRACEV8RUNTIME_VERBOSE("V8::MessageFrom",
-                    TraceLoggingString(*msg, "message"),
-                    TraceLoggingString(*source_line, "source_line"),
-                    TraceLoggingInt32(message->GetLineNumber(isolate->GetCurrentContext()).ToChecked(), "Line"),
-                    TraceLoggingInt32(message->GetStartPosition(), "StartPos"),
-                    TraceLoggingInt32(message->GetEndPosition(), "EndPos"),
-                    TraceLoggingInt32(message->ErrorLevel(), "ErrorLevel"),
-                    TraceLoggingInt32(message->GetStartColumn(), "StartCol"),
-                    TraceLoggingInt32(message->GetEndColumn(), "EndCol"));
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::MessageFrom",
+      TraceLoggingString(*msg, "message"),
+      TraceLoggingString(*source_line, "source_line"),
+      TraceLoggingInt32(
+          message->GetLineNumber(isolate->GetCurrentContext()).ToChecked(),
+          "Line"),
+      TraceLoggingInt32(message->GetStartPosition(), "StartPos"),
+      TraceLoggingInt32(message->GetEndPosition(), "EndPos"),
+      TraceLoggingInt32(message->ErrorLevel(), "ErrorLevel"),
+      TraceLoggingInt32(message->GetStartColumn(), "StartCol"),
+      TraceLoggingInt32(message->GetEndColumn(), "EndCol"));
 #endif
 }
 
@@ -155,7 +157,8 @@ size_t V8Runtime::NearHeapLimitCallback(
     size_t current_heap_limit,
     size_t initial_heap_limit) {
 #ifdef _WIN32
-  TRACEV8RUNTIME_VERBOSE("V8::NearHeapLimitCallback",
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::NearHeapLimitCallback",
       TraceLoggingInt64(current_heap_limit, "current_heap_limit"),
       TraceLoggingInt64(initial_heap_limit, "initial_heap_limit"));
 #endif
@@ -219,9 +222,14 @@ void V8Runtime::GCPrologueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCPrologue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
-  TRACEV8RUNTIME_VERBOSE("V8::GCPrologueCallback",
-                    TraceLoggingString(gcTypeString.c_str(), "GCType"));
-  DumpCounters(gcTypeString.c_str());
+
+  auto counter_stores = tls_counter_stores_.lock();
+  if (counter_stores) {
+    TRACEV8RUNTIME_VERBOSE(
+        "V8::GCPrologueCallback",
+        TraceLoggingString(gcTypeString.c_str(), "GCType"));
+    counter_stores->DumpCounters(gcTypeString.c_str());
+  }
 }
 
 void V8Runtime::GCEpilogueCallback(
@@ -230,16 +238,15 @@ void V8Runtime::GCEpilogueCallback(
     v8::GCCallbackFlags flags) {
   std::string prefix("GCEpilogue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
-  TRACEV8RUNTIME_VERBOSE("V8::GCEpilogueCallback",
-                    TraceLoggingString(gcTypeString.c_str(), "GCType"));
 
-  DumpCounters(gcTypeString.c_str());
+  auto counter_stores = tls_counter_stores_.lock();
+  if (counter_stores) {
+    TRACEV8RUNTIME_VERBOSE(
+        "V8::GCEpilogueCallback",
+        TraceLoggingString(gcTypeString.c_str(), "GCType"));
+    counter_stores->DumpCounters(gcTypeString.c_str());
+  }
 }
-
-CounterMap *V8Runtime::counter_map_;
-char V8Runtime::counters_file_[sizeof(CounterCollection)];
-CounterCollection V8Runtime::local_counters_;
-CounterCollection *V8Runtime::counters_ = &local_counters_;
 
 int32_t *Counter::Bind(const char *name, bool is_histogram) {
   int i;
@@ -268,39 +275,41 @@ Counter *CounterCollection::GetNextCounter() {
   return &counters_[counters_in_use_++];
 }
 
-void V8Runtime::DumpCounters(const char *when) {
+V8Runtime::CounterStores::CounterStores() {
+  counter_map_ = new CounterMap();
+}
+
+void V8Runtime::CounterStores::DumpCounters(const char *when) {
   static int cookie = 0;
   cookie++;
 #ifdef _WIN32
   for (std::pair<std::string, Counter *> element : *counter_map_) {
-    TRACEV8RUNTIME_VERBOSE("V8::PerfCounters",
-        TraceLoggingString(when, "when"),
-        TraceLoggingInt32(cookie, "cookie"),
-        TraceLoggingString(element.first.c_str(), "name"),
-        TraceLoggingInt32(element.second->count(), "count"),
-        TraceLoggingInt32(element.second->sample_total(), "sample_total"),
-        TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
+    if (element.second->count() != 0 || element.second->sample_total() != 0) {
+      TRACEV8RUNTIME_VERBOSE(
+          "V8::PerfCounters",
+          TraceLoggingString(when, "when"),
+          TraceLoggingInt32(cookie, "cookie"),
+          TraceLoggingString(element.first.c_str(), "name"),
+          TraceLoggingInt32(element.second->count(), "count"),
+          TraceLoggingInt32(element.second->sample_total(), "sample_total"),
+          TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
+    }
   }
 #endif
 }
 
-void V8Runtime::MapCounters(v8::Isolate *isolate, const char *name) {
-  // counters_file_ = base::OS::MemoryMappedFile::create(
-  //	name, sizeof(CounterCollection), &local_counters_);
-  // void* memory =
-  //	(counters_file_ == nullptr) ? nullptr : counters_file_->memory();
-  // if (memory == nullptr) {
-  //	printf("Could not map counters file %s\n", name);
-  //	base::OS::ExitProcess(1);
-  //}
-  // counters_ = static_cast<CounterCollection*>(memory);
+void V8Runtime::CounterStores::MapCounters(
+    v8::Isolate *isolate,
+    const char *name) {
   counters_ = reinterpret_cast<CounterCollection *>(&counters_file_);
   isolate->SetCounterFunction(LookupCounter);
   isolate->SetCreateHistogramFunction(CreateHistogram);
   isolate->SetAddHistogramSampleFunction(AddHistogramSample);
 }
 
-Counter *V8Runtime::GetCounter(const char *name, bool is_histogram) {
+Counter *V8Runtime::CounterStores::GetCounter(
+    const char *name,
+    bool is_histogram) {
   auto map_entry = counter_map_->find(name);
   Counter *counter =
       map_entry != counter_map_->end() ? map_entry->second : nullptr;
@@ -318,18 +327,23 @@ Counter *V8Runtime::GetCounter(const char *name, bool is_histogram) {
 }
 
 int *V8Runtime::LookupCounter(const char *name) {
-  Counter *counter = GetCounter(name, false);
-
-  if (counter != nullptr) {
-    return counter->ptr();
-  } else {
-    return nullptr;
+  auto counter_stores = tls_counter_stores_.lock();
+  if (counter_stores) {
+    Counter *counter = counter_stores->GetCounter(name, false);
+    if (counter != nullptr) {
+      return counter->ptr();
+    } else {
+      return nullptr;
+    }
   }
 }
 
 void *
 V8Runtime::CreateHistogram(const char *name, int min, int max, size_t buckets) {
-  return GetCounter(name, true);
+  auto counter_stores = tls_counter_stores_.lock();
+  if (counter_stores) {
+    return counter_stores->GetCounter(name, true);
+  }
 }
 
 void V8Runtime::AddHistogramSample(void *histogram, int sample) {
@@ -371,7 +385,8 @@ struct SameCodeObjects {
   }
 };
 
-/*static */ void V8Runtime::JitCodeEventListener(const v8::JitCodeEvent *event) {
+/*static */ void V8Runtime::JitCodeEventListener(
+    const v8::JitCodeEvent *event) {
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED:
 #ifdef _WIN32
@@ -380,9 +395,9 @@ struct SameCodeObjects {
           TraceLoggingString("CODE_ADDED", "type"),
           TraceLoggingString(
               event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
-                                ? "BYTE_CODE"
-                                : "JIT_CODE",
-                            "cookie"),
+                  ? "BYTE_CODE"
+                  : "JIT_CODE",
+              "cookie"),
           TraceLoggingString(
               std::string(event->name.str, event->name.len).c_str(), "name"));
 #endif
@@ -418,16 +433,15 @@ struct SameCodeObjects {
         code_details.append(std::to_string(iter->pos_) + ":");
       }
 #ifdef _WIN32
-        TRACEV8RUNTIME_VERBOSE(
+      TRACEV8RUNTIME_VERBOSE(
           "V8::JIT",
           TraceLoggingString("CODE_END_LINE_INFO_RECORDING", "type"),
           TraceLoggingString(
               event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
-                                ? "BYTE_CODE"
-                                : "JIT_CODE",
-                            "cookie"),
-          TraceLoggingString(
-              code_details.c_str(), "code_details"));
+                  ? "BYTE_CODE"
+                  : "JIT_CODE",
+              "cookie"),
+          TraceLoggingString(code_details.c_str(), "code_details"));
 #endif
 
       break;
@@ -435,7 +449,8 @@ struct SameCodeObjects {
     default:
 #ifdef _WIN32
       TRACEV8RUNTIME_VERBOSE(
-          "V8::JIT", TraceLoggingString("DEF", "type"),
+          "V8::JIT",
+          TraceLoggingString("DEF", "type"),
           TraceLoggingString(
               event->code_type == v8::JitCodeEvent::CodeType::BYTE_CODE
                   ? "BYTE_CODE"
@@ -447,8 +462,7 @@ struct SameCodeObjects {
 }
 
 v8::Isolate *V8Runtime::CreateNewIsolate() {
-  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate",
-                    TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("start", "op"));
 
   if (args_.custom_snapshot_blob) {
     custom_snapshot_startup_data_ = {
@@ -470,7 +484,9 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
     create_params_.constraints = constraints;
   }
 
-  counter_map_ = new CounterMap();
+  counter_stores_ = std::make_shared<CounterStores>();
+  tls_counter_stores_ = counter_stores_;
+
   if (args_.trackGCObjectStats) {
     create_params_.counter_lookup_callback = LookupCounter;
     create_params_.create_histogram_callback = CreateHistogram;
@@ -487,11 +503,11 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
       v8runtime::ISOLATE_DATA_SLOT,
       new v8runtime::IsolateData({foreground_task_runner_}));
 
-  v8::Isolate::Initialize(isolate_, create_params_);
-
-  if (args_.trackGCObjectStats) {
-    MapCounters(isolate_, "v8jsi");
+  if (args_.enableTracing) {
+    counter_stores_->MapCounters(isolate_, "v8jsi");
   }
+
+  v8::Isolate::Initialize(isolate_, create_params_);
 
   if (args_.enableJitTracing) {
     isolate_->SetJitCodeEventHandler(
@@ -519,9 +535,8 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   isolate_->Enter();
 
-  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate",
-                    TraceLoggingString("end", "op"));
-  DumpCounters("isolate_created");
+  TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("end", "op"));
+  counter_stores_->DumpCounters("isolate_created");
 
   return isolate_;
 }
@@ -539,9 +554,11 @@ void V8Runtime::createHostObjectConstructorPerContext() {
       nullptr,
       HostObjectProxy::Enumerator));
 
-  // V8 distinguishes between named properties (strings and symbols) and indexed properties (number)
-  // Note that we're not passing an Enumerator here, otherwise we'd be double-counting since JSI doesn't make the distinction
-  hostObjectTemplate->SetIndexedPropertyHandler(HostObjectProxy::GetIndexed, HostObjectProxy::SetIndexed);
+  // V8 distinguishes between named properties (strings and symbols) and indexed
+  // properties (number) Note that we're not passing an Enumerator here,
+  // otherwise we'd be double-counting since JSI doesn't make the distinction
+  hostObjectTemplate->SetIndexedPropertyHandler(
+      HostObjectProxy::GetIndexed, HostObjectProxy::SetIndexed);
   hostObjectTemplate->SetInternalFieldCount(1);
   host_object_constructor_.Reset(
       isolate_,
@@ -572,19 +589,22 @@ void V8Runtime::initializeV8() {
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
+  counter_stores_ = std::make_shared<CounterStores>();
+  tls_counter_stores_ = counter_stores_;
+
   initializeTracing();
   initializeV8();
 
   v8::V8::SetUnhandledExceptionCallback(
-      [](_EXCEPTION_POINTERS* exception_pointers) -> int {
-        TRACEV8RUNTIME_CRITICAL(
-            "V8::SetUnhandledExceptionCallback");
+      [](_EXCEPTION_POINTERS *exception_pointers) -> int {
+        TRACEV8RUNTIME_CRITICAL("V8::SetUnhandledExceptionCallback");
         return 0;
-    });
+      });
 
   // Try to reuse the already existing isolate in this thread.
   if (tls_isolate_usage_counter_++ > 0) {
-    TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
+    TRACEV8RUNTIME_WARNING(
+        "Reusing existing V8 isolate in the current thread !");
     isolate_ = v8::Isolate::GetCurrent();
   } else {
     platform_holder_.addUsage();
@@ -599,9 +619,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
 #ifdef _WIN32
   if (args_.enableInspector) {
-
-    TRACEV8RUNTIME_VERBOSE(
-        "Inspector enabled");
+    TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
         platform_holder_.Get(),
         isolate_,
@@ -611,8 +629,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     inspector_agent_->start();
 
     if (args_.waitForDebugger) {
-      TRACEV8RUNTIME_VERBOSE(
-          "Waiting for inspector frontend to attach");
+      TRACEV8RUNTIME_VERBOSE("Waiting for inspector frontend to attach");
       inspector_agent_->waitForDebugger();
     }
   }
@@ -622,12 +639,17 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 }
 
 V8Runtime::~V8Runtime() {
-  // TODO: add check that destruction happens on the same thread id as construction
+  // TODO: add check that destruction happens on the same thread id as
+  // construction
 #ifdef _WIN32
-  if (inspector_agent_ && inspector_agent_->IsStarted()) {
-    inspector_agent_->stop();
+  {
+    _ISOLATE_CONTEXT_ENTER
+    if (inspector_agent_ && inspector_agent_->IsStarted()) {
+      inspector_agent_->stop();
+    }
+    inspector_agent_.reset();
   }
-  inspector_agent_.reset();
+
 #endif
 
   host_object_constructor_.Reset();
@@ -639,7 +661,8 @@ V8Runtime::~V8Runtime() {
   }
 
   if (--tls_isolate_usage_counter_ == 0) {
-    IsolateData* isolate_data = reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
+    IsolateData *isolate_data =
+        reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
     delete isolate_data;
 
     isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, nullptr);
@@ -658,30 +681,43 @@ V8Runtime::~V8Runtime() {
 jsi::Value V8Runtime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
     const std::string &sourceURL) {
+  TRACEV8RUNTIME_VERBOSE(
+      "evaluateJavaScript",
+      TraceLoggingString("start", "op"),
+      TraceLoggingString(sourceURL.c_str(), "sourceURL"));
 
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript",
-                    TraceLoggingString("start", "op"));
-  
+  if (args_.enableInspector) {
+    inspector_agent_->notifyLoadedUrl(sourceURL);
+  }
+
   _ISOLATE_CONTEXT_ENTER
 
   v8::Local<v8::String> sourceV8String;
-  // If we'd somehow know the buffer includes only ASCII characters, we could use External strings to avoid the copy
-  /* ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
-  if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
-    std::abort();
+  // If we'd somehow know the buffer includes only ASCII characters, we could
+  // use External strings to avoid the copy
+  /* ExternalOwningOneByteStringResource *external_string_resource = new
+  ExternalOwningOneByteStringResource(buffer); if
+  (!v8::String::NewExternalOneByte(isolate,
+  external_string_resource).ToLocal(&sourceV8String)) { std::abort();
   }
   delete external_string_resource; */
 
-  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(buffer->data()),
-      v8::NewStringType::kNormal, static_cast<int>(buffer->size())).ToLocal(&sourceV8String)) {
+  if (!v8::String::NewFromUtf8(
+           isolate,
+           reinterpret_cast<const char *>(buffer->data()),
+           v8::NewStringType::kNormal,
+           static_cast<int>(buffer->size()))
+           .ToLocal(&sourceV8String)) {
     std::abort();
   }
 
   jsi::Value result = ExecuteString(sourceV8String, sourceURL);
 
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript",
-                    TraceLoggingString("end", "op"));
-  DumpCounters("script evaluated");
+  TRACEV8RUNTIME_VERBOSE(
+      "evaluateJavaScript",
+      TraceLoggingString("end", "op"),
+      TraceLoggingString(sourceURL.c_str(), "sourceURL"));
+  counter_stores_->DumpCounters("script evaluated");
 
   return result;
 }
@@ -709,8 +745,7 @@ void Print(const v8::FunctionCallbackInfo<v8::Value> &args) {
 v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
   // Create a template for the global object.
 
-  TRACEV8RUNTIME_VERBOSE("CreateContext",
-                    TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE("CreateContext", TraceLoggingString("start", "op"));
 
   v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
 
@@ -722,9 +757,8 @@ v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
   v8::Local<v8::Context> context = v8::Context::New(isolate, NULL, global);
   context->SetAlignedPointerInEmbedderData(1, this);
 
-  TRACEV8RUNTIME_VERBOSE("CreateContext",
-                    TraceLoggingString("end", "op"));
-  DumpCounters("context_created");
+  TRACEV8RUNTIME_VERBOSE("CreateContext", TraceLoggingString("end", "op"));
+  counter_stores_->DumpCounters("context_created");
 
   return context;
 }
@@ -762,7 +796,7 @@ jsi::Value V8Runtime::ExecuteString(
           isolate, reinterpret_cast<const char *>(sourceURL.c_str()))
           .ToLocalChecked();
   v8::ScriptOrigin origin(urlV8String);
-  
+
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
 
@@ -830,7 +864,7 @@ jsi::Value V8Runtime::ExecuteString(
 }
 
 class V8PreparedJavaScript : public facebook::jsi::PreparedJavaScript {
-public:
+ public:
   jsi::ScriptSignature scriptSignature;
   jsi::JSRuntimeSignature runtimeSignature;
   std::vector<uint8_t> buffer;
@@ -841,61 +875,87 @@ public:
 };
 
 std::shared_ptr<const facebook::jsi::PreparedJavaScript>
-V8Runtime::prepareJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::string sourceURL) {
+V8Runtime::prepareJavaScript(
+    const std::shared_ptr<const facebook::jsi::Buffer> &buffer,
+    std::string sourceURL) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
   v8::Local<v8::String> source;
-  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(buffer->data()),
-      v8::NewStringType::kNormal, static_cast<int>(buffer->size())).ToLocal(&source)) {
+  if (!v8::String::NewFromUtf8(
+           isolate,
+           reinterpret_cast<const char *>(buffer->data()),
+           v8::NewStringType::kNormal,
+           static_cast<int>(buffer->size()))
+           .ToLocal(&source)) {
     std::abort();
   }
 
-  v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
+  v8::Local<v8::String> urlV8String =
+      v8::String::NewFromUtf8(
+          isolate, reinterpret_cast<const char *>(sourceURL.c_str()))
+          .ToLocalChecked();
   v8::ScriptOrigin origin(urlV8String);
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
-  v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
+  v8::ScriptCompiler::CompileOptions options =
+      v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
 
   v8::ScriptCompiler::Source script_source(source, origin, cached_data);
 
-  if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
+  if (!v8::ScriptCompiler::Compile(context, &script_source, options)
+           .ToLocal(&script)) {
     ReportException(&try_catch);
     return nullptr;
   } else {
-    v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
+    v8::ScriptCompiler::CachedData *codeCache =
+        v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
     auto prepared = std::make_shared<V8PreparedJavaScript>();
     prepared->scriptSignature = {sourceURL, 1};
     prepared->runtimeSignature = {"V8", 76};
-    prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
+    prepared->buffer.assign(
+        codeCache->data, codeCache->data + codeCache->length);
     prepared->sourceBuffer = buffer;
     return prepared;
   }
 }
 
-facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(const std::shared_ptr<const facebook::jsi::PreparedJavaScript> & js) {
+facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
+    const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &js) {
   _ISOLATE_CONTEXT_ENTER
 
-  auto prepared = static_cast<const V8PreparedJavaScript*>(js.get());
+  auto prepared = static_cast<const V8PreparedJavaScript *>(js.get());
 
   v8::TryCatch try_catch(isolate);
   v8::Local<v8::String> source;
-  if (!v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->sourceBuffer->data()),
-      v8::NewStringType::kNormal, static_cast<int>(prepared->sourceBuffer->size())).ToLocal(&source)) {
+  if (!v8::String::NewFromUtf8(
+           isolate,
+           reinterpret_cast<const char *>(prepared->sourceBuffer->data()),
+           v8::NewStringType::kNormal,
+           static_cast<int>(prepared->sourceBuffer->size()))
+           .ToLocal(&source)) {
     std::abort();
   }
-  v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->scriptSignature.url.c_str())).ToLocalChecked();
+  v8::Local<v8::String> urlV8String =
+      v8::String::NewFromUtf8(
+          isolate,
+          reinterpret_cast<const char *>(prepared->scriptSignature.url.c_str()))
+          .ToLocalChecked();
   v8::ScriptOrigin origin(urlV8String);
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
 
-  v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kConsumeCodeCache;
-  v8::ScriptCompiler::CachedData *cached_data = new v8::ScriptCompiler::CachedData(prepared->buffer.data(), static_cast<int>(prepared->buffer.size()));
+  v8::ScriptCompiler::CompileOptions options =
+      v8::ScriptCompiler::CompileOptions::kConsumeCodeCache;
+  v8::ScriptCompiler::CachedData *cached_data =
+      new v8::ScriptCompiler::CachedData(
+          prepared->buffer.data(), static_cast<int>(prepared->buffer.size()));
 
   v8::ScriptCompiler::Source script_source(source, origin, cached_data);
 
-  if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
+  if (!v8::ScriptCompiler::Compile(context, &script_source, options)
+           .ToLocal(&script)) {
     ReportException(&try_catch);
     return createValue(v8::Undefined(GetIsolate()));
   } else {
@@ -921,8 +981,9 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     throw jsi::JSError(*this, ToCString(exception));
   } else {
     std::stringstream sstr;
- 
-    // Print (filename):(line number): (message) - this would differ from what JSI expects (it wants the plain stacktrace)
+
+    // Print (filename):(line number): (message) - this would differ from what
+    // JSI expects (it wants the plain stacktrace)
     /*v8::String::Utf8Value filename(
         isolate, message->GetScriptOrigin().ResourceName());
     v8::Local<v8::Context> context(isolate->GetCurrentContext());
@@ -949,7 +1010,8 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     sstr << std::endl;*/
 
     v8::Local<v8::Value> stack_trace_string;
-    if (try_catch->StackTrace(context_.Get(isolate)).ToLocal(&stack_trace_string) &&
+    if (try_catch->StackTrace(context_.Get(isolate))
+            .ToLocal(&stack_trace_string) &&
         stack_trace_string->IsString() &&
         v8::Local<v8::String>::Cast(stack_trace_string)->Length() > 0) {
       v8::String::Utf8Value stack_trace(isolate, stack_trace_string);
@@ -960,23 +1022,30 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     v8::String::Utf8Value ex_message(isolate, message->Get());
     std::string ex_messages = ToCString(ex_message);
     if (ex_messages.rfind("Uncaught Error:", 0) == 0) {
-      // V8 adds an "Uncaught Error: " before any message string any time we read it, this strips it out.
+      // V8 adds an "Uncaught Error: " before any message string any time we
+      // read it, this strips it out.
       ex_messages.erase(0, 16);
     }
 
-    TRACEV8RUNTIME_CRITICAL("Exception",
+    TRACEV8RUNTIME_CRITICAL(
+        "Exception",
         TraceLoggingString(ex_messages.c_str(), "ex_messages"),
         TraceLoggingString(sstr.str().c_str(), "sstr"));
 
-    // V8 doesn't actually capture the current callstack (as we're outside of scope when this gets called)
-    // See also https://v8.dev/docs/stack-trace-api
-    if (ex_messages.find("Maximum call stack size exceeded") == std::string::npos) {
+    // V8 doesn't actually capture the current callstack (as we're outside of
+    // scope when this gets called) See also https://v8.dev/docs/stack-trace-api
+    if (ex_messages.find("Maximum call stack size exceeded") ==
+        std::string::npos) {
       auto err = jsi::JSError(*this, ex_messages);
-      err.value().getObject(*this).setProperty(*this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
+      err.value().getObject(*this).setProperty(
+          *this,
+          "stack",
+          facebook::jsi::String::createFromUtf8(*this, sstr.str()));
       err.setStack(sstr.str());
       throw err;
     } else {
-      // If we're already in stack overflow, calling the Error constructor pushes it overboard
+      // If we're already in stack overflow, calling the Error constructor
+      // pushes it overboard
       throw jsi::JSError(*this, ex_messages, sstr.str());
     }
   }
@@ -984,7 +1053,8 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
 
 jsi::Object V8Runtime::global() {
   _ISOLATE_CONTEXT_ENTER
-  return make<jsi::Object>(V8ObjectValue::make(context_.Get(isolate)->Global()));
+  return make<jsi::Object>(
+      V8ObjectValue::make(context_.Get(isolate)->Global()));
 }
 
 std::string V8Runtime::description() {
@@ -1039,13 +1109,18 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(
   }
 
   _ISOLATE_CONTEXT_ENTER
-  const V8PointerValue<v8::Symbol>* symbol = static_cast<const V8PointerValue<v8::Symbol>*>(pv);
+  const V8PointerValue<v8::Symbol> *symbol =
+      static_cast<const V8PointerValue<v8::Symbol> *>(pv);
   return V8PointerValue<v8::Symbol>::make(symbol->get(GetIsolate()));
 }
 
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   _ISOLATE_CONTEXT_ENTER
-  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description())) + ")";
+  return "Symbol(" +
+      JSStringToSTLString(
+             GetIsolate(),
+             v8::Local<v8::String>::Cast(symbolRef(sym)->Description())) +
+      ")";
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromAscii(
@@ -1246,7 +1321,8 @@ bool V8Runtime::isArrayBuffer(const jsi::Object &obj) const {
 
 uint8_t *V8Runtime::data(const jsi::ArrayBuffer &obj) {
   _ISOLATE_CONTEXT_ENTER
-  return reinterpret_cast<uint8_t*>(objectRef(obj).As<v8::ArrayBuffer>()->GetContents().Data());
+  return reinterpret_cast<uint8_t *>(
+      objectRef(obj).As<v8::ArrayBuffer>()->GetContents().Data());
 }
 
 size_t V8Runtime::size(const jsi::ArrayBuffer &obj) {
@@ -1270,15 +1346,17 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
     return false;
   }
 
-  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(internalFieldRef);
+  v8::Local<v8::External> internalField =
+      v8::Local<v8::External>::Cast(internalFieldRef);
   if (!internalField->Value()) {
     return false;
   }
 
-  HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
+  HostObjectProxy *hostObjectProxy =
+      reinterpret_cast<HostObjectProxy *>(internalField->Value());
 
-  for (const std::shared_ptr<HostObjectLifetimeTracker>& hostObjectLifetimeTracker :
-       host_object_lifetime_tracker_list_) {
+  for (const std::shared_ptr<HostObjectLifetimeTracker>
+           &hostObjectLifetimeTracker : host_object_lifetime_tracker_list_) {
     if (hostObjectLifetimeTracker->IsEqual(hostObjectProxy)) {
       return true;
     }
@@ -1291,12 +1369,15 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
 jsi::Array V8Runtime::getPropertyNames(const jsi::Object &obj) {
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Array> propNames =
-      objectRef(obj)->GetPropertyNames(
+      objectRef(obj)
+          ->GetPropertyNames(
               context_.Get(isolate_),
               v8::KeyCollectionMode::kIncludePrototypes,
-              static_cast<v8::PropertyFilter>(v8::ONLY_ENUMERABLE | v8::SKIP_SYMBOLS),
+              static_cast<v8::PropertyFilter>(
+                  v8::ONLY_ENUMERABLE | v8::SKIP_SYMBOLS),
               v8::IndexFilter::kIncludeIndices,
-              v8::KeyConversionMode::kConvertToString).ToLocalChecked();
+              v8::KeyConversionMode::kConvertToString)
+          .ToLocalChecked();
   return make<jsi::Object>(V8ObjectValue::make(propNames)).getArray(*this);
 }
 
@@ -1310,7 +1391,8 @@ jsi::Value V8Runtime::lockWeakObject(jsi::WeakObject &) {
 
 jsi::Array V8Runtime::createArray(size_t length) {
   _ISOLATE_CONTEXT_ENTER
-  return make<jsi::Object>(V8ObjectValue::make(v8::Array::New(GetIsolate(), static_cast<int>(length))))
+  return make<jsi::Object>(V8ObjectValue::make(v8::Array::New(
+                               GetIsolate(), static_cast<int>(length))))
       .getArray(*this);
 }
 
@@ -1350,7 +1432,8 @@ jsi::Function V8Runtime::createFunctionFromHostFunction(
            HostFunctionProxy::HostFunctionCallback,
            v8::Local<v8::External>::New(
                GetIsolate(),
-               v8::External::New(GetIsolate(), hostFunctionProxy)), paramCount)
+               v8::External::New(GetIsolate(), hostFunctionProxy)),
+           paramCount)
            .ToLocal(&newFunction)) {
     throw jsi::JSError(*this, "Creation of HostFunction failed.");
   }
@@ -1373,7 +1456,9 @@ jsi::HostFunctionType &V8Runtime::getHostFunction(const jsi::Function &obj) {
 }
 
 namespace {
-std::string getFunctionName(v8::Isolate* isolate, v8::Local<v8::Function> func) {
+std::string getFunctionName(
+    v8::Isolate *isolate,
+    v8::Local<v8::Function> func) {
   std::string functionNameStr;
   v8::Local<v8::String> functionNameV8Str =
       v8::Local<v8::String>::Cast(func->GetName());
@@ -1398,14 +1483,13 @@ std::string getFunctionName(v8::Isolate* isolate, v8::Local<v8::Function> func) 
 
   return functionNameStr;
 }
-}
+} // namespace
 
 jsi::Value V8Runtime::call(
     const jsi::Function &jsiFunc,
     const jsi::Value &jsThis,
     const jsi::Value *args,
     size_t count) {
- 
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Function> func =
       v8::Local<v8::Function>::Cast(objectRef(jsiFunc));
@@ -1416,15 +1500,19 @@ jsi::Value V8Runtime::call(
 
   static uint8_t callCookie = 0;
   if (callCookie > 0) {
-    TRACEV8RUNTIME_WARNING("CallFunctionNested",
-                           TraceLoggingString(functionName.c_str(), "name"),
-                           TraceLoggingString("Nested calls to JavaScript functions can be problematic !", "message"));
+    TRACEV8RUNTIME_WARNING(
+        "CallFunctionNested",
+        TraceLoggingString(functionName.c_str(), "name"),
+        TraceLoggingString(
+            "Nested calls to JavaScript functions can be problematic !",
+            "message"));
   }
   callCookie++;
 
-  TRACEV8RUNTIME_VERBOSE("CallFunction",
-                         TraceLoggingString(functionName.c_str(), "name"),
-                         TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE(
+      "CallFunction",
+      TraceLoggingString(functionName.c_str(), "name"),
+      TraceLoggingString("start", "op"));
 
   std::vector<v8::Local<v8::Value>> argv;
   for (size_t i = 0; i < count; i++) {
@@ -1442,10 +1530,11 @@ jsi::Value V8Runtime::call(
     ReportException(&trycatch);
   }
 
-  TRACEV8RUNTIME_VERBOSE("CallFunction",
-                         TraceLoggingString(functionName.c_str(), "name"),
-                         TraceLoggingString("end", "op"));
-  DumpCounters("call_completed");
+  TRACEV8RUNTIME_VERBOSE(
+      "CallFunction",
+      TraceLoggingString(functionName.c_str(), "name"),
+      TraceLoggingString("end", "op"));
+  counter_stores_->DumpCounters("call_completed");
 
   callCookie--;
 
@@ -1461,7 +1550,6 @@ jsi::Value V8Runtime::callAsConstructor(
     const jsi::Function &jsiFunc,
     const jsi::Value *args,
     size_t count) {
-
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Function> func =
       v8::Local<v8::Function>::Cast(objectRef(jsiFunc));
@@ -1469,9 +1557,10 @@ jsi::Value V8Runtime::callAsConstructor(
   // TODO: This may be a bit costly when there are large number of JS function
   // calls from native. Evaluate !
   std::string functionName = getFunctionName(isolate_, func);
-  TRACEV8RUNTIME_VERBOSE("CallConstructor",
-                        TraceLoggingString(functionName.c_str(), "name"),
-                        TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE(
+      "CallConstructor",
+      TraceLoggingString(functionName.c_str(), "name"),
+      TraceLoggingString("start", "op"));
 
   std::vector<v8::Local<v8::Value>> argv;
   for (size_t i = 0; i < count; i++) {
@@ -1492,10 +1581,11 @@ jsi::Value V8Runtime::callAsConstructor(
     ReportException(&trycatch);
   }
 
-  TRACEV8RUNTIME_VERBOSE("CallConstructor",
-                         TraceLoggingString(functionName.c_str(), "name"),
-                         TraceLoggingString("end", "op"));
-  DumpCounters("callAsConstructor_completed");
+  TRACEV8RUNTIME_VERBOSE(
+      "CallConstructor",
+      TraceLoggingString(functionName.c_str(), "name"),
+      TraceLoggingString("end", "op"));
+  counter_stores_->DumpCounters("callAsConstructor_completed");
 
   return createValue(newObject);
 }
@@ -1539,11 +1629,14 @@ jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     return jsi::Value(nullptr);
   } else if (value->IsString()) {
     // Note :: Non copy create
-    return make<jsi::String>(V8StringValue::make(v8::Local<v8::String>::Cast(value)));
+    return make<jsi::String>(
+        V8StringValue::make(v8::Local<v8::String>::Cast(value)));
   } else if (value->IsObject()) {
-    return make<jsi::Object>(V8ObjectValue::make(v8::Local<v8::Object>::Cast(value)));
+    return make<jsi::Object>(
+        V8ObjectValue::make(v8::Local<v8::Object>::Cast(value)));
   } else if (value->IsSymbol()) {
-    return make<jsi::Symbol>(V8PointerValue<v8::Symbol>::make(v8::Local<v8::Symbol>::Cast(value)));
+    return make<jsi::Symbol>(
+        V8PointerValue<v8::Symbol>::make(v8::Local<v8::Symbol>::Cast(value)));
   } else {
     // What are you?
     std::abort();
@@ -1574,7 +1667,69 @@ v8::Local<v8::Value> V8Runtime::valueRef(const jsi::Value &value) {
   }
 }
 
+void applyOverrides(V8RuntimeArgs &args) {
+  constexpr const wchar_t *regSubKey =
+      L"SOFTWARE\\Microsoft\\V8JSI\\";
+  DWORD value, bufferSize = sizeof(DWORD);
+
+  if (ERROR_SUCCESS ==
+      RegGetValueW(
+          HKEY_CURRENT_USER,
+          regSubKey,
+          L"enableInspectorOverride",
+          RRF_RT_REG_DWORD,
+          nullptr,
+          static_cast<void *>(&value),
+          &bufferSize)) {
+    args.enableInspector = value > 0;
+  }
+
+  if (args.enableInspector) {
+    if (ERROR_SUCCESS ==
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            regSubKey,
+            L"inspectorPortOverride",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            static_cast<void *>(&value),
+            &bufferSize)) {
+      args.inspectorPort = value;
+    }
+
+    if (ERROR_SUCCESS ==
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            regSubKey,
+            L"waitForDebuggerOverride",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            static_cast<void *>(&value),
+            &bufferSize)) {
+      args.waitForDebugger = value > 0;
+    }
+  }
+
+  if (ERROR_SUCCESS ==
+      RegGetValueW(
+          HKEY_CURRENT_USER,
+          regSubKey,
+          L"enableDetailedTracing",
+          RRF_RT_REG_DWORD,
+          nullptr,
+          static_cast<void *>(&value),
+          &bufferSize)) {
+    const bool enable = value > 0;
+    args.trackGCObjectStats = enable;
+    args.enableTracing = enable;
+    args.enableJitTracing = enable;
+    args.enableMessageTracing = enable;
+    args.enableGCTracing = enable;
+  }
+}
+
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
+  applyOverrides(args);
   return std::make_unique<V8Runtime>(std::move(args));
 }
 

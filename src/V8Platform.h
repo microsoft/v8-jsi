@@ -9,10 +9,10 @@
 #include <map>
 #include <mutex>
 #include <queue>
-#include "libplatform/libplatform.h"
-#include "v8.h"
 
+#include "libplatform/libplatform.h"
 #include "public/V8JsiRuntime.h"
+#include "v8.h"
 
 namespace v8runtime {
 
@@ -163,8 +163,11 @@ class V8Platform : public v8::Platform {
   v8::TracingController *GetTracingController() override;
 
   // TODO: validate this implementation
-  std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> job_task) override {
-    return v8::platform::NewDefaultJobHandle(this, priority, std::move(job_task), NumberOfWorkerThreads());
+  std::unique_ptr<v8::JobHandle> PostJob(
+      v8::TaskPriority priority,
+      std::unique_ptr<v8::JobTask> job_task) override {
+    return v8::platform::NewDefaultJobHandle(
+        this, priority, std::move(job_task), NumberOfWorkerThreads());
   }
 
  private:
