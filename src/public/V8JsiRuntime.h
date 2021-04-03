@@ -83,12 +83,15 @@ struct V8RuntimeArgs {
   bool enableLog{false};
   bool enableGCTracing{false};
 
-  // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
-  // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket port open, which should be very small.
-  bool enableInspector{false };
-  bool waitForDebugger{false };
+  // Enabling inspector by default. This will help in stabilizing inspector, and
+  // easily debug JS code when needed. There shouldn't be any perf impacts until
+  // a debugger client is attached, except the overload of having a WebSocket
+  // port open, which should be very small.
+  bool enableInspector{false};
+  bool waitForDebugger{false};
 
-  // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
+  // To debug using vscode-node-adapter create a blank vscode workspace with the
+  // following launch.config and attach to the runtime.
   // {
   // "version" : "0.2.0",
   // "configurations" : [
@@ -102,8 +105,10 @@ struct V8RuntimeArgs {
   // ]
   //
   //
-  // To debug with edge, navigate to "edge:\\inspect", and configure network target discovery by adding "localhost:9223" to the list. Debug target should soon appear ( < 5 seconds).
-  // To debug with chrome, navigate to "chrome:\\inspect", and follow the same step as above.
+  // To debug with edge, navigate to "edge:\\inspect", and configure network
+  // target discovery by adding "localhost:9223" to the list. Debug target
+  // should soon appear ( < 5 seconds). To debug with chrome, navigate to
+  // "chrome:\\inspect", and follow the same step as above.
   uint16_t inspectorPort{9223};
 
   size_t initial_heap_size_in_bytes{0};
@@ -117,6 +122,7 @@ __declspec(dllexport)
 __attribute__((visibility("default")))
 #endif
 #endif
-std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
+    std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(
+        V8RuntimeArgs &&args);
 
 } // namespace v8runtime

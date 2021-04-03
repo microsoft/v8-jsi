@@ -44,9 +44,12 @@ uint64_t ETWTracingController::AddTraceEvent(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-  TRACEV8RUNTIME_VERBOSE("V8::Trace", TraceLoggingInt8(phase, phase),
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::Trace",
+      TraceLoggingInt8(phase, phase),
       TraceLoggingString(name, "name"),
-      TraceLoggingString(scope, "scope"), TraceLoggingUInt64(id, "id"),
+      TraceLoggingString(scope, "scope"),
+      TraceLoggingUInt64(id, "id"),
       TraceLoggingString(scope, "scope"),
       TraceLoggingUInt64(bind_id, "bind_id"),
       TraceLoggingString(names[0], "name0"),
@@ -106,7 +109,8 @@ uint64_t ETWTracingController::AddTraceEventWithTimestamp(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-  TRACEV8RUNTIME_VERBOSE("V8::Trace",
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::Trace",
       TraceLoggingInt8(phase, phase),
       TraceLoggingString(name, "name"),
       TraceLoggingInt64(timestamp, "timestamp"),
@@ -150,9 +154,6 @@ void ETWTracingController::UpdateTraceEventDuration(
     const uint8_t *category_enabled_flag,
     const char *name,
     uint64_t handle) {
-#if defined(_WIN32) && !defined(__clang__)
-  //EventWriteUPDATE_TIMESTAMP(name, handle);
-#endif
 }
 
 void ETWTracingController::AddTraceStateObserver(
@@ -187,9 +188,11 @@ WorkerThreadsTaskRunner::WorkerThreadsTaskRunner() {
 }
 
 void WorkerThreadsTaskRunner::Shutdown() {
-  // When this gets called, all threads are already shut down (we're tearing down the process and destroying the global V8Platform)
+  // When this gets called, all threads are already shut down (we're tearing
+  // down the process and destroying the global V8Platform)
 
-  // TODO: Consider adding a "global runtime shutdown" API to JSI to fit V8's model
+  // TODO: Consider adding a "global runtime shutdown" API to JSI to fit V8's
+  // model
 
   worker_stopped_ = true;
   timer_stopped_ = true;
