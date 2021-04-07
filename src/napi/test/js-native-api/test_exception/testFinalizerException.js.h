@@ -29,7 +29,7 @@ if (process.argv[2] === 'child') {
 const assert = require('assert');
 const { spawnSync } = require('child_process');
 const child = spawnSync(process.execPath, [
-  '--expose-gc', __filename, 'child'
+  '--expose-gc', __filename, 'child',
 ]);
 assert.strictEqual(child.signal, null);
 assert.match(child.stderr.toString(), /Error during Finalize/m);

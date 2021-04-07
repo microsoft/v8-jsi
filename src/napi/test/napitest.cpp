@@ -106,20 +106,20 @@ NapiTestException::NapiTestException(napi_env env, napi_value error) noexcept {
 }
 
 void NapiTestException::ApplyScriptErrorData(napi_env env, napi_value error) {
-  m_scriptError = std::make_shared<NapiScriptError>();
-  m_scriptError->Name = GetPropertyString(env, error, "name");
-  m_scriptError->Message = GetPropertyString(env, error, "message");
-  m_scriptError->Stack = GetPropertyString(env, error, "stack");
-  if (m_scriptError->Name == "AssertionError") {
-    m_assertionError = std::make_shared<NapiAssertionError>();
-    m_assertionError->Method = GetPropertyString(env, error, "method");
-    m_assertionError->Expected = GetPropertyString(env, error, "expected");
-    m_assertionError->Actual = GetPropertyString(env, error, "actual");
-    m_assertionError->SourceFile = GetPropertyString(env, error, "sourceFile");
-    m_assertionError->SourceLine = GetPropertyInt32(env, error, "sourceLine");
-    m_assertionError->ErrorStack = GetPropertyString(env, error, "errorStack");
-    if (m_assertionError->ErrorStack.empty()) {
-      m_assertionError->ErrorStack = m_scriptError->Stack;
+  m_errorInfo = std::make_shared<NapiErrorInfo>();
+  m_errorInfo->Name = GetPropertyString(env, error, "name");
+  m_errorInfo->Message = GetPropertyString(env, error, "message");
+  m_errorInfo->Stack = GetPropertyString(env, error, "stack");
+  if (m_errorInfo->Name == "AssertionError") {
+    m_assertionErrorInfo = std::make_shared<NapiAssertionErrorInfo>();
+    m_assertionErrorInfo->Method = GetPropertyString(env, error, "method");
+    m_assertionErrorInfo->Expected = GetPropertyString(env, error, "expected");
+    m_assertionErrorInfo->Actual = GetPropertyString(env, error, "actual");
+    m_assertionErrorInfo->SourceFile = GetPropertyString(env, error, "sourceFile");
+    m_assertionErrorInfo->SourceLine = GetPropertyInt32(env, error, "sourceLine");
+    m_assertionErrorInfo->ErrorStack = GetPropertyString(env, error, "errorStack");
+    if (m_assertionErrorInfo->ErrorStack.empty()) {
+      m_assertionErrorInfo->ErrorStack = m_errorInfo->Stack;
     }
   }
 }
@@ -468,13 +468,13 @@ NapiTestErrorHandler::~NapiTestErrorHandler() noexcept {
       std::rethrow_exception(m_exception);
     } catch (NapiTestException const &ex) {
       if (m_handler) {
-        if (!ex.ScriptError() || ex.ScriptError()->Name == m_jsErrorName) {
+        if (!ex.ErrorInfo() || ex.ErrorInfo()->Name == m_jsErrorName) {
           m_handler(ex);
           return;
         }
       }
 
-      if (auto assertionError = ex.AssertionError()) {
+      if (auto assertionError = ex.AssertionErrorInfo()) {
         auto sourceFile = assertionError->SourceFile;
         auto sourceLine = assertionError->SourceLine - m_scriptLineOffset;
         auto sourceCode = std::string("<Source is unavailable>");
@@ -486,40 +486,40 @@ NapiTestErrorHandler::~NapiTestErrorHandler() noexcept {
           sourceFile = "<Unknown>";
         }
 
-        std::string methodName = "assert." + ex.AssertionError()->Method;
+        std::string methodName = "assert." + ex.AssertionErrorInfo()->Method;
         std::stringstream errorDetails;
         if (methodName != "assert.fail") {
-          errorDetails << " Expected: " << ex.AssertionError()->Expected << '\n'
-                       << "   Actual: " << ex.AssertionError()->Actual << '\n';
+          errorDetails << " Expected: " << ex.AssertionErrorInfo()->Expected << '\n'
+                       << "   Actual: " << ex.AssertionErrorInfo()->Actual << '\n';
         }
 
         std::string processedStack = m_testContext->ProcessStack(
-            ex.AssertionError()->ErrorStack, ex.AssertionError()->Method);
+            ex.AssertionErrorInfo()->ErrorStack, ex.AssertionErrorInfo()->Method);
 
         GTEST_MESSAGE_AT_(
             m_file.c_str(),
             sourceLine,
             "JavaScript assertion error",
             ::testing::TestPartResult::kFatalFailure)
-            << "Exception: " << ex.ScriptError()->Name << '\n'
+            << "Exception: " << ex.ErrorInfo()->Name << '\n'
             << "   Method: " << methodName << '\n'
-            << "  Message: " << ex.ScriptError()->Message << '\n'
+            << "  Message: " << ex.ErrorInfo()->Message << '\n'
             << errorDetails.str(/*a filler for formatting*/)
             << "     File: " << sourceFile << ":" << sourceLine << '\n'
             << sourceCode << '\n'
             << "Callstack: " << '\n'
             << processedStack /*   a filler for formatting    */
             << "Raw stack: " << '\n'
-            << "  " << ex.AssertionError()->ErrorStack;
-      } else if (ex.ScriptError()) {
+            << "  " << ex.AssertionErrorInfo()->ErrorStack;
+      } else if (ex.ErrorInfo()) {
         GTEST_MESSAGE_AT_(
             m_file.c_str(),
             m_line,
             "JavaScript error",
             ::testing::TestPartResult::kFatalFailure)
-            << "Exception: " << ex.ScriptError()->Name << '\n'
-            << "  Message: " << ex.ScriptError()->Message << '\n'
-            << "Callstack: " << ex.ScriptError()->Stack;
+            << "Exception: " << ex.ErrorInfo()->Name << '\n'
+            << "  Message: " << ex.ErrorInfo()->Message << '\n'
+            << "Callstack: " << ex.ErrorInfo()->Stack;
       } else {
         GTEST_MESSAGE_AT_(
             m_file.c_str(),

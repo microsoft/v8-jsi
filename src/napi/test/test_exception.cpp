@@ -37,7 +37,7 @@ TEST_P(NapiTest, test_exception_finalizer) {
 
         testContext->RunTestScript(test_exception_testFinalizerException_js)
             .Throws("Error", [&error](NapiTestException const &ex) noexcept {
-              error = ex.ScriptError()->Message;
+              error = ex.ErrorInfo()->Message;
             });
       });
     });

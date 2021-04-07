@@ -22,13 +22,8 @@ extern "C" {
 #include "js-native-api/common.h"
 }
 
-constexpr napi_property_attributes operator|(
-    napi_property_attributes left,
-    napi_property_attributes right) {
-  return napi_property_attributes(
-      static_cast<int>(left) | static_cast<int>(right));
-}
-
+// Use this macro to handle NAPI function results in test code.
+// It throws NapiTestException that we then convert to GTest failure.
 #define THROW_IF_NOT_OK(expr)                             \
   do {                                                    \
     napi_status temp_status__ = (expr);                   \
@@ -44,29 +39,50 @@ constexpr napi_property_attributes operator|(
   testContext->RunTestScript(   \
       script, __FILE__, (__LINE__ - napitest::GetEndOfLineCount(script)))
 
+// A shortcut to produce GTest error at specified location.
 #define FAIL_AT(file, line) \
   GTEST_MESSAGE_AT_(        \
       file, line, "Fail", ::testing::TestPartResult::kFatalFailure)
 
+// Define operator '|' to allow "or-ing" napi_property_attributes in tests.
+constexpr napi_property_attributes operator|(
+    napi_property_attributes left,
+    napi_property_attributes right) {
+  return napi_property_attributes(
+      static_cast<int>(left) | static_cast<int>(right));
+}
+
+// Use to override printf in tests to send output to a std::string instead of
+// stdout.
 extern int test_printf(std::string &output, const char *format, ...);
 
 namespace napitest {
 
+// Forward declarations
 struct NapiTest;
 struct NapiTestContext;
 struct NapiTestErrorHandler;
+struct NapiTestException;
 
+// Use for test parameterization.
 using NapiEnvFactory = std::function<napi_env()>;
-
 std::vector<NapiEnvFactory> NapiEnvFactories();
 
-struct NapiScriptError {
+// The base class for unit tests that we parameterize by NapiEnvFactory.
+struct NapiTest : ::testing::TestWithParam<NapiEnvFactory> {
+  static void ExecuteNapi(
+      std::function<void(NapiTestContext *, napi_env)> code) noexcept;
+};
+
+// Properies from JavaScript Error object.
+struct NapiErrorInfo {
   std::string Name;
   std::string Message;
   std::string Stack;
 };
 
-struct NapiAssertionError {
+// Properies from JavaScript AssertionError object.
+struct NapiAssertionErrorInfo {
   std::string Method;
   std::string Expected;
   std::string Actual;
@@ -75,6 +91,7 @@ struct NapiAssertionError {
   std::string ErrorStack;
 };
 
+// The exception used to propagate NAPI and script errors.
 struct NapiTestException : std::exception {
   NapiTestException() noexcept = default;
 
@@ -97,12 +114,12 @@ struct NapiTestException : std::exception {
     return m_expr;
   }
 
-  NapiScriptError const *ScriptError() const noexcept {
-    return m_scriptError.get();
+  NapiErrorInfo const *ErrorInfo() const noexcept {
+    return m_errorInfo.get();
   }
 
-  NapiAssertionError const *AssertionError() const noexcept {
-    return m_assertionError.get();
+  NapiAssertionErrorInfo const *AssertionErrorInfo() const noexcept {
+    return m_assertionErrorInfo.get();
   }
 
  private:
@@ -120,11 +137,11 @@ struct NapiTestException : std::exception {
   napi_status m_errorCode{};
   std::string m_expr;
   std::string m_what;
-  std::shared_ptr<NapiScriptError> m_scriptError;
-  std::shared_ptr<NapiAssertionError> m_assertionError;
+  std::shared_ptr<NapiErrorInfo> m_errorInfo;
+  std::shared_ptr<NapiAssertionErrorInfo> m_assertionErrorInfo;
 };
 
-// Define a "smart pointer" for napi_ref as unique_ptr with a custom deleter.
+// Define NapiRef "smart pointer" for napi_ref as unique_ptr with a custom deleter.
 struct NapiRefDeleter {
   NapiRefDeleter(napi_env env) noexcept : env(env) {}
 
@@ -139,11 +156,10 @@ struct NapiRefDeleter {
 using NapiRef = std::unique_ptr<napi_ref__, NapiRefDeleter>;
 extern NapiRef MakeNapiRef(napi_env env, napi_value value);
 
-struct NapiTest : ::testing::TestWithParam<NapiEnvFactory> {
-  static void ExecuteNapi(
-      std::function<void(NapiTestContext *, napi_env)> code) noexcept;
-};
-
+// The context to run a NAPI test.
+// Some tests require interaction of multiple JS environments.
+// Thus, it is more convenient to have a special NapiTestContext instead of
+// setting the environment per test.
 struct NapiTestContext {
   NapiTestContext(napi_env env);
   ~NapiTestContext();
@@ -170,6 +186,7 @@ struct NapiTestContext {
       std::string const &stack,
       std::string const &assertMethod);
 
+  // The callback function to be executed after the script completion.
   void SetImmediate(napi_value callback) noexcept;
 
  private:
@@ -183,6 +200,8 @@ struct NapiTestContext {
   std::queue<NapiRef> m_immediateQueue;
 };
 
+// Handles the exceptions after running tests.
+// In case if the exception is expected, we can add a custom Throws exception handler.
 struct NapiTestErrorHandler {
   NapiTestErrorHandler(
       NapiTestContext *testContext,

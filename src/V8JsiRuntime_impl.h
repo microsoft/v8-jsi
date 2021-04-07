@@ -171,7 +171,7 @@ class V8Runtime : public facebook::jsi::Runtime {
     return isolate_data_->napi_wrapper();
   }
 
- private:
+ private: // Used by NAPI implementation
   static void PromiseRejectCallback(v8::PromiseRejectMessage data);
   void SetUnhandledPromise(
       v8::Local<v8::Promise> promise,
@@ -179,7 +179,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       v8::Local<v8::Value> exception);
   void RemoveUnhandledPromise(v8::Local<v8::Promise> promise);
 
- private:
+ private: // Used by NAPI implementation
   static int const RuntimeContextTag;
   static void *const RuntimeContextTagPtr;
 

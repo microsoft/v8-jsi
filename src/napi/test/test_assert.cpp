@@ -9,60 +9,60 @@ TEST_P(NapiTest, test_assert) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     RUN_TEST_SCRIPT("require('assert').fail();")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "fail");
-          EXPECT_EQ(ex.ScriptError()->Message, "Failed");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "fail");
+          EXPECT_EQ(ex.ErrorInfo()->Message, "Failed");
         });
 
     RUN_TEST_SCRIPT("require('assert').fail('assert failed');")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.ScriptError()->Message, "assert failed");
+          EXPECT_EQ(ex.ErrorInfo()->Message, "assert failed");
         });
 
     RUN_TEST_SCRIPT("require('assert').ok(true);");
 
     RUN_TEST_SCRIPT("require('assert').ok(false);")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "ok");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "ok");
           EXPECT_EQ(
-              ex.ScriptError()->Message,
+              ex.ErrorInfo()->Message,
               "The expression evaluated to a falsy value");
-          EXPECT_EQ(ex.AssertionError()->Expected, "<boolean> true");
-          EXPECT_EQ(ex.AssertionError()->Actual, "<boolean> false");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Expected, "<boolean> true");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "<boolean> false");
         });
 
     RUN_TEST_SCRIPT("require('assert').ok();")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "ok");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "ok");
           EXPECT_EQ(
-              ex.ScriptError()->Message,
+              ex.ErrorInfo()->Message,
               "No value argument passed to `assert.ok()`");
-          EXPECT_EQ(ex.AssertionError()->Expected, "<boolean> true");
-          EXPECT_EQ(ex.AssertionError()->Actual, "<undefined> undefined");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Expected, "<boolean> true");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "<undefined> undefined");
         });
 
     RUN_TEST_SCRIPT("require('assert').strictEqual(true, 1);")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "strictEqual");
-          EXPECT_EQ(ex.ScriptError()->Message, "Values are not strict equal");
-          EXPECT_EQ(ex.AssertionError()->Actual, "<boolean> true");
-          EXPECT_EQ(ex.AssertionError()->Expected, "<number> 1");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "strictEqual");
+          EXPECT_EQ(ex.ErrorInfo()->Message, "Values are not strict equal");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "<boolean> true");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Expected, "<number> 1");
         });
 
     RUN_TEST_SCRIPT("require('assert').strictEqual({}, []);")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "strictEqual");
-          EXPECT_EQ(ex.ScriptError()->Message, "Values are not strict equal");
-          EXPECT_EQ(ex.AssertionError()->Actual, "<object> {}");
-          EXPECT_EQ(ex.AssertionError()->Expected, "<array> []");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "strictEqual");
+          EXPECT_EQ(ex.ErrorInfo()->Message, "Values are not strict equal");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "<object> {}");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Expected, "<array> []");
         });
 
     RUN_TEST_SCRIPT("require('assert').strictEqual(Number.NaN, Number.NaN);");
 
     RUN_TEST_SCRIPT("require('assert').mustCall();")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "mustCall");
-          EXPECT_EQ(ex.AssertionError()->Expected, "exactly 1 calls");
-          EXPECT_EQ(ex.AssertionError()->Actual, "0 calls");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "mustCall");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Expected, "exactly 1 calls");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "0 calls");
         });
 
     RUN_TEST_SCRIPT(R"(
@@ -83,7 +83,7 @@ TEST_P(NapiTest, test_assert) {
       fn(1, 2, 3); // must cause an AssertionError
       )")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "mustNotCall");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "mustNotCall");
         });
 
     RUN_TEST_SCRIPT("require('assert').mustNotCall();");
@@ -98,7 +98,7 @@ TEST_P(NapiTest, test_assert) {
       resolvePromise();
       )")
         .Throws("AssertionError", [](NapiTestException const &ex) noexcept {
-          EXPECT_EQ(ex.AssertionError()->Method, "fail");
+          EXPECT_EQ(ex.AssertionErrorInfo()->Method, "fail");
         });
 
     RUN_TEST_SCRIPT(

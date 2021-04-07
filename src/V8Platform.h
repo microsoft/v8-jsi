@@ -18,7 +18,7 @@ namespace v8runtime {
 
 constexpr int ISOLATE_DATA_SLOT = 0;
 
-// Platform needs to map every isolate to this data.
+// Custom data associated with each V8 isolate.
 struct IsolateData {
   IsolateData(
       v8::Isolate *isolate,
@@ -36,6 +36,7 @@ struct IsolateData {
     return napi_wrapper_.Get(isolate_);
   }
 
+  // Creates property names often used by the NAPI implementation.
   void CreateProperties() {
     v8::HandleScope handle_scope(isolate_);
     CreateProperty(napi_type_tag_, "node:napi:type_tag");

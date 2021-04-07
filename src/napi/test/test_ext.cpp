@@ -6,7 +6,7 @@
 
 using namespace napitest;
 
-TEST_P(NapiTest, RunScriptTest) {
+TEST_P(NapiTest, test_run_script) {
   ExecuteNapi([&](NapiTestContext *testContext, napi_env env) {
     int intValue{};
     napi_value script{}, scriptResult{}, global{}, xValue{};
