@@ -20,7 +20,49 @@ constexpr int ISOLATE_DATA_SLOT = 0;
 
 // Platform needs to map every isolate to this data.
 struct IsolateData {
+  IsolateData(
+      v8::Isolate *isolate,
+      std::shared_ptr<v8::TaskRunner> foreground_task_runner) noexcept
+      : isolate_{isolate},
+        foreground_task_runner_{std::move(foreground_task_runner)} {}
+
   std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+
+  v8::Local<v8::Private> napi_type_tag() const {
+    return napi_type_tag_.Get(isolate_);
+  }
+
+  v8::Local<v8::Private> napi_wrapper() const {
+    return napi_wrapper_.Get(isolate_);
+  }
+
+  void CreateProperties() {
+    v8::HandleScope handle_scope(isolate_);
+    CreateProperty(napi_type_tag_, "node:napi:type_tag");
+    CreateProperty(napi_wrapper_, "node:napi:wrapper");
+  }
+
+ private:
+  template <size_t N>
+  void CreateProperty(
+      v8::Eternal<v8::Private> &property,
+      const char (&name)[N]) {
+    property.Set(
+        isolate_,
+        v8::Private::New(
+            isolate_,
+            v8::String::NewFromOneByte(
+                isolate_,
+                reinterpret_cast<const uint8_t *>(name),
+                v8::NewStringType::kInternalized,
+                N - 1)
+                .ToLocalChecked()));
+  }
+
+ private:
+  v8::Isolate *isolate_;
+  v8::Eternal<v8::Private> napi_type_tag_;
+  v8::Eternal<v8::Private> napi_wrapper_;
 };
 
 class ETWTracingController : public v8::TracingController {
@@ -163,8 +205,11 @@ class V8Platform : public v8::Platform {
   v8::TracingController *GetTracingController() override;
 
   // TODO: validate this implementation
-  std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> job_task) override {
-    return v8::platform::NewDefaultJobHandle(this, priority, std::move(job_task), NumberOfWorkerThreads());
+  std::unique_ptr<v8::JobHandle> PostJob(
+      v8::TaskPriority priority,
+      std::unique_ptr<v8::JobTask> job_task) override {
+    return v8::platform::NewDefaultJobHandle(
+        this, priority, std::move(job_task), NumberOfWorkerThreads());
   }
 
  private:

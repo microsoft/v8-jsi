@@ -94,8 +94,7 @@ class V8PlatformHolder {
     return *platform_s_;
   }
 
-  V8PlatformHolder() {
-  }
+  V8PlatformHolder() {}
 
   void addUsage() {
     std::lock_guard<std::mutex> guard(mutex_s_);
@@ -118,8 +117,9 @@ class V8PlatformHolder {
     std::lock_guard<std::mutex> guard(mutex_s_);
 
     if (--use_count_s_ == 0) {
-      // We cannot shutdown the platform once created because V8 internally references bits of the platform from process-globals
-      // This cannot be worked around, the design of V8 is not currently embedder-friendly
+      // We cannot shutdown the platform once created because V8 internally
+      // references bits of the platform from process-globals This cannot be
+      // worked around, the design of V8 is not currently embedder-friendly
       // v8::V8::Dispose();
       v8::V8::ShutdownPlatform();
       platform_s_ = nullptr;
@@ -140,10 +140,48 @@ class V8PlatformHolder {
 
 }; // namespace v8runtime
 
+struct UnhandledPromiseRejection {
+  v8::Global<v8::Promise> promise;
+  v8::Global<v8::Message> message;
+  v8::Global<v8::Value> value;
+};
+
 class V8Runtime : public facebook::jsi::Runtime {
  public:
   V8Runtime(V8RuntimeArgs &&args);
   ~V8Runtime();
+
+ public: // Used by NAPI implementation
+  v8::Global<v8::Context> &GetContext() {
+    return context_;
+  }
+
+  static V8Runtime *GetCurrent(v8::Local<v8::Context> context) noexcept;
+
+  bool HasUnhandledPromiseRejection() noexcept;
+
+  std::unique_ptr<UnhandledPromiseRejection>
+  GetAndClearLastUnhandledPromiseRejection() noexcept;
+
+  v8::Local<v8::Private> napi_type_tag() const noexcept {
+    return isolate_data_->napi_type_tag();
+  }
+
+  v8::Local<v8::Private> napi_wrapper() const noexcept {
+    return isolate_data_->napi_wrapper();
+  }
+
+ private:
+  static void PromiseRejectCallback(v8::PromiseRejectMessage data);
+  void SetUnhandledPromise(
+      v8::Local<v8::Promise> promise,
+      v8::Local<v8::Message> message,
+      v8::Local<v8::Value> exception);
+  void RemoveUnhandledPromise(v8::Local<v8::Promise> promise);
+
+ private:
+  static int const RuntimeContextTag;
+  static void *const RuntimeContextTagPtr;
 
  private:
   V8Runtime() = delete;
@@ -231,21 +269,23 @@ class V8Runtime : public facebook::jsi::Runtime {
 
       facebook::jsi::Value result;
       try {
-        result = hostObject->get(runtime, runtime.createPropNameIDFromUtf8(
+        result = hostObject->get(
+            runtime,
+            runtime.createPropNameIDFromUtf8(
                 reinterpret_cast<uint8_t *>(&propName[0]), propName.length()));
-      } catch (const facebook::jsi::JSError& error) {
+      } catch (const facebook::jsi::JSError &error) {
         info.GetReturnValue().Set(v8::Undefined(info.GetIsolate()));
 
         // Schedule to throw the exception back to JS.
         info.GetIsolate()->ThrowException(runtime.valueRef(error.value()));
         return;
-      } catch (const std::exception& ex) {
+      } catch (const std::exception &ex) {
         info.GetReturnValue().Set(v8::Undefined(info.GetIsolate()));
 
         // Schedule to throw the exception back to JS.
         v8::Local<v8::String> message =
-            v8::String::NewFromUtf8(info.GetIsolate(), ex.what(),
-                                    v8::NewStringType::kNormal)
+            v8::String::NewFromUtf8(
+                info.GetIsolate(), ex.what(), v8::NewStringType::kNormal)
                 .ToLocalChecked();
         info.GetIsolate()->ThrowException(v8::Exception::Error(message));
         return;
@@ -256,7 +296,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         v8::Local<v8::String> message =
             v8::String::NewFromOneByte(
                 info.GetIsolate(),
-                reinterpret_cast<const uint8_t*>(
+                reinterpret_cast<const uint8_t *>(
                     "<Unknown exception in host function callback>"),
                 v8::NewStringType::kNormal)
                 .ToLocalChecked();
@@ -289,14 +329,14 @@ class V8Runtime : public facebook::jsi::Runtime {
             runtime.createPropNameIDFromUtf8(
                 reinterpret_cast<uint8_t *>(&propName[0]), propName.length()),
             runtime.createValue(value));
-      } catch (const facebook::jsi::JSError& error) {
+      } catch (const facebook::jsi::JSError &error) {
         // Schedule to throw the exception back to JS.
         info.GetIsolate()->ThrowException(runtime.valueRef(error.value()));
-      } catch (const std::exception& ex) {
+      } catch (const std::exception &ex) {
         // Schedule to throw the exception back to JS.
         v8::Local<v8::String> message =
-            v8::String::NewFromUtf8(info.GetIsolate(), ex.what(),
-                                    v8::NewStringType::kNormal)
+            v8::String::NewFromUtf8(
+                info.GetIsolate(), ex.what(), v8::NewStringType::kNormal)
                 .ToLocalChecked();
         info.GetIsolate()->ThrowException(v8::Exception::Error(message));
       } catch (...) {
@@ -304,7 +344,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         v8::Local<v8::String> message =
             v8::String::NewFromOneByte(
                 info.GetIsolate(),
-                reinterpret_cast<const uint8_t*>(
+                reinterpret_cast<const uint8_t *>(
                     "<Unknown exception in host function callback>"),
                 v8::NewStringType::kNormal)
                 .ToLocalChecked();
@@ -316,7 +356,8 @@ class V8Runtime : public facebook::jsi::Runtime {
     static void Get(
         v8::Local<v8::Name> v8PropName,
         const v8::PropertyCallbackInfo<v8::Value> &info) {
-      v8::Local<v8::String> propNameStr = v8::Local<v8::String>::Cast(v8PropName);
+      v8::Local<v8::String> propNameStr =
+          v8::Local<v8::String>::Cast(v8PropName);
 
       std::string propName;
       propName.resize(propNameStr->Utf8Length(info.GetIsolate()));
@@ -335,7 +376,8 @@ class V8Runtime : public facebook::jsi::Runtime {
         v8::Local<v8::Name> v8PropName,
         v8::Local<v8::Value> value,
         const v8::PropertyCallbackInfo<v8::Value> &info) {
-      v8::Local<v8::String> propNameStr = v8::Local<v8::String>::Cast(v8PropName);
+      v8::Local<v8::String> propNameStr =
+          v8::Local<v8::String>::Cast(v8PropName);
 
       std::string propName;
       propName.resize(propNameStr->Utf8Length(info.GetIsolate()));
@@ -352,7 +394,8 @@ class V8Runtime : public facebook::jsi::Runtime {
     }
 
     static void Enumerator(const v8::PropertyCallbackInfo<v8::Array> &info) {
-      v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.This()->GetInternalField(0));
+      v8::Local<v8::External> data =
+          v8::Local<v8::External>::Cast(info.This()->GetInternalField(0));
       HostObjectProxy *hostObjectProxy =
           reinterpret_cast<HostObjectProxy *>(data->Value());
 
@@ -430,7 +473,8 @@ class V8Runtime : public facebook::jsi::Runtime {
         callbackInfo.GetReturnValue().Set(v8::Undefined(isolate));
 
         // Schedule to throw the exception back to JS
-        std::string errMessage = std::string("Exception in HostFunction: ") + ex.what();
+        std::string errMessage =
+            std::string("Exception in HostFunction: ") + ex.what();
         v8::Local<v8::String> message =
             v8::String::NewFromUtf8(
                 isolate, errMessage.c_str(), v8::NewStringType::kNormal)
@@ -444,7 +488,8 @@ class V8Runtime : public facebook::jsi::Runtime {
         v8::Local<v8::String> message =
             v8::String::NewFromOneByte(
                 isolate,
-                reinterpret_cast<const uint8_t *>("Exception in HostFunction: <unknown>"),
+                reinterpret_cast<const uint8_t *>(
+                    "Exception in HostFunction: <unknown>"),
                 v8::NewStringType::kNormal)
                 .ToLocalChecked();
         isolate->ThrowException(v8::Exception::Error(message));
@@ -487,15 +532,14 @@ class V8Runtime : public facebook::jsi::Runtime {
     V8Runtime &runtime_;
   };
 
-  template<typename T>
+  template <typename T>
   class V8PointerValue final : public PointerValue {
-    static V8PointerValue<T>* make(v8::Local<T> objectRef) {
+    static V8PointerValue<T> *make(v8::Local<T> objectRef) {
       return new V8PointerValue<T>(objectRef);
     }
 
-    V8PointerValue(v8::Local<T> obj) :
-      v8Object_(v8::Isolate::GetCurrent(), obj)
-    {}
+    V8PointerValue(v8::Local<T> obj)
+        : v8Object_(v8::Isolate::GetCurrent(), obj) {}
 
     ~V8PointerValue() {
       v8Object_.Reset();
@@ -505,7 +549,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       delete this;
     }
 
-    v8::Local<T> get(v8::Isolate* isolate) const {
+    v8::Local<T> get(v8::Isolate *isolate) const {
       return v8Object_.Get(isolate);
     }
 
@@ -606,8 +650,7 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   facebook::jsi::WeakObject createWeakObject(
       const facebook::jsi::Object &) override;
-  facebook::jsi::Value lockWeakObject(
-      facebook::jsi::WeakObject &) override;
+  facebook::jsi::Value lockWeakObject(facebook::jsi::WeakObject &) override;
 
   facebook::jsi::Array createArray(size_t length) override;
   size_t size(const facebook::jsi::Array &) override;
@@ -693,17 +736,26 @@ class V8Runtime : public facebook::jsi::Runtime {
   void createHostObjectConstructorPerContext();
 
   // Basically convenience casts
-  template<typename T>
-  static v8::Local<T> pvRef(const PointerValue* pv) {
+  template <typename T>
+  static v8::Local<T> pvRef(const PointerValue *pv) {
     v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
-    const V8PointerValue<T> *v8PValue = static_cast<const V8PointerValue<T>*>(pv);
+    const V8PointerValue<T> *v8PValue =
+        static_cast<const V8PointerValue<T> *>(pv);
     return handle_scope.Escape(v8PValue->get(v8::Isolate::GetCurrent()));
   }
 
-  static v8::Local<v8::String> stringRef(const facebook::jsi::String &str) { return pvRef<v8::String>(getPointerValue(str)); }
-  static v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym) { return pvRef<v8::Value>(getPointerValue(sym)); }
-  static v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj) { return pvRef<v8::Object>(getPointerValue(obj)); }
-  static v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) { return pvRef<v8::Symbol>(getPointerValue(sym)); }
+  static v8::Local<v8::String> stringRef(const facebook::jsi::String &str) {
+    return pvRef<v8::String>(getPointerValue(str));
+  }
+  static v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym) {
+    return pvRef<v8::Value>(getPointerValue(sym));
+  }
+  static v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj) {
+    return pvRef<v8::Object>(getPointerValue(obj));
+  }
+  static v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) {
+    return pvRef<v8::Symbol>(getPointerValue(sym));
+  }
 
   v8::Local<v8::Value> valueRef(const facebook::jsi::Value &value);
   facebook::jsi::Value createValue(v8::Local<v8::Value> value) const;
@@ -714,8 +766,9 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   V8RuntimeArgs args_;
 
-  v8::Isolate *isolate_;
+  v8::Isolate *isolate_{nullptr};
   v8::Global<v8::Context> context_;
+  v8runtime::IsolateData *isolate_data_{nullptr};
 
   v8::StartupData startup_data_;
   v8::Isolate::CreateParams create_params_;
@@ -737,6 +790,9 @@ class V8Runtime : public facebook::jsi::Runtime {
       owned_external_string_resources_;
 
   std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+
+  bool ignore_unhandled_promises_{false};
+  std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
 
   static CounterMap *counter_map_;
 

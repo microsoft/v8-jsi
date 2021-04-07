@@ -86,8 +86,8 @@ struct V8RuntimeArgs {
 
   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket port open, which should be very small.
-  bool enableInspector{false };
-  bool waitForDebugger{false };
+  bool enableInspector{false};
+  bool waitForDebugger{false};
 
   // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
   // {
@@ -109,6 +109,9 @@ struct V8RuntimeArgs {
 
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};
+
+  bool enableGCApi{false};
+  bool ignoreUnhandledPromises{false};
 };
 
 #ifdef BUILDING_V8_SHARED
