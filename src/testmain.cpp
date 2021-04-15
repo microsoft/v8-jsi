@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 #include <gtest/gtest.h>
-#include "public/V8JsiRuntime.h"
-#include "public/ScriptStore.h"
 #include "jsi/test/testlib.h"
+#include "public/ScriptStore.h"
+#include "public/V8JsiRuntime.h"
 
 namespace facebook {
 namespace jsi {
@@ -16,7 +16,8 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
   }};
 }
 
-}}
+} // namespace jsi
+} // namespace facebook
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
