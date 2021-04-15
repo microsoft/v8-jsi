@@ -139,10 +139,45 @@ class V8PlatformHolder {
 
 }; // namespace v8runtime
 
+struct UnhandledPromiseRejection {
+  v8::Global<v8::Promise> promise;
+  v8::Global<v8::Message> message;
+  v8::Global<v8::Value> value;
+};
+
 class V8Runtime : public facebook::jsi::Runtime {
  public:
   V8Runtime(V8RuntimeArgs &&args);
   ~V8Runtime();
+
+ public: // Used by NAPI implementation
+  v8::Global<v8::Context> &GetContext() {
+    return context_;
+  }
+
+  static V8Runtime *GetCurrent(v8::Local<v8::Context> context) noexcept;
+
+  bool HasUnhandledPromiseRejection() noexcept;
+
+  std::unique_ptr<UnhandledPromiseRejection> GetAndClearLastUnhandledPromiseRejection() noexcept;
+
+  v8::Local<v8::Private> napi_type_tag() const noexcept {
+    return isolate_data_->napi_type_tag();
+  }
+
+  v8::Local<v8::Private> napi_wrapper() const noexcept {
+    return isolate_data_->napi_wrapper();
+  }
+
+ private: // Used by NAPI implementation
+  static void PromiseRejectCallback(v8::PromiseRejectMessage data);
+  void
+  SetUnhandledPromise(v8::Local<v8::Promise> promise, v8::Local<v8::Message> message, v8::Local<v8::Value> exception);
+  void RemoveUnhandledPromise(v8::Local<v8::Promise> promise);
+
+ private: // Used by NAPI implementation
+  static int const RuntimeContextTag;
+  static void *const RuntimeContextTagPtr;
 
  private:
   V8Runtime() = delete;
@@ -612,8 +647,9 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   V8RuntimeArgs args_;
 
-  v8::Isolate *isolate_;
+  v8::Isolate *isolate_{nullptr};
   v8::Global<v8::Context> context_;
+  v8runtime::IsolateData *isolate_data_{nullptr};
 
   v8::StartupData startup_data_;
   v8::Isolate::CreateParams create_params_;
@@ -633,6 +669,9 @@ class V8Runtime : public facebook::jsi::Runtime {
   std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
 
   std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+
+  bool ignore_unhandled_promises_{false};
+  std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
 
   static CounterMap *counter_map_;
 

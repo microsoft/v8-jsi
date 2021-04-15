@@ -8,6 +8,8 @@
 #include "V8Platform.h"
 #include "public/ScriptStore.h"
 
+#include "napi/util-inl.h"
+
 #include <atomic>
 #include <cstdlib>
 #include <list>
@@ -29,6 +31,11 @@ using namespace facebook;
 namespace v8runtime {
 
 thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
+
+struct ContextEmbedderIndex {
+  constexpr static int Runtime = 0;
+  constexpr static int ContextTag = 1;
+};
 
 #ifdef USE_DEFAULT_PLATFORM
 std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
@@ -67,11 +74,12 @@ class TaskRunnerAdapter : public v8::TaskRunner {
   TaskRunnerAdapter(std::unique_ptr<v8runtime::JSITaskRunner> &&taskRunner) : taskRunner_(std::move(taskRunner)) {}
 
   void PostTask(std::unique_ptr<v8::Task> task) override {
-    taskRunner_->postTask(std::make_unique<TaskAdapter>(std::move(task)));
+    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
   }
 
   void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) override {
-    taskRunner_->postDelayedTask(std::make_unique<TaskAdapter>(std::move(task)), delay_in_seconds);
+    taskRunner_->postDelayedTask(
+        node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))), delay_in_seconds);
   }
 
   bool IdleTasksEnabled() override {
@@ -79,12 +87,13 @@ class TaskRunnerAdapter : public v8::TaskRunner {
   }
 
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
-    taskRunner_->postIdleTask(std::make_unique<IdleTaskAdapter>(std::move(task)));
+    taskRunner_->postIdleTask(
+        node::static_unique_pointer_cast<JSIIdleTask>(std::make_unique<IdleTaskAdapter>(std::move(task))));
   }
 
   void PostNonNestableTask(std::unique_ptr<v8::Task> task) override {
     // TODO: non-nestable
-    taskRunner_->postTask(std::make_unique<TaskAdapter>(std::move(task)));
+    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
   }
 
   bool NonNestableTasksEnabled() const override {
@@ -110,6 +119,10 @@ const char *ToCString(const v8::String::Utf8Value &value) {
   return *value ? *value : "<string conversion failed>";
 }
 } // namespace
+
+/*static*/ int const V8Runtime::RuntimeContextTag = 0x7e7f75;
+/*static*/ void *const V8Runtime::RuntimeContextTagPtr =
+    const_cast<void *>(static_cast<const void *>(&V8Runtime::RuntimeContextTag));
 
 void V8Runtime::AddHostObjectLifetimeTracker(std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker) {
   // Note that we are letting the list grow in definitely as of now.. The list
@@ -437,9 +450,16 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
     std::abort();
 
   foreground_task_runner_ = std::make_shared<TaskRunnerAdapter>(std::move(args_.foreground_task_runner));
-  isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, new v8runtime::IsolateData({foreground_task_runner_}));
+  isolate_data_ = new v8runtime::IsolateData(isolate_, foreground_task_runner_);
+  isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, isolate_data_);
 
   v8::Isolate::Initialize(isolate_, create_params_);
+
+  isolate_data_->CreateProperties();
+
+  if (!args_.ignoreUnhandledPromises) {
+    isolate_->SetPromiseRejectCallback(PromiseRejectCallback);
+  }
 
   if (args_.trackGCObjectStats) {
     MapCounters(isolate_, "v8jsi");
@@ -509,6 +529,9 @@ void V8Runtime::initializeV8() {
   if (args_.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
+  if (args_.enableGCApi)
+    argv.push_back("--expose_gc");
+
   int argc = static_cast<int>(argv.size());
   v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
 }
@@ -533,9 +556,16 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
   v8::Isolate::Scope isolate_scope(isolate_);
   v8::HandleScope handleScope(isolate_);
-  context_.Reset(GetIsolate(), CreateContext(isolate_));
 
-  v8::Context::Scope context_scope(context_.Get(GetIsolate()));
+  auto context = CreateContext(isolate_);
+  context_.Reset(isolate_, context);
+
+  // Associate the Runtime with the V8 context
+  context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::Runtime, this);
+  // Used by Environment::GetCurrent to know that we are on a node context.
+  context->SetAlignedPointerInEmbedderData(ContextEmbedderIndex::ContextTag, V8Runtime::RuntimeContextTagPtr);
+
+  v8::Context::Scope context_scope(context);
 
 #ifdef _WIN32
   if (args_.enableInspector) {
@@ -1428,6 +1458,95 @@ v8::Local<v8::Value> V8Runtime::valueRef(const jsi::Value &value) {
   } else {
     // What are you?
     std::abort();
+  }
+}
+
+// Adoped from Node.js code
+/*static*/ V8Runtime *V8Runtime::GetCurrent(v8::Local<v8::Context> context) noexcept {
+  if (/*UNLIKELY*/ context.IsEmpty()) {
+    return nullptr;
+  }
+  if (/*UNLIKELY*/
+      context->GetNumberOfEmbedderDataFields() <= ContextEmbedderIndex::ContextTag) {
+    return nullptr;
+  }
+  if (/*UNLIKELY*/ (
+      context->GetAlignedPointerFromEmbedderData(ContextEmbedderIndex::ContextTag) !=
+      V8Runtime::RuntimeContextTagPtr)) {
+    return nullptr;
+  }
+  return static_cast<V8Runtime *>(context->GetAlignedPointerFromEmbedderData(ContextEmbedderIndex::Runtime));
+}
+
+bool V8Runtime::HasUnhandledPromiseRejection() noexcept {
+  return !!last_unhandled_promise_;
+}
+
+std::unique_ptr<UnhandledPromiseRejection> V8Runtime::GetAndClearLastUnhandledPromiseRejection() noexcept {
+  return std::exchange(last_unhandled_promise_, nullptr);
+}
+
+// Adoped from V8 d8 utility code
+/*static*/ void V8Runtime::PromiseRejectCallback(v8::PromiseRejectMessage data) {
+  if (data.GetEvent() == v8::kPromiseRejectAfterResolved || data.GetEvent() == v8::kPromiseResolveAfterResolved) {
+    // Ignore reject/resolve after resolved.
+    return;
+  }
+
+  v8::Local<v8::Promise> promise = data.GetPromise();
+  v8::Isolate *isolate = promise->GetIsolate();
+  v8::Local<v8::Context> context = promise->CreationContext();
+  V8Runtime *runtime = V8Runtime::GetCurrent(context);
+  if (!runtime) {
+    return;
+  }
+
+  if (data.GetEvent() == v8::kPromiseHandlerAddedAfterReject) {
+    runtime->RemoveUnhandledPromise(promise);
+    return;
+  }
+
+  isolate->SetCaptureStackTraceForUncaughtExceptions(true);
+  v8::Local<v8::Value> exception = data.GetValue();
+  v8::Local<v8::Message> message;
+  // Assume that all objects are stack-traces.
+  if (exception->IsObject()) {
+    message = v8::Exception::CreateMessage(isolate, exception);
+  }
+  if (!exception->IsNativeError() && (message.IsEmpty() || message->GetStackTrace().IsEmpty())) {
+    // If there is no real Error object, manually throw and catch a stack trace.
+    v8::TryCatch try_catch(isolate);
+    try_catch.SetVerbose(true);
+    isolate->ThrowException(v8::Exception::Error(v8::String::NewFromUtf8Literal(isolate, "Unhandled Promise.")));
+    message = try_catch.Message();
+    exception = try_catch.Exception();
+  }
+
+  runtime->SetUnhandledPromise(promise, message, exception);
+}
+
+// Adoped from V8 d8 utility code
+void V8Runtime::SetUnhandledPromise(
+    v8::Local<v8::Promise> promise,
+    v8::Local<v8::Message> message,
+    v8::Local<v8::Value> exception) {
+  if (ignore_unhandled_promises_)
+    return;
+  DCHECK_EQ(promise->GetIsolate(), isolate_);
+  last_unhandled_promise_ = std::make_unique<UnhandledPromiseRejection>(UnhandledPromiseRejection{
+      v8::Global<v8::Promise>(isolate_, promise),
+      v8::Global<v8::Message>(isolate_, message),
+      v8::Global<v8::Value>(isolate_, exception)});
+}
+
+// Adoped from V8 d8 utility code
+void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
+  if (ignore_unhandled_promises_)
+    return;
+  // Remove handled promises from the list
+  DCHECK_EQ(promise->GetIsolate(), isolate_);
+  if (last_unhandled_promise_ && last_unhandled_promise_->promise.Get(isolate_) == promise) {
+    last_unhandled_promise_.reset();
   }
 }
 

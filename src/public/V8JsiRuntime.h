@@ -111,6 +111,9 @@ struct V8RuntimeArgs {
 
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};
+
+  bool enableGCApi{false};
+  bool ignoreUnhandledPromises{false};
 };
 
 #ifdef BUILDING_V8_SHARED

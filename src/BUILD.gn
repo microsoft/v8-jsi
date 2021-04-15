@@ -17,6 +17,15 @@ target("shared_library", "v8jsi") {
     "jsi/jsilib-windows.cpp",
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
+    "napi/env-inl.h",
+    "napi/js_native_api_v8_internals.h",
+    "napi/js_native_api_v8.cc",
+    "napi/js_native_api_v8.h",
+    "napi/js_native_ext_api_v8.cpp",
+    "napi/util-inl.h",
+    "public/js_native_api_types.h",
+    "public/js_native_api.h",
+    "public/js_native_ext_api.h",
     "public/ScriptStore.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
@@ -55,7 +64,7 @@ target("shared_library", "v8jsi") {
     }
   }
 
-  include_dirs = [ ".", "../include", "jsi", getenv("BOOST_ROOT") ]
+  include_dirs = [ ".", "../include", "jsi", "public", getenv("BOOST_ROOT") ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
@@ -96,7 +105,10 @@ target("executable", "jsitests") {
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
-  include_dirs = [ ".", "jsi" ]
+  # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
+  cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+
+  include_dirs = [ ".", "jsi", "napi", "napi/test", "public" ]
 
   sources = [
     "jsi/decorator.h",
@@ -110,6 +122,43 @@ target("executable", "jsitests") {
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
     "jsi/test/testlib.cpp",
+    "napi/test/lib/assert_js.cpp",
+    "napi/test/lib/common_js.cpp",
+    "napi/test/lib/modules.h",
+    "napi/test/napitest_v8.cpp",
+    "napi/test/napitest.cpp",
+    "napi/test/napitest.h",
+    "napi/test/test_2_function_arguments.cpp",
+    "napi/test/test_3_callbacks.cpp",
+    "napi/test/test_4_object_factory.cpp",
+    "napi/test/test_5_function_factory.cpp",
+    "napi/test/test_6_object_wrap.cpp",
+    "napi/test/test_7_factory_wrap.cpp",
+    "napi/test/test_8_passing_wrapped.cpp",
+    "napi/test/test_array.cpp",
+    "napi/test/test_assert.cpp",
+    "napi/test/test_bigint.cpp",
+    "napi/test/test_constructor.cpp",
+    "napi/test/test_conversions.cpp",
+    "napi/test/test_dataview.cpp",
+    "napi/test/test_date.cpp",
+    "napi/test/test_error.cpp",
+    "napi/test/test_exception.cpp",
+    "napi/test/test_ext.cpp",
+    "napi/test/test_function.cpp",
+    "napi/test/test_general.cpp",
+    "napi/test/test_handle_scope.cpp",
+    "napi/test/test_instance_data.cpp",
+    "napi/test/test_new_target.cpp",
+    "napi/test/test_number.cpp",
+    "napi/test/test_object.cpp",
+    "napi/test/test_promise.cpp",
+    "napi/test/test_properties.cpp",
+    "napi/test/test_reference_double_free.cpp",
+    "napi/test/test_reference.cpp",
+    "napi/test/test_string.cpp",
+    "napi/test/test_symbol.cpp",
+    "napi/test/test_typedarray.cpp",
     "testmain.cpp"
   ]
 }
