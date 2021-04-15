@@ -59,16 +59,11 @@ class ETWTracingController : public v8::TracingController {
       unsigned int flags,
       int64_t timestamp) override;
 
-  void UpdateTraceEventDuration(
-      const uint8_t *category_enabled_flag,
-      const char *name,
-      uint64_t handle) override;
+  void UpdateTraceEventDuration(const uint8_t *category_enabled_flag, const char *name, uint64_t handle) override;
 
-  void AddTraceStateObserver(
-      v8::TracingController::TraceStateObserver *observer) override;
+  void AddTraceStateObserver(v8::TracingController::TraceStateObserver *observer) override;
 
-  void RemoveTraceStateObserver(
-      v8::TracingController::TraceStateObserver *observer) override;
+  void RemoveTraceStateObserver(v8::TracingController::TraceStateObserver *observer) override;
 
  private:
   // Disallow copy and assign
@@ -85,8 +80,7 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
 
   void PostTask(std::unique_ptr<v8::Task> task) override;
 
-  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds)
-      override;
+  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) override;
 
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
     std::abort();
@@ -115,11 +109,7 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
     }
   };
 
-  std::priority_queue<
-      DelayedEntry,
-      std::vector<DelayedEntry>,
-      DelayedEntryCompare>
-      delayed_task_queue_;
+  std::priority_queue<DelayedEntry, std::vector<DelayedEntry>, DelayedEntryCompare> delayed_task_queue_;
   std::queue<std::unique_ptr<v8::Task>> tasks_queue_;
 
   std::mutex queue_access_mutex_;
@@ -148,13 +138,10 @@ class V8Platform : public v8::Platform {
 
   int NumberOfWorkerThreads() override;
 
-  std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(
-      v8::Isolate *isolate) override;
+  std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(v8::Isolate *isolate) override;
 
   void CallOnWorkerThread(std::unique_ptr<v8::Task> task) override;
-  void CallDelayedOnWorkerThread(
-      std::unique_ptr<v8::Task> task,
-      double delay_in_seconds) override;
+  void CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task, double delay_in_seconds) override;
 
   bool IdleTasksEnabled(v8::Isolate *isolate) override;
 
