@@ -37,14 +37,12 @@
 static struct napi_env_scope__ {
   napi_env_scope__(v8::Isolate *isolate, v8::Local<v8::Context> context)
       : isolate_scope(isolate ? new v8::Isolate::Scope(isolate) : nullptr),
-        context_scope(
-            !context.IsEmpty() ? new v8::Context::Scope(context) : nullptr) {}
+        context_scope(!context.IsEmpty() ? new v8::Context::Scope(context) : nullptr) {}
 
   napi_env_scope__(napi_env_scope__ const &) = delete;
   napi_env_scope__ &operator=(napi_env_scope__ const &) = delete;
 
-  napi_env_scope__(napi_env_scope__ &&other)
-      : isolate_scope(other.isolate_scope), context_scope(other.context_scope) {
+  napi_env_scope__(napi_env_scope__ &&other) : isolate_scope(other.isolate_scope), context_scope(other.context_scope) {
     other.isolate_scope = nullptr;
     other.context_scope = nullptr;
   }
@@ -77,9 +75,7 @@ static struct napi_env_scope__ {
   v8::Context::Scope *context_scope{nullptr};
 };
 
-napi_status napi_ext_create_env(
-    napi_ext_env_attributes attributes,
-    napi_env *env) {
+napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
   v8runtime::V8RuntimeArgs args;
   args.trackGCObjectStats = false;
   args.enableTracing = false;
@@ -109,8 +105,7 @@ napi_status napi_ext_create_env(
 
 napi_status napi_ext_delete_env(napi_env env) {
   CHECK_ENV(env);
-  auto runtime = std::unique_ptr<v8runtime::V8Runtime>(
-      v8runtime::V8Runtime::GetCurrent(env->context()));
+  auto runtime = std::unique_ptr<v8runtime::V8Runtime>(v8runtime::V8Runtime::GetCurrent(env->context()));
   auto env_ptr = std::unique_ptr<napi_env__>(env);
   return napi_status::napi_ok;
 }
@@ -131,9 +126,7 @@ napi_status napi_ext_close_env_scope(napi_env env, napi_env_scope scope) {
   return napi_ok;
 }
 
-napi_status napi_ext_has_unhandled_promise_rejection(
-    napi_env env,
-    bool *result) {
+napi_status napi_ext_has_unhandled_promise_rejection(napi_env env, bool *result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
@@ -144,9 +137,7 @@ napi_status napi_ext_has_unhandled_promise_rejection(
   return napi_ok;
 }
 
-napi_status napi_get_and_clear_last_unhandled_promise_rejection(
-    napi_env env,
-    napi_value *result) {
+napi_status napi_get_and_clear_last_unhandled_promise_rejection(napi_env env, napi_value *result) {
   CHECK_ENV(env);
   CHECK_ARG(env, result);
 
@@ -154,16 +145,11 @@ napi_status napi_get_and_clear_last_unhandled_promise_rejection(
   CHECK_ARG(env, runtime);
 
   auto rejectionInfo = runtime->GetAndClearLastUnhandledPromiseRejection();
-  *result =
-      v8impl::JsValueFromV8LocalValue(rejectionInfo->value.Get(env->isolate));
+  *result = v8impl::JsValueFromV8LocalValue(rejectionInfo->value.Get(env->isolate));
   return napi_ok;
 }
 
-napi_status napi_ext_run_script(
-    napi_env env,
-    napi_value script,
-    const char *source_url,
-    napi_value *result) {
+napi_status napi_ext_run_script(napi_env env, napi_value script, const char *source_url, napi_value *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, script);
   CHECK_ARG(env, result);
@@ -176,13 +162,10 @@ napi_status napi_ext_run_script(
 
   v8::Local<v8::Context> context = env->context();
 
-  v8::Local<v8::String> urlV8String =
-      v8::String::NewFromUtf8(context->GetIsolate(), source_url)
-          .ToLocalChecked();
+  v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(context->GetIsolate(), source_url).ToLocalChecked();
   v8::ScriptOrigin origin(urlV8String);
 
-  auto maybe_script = v8::Script::Compile(
-      context, v8::Local<v8::String>::Cast(v8_script), &origin);
+  auto maybe_script = v8::Script::Compile(context, v8::Local<v8::String>::Cast(v8_script), &origin);
   CHECK_MAYBE_EMPTY(env, maybe_script, napi_generic_failure);
 
   auto script_result = maybe_script.ToLocalChecked()->Run(context);
@@ -193,8 +176,7 @@ napi_status napi_ext_run_script(
 }
 
 napi_status napi_ext_collect_garbage(napi_env env) {
-  env->isolate->RequestGarbageCollectionForTesting(
-      v8::Isolate::kFullGarbageCollection);
+  env->isolate->RequestGarbageCollectionForTesting(v8::Isolate::kFullGarbageCollection);
   return napi_status::napi_ok;
 }
 
@@ -209,7 +191,7 @@ bool v8_initialized = false;
 
 // From node_errors.cc
 [[noreturn]] void Assert(const AssertionInfo &info) {
-  char* processName{};
+  char *processName{};
   _get_pgmptr(&processName);
 
   fprintf(
@@ -249,27 +231,23 @@ extern napi_status napi_create_external_buffer(
 
   v8::Isolate *isolate = env->isolate;
 
-  DeleterData *deleterData = finalize_cb != nullptr
-      ? new DeleterData{env, finalize_cb, finalize_hint}
-      : nullptr;
+  DeleterData *deleterData = finalize_cb != nullptr ? new DeleterData{env, finalize_cb, finalize_hint} : nullptr;
   auto backingStore = v8::ArrayBuffer::NewBackingStore(
       data,
       length,
       [](void *data, size_t length, void *deleter_data) {
         DeleterData *deleterData = static_cast<DeleterData *>(deleter_data);
         if (deleterData != nullptr) {
-          deleterData->finalize_cb(
-              deleterData->env, data, deleterData->finalize_hint);
+          deleterData->finalize_cb(deleterData->env, data, deleterData->finalize_hint);
           delete deleterData;
         }
       },
       deleterData);
 
-  v8::Local<v8::ArrayBuffer> arrayBuffer = v8::ArrayBuffer::New(
-      isolate, std::shared_ptr<v8::BackingStore>(std::move(backingStore)));
+  v8::Local<v8::ArrayBuffer> arrayBuffer =
+      v8::ArrayBuffer::New(isolate, std::shared_ptr<v8::BackingStore>(std::move(backingStore)));
 
-  v8::Local<v8::Uint8Array> buffer =
-      v8::Uint8Array::New(arrayBuffer, 0, length);
+  v8::Local<v8::Uint8Array> buffer = v8::Uint8Array::New(arrayBuffer, 0, length);
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);

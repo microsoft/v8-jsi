@@ -13,8 +13,7 @@ using namespace napitest;
 TEST_P(NapiTest, test_constructor) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
-        "./build/x86/test_constructor",
-        [](napi_env env, napi_value exports) { return Init(env, exports); });
+        "./build/x86/test_constructor", [](napi_env env, napi_value exports) { return Init(env, exports); });
     testContext->RunTestScript(test_constructor_test_js);
   });
 }
@@ -22,8 +21,7 @@ TEST_P(NapiTest, test_constructor) {
 TEST_P(NapiTest, test_constructor2) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
-        "./build/x86/test_constructor",
-        [](napi_env env, napi_value exports) { return Init(env, exports); });
+        "./build/x86/test_constructor", [](napi_env env, napi_value exports) { return Init(env, exports); });
     testContext->RunTestScript(test_constructor_test2_js);
   });
 }

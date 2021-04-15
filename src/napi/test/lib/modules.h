@@ -32,8 +32,7 @@ namespace module {
 extern ::napitest::TestScriptInfo const assert_js;
 extern ::napitest::TestScriptInfo const common_js;
 
-inline std::map<std::string, TestScriptInfo, std::less<>>
-GetModuleScripts() noexcept {
+inline std::map<std::string, TestScriptInfo, std::less<>> GetModuleScripts() noexcept {
   std::map<std::string, TestScriptInfo, std::less<>> moduleScripts;
   moduleScripts.try_emplace("assert", assert_js);
   moduleScripts.try_emplace("../../common", common_js);

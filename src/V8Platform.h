@@ -20,11 +20,8 @@ constexpr int ISOLATE_DATA_SLOT = 0;
 
 // Custom data associated with each V8 isolate.
 struct IsolateData {
-  IsolateData(
-      v8::Isolate *isolate,
-      std::shared_ptr<v8::TaskRunner> foreground_task_runner) noexcept
-      : isolate_{isolate},
-        foreground_task_runner_{std::move(foreground_task_runner)} {}
+  IsolateData(v8::Isolate *isolate, std::shared_ptr<v8::TaskRunner> foreground_task_runner) noexcept
+      : isolate_{isolate}, foreground_task_runner_{std::move(foreground_task_runner)} {}
 
   std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
 
@@ -45,18 +42,13 @@ struct IsolateData {
 
  private:
   template <size_t N>
-  void CreateProperty(
-      v8::Eternal<v8::Private> &property,
-      const char (&name)[N]) {
+  void CreateProperty(v8::Eternal<v8::Private> &property, const char (&name)[N]) {
     property.Set(
         isolate_,
         v8::Private::New(
             isolate_,
             v8::String::NewFromOneByte(
-                isolate_,
-                reinterpret_cast<const uint8_t *>(name),
-                v8::NewStringType::kInternalized,
-                N - 1)
+                isolate_, reinterpret_cast<const uint8_t *>(name), v8::NewStringType::kInternalized, N - 1)
                 .ToLocalChecked()));
   }
 
@@ -102,16 +94,11 @@ class ETWTracingController : public v8::TracingController {
       unsigned int flags,
       int64_t timestamp) override;
 
-  void UpdateTraceEventDuration(
-      const uint8_t *category_enabled_flag,
-      const char *name,
-      uint64_t handle) override;
+  void UpdateTraceEventDuration(const uint8_t *category_enabled_flag, const char *name, uint64_t handle) override;
 
-  void AddTraceStateObserver(
-      v8::TracingController::TraceStateObserver *observer) override;
+  void AddTraceStateObserver(v8::TracingController::TraceStateObserver *observer) override;
 
-  void RemoveTraceStateObserver(
-      v8::TracingController::TraceStateObserver *observer) override;
+  void RemoveTraceStateObserver(v8::TracingController::TraceStateObserver *observer) override;
 
  private:
   // Disallow copy and assign
@@ -128,8 +115,7 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
 
   void PostTask(std::unique_ptr<v8::Task> task) override;
 
-  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds)
-      override;
+  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) override;
 
   void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
     std::abort();
@@ -158,11 +144,7 @@ class WorkerThreadsTaskRunner : public v8::TaskRunner {
     }
   };
 
-  std::priority_queue<
-      DelayedEntry,
-      std::vector<DelayedEntry>,
-      DelayedEntryCompare>
-      delayed_task_queue_;
+  std::priority_queue<DelayedEntry, std::vector<DelayedEntry>, DelayedEntryCompare> delayed_task_queue_;
   std::queue<std::unique_ptr<v8::Task>> tasks_queue_;
 
   std::mutex queue_access_mutex_;
@@ -191,13 +173,10 @@ class V8Platform : public v8::Platform {
 
   int NumberOfWorkerThreads() override;
 
-  std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(
-      v8::Isolate *isolate) override;
+  std::shared_ptr<v8::TaskRunner> GetForegroundTaskRunner(v8::Isolate *isolate) override;
 
   void CallOnWorkerThread(std::unique_ptr<v8::Task> task) override;
-  void CallDelayedOnWorkerThread(
-      std::unique_ptr<v8::Task> task,
-      double delay_in_seconds) override;
+  void CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task, double delay_in_seconds) override;
 
   bool IdleTasksEnabled(v8::Isolate *isolate) override;
 
@@ -206,11 +185,8 @@ class V8Platform : public v8::Platform {
   v8::TracingController *GetTracingController() override;
 
   // TODO: validate this implementation
-  std::unique_ptr<v8::JobHandle> PostJob(
-      v8::TaskPriority priority,
-      std::unique_ptr<v8::JobTask> job_task) override {
-    return v8::platform::NewDefaultJobHandle(
-        this, priority, std::move(job_task), NumberOfWorkerThreads());
+  std::unique_ptr<v8::JobHandle> PostJob(v8::TaskPriority priority, std::unique_ptr<v8::JobTask> job_task) override {
+    return v8::platform::NewDefaultJobHandle(this, priority, std::move(job_task), NumberOfWorkerThreads());
   }
 
  private:

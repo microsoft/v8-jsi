@@ -38,9 +38,7 @@ struct JSIIdleTask {
 struct JSITaskRunner {
   virtual ~JSITaskRunner() = default;
   virtual void postTask(std::unique_ptr<JSITask> task) = 0;
-  virtual void postDelayedTask(
-      std::unique_ptr<JSITask> task,
-      double delay_in_seconds) = 0;
+  virtual void postDelayedTask(std::unique_ptr<JSITask> task, double delay_in_seconds) = 0;
   virtual void postIdleTask(std::unique_ptr<JSIIdleTask> task) = 0;
   virtual bool IdleTasksEnabled() = 0;
 };
@@ -60,8 +58,7 @@ using Logger = std::function<void(const char *message, LogLevel logLevel)>;
 struct V8RuntimeArgs {
   std::shared_ptr<Logger> logger;
 
-  std::unique_ptr<JSITaskRunner>
-      foreground_task_runner; // foreground === js_thread => sequential
+  std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
 
   // Sorry, currently we don't support providing custom background runner. We
   // create a default one shared by all runtimes. std::unique_ptr<TaskRunner>
@@ -76,7 +73,8 @@ struct V8RuntimeArgs {
 
   bool backgroundMode{false};
 
-  // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over them.
+  // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over
+  // them.
   bool trackGCObjectStats{true};
   bool enableTracing{true};
   bool enableJitTracing{true};
@@ -85,11 +83,13 @@ struct V8RuntimeArgs {
   bool enableGCTracing{true};
 
   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
-  // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket port open, which should be very small.
+  // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a WebSocket
+  // port open, which should be very small.
   bool enableInspector{false};
   bool waitForDebugger{false};
 
-  // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to the runtime.
+  // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to
+  // the runtime.
   // {
   // "version" : "0.2.0",
   // "configurations" : [
@@ -103,8 +103,9 @@ struct V8RuntimeArgs {
   // ]
   //
   //
-  // To debug with edge, navigate to "edge:\\inspect", and configure network target discovery by adding "localhost:9223" to the list. Debug target should soon appear ( < 5 seconds).
-  // To debug with chrome, navigate to "chrome:\\inspect", and follow the same step as above.
+  // To debug with edge, navigate to "edge:\\inspect", and configure network target discovery by adding "localhost:9223"
+  // to the list. Debug target should soon appear ( < 5 seconds). To debug with chrome, navigate to "chrome:\\inspect",
+  // and follow the same step as above.
   uint16_t inspectorPort{9223};
 
   size_t initial_heap_size_in_bytes{0};
@@ -121,6 +122,6 @@ __declspec(dllexport)
 __attribute__((visibility("default")))
 #endif
 #endif
-std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
+    std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
 
 } // namespace v8runtime

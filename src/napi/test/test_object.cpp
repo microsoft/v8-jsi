@@ -14,8 +14,7 @@ using namespace napitest;
 TEST_P(NapiTest, test_object) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
-        "./build/x86/test_object",
-        [](napi_env env, napi_value exports) { return Init(env, exports); });
+        "./build/x86/test_object", [](napi_env env, napi_value exports) { return Init(env, exports); });
     testContext->RunTestScript(test_object_test_js);
   });
 }
@@ -23,8 +22,7 @@ TEST_P(NapiTest, test_object) {
 TEST_P(NapiTest, test_object_null) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
-        "./build/x86/test_object",
-        [](napi_env env, napi_value exports) { return Init(env, exports); });
+        "./build/x86/test_object", [](napi_env env, napi_value exports) { return Init(env, exports); });
     testContext->RunTestScript(test_object_test_null_js);
   });
 }

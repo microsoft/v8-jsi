@@ -14,8 +14,7 @@
 
 namespace v8runtime {
 
-const uint8_t *ETWTracingController::GetCategoryGroupEnabled(
-    const char *category_group) {
+const uint8_t *ETWTracingController::GetCategoryGroupEnabled(const char *category_group) {
   static uint8_t value = enabled_ ? 1 : 0;
   return &value;
 }
@@ -44,9 +43,12 @@ uint64_t ETWTracingController::AddTraceEvent(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-  TRACEV8RUNTIME_VERBOSE("V8::Trace", TraceLoggingInt8(phase, phase),
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::Trace",
+      TraceLoggingInt8(phase, phase),
       TraceLoggingString(name, "name"),
-      TraceLoggingString(scope, "scope"), TraceLoggingUInt64(id, "id"),
+      TraceLoggingString(scope, "scope"),
+      TraceLoggingUInt64(id, "id"),
       TraceLoggingString(scope, "scope"),
       TraceLoggingUInt64(bind_id, "bind_id"),
       TraceLoggingString(names[0], "name0"),
@@ -106,7 +108,8 @@ uint64_t ETWTracingController::AddTraceEventWithTimestamp(
   }
 
 #if defined(_WIN32) && !defined(__clang__)
-  TRACEV8RUNTIME_VERBOSE("V8::Trace",
+  TRACEV8RUNTIME_VERBOSE(
+      "V8::Trace",
       TraceLoggingInt8(phase, phase),
       TraceLoggingString(name, "name"),
       TraceLoggingInt64(timestamp, "timestamp"),
@@ -151,15 +154,13 @@ void ETWTracingController::UpdateTraceEventDuration(
     const char *name,
     uint64_t handle) {
 #if defined(_WIN32) && !defined(__clang__)
-  //EventWriteUPDATE_TIMESTAMP(name, handle);
+  // EventWriteUPDATE_TIMESTAMP(name, handle);
 #endif
 }
 
-void ETWTracingController::AddTraceStateObserver(
-    v8::TracingController::TraceStateObserver *observer) {}
+void ETWTracingController::AddTraceStateObserver(v8::TracingController::TraceStateObserver *observer) {}
 
-void ETWTracingController::RemoveTraceStateObserver(
-    v8::TracingController::TraceStateObserver *observer) {}
+void ETWTracingController::RemoveTraceStateObserver(v8::TracingController::TraceStateObserver *observer) {}
 
 /*static*/ V8Platform &V8Platform::Get() {
   static V8Platform platform(false);
@@ -173,12 +174,10 @@ WorkerThreadsTaskRunner::~WorkerThreadsTaskRunner() {
 
   // Wait until both worker and timer threads are dranined.
   std::unique_lock<std::mutex> worker_stopped_lock(worker_stopped_mutex_);
-  worker_stopped_cond_.wait(
-      worker_stopped_lock, [this]() { return worker_stopped_; });
+  worker_stopped_cond_.wait(worker_stopped_lock, [this]() { return worker_stopped_; });
 
   std::unique_lock<std::mutex> timer_stopped_lock(timer_stopped_mutex_);
-  timer_stopped_cond_.wait(
-      timer_stopped_lock, [this]() { return timer_stopped_; });
+  timer_stopped_cond_.wait(timer_stopped_lock, [this]() { return timer_stopped_; });
 }
 
 WorkerThreadsTaskRunner::WorkerThreadsTaskRunner() {
@@ -187,7 +186,8 @@ WorkerThreadsTaskRunner::WorkerThreadsTaskRunner() {
 }
 
 void WorkerThreadsTaskRunner::Shutdown() {
-  // When this gets called, all threads are already shut down (we're tearing down the process and destroying the global V8Platform)
+  // When this gets called, all threads are already shut down (we're tearing down the process and destroying the global
+  // V8Platform)
 
   // TODO: Consider adding a "global runtime shutdown" API to JSI to fit V8's model
 
@@ -204,21 +204,15 @@ void WorkerThreadsTaskRunner::PostTask(std::unique_ptr<v8::Task> task) {
   tasks_available_cond_.notify_all();
 }
 
-void WorkerThreadsTaskRunner::PostDelayedTask(
-    std::unique_ptr<v8::Task> task,
-    double delay_in_seconds) {
+void WorkerThreadsTaskRunner::PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) {
   {
     if (delay_in_seconds == 0) {
       PostTask(std::move(task));
       return;
     }
 
-    double deadline =
-        std::chrono::high_resolution_clock::now().time_since_epoch().count() +
-        delay_in_seconds *
-            std::chrono::duration_cast<std::chrono::nanoseconds>(
-                std::chrono::seconds(1))
-                .count();
+    double deadline = std::chrono::high_resolution_clock::now().time_since_epoch().count() +
+        delay_in_seconds * std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::seconds(1)).count();
 
     std::lock_guard<std::mutex> lock(delayed_queue_access_mutex_);
     delayed_task_queue_.push(std::make_pair(deadline, std::move(task)));
@@ -231,8 +225,7 @@ void WorkerThreadsTaskRunner::WorkerFunc() {
 
   while (true) {
     std::unique_lock<std::mutex> lock(queue_access_mutex_);
-    tasks_available_cond_.wait(
-        lock, [this]() { return !tasks_queue_.empty() || stop_requested_; });
+    tasks_available_cond_.wait(lock, [this]() { return !tasks_queue_.empty() || stop_requested_; });
 
     if (stop_requested_)
       break;
@@ -256,9 +249,8 @@ void WorkerThreadsTaskRunner::TimerFunc() {
 
   while (true) {
     std::unique_lock<std::mutex> delayed_lock(delayed_queue_access_mutex_);
-    delayed_tasks_available_cond_.wait(delayed_lock, [this]() {
-      return !delayed_task_queue_.empty() || stop_requested_;
-    });
+    delayed_tasks_available_cond_.wait(
+        delayed_lock, [this]() { return !delayed_task_queue_.empty() || stop_requested_; });
 
     if (stop_requested_)
       break;
@@ -270,10 +262,8 @@ void WorkerThreadsTaskRunner::TimerFunc() {
 
     do {
       const DelayedEntry &delayed_entry = delayed_task_queue_.top();
-      if (delayed_entry.first <
-          std::chrono::steady_clock::now().time_since_epoch().count()) {
-        new_ready_tasks.push(
-            std::move(const_cast<DelayedEntry &>(delayed_entry).second));
+      if (delayed_entry.first < std::chrono::steady_clock::now().time_since_epoch().count()) {
+        new_ready_tasks.push(std::move(const_cast<DelayedEntry &>(delayed_entry).second));
         delayed_task_queue_.pop();
       } else {
         // The rest are not ready ..
@@ -296,8 +286,7 @@ void WorkerThreadsTaskRunner::TimerFunc() {
     }
 
     if (!delayed_task_queue_.empty()) {
-      std::this_thread::sleep_for(std::chrono::seconds(
-          1)); // Wait for a second and loop back and recompute again.
+      std::this_thread::sleep_for(std::chrono::seconds(1)); // Wait for a second and loop back and recompute again.
     } // else loop back and block the thread.
   }
 
@@ -306,18 +295,15 @@ void WorkerThreadsTaskRunner::TimerFunc() {
 }
 
 V8Platform::V8Platform(bool enable_tracing)
-    : tracing_controller_(
-          std::make_unique<ETWTracingController>(enable_tracing)),
+    : tracing_controller_(std::make_unique<ETWTracingController>(enable_tracing)),
       worker_task_runner_(std::make_unique<WorkerThreadsTaskRunner>()) {}
 
 V8Platform::~V8Platform() {
   worker_task_runner_->Shutdown();
 }
 
-std::shared_ptr<v8::TaskRunner> V8Platform::GetForegroundTaskRunner(
-    v8::Isolate *isolate) {
-  IsolateData *isolate_data =
-      reinterpret_cast<IsolateData *>(isolate->GetData(ISOLATE_DATA_SLOT));
+std::shared_ptr<v8::TaskRunner> V8Platform::GetForegroundTaskRunner(v8::Isolate *isolate) {
+  IsolateData *isolate_data = reinterpret_cast<IsolateData *>(isolate->GetData(ISOLATE_DATA_SLOT));
   return isolate_data->foreground_task_runner_;
 }
 
@@ -325,9 +311,7 @@ void V8Platform::CallOnWorkerThread(std::unique_ptr<v8::Task> task) {
   worker_task_runner_->PostTask(std::move(task));
 }
 
-void V8Platform::CallDelayedOnWorkerThread(
-    std::unique_ptr<v8::Task> task,
-    double delay_in_seconds) {
+void V8Platform::CallDelayedOnWorkerThread(std::unique_ptr<v8::Task> task, double delay_in_seconds) {
   worker_task_runner_->PostDelayedTask(std::move(task), delay_in_seconds);
 }
 
@@ -341,16 +325,14 @@ int V8Platform::NumberOfWorkerThreads() {
 
 double V8Platform::MonotonicallyIncreasingTime() {
   return static_cast<double>(
-      std::chrono::duration_cast<std::chrono::seconds>(
-          std::chrono::high_resolution_clock::now().time_since_epoch())
+      std::chrono::duration_cast<std::chrono::seconds>(std::chrono::high_resolution_clock::now().time_since_epoch())
           .count());
 }
 
 double V8Platform::CurrentClockTimeMillis() {
-  return static_cast<double>(
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::high_resolution_clock::now().time_since_epoch())
-          .count());
+  return static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::high_resolution_clock::now().time_since_epoch())
+                                 .count());
 }
 
 v8::TracingController *V8Platform::GetTracingController() {

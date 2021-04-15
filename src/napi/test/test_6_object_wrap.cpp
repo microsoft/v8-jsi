@@ -14,8 +14,7 @@ using namespace napitest;
 TEST_P(NapiTest, test_6_object_wrap) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
-        "./build/x86/binding",
-        [](napi_env env, napi_value exports) { return Init(env, exports); });
+        "./build/x86/binding", [](napi_env env, napi_value exports) { return Init(env, exports); });
     testContext->RunTestScript(test_6_object_wrap_test_js);
   });
 }

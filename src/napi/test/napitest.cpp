@@ -57,10 +57,7 @@ static napi_value JSRequire(napi_env env, napi_callback_info info) {
   // Extract the name of the requested module
   char moduleName[128];
   size_t copied;
-  NODE_API_CALL(
-      env,
-      napi_get_value_string_utf8(
-          env, arg0, moduleName, sizeof(moduleName), &copied));
+  NODE_API_CALL(env, napi_get_value_string_utf8(env, arg0, moduleName, sizeof(moduleName), &copied));
 
   NapiTestContext *testContext = static_cast<NapiTestContext *>(data);
   return testContext->GetModule(moduleName);
@@ -86,10 +83,7 @@ NapiRef MakeNapiRef(napi_env env, napi_value value) {
 // NapiTestException implementation
 //=============================================================================
 
-NapiTestException::NapiTestException(
-    napi_env env,
-    napi_status errorCode,
-    const char *expr) noexcept
+NapiTestException::NapiTestException(napi_env env, napi_status errorCode, const char *expr) noexcept
     : m_errorCode{errorCode}, m_expr{expr} {
   bool isExceptionPending;
   napi_is_exception_pending(env, &isExceptionPending);
@@ -124,17 +118,13 @@ void NapiTestException::ApplyScriptErrorData(napi_env env, napi_value error) {
   }
 }
 
-/*static*/ napi_value
-NapiTestException::GetProperty(napi_env env, napi_value obj, char const *name) {
+/*static*/ napi_value NapiTestException::GetProperty(napi_env env, napi_value obj, char const *name) {
   napi_value result{};
   napi_get_named_property(env, obj, name, &result);
   return result;
 }
 
-/*static*/ std::string NapiTestException::GetPropertyString(
-    napi_env env,
-    napi_value obj,
-    char const *name) {
+/*static*/ std::string NapiTestException::GetPropertyString(napi_env env, napi_value obj, char const *name) {
   napi_value napiValue = GetProperty(env, obj, name);
   size_t valueSize{};
   napi_get_value_string_utf8(env, napiValue, nullptr, 0, &valueSize);
@@ -143,10 +133,7 @@ NapiTestException::GetProperty(napi_env env, napi_value obj, char const *name) {
   return value;
 }
 
-/*static*/ int32_t NapiTestException::GetPropertyInt32(
-    napi_env env,
-    napi_value obj,
-    char const *name) {
+/*static*/ int32_t NapiTestException::GetPropertyInt32(napi_env env, napi_value obj, char const *name) {
   napi_value napiValue = GetProperty(env, obj, name);
   int32_t value{};
   napi_get_value_int32(env, napiValue, &value);
@@ -157,8 +144,7 @@ NapiTestException::GetProperty(napi_env env, napi_value obj, char const *name) {
 // NapiTest implementation
 //=============================================================================
 
-void NapiTest::ExecuteNapi(
-    std::function<void(NapiTestContext *, napi_env)> code) noexcept {
+void NapiTest::ExecuteNapi(std::function<void(NapiTestContext *, napi_env)> code) noexcept {
   napi_env env = GetParam()();
 
   {
@@ -173,14 +159,12 @@ void NapiTest::ExecuteNapi(
 // NapiTestContext implementation
 //=============================================================================
 
-NapiTestContext::NapiTestContext(napi_env env)
-    : env(env), m_scriptModules(module::GetModuleScripts()) {
+NapiTestContext::NapiTestContext(napi_env env) : env(env), m_scriptModules(module::GetModuleScripts()) {
   THROW_IF_NOT_OK(napi_open_handle_scope(env, &m_handleScope));
 
   napi_value require{}, global{};
   THROW_IF_NOT_OK(napi_get_global(env, &global));
-  THROW_IF_NOT_OK(napi_create_function(
-      env, "require", NAPI_AUTO_LENGTH, JSRequire, this, &require));
+  THROW_IF_NOT_OK(napi_create_function(env, "require", NAPI_AUTO_LENGTH, JSRequire, this, &require));
   THROW_IF_NOT_OK(napi_set_named_property(env, global, "require", require));
 
   StartTest();
@@ -193,8 +177,7 @@ NapiTestContext::~NapiTestContext() {
 
 napi_value NapiTestContext::RunScript(char const *code, char const *sourceUrl) {
   napi_value script{}, scriptResult{};
-  THROW_IF_NOT_OK(
-      napi_create_string_utf8(env, code, NAPI_AUTO_LENGTH, &script));
+  THROW_IF_NOT_OK(napi_create_string_utf8(env, code, NAPI_AUTO_LENGTH, &script));
   if (sourceUrl) {
     THROW_IF_NOT_OK(napi_ext_run_script(env, script, sourceUrl, &scriptResult));
   } else {
@@ -207,13 +190,11 @@ napi_value NapiTestContext::GetModule(char const *moduleName) {
   napi_value result{};
   auto moduleIt = m_modules.find(moduleName);
   if (moduleIt != m_modules.end()) {
-    NODE_API_CALL(
-        env, napi_get_reference_value(env, moduleIt->second.get(), &result));
+    NODE_API_CALL(env, napi_get_reference_value(env, moduleIt->second.get(), &result));
   } else {
     auto scriptIt = m_scriptModules.find(moduleName);
     if (scriptIt != m_scriptModules.end()) {
-      result = RunScript(
-          GetJSModuleText(scriptIt->second.script).c_str(), moduleName);
+      result = RunScript(GetJSModuleText(scriptIt->second.script).c_str(), moduleName);
     } else {
       auto nativeModuleIt = m_nativeModules.find(moduleName);
       if (nativeModuleIt != m_nativeModules.end()) {
@@ -233,8 +214,7 @@ napi_value NapiTestContext::GetModule(char const *moduleName) {
   return result;
 }
 
-TestScriptInfo *NapiTestContext::GetTestScriptInfo(
-    std::string const &moduleName) {
+TestScriptInfo *NapiTestContext::GetTestScriptInfo(std::string const &moduleName) {
   auto it = m_scriptModules.find(moduleName);
   return it != m_scriptModules.end() ? &it->second : nullptr;
 }
@@ -245,13 +225,9 @@ void NapiTestContext::AddNativeModule(
   m_nativeModules.try_emplace(moduleName, std::move(initModule));
 }
 
-NapiTestErrorHandler NapiTestContext::RunTestScript(
-    char const *script,
-    char const *file,
-    int32_t line) {
+NapiTestErrorHandler NapiTestContext::RunTestScript(char const *script, char const *file, int32_t line) {
   try {
-    m_scriptModules["TestScript"] =
-        TestScriptInfo{GetJSModuleText(script).c_str(), file, line};
+    m_scriptModules["TestScript"] = TestScriptInfo{GetJSModuleText(script).c_str(), file, line};
 
     RunScript(GetJSModuleText(script).c_str(), "TestScript");
     while (!m_immediateQueue.empty()) {
@@ -259,23 +235,15 @@ NapiTestErrorHandler NapiTestContext::RunTestScript(
       m_immediateQueue.pop();
       napi_value callback{}, undefined{};
       THROW_IF_NOT_OK(napi_get_undefined(env, &undefined));
-      THROW_IF_NOT_OK(
-          napi_get_reference_value(env, callbackRef.get(), &callback));
-      THROW_IF_NOT_OK(
-          napi_call_function(env, undefined, callback, 0, nullptr, nullptr));
+      THROW_IF_NOT_OK(napi_get_reference_value(env, callbackRef.get(), &callback));
+      THROW_IF_NOT_OK(napi_call_function(env, undefined, callback, 0, nullptr, nullptr));
     }
 
     RunCallChecks();
     HandleUnhandledPromiseRejections();
     return NapiTestErrorHandler(this, std::exception_ptr(), "", file, line, 0);
   } catch (...) {
-    return NapiTestErrorHandler(
-        this,
-        std::current_exception(),
-        script,
-        file,
-        line,
-        ModulePrefixLineCount);
+    return NapiTestErrorHandler(this, std::current_exception(), script, file, line, ModulePrefixLineCount);
   }
 }
 
@@ -284,14 +252,12 @@ void NapiTestContext::HandleUnhandledPromiseRejections() {
   THROW_IF_NOT_OK(napi_ext_has_unhandled_promise_rejection(env, &hasException));
   if (hasException) {
     napi_value error{};
-    THROW_IF_NOT_OK(
-        napi_get_and_clear_last_unhandled_promise_rejection(env, &error));
+    THROW_IF_NOT_OK(napi_get_and_clear_last_unhandled_promise_rejection(env, &error));
     throw NapiTestException(env, error);
   }
 }
 
-NapiTestErrorHandler NapiTestContext::RunTestScript(
-    TestScriptInfo const &scriptInfo) {
+NapiTestErrorHandler NapiTestContext::RunTestScript(TestScriptInfo const &scriptInfo) {
   return RunTestScript(scriptInfo.script, scriptInfo.file, scriptInfo.line);
 }
 
@@ -306,13 +272,11 @@ void NapiTestContext::StartTest() {
   // Add __NapiTestContext__
   napi_value self{};
   THROW_IF_NOT_OK(napi_create_external(env, this, nullptr, nullptr, &self));
-  THROW_IF_NOT_OK(
-      napi_set_named_property(env, global, "__NapiTestContext__", self));
+  THROW_IF_NOT_OK(napi_set_named_property(env, global, "__NapiTestContext__", self));
 
   // Add global.gc()
   napi_value gc{};
-  auto gcCallback = [](napi_env env,
-                       napi_callback_info /*info*/) -> napi_value {
+  auto gcCallback = [](napi_env env, napi_callback_info /*info*/) -> napi_value {
     NODE_API_CALL(env, napi_ext_collect_garbage(env));
 
     napi_value undefined{};
@@ -320,38 +284,25 @@ void NapiTestContext::StartTest() {
     return undefined;
   };
 
-  THROW_IF_NOT_OK(napi_create_function(
-      env, "gc", NAPI_AUTO_LENGTH, gcCallback, nullptr, &gc));
+  THROW_IF_NOT_OK(napi_create_function(env, "gc", NAPI_AUTO_LENGTH, gcCallback, nullptr, &gc));
   THROW_IF_NOT_OK(napi_set_named_property(env, global, "gc", gc));
 
   // Add setImmediate()
   napi_value setImmediate{};
-  auto setImmediateCallback = [](napi_env env,
-                                 napi_callback_info info) -> napi_value {
+  auto setImmediateCallback = [](napi_env env, napi_callback_info info) -> napi_value {
     size_t argc{1};
     napi_value immediateCallback{};
-    NODE_API_CALL(
-        env,
-        napi_get_cb_info(
-            env, info, &argc, &immediateCallback, nullptr, nullptr));
+    NODE_API_CALL(env, napi_get_cb_info(env, info, &argc, &immediateCallback, nullptr, nullptr));
 
-    NODE_API_ASSERT(
-        env,
-        argc >= 1,
-        "Wrong number of arguments. Expects at least one argument.");
+    NODE_API_ASSERT(env, argc >= 1, "Wrong number of arguments. Expects at least one argument.");
     napi_valuetype immediateCallbackType;
-    NODE_API_CALL(
-        env, napi_typeof(env, immediateCallback, &immediateCallbackType));
-    NODE_API_ASSERT(
-        env,
-        immediateCallbackType == napi_function,
-        "Wrong type of arguments. Expects a function.");
+    NODE_API_CALL(env, napi_typeof(env, immediateCallback, &immediateCallbackType));
+    NODE_API_ASSERT(env, immediateCallbackType == napi_function, "Wrong type of arguments. Expects a function.");
 
     napi_value global{};
     THROW_IF_NOT_OK(napi_get_global(env, &global));
     napi_value selfValue{};
-    THROW_IF_NOT_OK(napi_get_named_property(
-        env, global, "__NapiTestContext__", &selfValue));
+    THROW_IF_NOT_OK(napi_get_named_property(env, global, "__NapiTestContext__", &selfValue));
     NapiTestContext *self;
     THROW_IF_NOT_OK(napi_get_value_external(env, selfValue, (void **)&self));
 
@@ -362,15 +313,9 @@ void NapiTestContext::StartTest() {
     return undefined;
   };
 
-  THROW_IF_NOT_OK(napi_create_function(
-      env,
-      "setImmediate",
-      NAPI_AUTO_LENGTH,
-      setImmediateCallback,
-      nullptr,
-      &setImmediate));
   THROW_IF_NOT_OK(
-      napi_set_named_property(env, global, "setImmediate", setImmediate));
+      napi_create_function(env, "setImmediate", NAPI_AUTO_LENGTH, setImmediateCallback, nullptr, &setImmediate));
+  THROW_IF_NOT_OK(napi_set_named_property(env, global, "setImmediate", setImmediate));
 }
 
 void NapiTestContext::EndTest() {
@@ -384,16 +329,12 @@ void NapiTestContext::SetImmediate(napi_value callback) noexcept {
 void NapiTestContext::RunCallChecks() {
   napi_value common = GetModule("assert");
   napi_value undefined{}, runCallChecks{};
-  THROW_IF_NOT_OK(
-      napi_get_named_property(env, common, "runCallChecks", &runCallChecks));
+  THROW_IF_NOT_OK(napi_get_named_property(env, common, "runCallChecks", &runCallChecks));
   THROW_IF_NOT_OK(napi_get_undefined(env, &undefined));
-  THROW_IF_NOT_OK(
-      napi_call_function(env, undefined, runCallChecks, 0, nullptr, nullptr));
+  THROW_IF_NOT_OK(napi_call_function(env, undefined, runCallChecks, 0, nullptr, nullptr));
 }
 
-std::string NapiTestContext::ProcessStack(
-    std::string const &stack,
-    std::string const &assertMethod) {
+std::string NapiTestContext::ProcessStack(std::string const &stack, std::string const &assertMethod) {
   // Split up the stack string into an array of stack frames
   auto stackStream = std::istringstream(stack);
   std::string stackFrame;
@@ -420,17 +361,13 @@ std::string NapiTestContext::ProcessStack(
     if (assertFuncFound) {
       std::string processedFrame;
       if (std::regex_search(frame, locationMatch, locationRE)) {
-        if (auto const *scriptInfo =
-                GetTestScriptInfo(locationMatch[1].str())) {
-          int32_t cppLine = scriptInfo->line +
-              std::stoi(locationMatch[2].str()) - ModulePrefixLineCount - 1;
-          processedFrame = locationMatch.prefix().str() +
-              UseSrcFilePath(scriptInfo->file) + ':' + std::to_string(cppLine) +
-              locationMatch.suffix().str();
+        if (auto const *scriptInfo = GetTestScriptInfo(locationMatch[1].str())) {
+          int32_t cppLine = scriptInfo->line + std::stoi(locationMatch[2].str()) - ModulePrefixLineCount - 1;
+          processedFrame = locationMatch.prefix().str() + UseSrcFilePath(scriptInfo->file) + ':' +
+              std::to_string(cppLine) + locationMatch.suffix().str();
         }
       }
-      processedStack +=
-          (!processedFrame.empty() ? processedFrame : frame) + '\n';
+      processedStack += (!processedFrame.empty() ? processedFrame : frame) + '\n';
     } else {
       auto pos = frame.find(assertFuncPattern);
       if (pos != std::string::npos) {
@@ -493,57 +430,37 @@ NapiTestErrorHandler::~NapiTestErrorHandler() noexcept {
                        << "   Actual: " << ex.AssertionErrorInfo()->Actual << '\n';
         }
 
-        std::string processedStack = m_testContext->ProcessStack(
-            ex.AssertionErrorInfo()->ErrorStack, ex.AssertionErrorInfo()->Method);
+        std::string processedStack =
+            m_testContext->ProcessStack(ex.AssertionErrorInfo()->ErrorStack, ex.AssertionErrorInfo()->Method);
 
         GTEST_MESSAGE_AT_(
-            m_file.c_str(),
-            sourceLine,
-            "JavaScript assertion error",
-            ::testing::TestPartResult::kFatalFailure)
+            m_file.c_str(), sourceLine, "JavaScript assertion error", ::testing::TestPartResult::kFatalFailure)
             << "Exception: " << ex.ErrorInfo()->Name << '\n'
             << "   Method: " << methodName << '\n'
             << "  Message: " << ex.ErrorInfo()->Message << '\n'
-            << errorDetails.str(/*a filler for formatting*/)
-            << "     File: " << sourceFile << ":" << sourceLine << '\n'
+            << errorDetails.str(/*a filler for formatting*/) << "     File: " << sourceFile << ":" << sourceLine << '\n'
             << sourceCode << '\n'
             << "Callstack: " << '\n'
             << processedStack /*   a filler for formatting    */
             << "Raw stack: " << '\n'
             << "  " << ex.AssertionErrorInfo()->ErrorStack;
       } else if (ex.ErrorInfo()) {
-        GTEST_MESSAGE_AT_(
-            m_file.c_str(),
-            m_line,
-            "JavaScript error",
-            ::testing::TestPartResult::kFatalFailure)
+        GTEST_MESSAGE_AT_(m_file.c_str(), m_line, "JavaScript error", ::testing::TestPartResult::kFatalFailure)
             << "Exception: " << ex.ErrorInfo()->Name << '\n'
             << "  Message: " << ex.ErrorInfo()->Message << '\n'
             << "Callstack: " << ex.ErrorInfo()->Stack;
       } else {
-        GTEST_MESSAGE_AT_(
-            m_file.c_str(),
-            m_line,
-            "Test native exception",
-            ::testing::TestPartResult::kFatalFailure)
+        GTEST_MESSAGE_AT_(m_file.c_str(), m_line, "Test native exception", ::testing::TestPartResult::kFatalFailure)
             << "Exception: NapiTestException\n"
             << "     Code: " << ex.ErrorCode() << '\n'
             << "  Message: " << ex.what() << '\n'
             << "     Expr: " << ex.Expr();
       }
     } catch (std::exception const &ex) {
-      GTEST_MESSAGE_AT_(
-          m_file.c_str(),
-          m_line,
-          "C++ exception",
-          ::testing::TestPartResult::kFatalFailure)
+      GTEST_MESSAGE_AT_(m_file.c_str(), m_line, "C++ exception", ::testing::TestPartResult::kFatalFailure)
           << "Exception thrown: " << ex.what();
     } catch (...) {
-      GTEST_MESSAGE_AT_(
-          m_file.c_str(),
-          m_line,
-          "Unexpected test exception",
-          ::testing::TestPartResult::kFatalFailure);
+      GTEST_MESSAGE_AT_(m_file.c_str(), m_line, "Unexpected test exception", ::testing::TestPartResult::kFatalFailure);
     }
   } else if (m_mustThrow) {
     GTEST_MESSAGE_AT_(
@@ -554,13 +471,11 @@ NapiTestErrorHandler::~NapiTestErrorHandler() noexcept {
   }
 }
 
-void NapiTestErrorHandler::Catch(
-    std::function<void(NapiTestException const &)> &&handler) noexcept {
+void NapiTestErrorHandler::Catch(std::function<void(NapiTestException const &)> &&handler) noexcept {
   m_handler = std::move(handler);
 }
 
-void NapiTestErrorHandler::Throws(
-    std::function<void(NapiTestException const &)> &&handler) noexcept {
+void NapiTestErrorHandler::Throws(std::function<void(NapiTestException const &)> &&handler) noexcept {
   m_handler = std::move(handler);
   m_mustThrow = true;
 }
@@ -573,9 +488,7 @@ void NapiTestErrorHandler::Throws(
   m_mustThrow = true;
 }
 
-std::string NapiTestErrorHandler::GetSourceCodeSliceForError(
-    int32_t lineIndex,
-    int32_t extraLineCount) noexcept {
+std::string NapiTestErrorHandler::GetSourceCodeSliceForError(int32_t lineIndex, int32_t extraLineCount) noexcept {
   std::string sourceCode;
   auto sourceStream = std::istringstream(m_script + '\n');
   std::string sourceLine;
@@ -599,7 +512,4 @@ std::string NapiTestErrorHandler::GetSourceCodeSliceForError(
 
 using namespace napitest;
 
-INSTANTIATE_TEST_SUITE_P(
-    NapiEnv,
-    NapiTest,
-    ::testing::ValuesIn(NapiEnvFactories()));
+INSTANTIATE_TEST_SUITE_P(NapiEnv, NapiTest, ::testing::ValuesIn(NapiEnvFactories()));

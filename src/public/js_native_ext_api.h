@@ -15,30 +15,21 @@ typedef enum {
 
 typedef struct napi_env_scope__ *napi_env_scope;
 
-NAPI_EXTERN napi_status
-napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env);
+NAPI_EXTERN napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env);
 
 NAPI_EXTERN napi_status napi_ext_delete_env(napi_env env);
 
-NAPI_EXTERN napi_status
-napi_ext_open_env_scope(napi_env env, napi_env_scope *result);
+NAPI_EXTERN napi_status napi_ext_open_env_scope(napi_env env, napi_env_scope *result);
+
+NAPI_EXTERN napi_status napi_ext_close_env_scope(napi_env env, napi_env_scope scope);
 
 NAPI_EXTERN napi_status
-napi_ext_close_env_scope(napi_env env, napi_env_scope scope);
-
-NAPI_EXTERN napi_status napi_ext_run_script(
-    napi_env env,
-    napi_value script,
-    const char *source_url,
-    napi_value *result);
+napi_ext_run_script(napi_env env, napi_value script, const char *source_url, napi_value *result);
 
 NAPI_EXTERN napi_status napi_ext_collect_garbage(napi_env env);
 
-NAPI_EXTERN napi_status
-napi_ext_has_unhandled_promise_rejection(napi_env env, bool *result);
+NAPI_EXTERN napi_status napi_ext_has_unhandled_promise_rejection(napi_env env, bool *result);
 
-NAPI_EXTERN napi_status napi_get_and_clear_last_unhandled_promise_rejection(
-    napi_env env,
-    napi_value *result);
+NAPI_EXTERN napi_status napi_get_and_clear_last_unhandled_promise_rejection(napi_env env, napi_value *result);
 
 EXTERN_C_END
