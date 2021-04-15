@@ -324,7 +324,7 @@ void V8Runtime::AddHistogramSample(void *histogram, int sample) {
   counter->AddSample(sample);
 }
 
-// This class is used to record the JITted code position info for JIT
+// This class is used to record the JITed code position info for JIT
 // code profiling.
 class JITCodeLineInfo {
  public:
@@ -502,9 +502,9 @@ void V8Runtime::createHostObjectConstructorPerContext() {
   hostObjectTemplate->SetHandler(v8::NamedPropertyHandlerConfiguration(
       HostObjectProxy::Get, HostObjectProxy::Set, nullptr, nullptr, HostObjectProxy::Enumerator));
 
-  // V8 distinguishes between named properties (strings and symbols) and indexed
-  // properties (number) Note that we're not passing an Enumerator here,
-  // otherwise we'd be double-counting since JSI doesn't make the distinction
+  // V8 distinguishes between named properties (strings and symbols) and indexed properties (number)
+  // Note that we're not passing an Enumerator here, otherwise we'd be double-counting since JSI doesn't make the
+  // distinction
   hostObjectTemplate->SetIndexedPropertyHandler(HostObjectProxy::GetIndexed, HostObjectProxy::SetIndexed);
   hostObjectTemplate->SetInternalFieldCount(1);
   host_object_constructor_.Reset(
@@ -585,8 +585,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 }
 
 V8Runtime::~V8Runtime() {
-  // TODO: add check that destruction happens on the same thread id as
-  // construction
+  // TODO: add check that destruction happens on the same thread id as construction
 #ifdef _WIN32
   if (inspector_agent_ && inspector_agent_->IsStarted()) {
     inspector_agent_->stop();
@@ -626,12 +625,10 @@ jsi::Value V8Runtime::evaluateJavaScript(
   _ISOLATE_CONTEXT_ENTER
 
   v8::Local<v8::String> sourceV8String;
-  // If we'd somehow know the buffer includes only ASCII characters, we could
-  // use External strings to avoid the copy
-  /* ExternalOwningOneByteStringResource *external_string_resource = new
-  ExternalOwningOneByteStringResource(buffer); if
-  (!v8::String::NewExternalOneByte(isolate,
-  external_string_resource).ToLocal(&sourceV8String)) { std::abort();
+  // If we'd somehow know the buffer includes only ASCII characters, we could use External strings to avoid the copy
+  /* ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+  if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
+    std::abort();
   }
   delete external_string_resource; */
 
@@ -887,8 +884,8 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
   } else {
     std::stringstream sstr;
 
-    // Print (filename):(line number): (message) - this would differ from what
-    // JSI expects (it wants the plain stacktrace)
+    // Print (filename):(line number): (message) - this would differ from what JSI expects (it wants the plain
+    // stacktrace)
     /*v8::String::Utf8Value filename(
         isolate, message->GetScriptOrigin().ResourceName());
     v8::Local<v8::Context> context(isolate->GetCurrentContext());
@@ -925,8 +922,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     v8::String::Utf8Value ex_message(isolate, message->Get());
     std::string ex_messages = ToCString(ex_message);
     if (ex_messages.rfind("Uncaught Error:", 0) == 0) {
-      // V8 adds an "Uncaught Error: " before any message string any time we
-      // read it, this strips it out.
+      // V8 adds an "Uncaught Error: " before any message string any time we read it, this strips it out.
       ex_messages.erase(0, 16);
     }
 
@@ -935,8 +931,8 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
         TraceLoggingString(ex_messages.c_str(), "ex_messages"),
         TraceLoggingString(sstr.str().c_str(), "sstr"));
 
-    // V8 doesn't actually capture the current callstack (as we're outside of
-    // scope when this gets called) See also https://v8.dev/docs/stack-trace-api
+    // V8 doesn't actually capture the current callstack (as we're outside of scope when this gets called)
+    // See also https://v8.dev/docs/stack-trace-api
     if (ex_messages.find("Maximum call stack size exceeded") == std::string::npos) {
       auto err = jsi::JSError(*this, ex_messages);
       err.value().getObject(*this).setProperty(
@@ -944,8 +940,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       err.setStack(sstr.str());
       throw err;
     } else {
-      // If we're already in stack overflow, calling the Error constructor
-      // pushes it overboard
+      // If we're already in stack overflow, calling the Error constructor pushes it overboard
       throw jsi::JSError(*this, ex_messages, sstr.str());
     }
   }

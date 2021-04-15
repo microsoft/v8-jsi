@@ -117,9 +117,8 @@ class V8PlatformHolder {
     std::lock_guard<std::mutex> guard(mutex_s_);
 
     if (--use_count_s_ == 0) {
-      // We cannot shutdown the platform once created because V8 internally
-      // references bits of the platform from process-globals This cannot be
-      // worked around, the design of V8 is not currently embedder-friendly
+      // We cannot shutdown the platform once created because V8 internally references bits of the platform from
+      // process-globals This cannot be worked around, the design of V8 is not currently embedder-friendly
       // v8::V8::Dispose();
       v8::V8::ShutdownPlatform();
       platform_s_ = nullptr;

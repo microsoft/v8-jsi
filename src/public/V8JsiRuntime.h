@@ -61,8 +61,9 @@ struct V8RuntimeArgs {
   std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
 
   // Sorry, currently we don't support providing custom background runner. We
-  // create a default one shared by all runtimes. std::unique_ptr<TaskRunner>
-  // background_task_runner; // background thread pool => non sequential
+  // create a default one shared by all runtimes.
+  // std::unique_ptr<TaskRunner> background_task_runner;
+  // background thread pool => non sequential
 
   std::unique_ptr<const facebook::jsi::Buffer> custom_snapshot_blob;
 

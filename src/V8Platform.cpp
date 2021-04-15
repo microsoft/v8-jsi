@@ -172,7 +172,7 @@ WorkerThreadsTaskRunner::~WorkerThreadsTaskRunner() {
   tasks_available_cond_.notify_all();
   delayed_tasks_available_cond_.notify_all();
 
-  // Wait until both worker and timer threads are dranined.
+  // Wait until both worker and timer threads are drained.
   std::unique_lock<std::mutex> worker_stopped_lock(worker_stopped_mutex_);
   worker_stopped_cond_.wait(worker_stopped_lock, [this]() { return worker_stopped_; });
 
