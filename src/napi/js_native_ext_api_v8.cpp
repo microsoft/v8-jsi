@@ -209,19 +209,22 @@ bool v8_initialized = false;
 
 // From node_errors.cc
 [[noreturn]] void Assert(const AssertionInfo &info) {
-  std::string name = "aaa"; // [vmoroz] GetHumanReadableProcessName();
+  char* processName{};
+  _get_pgmptr(&processName);
 
   fprintf(
       stderr,
       "%s: %s:%s%s Assertion `%s' failed.\n",
-      name.c_str(),
+      processName,
       info.file_line,
       info.function,
       *info.function ? ":" : "",
       info.message);
   fflush(stderr);
 
-  // [vmoroz] Abort();
+  TRACEV8RUNTIME_CRITICAL("Assertion failed");
+
+  std::terminate();
 }
 
 } // namespace node

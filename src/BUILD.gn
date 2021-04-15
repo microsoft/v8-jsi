@@ -105,6 +105,7 @@ target("executable", "jsitests") {
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
+  # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
   cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
 
   include_dirs = [ ".", "jsi", "napi", "napi/test", "public" ]
