@@ -6,13 +6,16 @@
 #include "v8.h"
 
 #include "V8Platform.h"
+#include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
+#include "public/js_native_api.h"
 
 #include "napi/util-inl.h"
 
 #include <atomic>
 #include <cstdlib>
 #include <list>
+#include <locale>
 #include <mutex>
 #include <sstream>
 
@@ -1549,6 +1552,168 @@ void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
     last_unhandled_promise_.reset();
   }
 }
+
+napi_status V8Runtime::NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
+  if (length == NAPI_AUTO_LENGTH) {
+    length = std::char_traits<char>::length(str);
+  }
+
+  napi_ext_ref ref{};
+  auto it = unique_strings_.find({str, length});
+  if (it != unique_strings_.end()) {
+    ref = it->second->GetRef();
+    STATUS_CALL(napi_ext_reference_ref(env, ref));
+  }
+
+  if (!ref) {
+    auto uniqueString = std::make_unique<NapiUniqueString>(env, std::string(str, length));
+    auto isolate = env->isolate;
+    auto str_maybe = v8::String::NewFromUtf8(isolate, str, v8::NewStringType::kInternalized, static_cast<int>(length));
+    CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
+
+    napi_value nstr = v8impl::JsValueFromV8LocalValue(str_maybe.ToLocalChecked());
+    auto finalize = [](napi_env env, void *finalize_data, void *finalize_hint) {
+      NapiUniqueString *uniqueString = static_cast<NapiUniqueString *>(finalize_data);
+      V8Runtime *runtime = static_cast<V8Runtime *>(finalize_hint);
+      auto it = runtime->unique_strings_.find(uniqueString->GetView());
+      if (it != runtime->unique_strings_.end()) {
+        runtime->unique_strings_.erase(it);
+      }
+    };
+    STATUS_CALL(napi_ext_create_reference_with_data(env, nstr, uniqueString.get(), finalize, this, &ref));
+    uniqueString->SetRef(ref);
+    unique_strings_[uniqueString->GetView()] = std::move(uniqueString);
+  }
+
+  *result = ref;
+  return napi_clear_last_error(env);
+}
+
+bool V8Runtime::IsEnvDeleted() noexcept {
+  return is_env_deleted_;
+}
+
+void V8Runtime::SetIsEnvDeleted() noexcept {
+  is_env_deleted_ = true;
+}
+
+//=============================================================================
+// StringView implementation
+//=============================================================================
+
+constexpr StringView::StringView(const char *data, size_t size) noexcept : m_data{data}, m_size{size} {}
+
+StringView::StringView(const std::string &str) noexcept : m_data{str.data()}, m_size{str.size()} {}
+
+constexpr const char *StringView::begin() const noexcept {
+  return m_data;
+}
+
+constexpr const char *StringView::end() const noexcept {
+  return m_data + m_size;
+}
+
+constexpr const char &StringView::operator[](size_t pos) const noexcept {
+  return *(m_data + pos);
+}
+
+constexpr const char *StringView::data() const noexcept {
+  return m_data;
+}
+
+constexpr size_t StringView::size() const noexcept {
+  return m_size;
+}
+
+constexpr bool StringView::empty() const noexcept {
+  return m_size == 0;
+}
+
+void StringView::swap(StringView &other) noexcept {
+  using std::swap;
+  swap(m_data, other.m_data);
+  swap(m_size, other.m_size);
+}
+
+int StringView::compare(StringView other) const noexcept {
+  size_t minCommonSize = (std::min)(m_size, other.m_size);
+  int result = std::char_traits<char>::compare(m_data, other.m_data, minCommonSize);
+  if (result == 0) {
+    if (m_size < other.m_size) {
+      result = -1;
+    } else if (m_size > other.m_size) {
+      result = 1;
+    }
+  }
+  return result;
+}
+
+void swap(StringView &left, StringView &right) noexcept {
+  left.swap(right);
+}
+
+bool operator==(StringView left, StringView right) noexcept {
+  return left.compare(right) == 0;
+}
+
+bool operator!=(StringView left, StringView right) noexcept {
+  return left.compare(right) != 0;
+}
+
+bool operator<(StringView left, StringView right) noexcept {
+  return left.compare(right) < 0;
+}
+
+bool operator<=(StringView left, StringView right) noexcept {
+  return left.compare(right) <= 0;
+}
+
+bool operator>(StringView left, StringView right) noexcept {
+  return left.compare(right) > 0;
+}
+
+bool operator>=(StringView left, StringView right) noexcept {
+  return left.compare(right) >= 0;
+}
+
+constexpr StringView operator"" _sv(const char *str, std::size_t len) noexcept {
+  return StringView(str, len);
+}
+
+//=============================================================================
+// StringViewHash implementation
+//=============================================================================
+
+size_t StringViewHash::operator()(StringView view) const noexcept {
+  return s_classic_collate.hash(view.begin(), view.end());
+}
+
+/*static*/ const std::collate<char> &StringViewHash::s_classic_collate =
+    std::use_facet<std::collate<char>>(std::locale::classic());
+
+//=============================================================================
+// NapiUniqueString implementation
+//=============================================================================
+
+NapiUniqueString::NapiUniqueString(napi_env env, std::string value) noexcept : env_{env}, value_{std::move(value)} {}
+
+NapiUniqueString::~NapiUniqueString() noexcept {}
+
+StringView NapiUniqueString::GetView() const noexcept {
+  return StringView{value_};
+}
+
+napi_ext_ref NapiUniqueString::GetRef() const noexcept {
+  return string_ref_;
+}
+
+void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
+  string_ref_ = ref;
+}
+
+//=============================================================================
+// Make V8 JSI runtime
+//=============================================================================
 
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
   return std::make_unique<V8Runtime>(std::move(args));

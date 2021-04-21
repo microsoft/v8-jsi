@@ -159,6 +159,9 @@ target("executable", "jsitests") {
     "napi/test/test_string.cpp",
     "napi/test/test_symbol.cpp",
     "napi/test/test_typedarray.cpp",
+    "public/compat.h",
+    "public/NapiJsiRuntime.h",
+    "public/NapiJsiRuntime.impl.h",
     "testmain.cpp"
   ]
 }

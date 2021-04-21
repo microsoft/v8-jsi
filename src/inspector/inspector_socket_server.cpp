@@ -5,10 +5,7 @@
 #include "inspector_tcp.h"
 #include "inspector_utils.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
+#include "V8Windows.h"
 
 #include <algorithm>
 #include <map>

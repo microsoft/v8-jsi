@@ -4,12 +4,7 @@
 #include "inspector_tcp.h"
 
 #include <memory>
-
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
-
+#include "V8Windows.h"
 #include <boost/asio.hpp>
 
 namespace inspector {
