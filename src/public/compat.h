@@ -5,10 +5,22 @@
 #ifndef SRC_PUBLIC_COMPAT_H_
 #define SRC_PUBLIC_COMPAT_H_
 
+// This file contains some useful datatypes recently introduced in C++17 and C++20.
+// They must be removed after we switch the toolset to the newer C++ language version.
+
 #include <string>
+#ifdef __cpp_lib_string_view
+#include <string_view>
+#endif
+#ifdef __cpp_lib_span
+#include <span>
+#endif
 
 namespace napijsi {
 
+#ifdef __cpp_lib_span
+using std::span;
+#else
 /**
  * @brief A span of values that can be used to pass arguments to function.
  *
@@ -43,7 +55,11 @@ struct span {
   T *data_;
   size_t size_;
 };
+#endif // __cpp_lib_span
 
+#if __cpp_lib_string_view
+using std::string_view;
+#else
 /**
  * @brief A minimal subset of std::string_view.
  *
@@ -110,6 +126,8 @@ inline bool operator==(string_view left, string_view right) noexcept {
 inline bool operator!=(string_view left, string_view right) noexcept {
   return left.compare(right) != 0;
 }
+
+#endif // __cpp_lib_string_view
 
 } // namespace napijsi
 

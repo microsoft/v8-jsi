@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 #include <gtest/gtest.h>
 #include "jsi/test/testlib.h"
-#include "public/NapiJsiRuntime.impl.h"
+#include "public/NapiJsiRuntime.h"
 #include "public/ScriptStore.h"
 #include "public/V8JsiRuntime.h"
 

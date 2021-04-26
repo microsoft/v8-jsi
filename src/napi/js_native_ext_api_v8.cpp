@@ -505,8 +505,7 @@ napi_status napi_create_external_buffer(
 
 // Creates new napi_ext_ref with ref counter set to 1.
 NAPI_EXTERN napi_status napi_ext_create_reference(napi_env env, napi_value value, napi_ext_ref *result) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
@@ -528,8 +527,7 @@ NAPI_EXTERN napi_status napi_ext_create_reference_with_data(
     napi_finalize finalize_cb,
     void *finalize_hint,
     napi_ext_ref *result) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, value);
   CHECK_ARG(env, native_object);
@@ -545,8 +543,7 @@ NAPI_EXTERN napi_status napi_ext_create_reference_with_data(
 }
 
 NAPI_EXTERN napi_status napi_ext_create_weak_reference(napi_env env, napi_value value, napi_ext_ref *result) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, value);
   CHECK_ARG(env, result);
@@ -561,8 +558,7 @@ NAPI_EXTERN napi_status napi_ext_create_weak_reference(napi_env env, napi_value 
 
 // Increments the reference count.
 NAPI_EXTERN napi_status napi_ext_reference_ref(napi_env env, napi_ext_ref ref) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
 
@@ -576,8 +572,7 @@ NAPI_EXTERN napi_status napi_ext_reference_ref(napi_env env, napi_ext_ref ref) {
 // The provided ref must not be used after this call because it could be deleted
 // if the internal ref counter became zero.
 NAPI_EXTERN napi_status napi_ext_reference_unref(napi_env env, napi_ext_ref ref) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
 
@@ -590,8 +585,7 @@ NAPI_EXTERN napi_status napi_ext_reference_unref(napi_env env, napi_ext_ref ref)
 
 // Gets the referenced value.
 NAPI_EXTERN napi_status napi_ext_get_reference_value(napi_env env, napi_ext_ref ref, napi_value *result) {
-  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw
-  // JS exceptions.
+  // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
   CHECK_ARG(env, result);
