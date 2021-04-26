@@ -4,11 +4,12 @@
 
 #include "napi/env-inl.h"
 #include "public/V8JsiRuntime.h"
+#include "public/compat.h"
 #include "public/js_native_ext_api.h"
 
+#include "V8Windows.h"
 #include "libplatform/libplatform.h"
 #include "v8.h"
-#include "V8Windows.h"
 
 #include "V8Platform.h"
 #ifdef _WIN32
@@ -143,53 +144,11 @@ struct UnhandledPromiseRejection {
   v8::Global<v8::Value> value;
 };
 
-/**
- * @brief A minimal subset of std::string_view.
- *
- * In C++17 we must replace it with std::string_view.
- */
-struct StringView {
-  constexpr StringView() noexcept = default;
-  constexpr StringView(const StringView &other) noexcept = default;
-  constexpr StringView(const char *data, size_t size) noexcept;
-  StringView(const std::string &str) noexcept;
-
-  constexpr StringView &operator=(const StringView &view) noexcept = default;
-
-  constexpr const char *begin() const noexcept;
-  constexpr const char *end() const noexcept;
-
-  constexpr const char &operator[](size_t pos) const noexcept;
-  constexpr const char *data() const noexcept;
-  constexpr size_t size() const noexcept;
-
-  constexpr bool empty() const noexcept;
-  void swap(StringView &other) noexcept;
-  int compare(StringView other) const noexcept;
-
-  static constexpr size_t npos = size_t(-1);
-
- private:
-  const char *m_data{nullptr};
-  size_t m_size{0};
-};
-
-void swap(StringView &left, StringView &right) noexcept;
-
-bool operator==(StringView left, StringView right) noexcept;
-bool operator!=(StringView left, StringView right) noexcept;
-bool operator<(StringView left, StringView right) noexcept;
-bool operator<=(StringView left, StringView right) noexcept;
-bool operator>(StringView left, StringView right) noexcept;
-bool operator>=(StringView left, StringView right) noexcept;
-
-constexpr StringView operator"" _sv(const char *str, std::size_t len) noexcept;
-
 // To satisfy the string_view requirement to have the same has result as std::string
 // we use the std::collate<char> for classic code page to calculate hash.
 // This code must be removed when we switch to C++17.
 struct StringViewHash {
-  size_t operator()(StringView view) const noexcept;
+  size_t operator()(napijsi::string_view view) const noexcept;
 
  private:
   static const std::collate<char> &s_classic_collate;
@@ -204,7 +163,7 @@ struct NapiUniqueString {
 
   ~NapiUniqueString() noexcept;
 
-  StringView GetView() const noexcept;
+  napijsi::string_view GetView() const noexcept;
   napi_ext_ref GetRef() const noexcept;
   void SetRef(napi_ext_ref ref) noexcept;
 
@@ -746,7 +705,7 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
-  std::unordered_map<StringView, std::unique_ptr<NapiUniqueString>, StringViewHash> unique_strings_;
+  std::unordered_map<napijsi::string_view, std::unique_ptr<NapiUniqueString>, StringViewHash> unique_strings_;
 
   bool is_env_deleted_{false};
 

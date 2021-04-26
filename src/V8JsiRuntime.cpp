@@ -1598,93 +1598,10 @@ void V8Runtime::SetIsEnvDeleted() noexcept {
 }
 
 //=============================================================================
-// StringView implementation
-//=============================================================================
-
-constexpr StringView::StringView(const char *data, size_t size) noexcept : m_data{data}, m_size{size} {}
-
-StringView::StringView(const std::string &str) noexcept : m_data{str.data()}, m_size{str.size()} {}
-
-constexpr const char *StringView::begin() const noexcept {
-  return m_data;
-}
-
-constexpr const char *StringView::end() const noexcept {
-  return m_data + m_size;
-}
-
-constexpr const char &StringView::operator[](size_t pos) const noexcept {
-  return *(m_data + pos);
-}
-
-constexpr const char *StringView::data() const noexcept {
-  return m_data;
-}
-
-constexpr size_t StringView::size() const noexcept {
-  return m_size;
-}
-
-constexpr bool StringView::empty() const noexcept {
-  return m_size == 0;
-}
-
-void StringView::swap(StringView &other) noexcept {
-  using std::swap;
-  swap(m_data, other.m_data);
-  swap(m_size, other.m_size);
-}
-
-int StringView::compare(StringView other) const noexcept {
-  size_t minCommonSize = (std::min)(m_size, other.m_size);
-  int result = std::char_traits<char>::compare(m_data, other.m_data, minCommonSize);
-  if (result == 0) {
-    if (m_size < other.m_size) {
-      result = -1;
-    } else if (m_size > other.m_size) {
-      result = 1;
-    }
-  }
-  return result;
-}
-
-void swap(StringView &left, StringView &right) noexcept {
-  left.swap(right);
-}
-
-bool operator==(StringView left, StringView right) noexcept {
-  return left.compare(right) == 0;
-}
-
-bool operator!=(StringView left, StringView right) noexcept {
-  return left.compare(right) != 0;
-}
-
-bool operator<(StringView left, StringView right) noexcept {
-  return left.compare(right) < 0;
-}
-
-bool operator<=(StringView left, StringView right) noexcept {
-  return left.compare(right) <= 0;
-}
-
-bool operator>(StringView left, StringView right) noexcept {
-  return left.compare(right) > 0;
-}
-
-bool operator>=(StringView left, StringView right) noexcept {
-  return left.compare(right) >= 0;
-}
-
-constexpr StringView operator"" _sv(const char *str, std::size_t len) noexcept {
-  return StringView(str, len);
-}
-
-//=============================================================================
 // StringViewHash implementation
 //=============================================================================
 
-size_t StringViewHash::operator()(StringView view) const noexcept {
+size_t StringViewHash::operator()(napijsi::string_view view) const noexcept {
   return s_classic_collate.hash(view.begin(), view.end());
 }
 
@@ -1699,8 +1616,8 @@ NapiUniqueString::NapiUniqueString(napi_env env, std::string value) noexcept : e
 
 NapiUniqueString::~NapiUniqueString() noexcept {}
 
-StringView NapiUniqueString::GetView() const noexcept {
-  return StringView{value_};
+napijsi::string_view NapiUniqueString::GetView() const noexcept {
+  return napijsi::string_view{value_};
 }
 
 napi_ext_ref NapiUniqueString::GetRef() const noexcept {

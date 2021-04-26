@@ -82,6 +82,18 @@ struct string_view {
     return size_ == 0;
   }
 
+  int compare(string_view other) const noexcept {
+    int result = std::char_traits<char>::compare(data_, other.data_, std::min(size_, other.size_));
+    if (result == 0) {
+      if (size_ < other.size_) {
+        result = -1;
+      } else if (size_ > other.size_) {
+        result = 1;
+      }
+    }
+    return result;
+  }
+
  private:
   const char *data_{nullptr};
   size_t size_{0};
@@ -89,6 +101,14 @@ struct string_view {
 
 inline string_view operator"" _sv(const char *str, std::size_t len) noexcept {
   return string_view(str, len);
+}
+
+inline bool operator==(string_view left, string_view right) noexcept {
+  return left.compare(right) == 0;
+}
+
+inline bool operator!=(string_view left, string_view right) noexcept {
+  return left.compare(right) != 0;
 }
 
 } // namespace napijsi
