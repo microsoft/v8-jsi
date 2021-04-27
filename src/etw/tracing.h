@@ -1,4 +1,8 @@
-#include <windows.h>
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+#pragma once
+
+#include "V8Windows.h"
 
 #include <TraceLoggingProvider.h>
 #include <evntrace.h>

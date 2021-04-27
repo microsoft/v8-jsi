@@ -144,15 +144,21 @@ void NapiTestException::ApplyScriptErrorData(napi_env env, napi_value error) {
 // NapiTest implementation
 //=============================================================================
 
-void NapiTest::ExecuteNapi(std::function<void(NapiTestContext *, napi_env)> code) noexcept {
-  napi_env env = GetParam()();
+NapiTestErrorHandler NapiTest::ExecuteNapi(std::function<void(NapiTestContext *, napi_env)> code) noexcept {
+  try {
+    napi_env env = GetParam()();
 
-  {
-    auto context = NapiTestContext(env);
-    code(&context, env);
+    {
+      auto context = NapiTestContext(env);
+      code(&context, env);
+    }
+
+    THROW_IF_NOT_OK(napi_ext_env_unref(env));
+
+    return NapiTestErrorHandler(nullptr, std::exception_ptr(), "", "", 0, 0);
+  } catch (...) {
+    return NapiTestErrorHandler(nullptr, std::current_exception(), "", "", 0, 0);
   }
-
-  THROW_IF_NOT_OK(napi_ext_delete_env(env));
 }
 
 //=============================================================================

@@ -23,6 +23,7 @@ target("shared_library", "v8jsi") {
     "napi/js_native_api_v8.h",
     "napi/js_native_ext_api_v8.cpp",
     "napi/util-inl.h",
+    "public/compat.h",
     "public/js_native_api_types.h",
     "public/js_native_api.h",
     "public/js_native_ext_api.h",
@@ -159,6 +160,9 @@ target("executable", "jsitests") {
     "napi/test/test_string.cpp",
     "napi/test/test_symbol.cpp",
     "napi/test/test_typedarray.cpp",
+    "public/compat.h",
+    "public/NapiJsiRuntime.cpp",
+    "public/NapiJsiRuntime.h",
     "testmain.cpp"
   ]
 }
