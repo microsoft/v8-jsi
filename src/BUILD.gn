@@ -34,7 +34,7 @@ target("shared_library", "v8jsi") {
     "V8Platform.h",
   ]
 
-  cflags = [ "-DBOOST_ASIO_STANDALONE", "-DBOOST_ASIO_HEADER_ONLY", "-DUSE_DEFAULT_PLATFORM" ]
+  cflags = [ "-DUSE_DEFAULT_PLATFORM" ]
 
   if (is_win) {
     sources += [
@@ -64,7 +64,7 @@ target("shared_library", "v8jsi") {
     }
   }
 
-  include_dirs = [ ".", "../include", "jsi", "public", getenv("BOOST_ROOT") ]
+  include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
@@ -80,7 +80,7 @@ target("shared_library", "v8jsi") {
   ]
 
   if (is_win) {
-    defines = [ "BUILDING_V8_SHARED", "BOOST_ALL_NO_LIB" ]
+    defines = [ "BUILDING_V8_SHARED" ]
     libs = [
       "winmm.lib",
       "bcrypt.lib",

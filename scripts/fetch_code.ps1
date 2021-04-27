@@ -84,16 +84,13 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
     & sudo bash $install_script_path
 }
 
-#TODO (#2): Use the .gzip for Android / Linux builds
+# Download dependencies (ASIO used by Inspector implementation)
+$asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-18-1.zip"
+$asioPath = Join-Path $workpath "v8build"
+$asioDownload = Join-Path $asioPath $(Split-Path -Path $asioUrl -Leaf)
 
-# Restore NuGet packages
-$nugetExe = Join-Path $workpath 'nuget.exe'
-Invoke-WebRequest -Uri "$NugetDownloadLocation" -OutFile $nugetExe
-& $nugetExe restore
+Invoke-WebRequest -Uri $asioUrl -OutFile $asioDownload
+$asioDownload | Expand-Archive -DestinationPath $asioPath -Force
 
-$boostPkg = Select-Xml  -Path (Join-Path $SourcesPath 'packages.config') -XPath '//packages/package' |
-            Select-Object -ExpandProperty Node |
-            Where-Object { $_.id -eq 'boost' }
-
-$env:BOOST_ROOT = Join-Path $workpath "v8build/boost.$($boostPkg.version)\lib\native\include"
-Write-Host "##vso[task.setvariable variable=BOOST_ROOT;]$env:BOOST_ROOT"
+$env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
+Write-Host "##vso[task.setvariable variable=ASIO_ROOT;]$env:ASIO_ROOT"

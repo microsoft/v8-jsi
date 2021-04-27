@@ -1165,7 +1165,7 @@ bool V8Runtime::isArrayBuffer(const jsi::Object &obj) const {
 
 uint8_t *V8Runtime::data(const jsi::ArrayBuffer &obj) {
   _ISOLATE_CONTEXT_ENTER
-  return reinterpret_cast<uint8_t *>(objectRef(obj).As<v8::ArrayBuffer>()->GetContents().Data());
+  return reinterpret_cast<uint8_t *>(objectRef(obj).As<v8::ArrayBuffer>()->GetBackingStore()->Data());
 }
 
 size_t V8Runtime::size(const jsi::ArrayBuffer &obj) {
