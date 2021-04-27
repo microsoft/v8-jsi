@@ -20,10 +20,7 @@
 #include <random>
 #include <algorithm>
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
+#include "V8Windows.h"
 
 #include "../V8Platform.h"
 

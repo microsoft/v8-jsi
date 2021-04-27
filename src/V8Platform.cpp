@@ -6,11 +6,7 @@
 #include <chrono>
 #include <queue>
 #include <thread>
-
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
+#include "V8Windows.h"
 
 namespace v8runtime {
 

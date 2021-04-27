@@ -6,13 +6,16 @@
 #include "v8.h"
 
 #include "V8Platform.h"
+#include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
+#include "public/js_native_api.h"
 
 #include "napi/util-inl.h"
 
 #include <atomic>
 #include <cstdlib>
 #include <list>
+#include <locale>
 #include <mutex>
 #include <sstream>
 
@@ -1549,6 +1552,85 @@ void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
     last_unhandled_promise_.reset();
   }
 }
+
+napi_status V8Runtime::NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
+  if (length == NAPI_AUTO_LENGTH) {
+    length = std::char_traits<char>::length(str);
+  }
+
+  napi_ext_ref ref{};
+  auto it = unique_strings_.find({str, length});
+  if (it != unique_strings_.end()) {
+    ref = it->second->GetRef();
+    STATUS_CALL(napi_ext_reference_ref(env, ref));
+  }
+
+  if (!ref) {
+    auto uniqueString = std::make_unique<NapiUniqueString>(env, std::string(str, length));
+    auto isolate = env->isolate;
+    auto str_maybe = v8::String::NewFromUtf8(isolate, str, v8::NewStringType::kInternalized, static_cast<int>(length));
+    CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
+
+    napi_value nstr = v8impl::JsValueFromV8LocalValue(str_maybe.ToLocalChecked());
+    auto finalize = [](napi_env env, void *finalize_data, void *finalize_hint) {
+      NapiUniqueString *uniqueString = static_cast<NapiUniqueString *>(finalize_data);
+      V8Runtime *runtime = static_cast<V8Runtime *>(finalize_hint);
+      auto it = runtime->unique_strings_.find(uniqueString->GetView());
+      if (it != runtime->unique_strings_.end()) {
+        runtime->unique_strings_.erase(it);
+      }
+    };
+    STATUS_CALL(napi_ext_create_reference_with_data(env, nstr, uniqueString.get(), finalize, this, &ref));
+    uniqueString->SetRef(ref);
+    unique_strings_[uniqueString->GetView()] = std::move(uniqueString);
+  }
+
+  *result = ref;
+  return napi_clear_last_error(env);
+}
+
+bool V8Runtime::IsEnvDeleted() noexcept {
+  return is_env_deleted_;
+}
+
+void V8Runtime::SetIsEnvDeleted() noexcept {
+  is_env_deleted_ = true;
+}
+
+//=============================================================================
+// StringViewHash implementation
+//=============================================================================
+
+size_t StringViewHash::operator()(napijsi::string_view view) const noexcept {
+  return s_classic_collate.hash(view.begin(), view.end());
+}
+
+/*static*/ const std::collate<char> &StringViewHash::s_classic_collate =
+    std::use_facet<std::collate<char>>(std::locale::classic());
+
+//=============================================================================
+// NapiUniqueString implementation
+//=============================================================================
+
+NapiUniqueString::NapiUniqueString(napi_env env, std::string value) noexcept : env_{env}, value_{std::move(value)} {}
+
+NapiUniqueString::~NapiUniqueString() noexcept {}
+
+napijsi::string_view NapiUniqueString::GetView() const noexcept {
+  return napijsi::string_view{value_};
+}
+
+napi_ext_ref NapiUniqueString::GetRef() const noexcept {
+  return string_ref_;
+}
+
+void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
+  string_ref_ = ref;
+}
+
+//=============================================================================
+// Make V8 JSI runtime
+//=============================================================================
 
 std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
   return std::make_unique<V8Runtime>(std::move(args));

@@ -11,11 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
-
+#include "V8Windows.h"
 
 typedef llhttp_type_t parser_type_t;
 typedef llhttp_errno_t parser_errno_t;
