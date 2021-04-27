@@ -570,7 +570,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
   v8::Context::Scope context_scope(context);
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   if (args_.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
@@ -589,7 +589,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
 V8Runtime::~V8Runtime() {
   // TODO: add check that destruction happens on the same thread id as construction
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   if (inspector_agent_ && inspector_agent_->IsStarted()) {
     inspector_agent_->stop();
   }

@@ -1,10 +1,7 @@
-#TODO: use this template to preprocess version information
-#import("//build/util/process_version.gni")
-#process_version("v8jsi_version") {
-#  template_file = "version.rc"
-#  sources = []
-#  output = "$target_gen_dir/v8jsi_version.rc"
-#}
+declare_args() {
+  # Sets -DV8JSI_ENABLE_INSPECTOR
+  v8jsi_enable_inspector = true
+}
 
 target("shared_library", "v8jsi") {
   sources = [
@@ -41,7 +38,11 @@ target("shared_library", "v8jsi") {
     sources += [
       "version_gen.rc",
       "etw/tracing.h",
-      "etw/tracing.cpp",
+      "etw/tracing.cpp"
+    ]
+
+  if (v8jsi_enable_inspector) {
+    sources += [
       "inspector/inspector_agent.cpp",
       "inspector/inspector_agent.h",
       "inspector/inspector_socket.cpp",
@@ -57,6 +58,7 @@ target("shared_library", "v8jsi") {
       "inspector/llhttp_api.c",
       "inspector/llhttp_http.c"
     ]
+  }
 
     ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
 
@@ -91,6 +93,10 @@ target("shared_library", "v8jsi") {
     if (target_os != "winuwp") {
       libs += [ "dbghelp.lib" ]
     }
+  }
+
+  if (v8jsi_enable_inspector) {
+    defines += [ "V8JSI_ENABLE_INSPECTOR" ]
   }
 }
 

@@ -12,7 +12,7 @@
 #include "v8.h"
 
 #include "V8Platform.h"
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
 #include "inspector/inspector_agent.h"
 #endif
 
@@ -674,7 +674,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   v8::Local<v8::Value> valueRef(const facebook::jsi::Value &value);
   facebook::jsi::Value createValue(v8::Local<v8::Value> value) const;
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   std::unique_ptr<inspector::Agent> inspector_agent_;
 #endif
 
