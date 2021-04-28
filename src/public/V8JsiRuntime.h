@@ -43,8 +43,6 @@ struct JSITaskRunner {
   virtual bool IdleTasksEnabled() = 0;
 };
 
-class V8Platform;
-
 enum class LogLevel {
   Trace = 0,
   Info = 1,

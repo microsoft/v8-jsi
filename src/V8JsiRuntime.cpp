@@ -5,7 +5,7 @@
 #include "libplatform/libplatform.h"
 #include "v8.h"
 
-#include "V8Platform.h"
+#include "IsolateData.h"
 #include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
 #include "public/js_native_api.h"
@@ -40,11 +40,7 @@ struct ContextEmbedderIndex {
   constexpr static int ContextTag = 1;
 };
 
-#ifdef USE_DEFAULT_PLATFORM
-std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
-#else
-/*static */ std::unique_ptr<V8Platform> V8PlatformHolder::platform_s_;
-#endif
+/*static */ std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
 /*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
 

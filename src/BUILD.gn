@@ -28,11 +28,8 @@ target("shared_library", "v8jsi") {
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
     "V8JsiRuntime.cpp",
-    "V8Platform.cpp",
-    "V8Platform.h",
+    "IsolateData.h",
   ]
-
-  cflags = [ "-DUSE_DEFAULT_PLATFORM" ]
 
   if (is_win) {
     sources += [

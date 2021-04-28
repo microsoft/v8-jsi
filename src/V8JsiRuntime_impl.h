@@ -11,7 +11,7 @@
 #include "libplatform/libplatform.h"
 #include "v8.h"
 
-#include "V8Platform.h"
+#include "IsolateData.h"
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
 #include "inspector/inspector_agent.h"
 #endif
@@ -78,12 +78,7 @@ enum class CacheType { NoCache, CodeCache, FullCodeCache };
 
 class V8PlatformHolder {
  public:
-#ifdef USE_DEFAULT_PLATFORM
   v8::Platform &Get() {
-#else
-  V8Platform &Get() {
-#endif
-
     assert(use_count_s_ > 0);
     assert(platform_s_);
 
@@ -100,13 +95,9 @@ class V8PlatformHolder {
 
     if (use_count_s_++ == 0) {
       if (!platform_s_) {
-#ifdef USE_DEFAULT_PLATFORM
         platform_s_ = v8::platform::NewDefaultPlatform();
-#else
-        platform_s_ = std::make_unique<V8Platform>(true);
-#endif
-        v8::V8::InitializePlatform(platform_s_.get());
 
+        v8::V8::InitializePlatform(platform_s_.get());
         v8::V8::Initialize();
       }
     }
@@ -128,14 +119,9 @@ class V8PlatformHolder {
   V8PlatformHolder(const V8PlatformHolder &) = delete;
   V8PlatformHolder &operator=(const V8PlatformHolder &) = delete;
 
-#ifdef USE_DEFAULT_PLATFORM
   static std::unique_ptr<v8::Platform> platform_s_;
-#else
-  static std::unique_ptr<V8Platform> platform_s_;
-#endif
   static std::atomic_uint32_t use_count_s_;
   static std::mutex mutex_s_;
-
 }; // namespace v8runtime
 
 struct UnhandledPromiseRejection {
