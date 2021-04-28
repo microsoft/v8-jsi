@@ -45,9 +45,9 @@ unit tests.
   and some other functions that we want to have in a .cpp file. Some code is
   borrowed from Node.js project.
 
-In addition, the files in the parent folder: V8Platform.h, V8Platform.cpp,
-V8JsiRuntime.cpp, and V8JsiRuntime_impl.h are modified to support the N-API
-environment. Some of the code in these files are borrowed from the Node.js
+In addition, the files in the parent folder: V8JsiRuntime.cpp, and
+V8JsiRuntime_impl.h are modified to support the N-API environment.
+Some of the code in these files are borrowed from the Node.js
 project and some other code is from the d8 utility from the V8 JavaScript
 engine project (e.g. to manage unhandled promise rejections).
 
