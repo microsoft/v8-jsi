@@ -1,10 +1,7 @@
-#TODO: use this template to preprocess version information
-#import("//build/util/process_version.gni")
-#process_version("v8jsi_version") {
-#  template_file = "version.rc"
-#  sources = []
-#  output = "$target_gen_dir/v8jsi_version.rc"
-#}
+declare_args() {
+  # Sets -DV8JSI_ENABLE_INSPECTOR
+  v8jsi_enable_inspector = true
+}
 
 target("shared_library", "v8jsi") {
   sources = [
@@ -31,17 +28,18 @@ target("shared_library", "v8jsi") {
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
     "V8JsiRuntime.cpp",
-    "V8Platform.cpp",
-    "V8Platform.h",
+    "IsolateData.h",
   ]
-
-  cflags = [ "-DBOOST_ASIO_STANDALONE", "-DBOOST_ASIO_HEADER_ONLY", "-DUSE_DEFAULT_PLATFORM" ]
 
   if (is_win) {
     sources += [
       "version_gen.rc",
       "etw/tracing.h",
-      "etw/tracing.cpp",
+      "etw/tracing.cpp"
+    ]
+
+  if (v8jsi_enable_inspector) {
+    sources += [
       "inspector/inspector_agent.cpp",
       "inspector/inspector_agent.h",
       "inspector/inspector_socket.cpp",
@@ -57,6 +55,7 @@ target("shared_library", "v8jsi") {
       "inspector/llhttp_api.c",
       "inspector/llhttp_http.c"
     ]
+  }
 
     ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
 
@@ -65,7 +64,7 @@ target("shared_library", "v8jsi") {
     }
   }
 
-  include_dirs = [ ".", "../include", "jsi", "public", getenv("BOOST_ROOT") ]
+  include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
@@ -81,7 +80,7 @@ target("shared_library", "v8jsi") {
   ]
 
   if (is_win) {
-    defines = [ "BUILDING_V8_SHARED", "BOOST_ALL_NO_LIB" ]
+    defines = [ "BUILDING_V8_SHARED" ]
     libs = [
       "winmm.lib",
       "bcrypt.lib",
@@ -91,6 +90,10 @@ target("shared_library", "v8jsi") {
     if (target_os != "winuwp") {
       libs += [ "dbghelp.lib" ]
     }
+  }
+
+  if (v8jsi_enable_inspector) {
+    defines += [ "V8JSI_ENABLE_INSPECTOR" ]
   }
 }
 

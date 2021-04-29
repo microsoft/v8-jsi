@@ -5,7 +5,7 @@
 #include "libplatform/libplatform.h"
 #include "v8.h"
 
-#include "V8Platform.h"
+#include "IsolateData.h"
 #include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
 #include "public/js_native_api.h"
@@ -40,11 +40,7 @@ struct ContextEmbedderIndex {
   constexpr static int ContextTag = 1;
 };
 
-#ifdef USE_DEFAULT_PLATFORM
-std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
-#else
-/*static */ std::unique_ptr<V8Platform> V8PlatformHolder::platform_s_;
-#endif
+/*static */ std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
 /*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
 
@@ -570,7 +566,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
   v8::Context::Scope context_scope(context);
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   if (args_.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
@@ -589,7 +585,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 
 V8Runtime::~V8Runtime() {
   // TODO: add check that destruction happens on the same thread id as construction
-#ifdef _WIN32
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   if (inspector_agent_ && inspector_agent_->IsStarted()) {
     inspector_agent_->stop();
   }
@@ -1168,7 +1164,7 @@ bool V8Runtime::isArrayBuffer(const jsi::Object &obj) const {
 
 uint8_t *V8Runtime::data(const jsi::ArrayBuffer &obj) {
   _ISOLATE_CONTEXT_ENTER
-  return reinterpret_cast<uint8_t *>(objectRef(obj).As<v8::ArrayBuffer>()->GetContents().Data());
+  return reinterpret_cast<uint8_t *>(objectRef(obj).As<v8::ArrayBuffer>()->GetBackingStore()->Data());
 }
 
 size_t V8Runtime::size(const jsi::ArrayBuffer &obj) {

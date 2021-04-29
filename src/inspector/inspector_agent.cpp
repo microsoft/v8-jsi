@@ -22,7 +22,7 @@
 
 #include "V8Windows.h"
 
-#include "../V8Platform.h"
+#include "../IsolateData.h"
 
 namespace inspector {
 
@@ -144,15 +144,11 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   std::string title_;
   std::string loaded_urls_;
 
-  v8::Platform &platform_;
-
   friend class ChannelImpl;
   friend class DispatchOnInspectorBackendTask;
   friend class SetConnectedTask;
   friend class V8NodeInspector;
   friend void InterruptCallback(v8::Isolate *, void *agent);
-
- public:
 };
 
 /*static*/ std::mutex AgentImpl::g_mutex_server_init_;
@@ -284,7 +280,6 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
 
  private:
   AgentImpl& agent_;
-  v8::Platform *platform_;
   std::atomic<bool> waiting_for_resume_ {false};
   bool running_nested_loop_;
   std::unique_ptr<V8Inspector> inspector_;
@@ -296,8 +291,7 @@ AgentImpl::AgentImpl(
     v8::Local<v8::Context> context,
     const char *context_name,
     int port)
-    : platform_(platform),
-      isolate_(isolate),
+    : isolate_(isolate),
       port_(port),
       wait_(false),
       shutting_down_(false),
@@ -515,21 +509,15 @@ void AgentImpl::PostIncomingMessage(
     int session_id,
     const std::string &message) {
 
-  if (AppendMessage(
-          &incoming_message_queue_, session_id, Utf8ToStringView(message))) {
-
-  std::shared_ptr<v8::TaskRunner> foregroundTaskRunner;
-
-#ifdef USE_DEFAULT_PLATFORM
+  if (AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message))) {
+    std::shared_ptr<v8::TaskRunner> foregroundTaskRunner;
     // Need to get the foreground runner from the isolate data slot
     v8runtime::IsolateData* isolate_data = reinterpret_cast<v8runtime::IsolateData*>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
     foregroundTaskRunner = isolate_data->foreground_task_runner_;
-#else
-    foregroundTaskRunner = platform_.GetForegroundTaskRunner(isolate_);
-#endif
     foregroundTaskRunner->PostTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
+
   NotifyMessageReceived();
 }
 
