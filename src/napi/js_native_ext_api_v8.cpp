@@ -215,10 +215,8 @@ static struct EnvScope {
 napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
   v8runtime::V8RuntimeArgs args;
   args.trackGCObjectStats = false;
-  args.enableTracing = false;
   args.enableJitTracing = false;
   args.enableMessageTracing = false;
-  args.enableLog = false;
   args.enableGCTracing = false;
 
   if ((attributes & napi_ext_env_attribute_enable_gc_api) != 0) {

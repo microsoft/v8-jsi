@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
+#include "v8-inspector.h"
+
 #include "inspector_socket_server.h"
 #include "inspector_tcp.h"
 #include "inspector_utils.h"

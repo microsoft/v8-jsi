@@ -78,16 +78,6 @@ enum class CacheType { NoCache, CodeCache, FullCodeCache };
 
 class V8PlatformHolder {
  public:
-  v8::Platform &Get() {
-    assert(use_count_s_ > 0);
-    assert(platform_s_);
-
-    if (!platform_s_)
-      std::terminate();
-
-    return *platform_s_;
-  }
-
   V8PlatformHolder() {}
 
   void addUsage() {
@@ -686,8 +676,6 @@ class V8Runtime : public facebook::jsi::Runtime {
   v8::StartupData custom_snapshot_startup_data_;
 
   std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
-
-  std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
