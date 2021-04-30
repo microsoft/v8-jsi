@@ -4,7 +4,7 @@
 #include "inspector_utils.h"
 
 // Only for MultibyteToWideChar .. Should be removed.
-#include "windows.h"
+#include "V8Windows.h"
 
 #include <stdexcept>
 

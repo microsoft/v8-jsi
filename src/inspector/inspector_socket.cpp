@@ -11,11 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
-
+#include "V8Windows.h"
 
 typedef llhttp_type_t parser_type_t;
 typedef llhttp_errno_t parser_errno_t;
@@ -346,10 +342,8 @@ class WsHandler : public ProtocolHandler {
   }
 
   void AcceptUpgrade(const std::string& accept_key) override {
-    TRACEV8INSPECTOR_VERBOSE("WsHandler::AcceptUpgrade");
   }
   void CancelHandshake() override {
-    TRACEV8INSPECTOR_VERBOSE("WsHandler::CancelHandshake");
   }
 
   void OnEof() override {
@@ -361,8 +355,6 @@ class WsHandler : public ProtocolHandler {
   }
 
   void OnData(std::vector<char>* data) override {
-    TRACEV8INSPECTOR_VERBOSE("WsHandler::OnData",
-                      TraceLoggingString(data->data(), "data"));
     // 1. Parse.
     size_t processed = 0;
     do {
@@ -375,7 +367,10 @@ class WsHandler : public ProtocolHandler {
   }
 
   void Write(const std::vector<char> data) override {
-    TRACEV8INSPECTOR_VERBOSE("WsHandler::Write");
+    if (data.size() == 0) {
+      std::vector<char> output = data;
+      WriteRaw(std::move(output));
+    }
 
     std::vector<char> output = encode_frame_hybi17(data);
     WriteRaw(std::move(output)/*, WriteRequest::Cleanup*/);
@@ -398,7 +393,7 @@ class WsHandler : public ProtocolHandler {
 
   void SendClose() {
     WriteRaw(std::vector<char>(CLOSE_FRAME, CLOSE_FRAME + sizeof(CLOSE_FRAME))/*,
-             OnCloseFrameWritten*/);
+      OnCloseFrameWritten*/);
   }
 
   void CloseFrameReceived() {
@@ -416,15 +411,12 @@ class WsHandler : public ProtocolHandler {
                                               &compressed);
     // Compressed frame means client is ignoring the headers and misbehaves
     if (compressed || r == FRAME_ERROR) {
-      TRACEV8INSPECTOR_VERBOSE("WsHandler::ParseWsFrames::OnEof");
       OnEof();
       bytes_consumed = 0;
     } else if (r == FRAME_CLOSE) {
-      TRACEV8INSPECTOR_VERBOSE("WsHandler::ParseWsFrames::FRAME_CLOSE");
       (this->*OnCloseRecieved)();
       bytes_consumed = 0;
     } else if (r == FRAME_OK) {
-      TRACEV8INSPECTOR_VERBOSE("WsHandler::FRAME_OK");
       delegate()->OnWsFrame(output);
     }
     return bytes_consumed;
@@ -464,8 +456,6 @@ class HttpHandler : public ProtocolHandler {
   }
 
   void AcceptUpgrade(const std::string& accept_key) override {
-    TRACEV8INSPECTOR_VERBOSE("HttpHandler::AcceptUpgrade",
-                      TraceLoggingString(accept_key.c_str(), "accept_key"));
     char accept_string[ACCEPT_KEY_LENGTH];
     generate_accept_string(accept_key, &accept_string);
     const char accept_ws_prefix[] = "HTTP/1.1 101 Switching Protocols\r\n"
@@ -487,8 +477,6 @@ class HttpHandler : public ProtocolHandler {
   }
 
   void CancelHandshake() override {
-    TRACEV8INSPECTOR_VERBOSE("HttpHandler::CancelHandshake");
-
     const char HANDSHAKE_FAILED_RESPONSE[] =
         "HTTP/1.0 400 Bad Request\r\n"
         "Content-Type: text/html; charset=UTF-8\r\n\r\n"
@@ -500,14 +488,10 @@ class HttpHandler : public ProtocolHandler {
 
 
   void OnEof() override {
-    TRACEV8INSPECTOR_VERBOSE("HttpHandler::OnEof");
     tcp_.reset();
   }
 
   void OnData(std::vector<char>* data) override {
-
-    TRACEV8INSPECTOR_VERBOSE("HttpHandler::OnData");
-
     parser_errno_t err;
     err = llhttp_execute(&parser_, data->data(), data->size());
 
