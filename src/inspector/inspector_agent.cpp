@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
+#include "v8-inspector.h"
+#include "v8-platform.h"
+
 #include "inspector_agent.h"
 #include "inspector_socket_server.h"
 #include "inspector_utils.h"
-
-#include "v8-inspector.h"
-#include "v8-platform.h"
 
 #include <string.h>
 #include <chrono>
@@ -66,7 +66,6 @@ class V8NodeInspector;
 class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
  public:
   explicit AgentImpl(
-      v8::Platform &platform,
       v8::Isolate *isolate,
       v8::Local<v8::Context> context,
       const char *context_name,
@@ -159,11 +158,11 @@ void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
 }
 
-class DispatchOnInspectorBackendTask : public v8::Task {
+class DispatchOnInspectorBackendTask : public v8runtime::JSITask {
  public:
   explicit DispatchOnInspectorBackendTask(AgentImpl& agent) : agent_(agent) {}
 
-  void Run() override {
+  void run() override {
     agent_.DispatchMessages();
   }
 
@@ -286,7 +285,6 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
 };
 
 AgentImpl::AgentImpl(
-    v8::Platform &platform,
     v8::Isolate *isolate,
     v8::Local<v8::Context> context,
     const char *context_name,
@@ -510,11 +508,9 @@ void AgentImpl::PostIncomingMessage(
     const std::string &message) {
 
   if (AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message))) {
-    std::shared_ptr<v8::TaskRunner> foregroundTaskRunner;
     // Need to get the foreground runner from the isolate data slot
     v8runtime::IsolateData* isolate_data = reinterpret_cast<v8runtime::IsolateData*>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
-    foregroundTaskRunner = isolate_data->foreground_task_runner_;
-    foregroundTaskRunner->PostTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
+    isolate_data->foreground_task_runner_->postTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
 
@@ -633,13 +629,12 @@ std::string AgentImpl::getTitle() { return title_; }
 
 // Exported class Agent
 Agent::Agent(
-    v8::Platform &platform,
     v8::Isolate *isolate,
     v8::Local<v8::Context> context,
     const char *context_name,
     int port)
-    : impl(std::make_shared<AgentImpl>(platform, isolate, context, context_name,
-                                       port)) {}
+    : impl(std::make_shared<AgentImpl>(isolate, context, context_name, port))
+{}
 
 Agent::~Agent() {
 }

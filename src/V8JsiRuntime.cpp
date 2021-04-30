@@ -44,65 +44,6 @@ struct ContextEmbedderIndex {
 /*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
 
-class TaskAdapter : public v8runtime::JSITask {
- public:
-  TaskAdapter(std::unique_ptr<v8::Task> &&task) : task_(std::move(task)) {}
-
-  void run() override {
-    task_->Run();
-  }
-
- private:
-  std::unique_ptr<v8::Task> task_;
-};
-
-class IdleTaskAdapter : public v8runtime::JSIIdleTask {
- public:
-  IdleTaskAdapter(std::unique_ptr<v8::IdleTask> &&task) : task_(std::move(task)) {}
-
-  void run(double deadline_in_seconds) override {
-    task_->Run(deadline_in_seconds);
-  }
-
- private:
-  std::unique_ptr<v8::IdleTask> task_;
-};
-
-class TaskRunnerAdapter : public v8::TaskRunner {
- public:
-  TaskRunnerAdapter(std::unique_ptr<v8runtime::JSITaskRunner> &&taskRunner) : taskRunner_(std::move(taskRunner)) {}
-
-  void PostTask(std::unique_ptr<v8::Task> task) override {
-    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
-  }
-
-  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) override {
-    taskRunner_->postDelayedTask(
-        node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))), delay_in_seconds);
-  }
-
-  bool IdleTasksEnabled() override {
-    return taskRunner_->IdleTasksEnabled();
-  }
-
-  void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
-    taskRunner_->postIdleTask(
-        node::static_unique_pointer_cast<JSIIdleTask>(std::make_unique<IdleTaskAdapter>(std::move(task))));
-  }
-
-  void PostNonNestableTask(std::unique_ptr<v8::Task> task) override {
-    // TODO: non-nestable
-    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
-  }
-
-  bool NonNestableTasksEnabled() const override {
-    return true;
-  }
-
- private:
-  std::unique_ptr<v8runtime::JSITaskRunner> taskRunner_;
-};
-
 // String utilities
 namespace {
 std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::String> string) {
@@ -420,12 +361,12 @@ struct SameCodeObjects {
 v8::Isolate *V8Runtime::CreateNewIsolate() {
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("start", "op"));
 
-  if (args_.custom_snapshot_blob) {
+  /*if (args_.custom_snapshot_blob) {
     custom_snapshot_startup_data_ = {
         reinterpret_cast<const char *>(args_.custom_snapshot_blob->data()),
         static_cast<int>(args_.custom_snapshot_blob->size())};
     create_params_.snapshot_blob = &custom_snapshot_startup_data_;
-  }
+  }*/
 
   // One per each runtime.
   create_params_.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
@@ -448,8 +389,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   if (isolate_ == nullptr)
     std::abort();
 
-  foreground_task_runner_ = std::make_shared<TaskRunnerAdapter>(std::move(args_.foreground_task_runner));
-  isolate_data_ = new v8runtime::IsolateData(isolate_, foreground_task_runner_);
+  isolate_data_ = new v8runtime::IsolateData(isolate_, args_.foreground_task_runner);
   isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, isolate_data_);
 
   v8::Isolate::Initialize(isolate_, create_params_);
@@ -466,10 +406,6 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   if (args_.enableJitTracing) {
     isolate_->SetJitCodeEventHandler(v8::kJitCodeEventDefault, JitCodeEventListener);
-  }
-
-  if (args_.backgroundMode) {
-    isolate_->IsolateInBackgroundNotification();
   }
 
   if (args_.enableMessageTracing) {
@@ -522,9 +458,6 @@ void V8Runtime::initializeV8() {
   std::vector<const char *> argv;
   argv.push_back("v8jsi");
 
-  if (args_.liteMode)
-    argv.push_back("--lite-mode");
-
   if (args_.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
@@ -570,7 +503,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   if (args_.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
-        platform_holder_.Get(), isolate_, context_.Get(GetIsolate()), "JSIRuntime context", args_.inspectorPort);
+        isolate_, context_.Get(GetIsolate()), "JSIRuntime context", args_.inspectorPort);
     inspector_agent_->start();
 
     if (args_.waitForDebugger) {

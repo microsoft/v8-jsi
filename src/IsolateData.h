@@ -12,10 +12,10 @@ constexpr int ISOLATE_DATA_SLOT = 0;
 
 // Custom data associated with each V8 isolate.
 struct IsolateData {
-  IsolateData(v8::Isolate *isolate, std::shared_ptr<v8::TaskRunner> foreground_task_runner) noexcept
+  IsolateData(v8::Isolate *isolate, std::shared_ptr<JSITaskRunner> foreground_task_runner) noexcept
       : isolate_{isolate}, foreground_task_runner_{std::move(foreground_task_runner)} {}
 
-  std::shared_ptr<v8::TaskRunner> foreground_task_runner_;
+  std::shared_ptr<JSITaskRunner> foreground_task_runner_;
 
   v8::Local<v8::Private> napi_type_tag() const {
     return napi_type_tag_.Get(isolate_);
