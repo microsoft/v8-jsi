@@ -3,9 +3,6 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
 
 [![Build Status](https://dev.azure.com/ms/v8-jsi/_apis/build/status/microsoft.v8-jsi?branchName=master)](https://dev.azure.com/ms/v8-jsi/_build/latest?definitionId=321&branchName=master)
 
-## Requirements
-[Optionally] download and install/unzip [Boost](https://www.boost.org/users/download/) and make sure the BOOST_ROOT environment variable is set (for example `SET BOOST_ROOT=d:\work\boost_1_71_0\` or `$Env:BOOST_ROOT="d:\work\boost_1_71_0\"`)
-
 ## Building
 Run ./localbuild.ps1 in a PowerShell terminal; by default, this will only build the win32 x64 release version of the binary. Edit the file to specify other platforms, architectures or flavors.
 

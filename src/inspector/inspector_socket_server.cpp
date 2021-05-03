@@ -1,14 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
+#include "v8-inspector.h"
+
 #include "inspector_socket_server.h"
 #include "inspector_tcp.h"
 #include "inspector_utils.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#include "etw/tracing.h"
-#endif
+#include "V8Windows.h"
 
 #include <algorithm>
 #include <map>
@@ -325,6 +324,10 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
   server->Stop();
 }
 
+void InspectorSocketServer::AddTarget(std::shared_ptr<AgentImpl> agent) {
+  delegate_->AddTarget(agent);
+}
+
 bool InspectorSocketServer::Start() {
   tcp_server_ = std::make_shared<tcp_server>(port_, InspectorSocketServer::SocketConnectedCallback, this);
   state_ = ServerState::kRunning;
@@ -379,10 +382,6 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
 }
 
 void InspectorSocketServer::Send(int session_id, const std::string& message) {
-
-  TRACEV8INSPECTOR_VERBOSE("OutMessage",
-                    TraceLoggingString(message.c_str(), "message"));
-
   SocketSession* session = Session(session_id);
   if (session != nullptr) {
     session->Send(message);

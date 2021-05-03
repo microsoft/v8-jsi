@@ -9,6 +9,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace inspector {
 
@@ -18,29 +19,18 @@ class ServerSocket;
 
 class InspectorAgentDelegate {
  public:
-  InspectorAgentDelegate(
-      AgentImpl& agent,
-      const std::string &script_path,
-      const std::string &script_name,
-      bool wait);
+  InspectorAgentDelegate();
   void StartSession(int session_id, const std::string &target_id);
   void MessageReceived(int session_id, const std::string &message);
   void EndSession(int session_id);
   std::vector<std::string> GetTargetIds();
   std::string GetTargetTitle(const std::string &id);
   std::string GetTargetUrl(const std::string &id);
-  bool IsConnected() {
-    return connected_;
-  }
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
 
  private:
-  AgentImpl& agent_;
-  bool connected_;
-  int session_id_;
-  const std::string script_name_;
-  const std::string script_path_;
-  const std::string target_id_;
-  bool waiting_;
+  std::unordered_map<std::string, std::shared_ptr<AgentImpl>> targets_map_;
+  std::unordered_map<int, std::shared_ptr<AgentImpl>> session_targets_map_;
 };
 
 // HTTP Server, writes messages requested as TransportActions, and responds
@@ -60,6 +50,8 @@ public:
   void TerminateConnections();
   int Port() const;
 
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
+
   // Session connection lifecycle
   void Accept(std::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);
   bool HandleGetRequest(int session_id, const std::string& host, const std::string& path);
@@ -68,13 +60,7 @@ public:
   void MessageReceived(int session_id, const std::string& message) {
     delegate_->MessageReceived(session_id, message);
   }
-  bool IsConnected() {
-    return delegate_->IsConnected();
-  }
   SocketSession* Session(int session_id);
-  //bool done() const {
-  //  return server_sockets_.empty() && connected_sessions_.empty();
-  //}
 
   static void InspectorSocketServer::SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_);
   static void InspectorSocketServer::SocketClosedCallback(void* callbackData_);
