@@ -464,6 +464,21 @@ void V8Runtime::initializeV8() {
   if (args_.enableGCApi)
     argv.push_back("--expose_gc");
 
+  if (args_.sparkplug)
+    argv.push_back("--sparkplug");
+
+  if (args_.predictable)
+    argv.push_back("--predictable");
+
+  if (args_.optimize_for_size)
+    argv.push_back("--optimize_for_size");
+
+  if (args_.always_compact)
+    argv.push_back("--always_compact");
+
+  if (args_.jitless)
+    argv.push_back("--jitless");
+
   int argc = static_cast<int>(argv.size());
   v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
 }

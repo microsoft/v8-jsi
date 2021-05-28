@@ -19,7 +19,7 @@ Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recur
 Push-Location (Join-Path $workpath "v8build\v8")
 
 # Generate the build system
-$gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
+$gnargs = 'v8_enable_i18n_support=false v8_enable_webassembly=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
 if ($Configuration -like "*android") {
     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'

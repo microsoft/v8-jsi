@@ -26,17 +26,10 @@ struct JSITaskRunner {
 };
 
 struct V8RuntimeArgs {
+  // This is only used by the debugger: inspector needs to wake up the js thread for message dispatching
+  // It cannot be done in an asynchronous lambda because V8Inspector internally uses "main thread" handles
   std::shared_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
   std::unique_ptr<facebook::jsi::PreparedScriptStore> preparedScriptStore;
-
-  // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over
-  // them.
-  bool trackGCObjectStats{true};
-  bool enableJitTracing{true};
-  bool enableMessageTracing{true};
-  bool enableGCTracing{true};
-  bool enableInspector{false};
-  bool waitForDebugger{false};
 
   // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to
   // the runtime.
@@ -61,8 +54,27 @@ struct V8RuntimeArgs {
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};
 
-  bool enableGCApi{false};
-  bool ignoreUnhandledPromises{false};
+  // Padded to allow adding boolean flags without breaking the ABI
+  union {
+    struct {
+      bool trackGCObjectStats:1;
+      bool enableJitTracing:1;
+      bool enableMessageTracing:1;
+      bool enableGCTracing:1;
+      bool enableInspector:1;
+      bool waitForDebugger:1;
+      bool enableGCApi:1;
+      bool ignoreUnhandledPromises:1;
+
+      // Experimental flags (for memory-constrained optimization testing)
+      bool sparkplug:1; // https://v8.dev/blog/sparkplug
+      bool predictable:1; // take a big CPU hit to reduce the number of threads
+      bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
+      bool always_compact:1; // perform compaction on every full GC
+      bool jitless:1; // disable JIT entirely
+    };
+    uint32_t _flags {0};
+  };
 };
 
 #ifdef BUILDING_V8_SHARED
