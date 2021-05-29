@@ -379,7 +379,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   }
 
   counter_map_ = new CounterMap();
-  if (args_.trackGCObjectStats) {
+  if (args_.flags.trackGCObjectStats) {
     create_params_.counter_lookup_callback = LookupCounter;
     create_params_.create_histogram_callback = CreateHistogram;
     create_params_.add_histogram_sample_callback = AddHistogramSample;
@@ -396,23 +396,23 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   isolate_data_->CreateProperties();
 
-  if (!args_.ignoreUnhandledPromises) {
+  if (!args_.flags.ignoreUnhandledPromises) {
     isolate_->SetPromiseRejectCallback(PromiseRejectCallback);
   }
 
-  if (args_.trackGCObjectStats) {
+  if (args_.flags.trackGCObjectStats) {
     MapCounters(isolate_, "v8jsi");
   }
 
-  if (args_.enableJitTracing) {
+  if (args_.flags.enableJitTracing) {
     isolate_->SetJitCodeEventHandler(v8::kJitCodeEventDefault, JitCodeEventListener);
   }
 
-  if (args_.enableMessageTracing) {
+  if (args_.flags.enableMessageTracing) {
     isolate_->AddMessageListener(OnMessage);
   }
 
-  if (args_.enableGCTracing) {
+  if (args_.flags.enableGCTracing) {
     isolate_->AddGCPrologueCallback(GCPrologueCallback);
     isolate_->AddGCEpilogueCallback(GCEpilogueCallback);
   }
@@ -458,25 +458,25 @@ void V8Runtime::initializeV8() {
   std::vector<const char *> argv;
   argv.push_back("v8jsi");
 
-  if (args_.trackGCObjectStats)
+  if (args_.flags.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
-  if (args_.enableGCApi)
+  if (args_.flags.enableGCApi)
     argv.push_back("--expose_gc");
 
-  if (args_.sparkplug)
+  if (args_.flags.sparkplug)
     argv.push_back("--sparkplug");
 
-  if (args_.predictable)
+  if (args_.flags.predictable)
     argv.push_back("--predictable");
 
-  if (args_.optimize_for_size)
+  if (args_.flags.optimize_for_size)
     argv.push_back("--optimize_for_size");
 
-  if (args_.always_compact)
+  if (args_.flags.always_compact)
     argv.push_back("--always_compact");
 
-  if (args_.jitless)
+  if (args_.flags.jitless)
     argv.push_back("--jitless");
 
   int argc = static_cast<int>(argv.size());
@@ -515,13 +515,13 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   v8::Context::Scope context_scope(context);
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (args_.enableInspector) {
+  if (args_.flags.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
         isolate_, context_.Get(GetIsolate()), "JSIRuntime context", args_.inspectorPort);
     inspector_agent_->start();
 
-    if (args_.waitForDebugger) {
+    if (args_.flags.waitForDebugger) {
       TRACEV8RUNTIME_VERBOSE("Waiting for inspector frontend to attach");
       inspector_agent_->waitForDebugger();
     }
