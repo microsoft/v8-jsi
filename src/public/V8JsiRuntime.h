@@ -72,8 +72,8 @@ struct V8RuntimeArgs {
       bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
       bool always_compact:1; // perform compaction on every full GC
       bool jitless:1; // disable JIT entirely
-    };
-    uint32_t _flags {0};
+    } flags;
+    uint32_t _flagspad {0};
   };
 };
 
