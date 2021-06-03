@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index f39529a3a9..b0275712b9 100644
+index d2bfb6129d..b14a7189f2 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4270,11 +4270,18 @@ v8_component("v8_libbase") {
+@@ -4661,11 +4661,18 @@ v8_component("v8_libbase") {
  
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
@@ -26,7 +26,7 @@ index f39529a3a9..b0275712b9 100644
  
      if (v8_enable_system_instrumentation) {
        libs += [ "advapi32.lib" ]  # Needed for TraceLoggingProvider.h
-@@ -5636,3 +5643,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6212,3 +6219,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -37,10 +37,10 @@ index f39529a3a9..b0275712b9 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index e6c2e762e0..d7f0294a38 100644
+index b27a4e8e8f..056054b8bd 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -568,4 +568,15 @@ hooks = [
+@@ -580,4 +580,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -57,10 +57,10 @@ index e6c2e762e0..d7f0294a38 100644
 + }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index b5fb1823b3..b5ddc1aba2 100644
+index e855b88e43..61d56e574f 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
-@@ -66,6 +66,9 @@ if (v8_snapshot_toolchain == "") {
+@@ -70,6 +70,9 @@ if (v8_snapshot_toolchain == "") {
      # therefore snapshots will need to be built using native mksnapshot
      # in combination with qemu
      v8_snapshot_toolchain = current_toolchain
@@ -120,7 +120,7 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 7f6c0e97d2..3a752cf789 100644
+index 50da60c72f..3a3b94af98 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
 @@ -1069,7 +1069,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
@@ -132,6 +132,28 @@ index 7f6c0e97d2..3a752cf789 100644
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
+diff --git a/src/compiler/backend/ia32/instruction-selector-ia32.cc b/src/compiler/backend/ia32/instruction-selector-ia32.cc
+index 033a566e11..99a2ee6f5d 100644
+--- a/src/compiler/backend/ia32/instruction-selector-ia32.cc
++++ b/src/compiler/backend/ia32/instruction-selector-ia32.cc
+@@ -3000,6 +3000,7 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
+ void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
+ #endif  // V8_ENABLE_WEBASSEMBLY
+ 
++#if V8_ENABLE_WEBASSEMBLY
+ void InstructionSelector::VisitI8x16Swizzle(Node* node) {
+   InstructionCode op = kIA32I8x16Swizzle;
+ 
+@@ -3019,6 +3020,9 @@ void InstructionSelector::VisitI8x16Swizzle(Node* node) {
+        g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)),
+        arraysize(temps), temps);
+ }
++#else
++void InstructionSelector::VisitI8x16Swizzle(Node* node) { UNREACHABLE(); }
++#endif  // V8_ENABLE_WEBASSEMBLY
+ 
+ namespace {
+ void VisitPminOrPmax(InstructionSelector* selector, Node* node,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
 index 9a5f7069e7..a53c0ad644 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
@@ -155,10 +177,10 @@ index 9a5f7069e7..a53c0ad644 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index bd6fd3cb0b..f9666cf74b 100644
+index 308b57a309..8e943c7ae9 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -924,7 +924,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
+@@ -978,7 +978,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
