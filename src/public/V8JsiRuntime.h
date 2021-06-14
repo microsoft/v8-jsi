@@ -86,4 +86,8 @@ __attribute__((visibility("default")))
 #endif
     std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
 
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+  __declspec(dllexport) void openInspector(facebook::jsi::Runtime& runtime);
+  __declspec(dllexport) void openInspectors_toberemoved();
+#endif
 } // namespace v8runtime

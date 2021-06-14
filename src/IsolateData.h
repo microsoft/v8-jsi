@@ -9,6 +9,7 @@
 namespace v8runtime {
 
 constexpr int ISOLATE_DATA_SLOT = 0;
+constexpr int ISOLATE_INSPECTOR_SLOT = 1;
 
 // Custom data associated with each V8 isolate.
 struct IsolateData {
