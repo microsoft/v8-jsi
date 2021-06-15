@@ -1,24 +1,3 @@
-diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index 5ea2f2130..9a88e0651 100644
---- a/config/compiler/BUILD.gn
-+++ b/config/compiler/BUILD.gn
-@@ -1376,8 +1376,6 @@ config("default_warnings") {
-       "/wd4512",  # Assignment operator could not be generated.
-       "/wd4610",  # Class can never be instantiated, constructor required.
-       "/wd4838",  # Narrowing conversion. Doesn't seem to be very useful.
--      "/wd4995",  # 'X': name was marked as #pragma deprecated
--      "/wd4996",  # Deprecated function warning.
- 
-       # These are variable shadowing warnings that are new in VS2015. We
-       # should work through these at some point -- they may be removed from
-@@ -1676,7 +1674,6 @@ config("no_chromium_code") {
-       "/W3",  # Warning level 3.
-       "/wd4800",  # Disable warning when forcing value to bool.
-       "/wd4267",  # TODO(jschuh): size_t to int.
--      "/wd4996",  # Deprecated function warning.
-     ]
-     defines += [
-       "_CRT_NONSTDC_NO_WARNINGS",
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
 index 51437c66c..728555267 100644
 --- a/config/win/BUILD.gn
