@@ -86,4 +86,12 @@ __attribute__((visibility("default")))
 #endif
     std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
 
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+  __declspec(dllexport) void openInspector(facebook::jsi::Runtime& runtime);
+
+  // This API will be removed once we have a proper entry point for users to enable inspector on an active runtime.
+  // This function should be callable from any thread, including the synthetic WinDbg break thread.
+  // For example, break to the host app and issue this to open the inspector servers : .call v8jsi!v8runtime::openInspectors_toberemoved()
+  __declspec(dllexport) void openInspectors_toberemoved();
+#endif
 } // namespace v8runtime
