@@ -518,7 +518,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   if (args_.flags.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
     inspector_agent_ = std::make_unique<inspector::Agent>(
-        isolate_, context_.Get(GetIsolate()), "JSIRuntime context", args_.inspectorPort);
+        isolate_, context_.Get(GetIsolate()), args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str(), args_.inspectorPort);
     inspector_agent_->start();
 
     if (args_.flags.waitForDebugger) {

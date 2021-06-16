@@ -296,6 +296,7 @@ AgentImpl::AgentImpl(
       state_(State::kNew),
       inspector_(nullptr),
       dispatching_messages_(false),
+      title_(context_name),
       session_id_(0) {
   inspector_ = std::make_unique<V8NodeInspector>(*this);
   inspector_->setupContext(context, context_name);
