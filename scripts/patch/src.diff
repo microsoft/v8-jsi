@@ -132,28 +132,6 @@ index 50da60c72f..3a3b94af98 100644
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
-diff --git a/src/compiler/backend/ia32/instruction-selector-ia32.cc b/src/compiler/backend/ia32/instruction-selector-ia32.cc
-index 033a566e11..99a2ee6f5d 100644
---- a/src/compiler/backend/ia32/instruction-selector-ia32.cc
-+++ b/src/compiler/backend/ia32/instruction-selector-ia32.cc
-@@ -3000,6 +3000,7 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
- void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
- #endif  // V8_ENABLE_WEBASSEMBLY
- 
-+#if V8_ENABLE_WEBASSEMBLY
- void InstructionSelector::VisitI8x16Swizzle(Node* node) {
-   InstructionCode op = kIA32I8x16Swizzle;
- 
-@@ -3019,6 +3020,9 @@ void InstructionSelector::VisitI8x16Swizzle(Node* node) {
-        g.UseRegister(node->InputAt(0)), g.UseRegister(node->InputAt(1)),
-        arraysize(temps), temps);
- }
-+#else
-+void InstructionSelector::VisitI8x16Swizzle(Node* node) { UNREACHABLE(); }
-+#endif  // V8_ENABLE_WEBASSEMBLY
- 
- namespace {
- void VisitPminOrPmax(InstructionSelector* selector, Node* node,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
 index 9a5f7069e7..a53c0ad644 100644
 --- a/src/diagnostics/unwinding-info-win64.cc

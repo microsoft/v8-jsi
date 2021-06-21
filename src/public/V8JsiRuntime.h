@@ -54,6 +54,9 @@ struct V8RuntimeArgs {
   size_t initial_heap_size_in_bytes{0};
   size_t maximum_heap_size_in_bytes{0};
 
+  // Set this to override the target name displayed in the debugger (to distinguish multiple parallel runtimes)
+  std::string debuggerRuntimeName;
+
   // Padded to allow adding boolean flags without breaking the ABI
   union {
     struct {
