@@ -458,6 +458,7 @@ bool AgentImpl::IsStarted() {
 
 void AgentImpl::addContext(v8::Local<v8::Context> context,
                        const char* context_name) {
+  title_ = context_name;
   inspector_->setupContext(context, context_name);
 }
 

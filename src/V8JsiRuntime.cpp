@@ -524,7 +524,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     isolate_->SetData(ISOLATE_INSPECTOR_SLOT, inspector_agent_.get());
   }
 
-  const char* context_name = "JSIRuntime context";
+  const char* context_name = args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
   inspector_agent_->addContext(context_.Get(GetIsolate()), context_name);
 
   if (args_.flags.enableInspector) {
