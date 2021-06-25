@@ -1,32 +1,16 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index d2bfb6129d..b14a7189f2 100644
+index d2bfb6129d..b0e5824572 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4661,11 +4661,18 @@ v8_component("v8_libbase") {
- 
+@@ -4662,7 +4662,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
--    libs = [
+     libs = [
 -      "dbghelp.lib",
--      "winmm.lib",
--      "ws2_32.lib",
--    ]
-+    if (target_os == "winuwp") {
-+      libs = [
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    } else {
-+      libs = [
-+        "dbghelp.lib",
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    }
- 
-     if (v8_enable_system_instrumentation) {
-       libs += [ "advapi32.lib" ]  # Needed for TraceLoggingProvider.h
-@@ -6212,3 +6219,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+       "winmm.lib",
+       "ws2_32.lib",
+     ]
+@@ -6212,3 +6211,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -71,14 +55,14 @@ index e855b88e43..61d56e574f 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec610..c054ba8dc9 100644
+index f981bec610..87cab0e18b 100644
 --- a/src/base/debug/stack_trace_win.cc
 +++ b/src/base/debug/stack_trace_win.cc
 @@ -29,6 +29,35 @@ namespace v8 {
  namespace base {
  namespace debug {
  
-+#ifdef WINUWP
++#if defined(WINUWP) || 1 // dbghelp dependency unwanted
 +
 +bool EnableInProcessStackDumping() {
 +  return false;
@@ -120,7 +104,7 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 50da60c72f..3a3b94af98 100644
+index 50da60c72f..7459e36624 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
 @@ -1069,7 +1069,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
@@ -128,12 +112,12 @@ index 50da60c72f..3a3b94af98 100644
  
  // DbgHelp isn't supported on MinGW yet
 -#ifndef __MINGW32__
-+#if !defined(__MINGW32__) && !defined(WINUWP)
++#if !defined(__MINGW32__) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index 9a5f7069e7..a53c0ad644 100644
+index 9a5f7069e7..0b6ef06aee 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
 @@ -528,7 +528,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
@@ -141,7 +125,7 @@ index 9a5f7069e7..a53c0ad644 100644
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
@@ -150,7 +134,7 @@ index 9a5f7069e7..a53c0ad644 100644
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
