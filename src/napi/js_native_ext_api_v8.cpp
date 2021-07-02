@@ -212,7 +212,67 @@ static struct EnvScope {
   napi_handle_scope handle_scope_{};
 };
 
-napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
+struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
+  NapiJSITaskRunner(napi_env env, napi_ext_schedule_task_callback scheduler) : env_{env}, scheduler_{scheduler} {}
+
+  void postTask(std::unique_ptr<v8runtime::JSITask> task) override {
+    postDelayedTask(std::move(task), 0);
+  }
+
+  void postDelayedTask(std::unique_ptr<v8runtime::JSITask> task, double delay_in_seconds) override {
+    scheduler_(
+        env_,
+        [](napi_env env, void *task_data) {
+          auto task = static_cast<v8runtime::JSITask *>(task_data);
+          task->run();
+        },
+        static_cast<void *>(task.release()),
+        delay_in_seconds * 1000,
+        [](napi_env env, void *finalize_data, void *finalize_hint) {
+          std::unique_ptr<v8runtime::JSITask> task{static_cast<v8runtime::JSITask *>(finalize_data)};
+        },
+        nullptr);
+  }
+
+  void postIdleTask(std::unique_ptr<v8runtime::JSIIdleTask> /*task*/) override {}
+
+  bool IdleTasksEnabled() override {
+    return false;
+  }
+
+ private:
+  napi_env env_;
+  napi_ext_schedule_task_callback scheduler_;
+};
+
+napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) {
+  // struct V8RuntimeArgs {
+
+  //   std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
+
+  //   // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools
+  //   over
+  //   // them.
+  //   bool trackGCObjectStats{true};
+  //   bool enableJitTracing{true};
+  //   bool enableMessageTracing{true};
+  //   bool enableGCTracing{true};
+
+  //   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
+  //   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a
+  //   WebSocket
+  //   // port open, which should be very small.
+  //   bool enableInspector{false};
+  //   bool waitForDebugger{false};
+  //   uint16_t inspectorPort{9223};
+
+  //   size_t initial_heap_size_in_bytes{0};
+  //   size_t maximum_heap_size_in_bytes{0};
+
+  //   bool enableGCApi{false};
+  //   bool ignoreUnhandledPromises{false};
+  // };
+
   v8runtime::V8RuntimeArgs args;
   args.trackGCObjectStats = false;
   args.enableTracing = false;
@@ -221,11 +281,11 @@ napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *en
   args.enableLog = false;
   args.enableGCTracing = false;
 
-  if ((attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
+  if ((settings->attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
     args.enableGCApi = true;
   }
 
-  if ((attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
+  if ((settings->attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
     args.ignoreUnhandledPromises = true;
   }
 
@@ -268,7 +328,7 @@ napi_status napi_ext_close_env_scope(napi_env env, napi_ext_env_scope scope) {
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
 
-  delete reinterpret_cast<EnvScope*>(scope);
+  delete reinterpret_cast<EnvScope *>(scope);
   return napi_ok;
 }
 
@@ -413,8 +473,7 @@ napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length
   return GET_RETURN_STATUS(env);
 }
 
-NAPI_EXTERN napi_status
-napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
+NAPI_EXTERN napi_status napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, str_value);
   CHECK_ARG(env, result);

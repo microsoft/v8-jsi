@@ -43,6 +43,8 @@ struct JSITaskRunner {
   virtual bool IdleTasksEnabled() = 0;
 };
 
+class V8Platform;
+
 enum class LogLevel {
   Trace = 0,
   Info = 1,
@@ -75,7 +77,6 @@ struct V8RuntimeArgs {
   // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools over
   // them.
   bool trackGCObjectStats{true};
-  bool enableTracing{true};
   bool enableJitTracing{true};
   bool enableMessageTracing{true};
   bool enableLog{true};

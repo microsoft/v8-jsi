@@ -28,8 +28,63 @@ typedef struct napi_ext_ref__ *napi_ext_ref;
 // A callback to return buffer synchronously
 typedef void (*napi_ext_buffer_callback)(napi_env env, uint8_t const *buffer, size_t buffer_length, void *buffer_hint);
 
+// A callback to run task
+typedef void (*napi_ext_task_callback)(napi_env env, void *task_data);
+
+// A callback to schedule a task
+typedef void (*napi_ext_schedule_task_callback)(
+    napi_env env,
+    napi_ext_task_callback task_cb,
+    void *task_data,
+    uint32_t delay_in_msec,
+    napi_finalize finalize_cb,
+    void *finalize_hint);
+
+typedef struct {
+  // Size of this struct to allow extending it in future.
+  size_t this_size;
+
+  // Custom scheduler of the foreground JavaScript tasks.
+  napi_ext_schedule_task_callback foreground_scheduler;
+
+  // The environment attributes.
+  napi_ext_env_attributes attributes;
+
+
+  //   bool trackGCObjectStats{true};
+  //   bool enableJitTracing{true};
+  //   bool enableMessageTracing{true};
+  //   bool enableGCTracing{true};
+
+  //   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
+  //   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a
+  //   WebSocket
+  //   // port open, which should be very small.
+  //   bool enableInspector{false};
+  //   bool waitForDebugger{false};
+  //   uint16_t inspectorPort{9223};
+
+  //   size_t initial_heap_size_in_bytes{0};
+  //   size_t maximum_heap_size_in_bytes{0};
+
+  //   bool enableGCApi{false};
+  //   bool ignoreUnhandledPromises{false};
+
+  size_t initial_heap_size_in_bytes;
+  size_t maximum_heap_size_in_bytes;
+
+  // Custom data associated with the environment.
+  void *data;
+
+  // The callback to call to destroy the custom data.
+  napi_finalize finalize_data_cb;
+
+  // Additional data for the finalize callback.
+  void *finalize_data_hint;
+} napi_ext_env_settings;
+
 // Creates a new napi_env with ref count 1.
-NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env);
+NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env);
 
 // Increments the napi_env ref count by 1.
 NAPI_EXTERN napi_status __cdecl napi_ext_env_ref(napi_env env);
