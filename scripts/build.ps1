@@ -18,6 +18,8 @@ Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recur
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
+# TODO: v8_enable_webassembly=false will reduce the binary size by > 20%, but it causes crashes on x86; needs deeper investigation
+
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 

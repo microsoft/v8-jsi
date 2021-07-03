@@ -274,19 +274,17 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   // };
 
   v8runtime::V8RuntimeArgs args;
-  args.trackGCObjectStats = false;
-  args.enableTracing = false;
-  args.enableJitTracing = false;
-  args.enableMessageTracing = false;
-  args.enableLog = false;
-  args.enableGCTracing = false;
+  args.flags.trackGCObjectStats = false;
+  args.flags.enableJitTracing = false;
+  args.flags.enableMessageTracing = false;
+  args.flags.enableGCTracing = false;
 
-  if ((settings->attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
-    args.enableGCApi = true;
+  if ((attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
+    args.flags.enableGCApi = true;
   }
 
-  if ((settings->attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
-    args.ignoreUnhandledPromises = true;
+  if ((attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
+    args.flags.ignoreUnhandledPromises = true;
   }
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));

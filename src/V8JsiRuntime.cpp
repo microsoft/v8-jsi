@@ -44,65 +44,6 @@ struct ContextEmbedderIndex {
 /*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
 
-class TaskAdapter : public v8runtime::JSITask {
- public:
-  TaskAdapter(std::unique_ptr<v8::Task> &&task) : task_(std::move(task)) {}
-
-  void run() override {
-    task_->Run();
-  }
-
- private:
-  std::unique_ptr<v8::Task> task_;
-};
-
-class IdleTaskAdapter : public v8runtime::JSIIdleTask {
- public:
-  IdleTaskAdapter(std::unique_ptr<v8::IdleTask> &&task) : task_(std::move(task)) {}
-
-  void run(double deadline_in_seconds) override {
-    task_->Run(deadline_in_seconds);
-  }
-
- private:
-  std::unique_ptr<v8::IdleTask> task_;
-};
-
-class TaskRunnerAdapter : public v8::TaskRunner {
- public:
-  TaskRunnerAdapter(std::unique_ptr<v8runtime::JSITaskRunner> &&taskRunner) : taskRunner_(std::move(taskRunner)) {}
-
-  void PostTask(std::unique_ptr<v8::Task> task) override {
-    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
-  }
-
-  void PostDelayedTask(std::unique_ptr<v8::Task> task, double delay_in_seconds) override {
-    taskRunner_->postDelayedTask(
-        node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))), delay_in_seconds);
-  }
-
-  bool IdleTasksEnabled() override {
-    return taskRunner_->IdleTasksEnabled();
-  }
-
-  void PostIdleTask(std::unique_ptr<v8::IdleTask> task) override {
-    taskRunner_->postIdleTask(
-        node::static_unique_pointer_cast<JSIIdleTask>(std::make_unique<IdleTaskAdapter>(std::move(task))));
-  }
-
-  void PostNonNestableTask(std::unique_ptr<v8::Task> task) override {
-    // TODO: non-nestable
-    taskRunner_->postTask(node::static_unique_pointer_cast<JSITask>(std::make_unique<TaskAdapter>(std::move(task))));
-  }
-
-  bool NonNestableTasksEnabled() const override {
-    return true;
-  }
-
- private:
-  std::unique_ptr<v8runtime::JSITaskRunner> taskRunner_;
-};
-
 // String utilities
 namespace {
 std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::String> string) {
@@ -420,12 +361,12 @@ struct SameCodeObjects {
 v8::Isolate *V8Runtime::CreateNewIsolate() {
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("start", "op"));
 
-  if (args_.custom_snapshot_blob) {
+  /*if (args_.custom_snapshot_blob) {
     custom_snapshot_startup_data_ = {
         reinterpret_cast<const char *>(args_.custom_snapshot_blob->data()),
         static_cast<int>(args_.custom_snapshot_blob->size())};
     create_params_.snapshot_blob = &custom_snapshot_startup_data_;
-  }
+  }*/
 
   // One per each runtime.
   create_params_.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
@@ -438,7 +379,7 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   }
 
   counter_map_ = new CounterMap();
-  if (args_.trackGCObjectStats) {
+  if (args_.flags.trackGCObjectStats) {
     create_params_.counter_lookup_callback = LookupCounter;
     create_params_.create_histogram_callback = CreateHistogram;
     create_params_.add_histogram_sample_callback = AddHistogramSample;
@@ -448,35 +389,30 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   if (isolate_ == nullptr)
     std::abort();
 
-  foreground_task_runner_ = std::make_shared<TaskRunnerAdapter>(std::move(args_.foreground_task_runner));
-  isolate_data_ = new v8runtime::IsolateData(isolate_, foreground_task_runner_);
+  isolate_data_ = new v8runtime::IsolateData(isolate_, args_.foreground_task_runner);
   isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, isolate_data_);
 
   v8::Isolate::Initialize(isolate_, create_params_);
 
   isolate_data_->CreateProperties();
 
-  if (!args_.ignoreUnhandledPromises) {
+  if (!args_.flags.ignoreUnhandledPromises) {
     isolate_->SetPromiseRejectCallback(PromiseRejectCallback);
   }
 
-  if (args_.trackGCObjectStats) {
+  if (args_.flags.trackGCObjectStats) {
     MapCounters(isolate_, "v8jsi");
   }
 
-  if (args_.enableJitTracing) {
+  if (args_.flags.enableJitTracing) {
     isolate_->SetJitCodeEventHandler(v8::kJitCodeEventDefault, JitCodeEventListener);
   }
 
-  if (args_.backgroundMode) {
-    isolate_->IsolateInBackgroundNotification();
-  }
-
-  if (args_.enableMessageTracing) {
+  if (args_.flags.enableMessageTracing) {
     isolate_->AddMessageListener(OnMessage);
   }
 
-  if (args_.enableGCTracing) {
+  if (args_.flags.enableGCTracing) {
     isolate_->AddGCPrologueCallback(GCPrologueCallback);
     isolate_->AddGCEpilogueCallback(GCEpilogueCallback);
   }
@@ -522,14 +458,26 @@ void V8Runtime::initializeV8() {
   std::vector<const char *> argv;
   argv.push_back("v8jsi");
 
-  if (args_.liteMode)
-    argv.push_back("--lite-mode");
-
-  if (args_.trackGCObjectStats)
+  if (args_.flags.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
-  if (args_.enableGCApi)
+  if (args_.flags.enableGCApi)
     argv.push_back("--expose_gc");
+
+  if (args_.flags.sparkplug)
+    argv.push_back("--sparkplug");
+
+  if (args_.flags.predictable)
+    argv.push_back("--predictable");
+
+  if (args_.flags.optimize_for_size)
+    argv.push_back("--optimize_for_size");
+
+  if (args_.flags.always_compact)
+    argv.push_back("--always_compact");
+
+  if (args_.flags.jitless)
+    argv.push_back("--jitless");
 
   int argc = static_cast<int>(argv.size());
   v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
@@ -567,13 +515,23 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   v8::Context::Scope context_scope(context);
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (args_.enableInspector) {
+  void* inspector_agent = isolate_->GetData(ISOLATE_INSPECTOR_SLOT);
+  if (inspector_agent) {
+    inspector_agent_ = reinterpret_cast<inspector::Agent*>(inspector_agent)->getShared();
+  } else {
+    inspector_agent_ = std::make_shared<inspector::Agent>(
+        isolate_, args_.inspectorPort);
+    isolate_->SetData(ISOLATE_INSPECTOR_SLOT, inspector_agent_.get());
+  }
+
+  const char* context_name = args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
+  inspector_agent_->addContext(context_.Get(GetIsolate()), context_name);
+
+  if (args_.flags.enableInspector) {
     TRACEV8RUNTIME_VERBOSE("Inspector enabled");
-    inspector_agent_ = std::make_unique<inspector::Agent>(
-        platform_holder_.Get(), isolate_, context_.Get(GetIsolate()), "JSIRuntime context", args_.inspectorPort);
     inspector_agent_->start();
 
-    if (args_.waitForDebugger) {
+    if (args_.flags.waitForDebugger) {
       TRACEV8RUNTIME_VERBOSE("Waiting for inspector frontend to attach");
       inspector_agent_->waitForDebugger();
     }
@@ -584,12 +542,16 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 }
 
 V8Runtime::~V8Runtime() {
-  // TODO: add check that destruction happens on the same thread id as construction
+  // TODO: add check that destruction happens on the same thread id as
+  // construction
+
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (inspector_agent_ && inspector_agent_->IsStarted()) {
-    inspector_agent_->stop();
+  {
+    if (inspector_agent_) {
+      _ISOLATE_CONTEXT_ENTER
+      inspector_agent_->removeContext(context_.Get(isolate_));
+    }
   }
-  inspector_agent_.reset();
 #endif
 
   host_object_constructor_.Reset();
@@ -599,11 +561,18 @@ V8Runtime::~V8Runtime() {
     hostObjectLifetimeTracker->ResetHostObject(false /*isGC*/);
   }
 
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+  if (inspector_agent_){
+    inspector_agent_.reset();
+  }
+#endif
+
   if (--tls_isolate_usage_counter_ == 0) {
     IsolateData *isolate_data = reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
     delete isolate_data;
 
     isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, nullptr);
+    isolate_->SetData(v8runtime::ISOLATE_INSPECTOR_SLOT, nullptr);
 
     isolate_->Exit();
     isolate_->Dispose();
@@ -1635,5 +1604,22 @@ std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
 std::unique_ptr<jsi::Runtime> makeV8Runtime() {
   return std::make_unique<V8Runtime>(V8RuntimeArgs());
 }
+
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+void openInspector(jsi::Runtime& runtime) {
+  V8Runtime& v8Runtime = reinterpret_cast<V8Runtime&>(runtime);
+  std::shared_ptr<inspector::Agent> inspector_agent =
+      v8Runtime.getInspectorAgent();
+  if (inspector_agent) {
+    inspector_agent->start();
+  }
+}
+
+void openInspectors_toberemoved() {
+  for (auto agent : inspector::Agent::getActiveAgents()) {
+    agent->start();
+  }
+}
+#endif
 
 } // namespace v8runtime
