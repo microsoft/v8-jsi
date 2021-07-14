@@ -328,10 +328,15 @@ void InspectorSocketServer::AddTarget(std::shared_ptr<AgentImpl> agent) {
   delegate_->AddTarget(agent);
 }
 
+void InspectorSocketServer::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
+  delegate_->RemoveTarget(agent);
+}
+
 bool InspectorSocketServer::Start() {
-  tcp_server_ = std::make_shared<tcp_server>(port_, InspectorSocketServer::SocketConnectedCallback, this);
   state_ = ServerState::kRunning;
   std::thread([this]() {
+    tcp_server_ = std::make_shared<tcp_server>(
+        port_, InspectorSocketServer::SocketConnectedCallback, this);
     tcp_server_->run();
   }).detach();
   return true;
