@@ -219,7 +219,7 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
     postDelayedTask(std::move(task), 0);
   }
 
-  void postDelayedTask(std::unique_ptr<v8runtime::JSITask> task, double delay_in_seconds) override {
+  void postDelayedTask(std::unique_ptr<v8runtime::JSITask> task, double delay_in_seconds) /*override*/ {
     scheduler_(
         env_,
         [](napi_env env, void *task_data) {
@@ -234,18 +234,18 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
         nullptr);
   }
 
-  void postIdleTask(std::unique_ptr<v8runtime::JSIIdleTask> /*task*/) override {}
+  // void postIdleTask(std::unique_ptr<v8runtime::JSIIdleTask> /*task*/) /*override*/ {}
 
-  bool IdleTasksEnabled() override {
-    return false;
-  }
+  // bool IdleTasksEnabled() /*override*/ {
+  //   return false;
+  // }
 
  private:
   napi_env env_;
   napi_ext_schedule_task_callback scheduler_;
 };
 
-napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) {
+napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
   // struct V8RuntimeArgs {
 
   //   std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
@@ -326,7 +326,7 @@ napi_status napi_ext_close_env_scope(napi_env env, napi_ext_env_scope scope) {
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
 
-  delete reinterpret_cast<EnvScope *>(scope);
+  delete reinterpret_cast<EnvScope*>(scope);
   return napi_ok;
 }
 
@@ -471,7 +471,8 @@ napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length
   return GET_RETURN_STATUS(env);
 }
 
-NAPI_EXTERN napi_status napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
+NAPI_EXTERN napi_status
+napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, str_value);
   CHECK_ARG(env, result);
