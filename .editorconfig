@@ -25,3 +25,7 @@ insert_final_newline = false
 #TODO: Remove before merging
 [src/napi/js_native_ext_api_v8.cpp]
 end_of_line = lf
+[src/napi/test/napitest_v8.cpp]
+end_of_line = lf
+[src/public/js_native_ext_api.h]
+end_of_line = lf
