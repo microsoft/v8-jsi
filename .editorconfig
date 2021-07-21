@@ -4,28 +4,22 @@
 root = false
 
 [*]
-end_of_line = crlf
-insert_final_newline = true
 indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+end_of_line = lf
 indent_size = 2
 
-[.editorconfig]
-end_of_line = lf
 
 # Xml project files
 [*.{config,csproj,nuspec,props,targets,vcxitems,vcxproj,vcxproj.filters}]
+end_of_line = crlf
 insert_final_newline = false
 
 [*.ps1]
+indent_style = tab
 indent_size = 4
 
 [package.json]
 insert_final_newline = false
-
-#TODO: Remove before merging
-[src/napi/js_native_ext_api_v8.cpp]
-end_of_line = lf
-[src/napi/test/napitest_v8.cpp]
-end_of_line = lf
-[src/public/js_native_ext_api.h]
-end_of_line = lf
