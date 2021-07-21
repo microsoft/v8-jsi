@@ -51,6 +51,7 @@ typedef struct {
   napi_ext_env_attributes attributes;
 
 
+  // TODO: Clean up
   //   bool trackGCObjectStats{true};
   //   bool enableJitTracing{true};
   //   bool enableMessageTracing{true};
@@ -84,7 +85,7 @@ typedef struct {
 } napi_ext_env_settings;
 
 // Creates a new napi_env with ref count 1.
-NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env);
+NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env);
 
 // Increments the napi_env ref count by 1.
 NAPI_EXTERN napi_status __cdecl napi_ext_env_ref(napi_env env);

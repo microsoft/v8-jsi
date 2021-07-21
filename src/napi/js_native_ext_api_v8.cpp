@@ -245,7 +245,8 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
   napi_ext_schedule_task_callback scheduler_;
 };
 
-napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
+napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
+{
   // struct V8RuntimeArgs {
 
   //   std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
@@ -279,11 +280,11 @@ napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *en
   args.flags.enableMessageTracing = false;
   args.flags.enableGCTracing = false;
 
-  if ((attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
+  if ((settings->attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
     args.flags.enableGCApi = true;
   }
 
-  if ((attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
+  if ((settings->attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
     args.flags.ignoreUnhandledPromises = true;
   }
 

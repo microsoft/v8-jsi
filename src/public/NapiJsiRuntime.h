@@ -11,10 +11,10 @@
 #include <memory>
 #include "js_native_ext_api.h"
 
-namespace napijsi {
+namespace Microsoft { namespace JSI {
 
 std::unique_ptr<facebook::jsi::Runtime> MakeNapiJsiRuntime(napi_env env) noexcept;
 
-} // namespace napijsi
+}} // namespace Microsoft::JSI
 
 #endif // SRC_PUBLIC_NAPIJSIRUNTIME_H_

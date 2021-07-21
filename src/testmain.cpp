@@ -16,13 +16,12 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
         return v8runtime::makeV8Runtime(std::move(args));
       },
       []() -> std::unique_ptr<facebook::jsi::Runtime> {
-        // napi_ext_env_settings settings{};
-        // settings.this_size = sizeof(napi_ext_env_settings);
-        // settings.attributes = napi_ext_env_attribute_enable_gc_api;
+        napi_ext_env_settings settings{};
+        settings.this_size = sizeof(napi_ext_env_settings);
+        settings.attributes = napi_ext_env_attribute_enable_gc_api;
         napi_env env{};
-        // napi_ext_create_env(&settings, &env);
-        napi_ext_create_env(napi_ext_env_attribute_enable_gc_api, &env);
-        return napijsi::MakeNapiJsiRuntime(env);
+         napi_ext_create_env(&settings, &env);
+        return Microsoft::JSI::MakeNapiJsiRuntime(env);
       }};
 }
 
