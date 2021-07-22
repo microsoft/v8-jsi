@@ -50,29 +50,10 @@ typedef struct {
   // The environment attributes.
   napi_ext_env_attributes attributes;
 
+  uint16_t inspector_port{9223};
 
-  // TODO: Clean up
-  //   bool trackGCObjectStats{true};
-  //   bool enableJitTracing{true};
-  //   bool enableMessageTracing{true};
-  //   bool enableGCTracing{true};
-
-  //   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
-  //   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a
-  //   WebSocket
-  //   // port open, which should be very small.
-  //   bool enableInspector{false};
-  //   bool waitForDebugger{false};
-  //   uint16_t inspectorPort{9223};
-
-  //   size_t initial_heap_size_in_bytes{0};
-  //   size_t maximum_heap_size_in_bytes{0};
-
-  //   bool enableGCApi{false};
-  //   bool ignoreUnhandledPromises{false};
-
-  size_t initial_heap_size_in_bytes;
-  size_t maximum_heap_size_in_bytes;
+  size_t initial_heap_size_in_bytes{0};
+  size_t maximum_heap_size_in_bytes{0};
 
   // Custom data associated with the environment.
   void *data;
@@ -82,6 +63,32 @@ typedef struct {
 
   // Additional data for the finalize callback.
   void *finalize_data_hint;
+
+//NOTE: Keep in sync with v8runtime::V8RuntimeArgs::flags
+// Padded to allow adding boolean flags without breaking the ABI
+  union
+  {
+    struct
+    {
+      bool track_gc_object_stats:1;
+      bool enable_jit_tracing:1;
+      bool enable_message_tracing:1;
+      bool enable_gc_tracing:1;
+      bool enable_inspector:1;
+      bool wait_for_debugger:1;
+      bool enable_gc_api:1;
+      bool ignore_unhandled_promises:1;
+
+      // Experimental flags (for memory-constrained optimization testing)
+      bool sparkplug:1; // https://v8.dev/blog/sparkplug
+      bool predictable:1; // take a big CPU hit to reduce the number of threads
+      bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
+      bool always_compact:1; // perform compaction on every full GC
+      bool jitless:1; // disable JIT entirely
+    } flags;
+    uint32_t _flagspad {0};
+  };
+
 } napi_ext_env_settings;
 
 // Creates a new napi_env with ref count 1.
