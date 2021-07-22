@@ -234,12 +234,6 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
         nullptr);
   }
 
-  // void postIdleTask(std::unique_ptr<v8runtime::JSIIdleTask> /*task*/) /*override*/ {}
-
-  // bool IdleTasksEnabled() /*override*/ {
-  //   return false;
-  // }
-
  private:
   napi_env env_;
   napi_ext_schedule_task_callback scheduler_;
@@ -247,33 +241,6 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
 
 napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
 {
-  // struct V8RuntimeArgs {
-
-  //   std::unique_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
-
-  //   // Enabling all the diagnostic and tracings by default so that we will be able to tune them and writing tools
-  //   over
-  //   // them.
-  //   bool trackGCObjectStats{true};
-  //   bool enableJitTracing{true};
-  //   bool enableMessageTracing{true};
-  //   bool enableGCTracing{true};
-
-  //   // Enabling inspector by default. This will help in stabilizing inspector, and easily debug JS code when needed.
-  //   // There shouldn't be any perf impacts until a debugger client is attached, except the overload of having a
-  //   WebSocket
-  //   // port open, which should be very small.
-  //   bool enableInspector{false};
-  //   bool waitForDebugger{false};
-  //   uint16_t inspectorPort{9223};
-
-  //   size_t initial_heap_size_in_bytes{0};
-  //   size_t maximum_heap_size_in_bytes{0};
-
-  //   bool enableGCApi{false};
-  //   bool ignoreUnhandledPromises{false};
-  // };
-
   v8runtime::V8RuntimeArgs args;
   args.flags.trackGCObjectStats = false;
   args.flags.enableJitTracing = false;
