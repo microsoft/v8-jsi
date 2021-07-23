@@ -16,10 +16,12 @@
 
 EXTERN_C_START
 
-typedef enum {
-  napi_ext_env_attribute_none = 0x00000000,
-  napi_ext_env_attribute_enable_gc_api = 0x00000001,
-  napi_ext_env_attribute_ignore_unhandled_promises = 0x00000002,
+//TODO: Revise relevance. Likely obsoleted by napi_ext_env_settings::flags
+typedef enum
+{
+  napi_ext_env_attribute_none =                       0x00000000,
+  napi_ext_env_attribute_enable_gc_api =              0x00000001,
+  napi_ext_env_attribute_ignore_unhandled_promises =  0x00000002,
 } napi_ext_env_attributes;
 
 typedef struct napi_ext_env_scope__ *napi_ext_env_scope;
@@ -28,8 +30,72 @@ typedef struct napi_ext_ref__ *napi_ext_ref;
 // A callback to return buffer synchronously
 typedef void (*napi_ext_buffer_callback)(napi_env env, uint8_t const *buffer, size_t buffer_length, void *buffer_hint);
 
+// A callback to run task
+typedef void (*napi_ext_task_callback)(napi_env env, void *task_data);
+
+// A callback to schedule a task
+typedef void (*napi_ext_schedule_task_callback)(
+    napi_env env,
+    napi_ext_task_callback task_cb,
+    void *task_data,
+    uint32_t delay_in_msec,
+    napi_finalize finalize_cb,
+    void *finalize_hint);
+
+typedef struct _napi_ext_env_settings
+{
+  // Size of this struct to allow extending it in future.
+  size_t this_size;
+
+  // Custom scheduler of the foreground JavaScript tasks.
+  napi_ext_schedule_task_callback foreground_scheduler;
+
+  // The environment attributes.
+  napi_ext_env_attributes attributes;
+
+  uint16_t inspector_port{9223};
+
+  size_t initial_heap_size_in_bytes{0};
+  size_t maximum_heap_size_in_bytes{0};
+
+  // Custom data associated with the environment.
+  void *data;
+
+  // The callback to call to destroy the custom data.
+  napi_finalize finalize_data_cb;
+
+  // Additional data for the finalize callback.
+  void *finalize_data_hint;
+
+//NOTE: Keep in sync with v8runtime::V8RuntimeArgs::flags
+// Padded to allow adding boolean flags without breaking the ABI
+  union
+  {
+    struct
+    {
+      bool track_gc_object_stats:1;
+      bool enable_jit_tracing:1;
+      bool enable_message_tracing:1;
+      bool enable_gc_tracing:1;
+      bool enable_inspector:1;
+      bool wait_for_debugger:1;
+      bool enable_gc_api:1;
+      bool ignore_unhandled_promises:1;
+
+      // Experimental flags (for memory-constrained optimization testing)
+      bool sparkplug:1; // https://v8.dev/blog/sparkplug
+      bool predictable:1; // take a big CPU hit to reduce the number of threads
+      bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
+      bool always_compact:1; // perform compaction on every full GC
+      bool jitless:1; // disable JIT entirely
+    } flags;
+    uint32_t _flagspad {0};
+  };
+
+} napi_ext_env_settings;
+
 // Creates a new napi_env with ref count 1.
-NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env);
+NAPI_EXTERN napi_status __cdecl napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env);
 
 // Increments the napi_env ref count by 1.
 NAPI_EXTERN napi_status __cdecl napi_ext_env_ref(napi_env env);

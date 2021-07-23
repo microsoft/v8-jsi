@@ -24,6 +24,7 @@ target("shared_library", "v8jsi") {
     "public/js_native_api_types.h",
     "public/js_native_api.h",
     "public/js_native_ext_api.h",
+    "public/NapiJsiRuntime.cpp",
     "public/ScriptStore.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
@@ -104,7 +105,7 @@ target("executable", "jsitests") {
     ":v8jsi",
     "//build/win:default_exe_manifest",
     "//testing/gtest",
-  ] 
+  ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
