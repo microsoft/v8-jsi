@@ -13,7 +13,7 @@
 
 namespace Microsoft { namespace JSI {
 
-std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept;
+__declspec(dllexport) std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept;
 
 }} // namespace Microsoft::JSI
 
