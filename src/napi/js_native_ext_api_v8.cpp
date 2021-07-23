@@ -242,18 +242,12 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
 napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
 {
   v8runtime::V8RuntimeArgs args;
-  args.flags.trackGCObjectStats = false;
-  args.flags.enableJitTracing = false;
-  args.flags.enableMessageTracing = false;
-  args.flags.enableGCTracing = false;
-
-  if ((settings->attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
-    args.flags.enableGCApi = true;
-  }
-
-  if ((settings->attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
-    args.flags.ignoreUnhandledPromises = true;
-  }
+  args.flags.trackGCObjectStats       = settings->flags.track_gc_object_stats;
+  args.flags.enableJitTracing         = settings->flags.enable_jit_tracing;
+  args.flags.enableMessageTracing     = settings->flags.enable_message_tracing;
+  args.flags.enableGCTracing          = settings->flags.enable_gc_tracing;
+  args.flags.enableGCApi              = settings->flags.enable_gc_api;
+  args.flags.ignoreUnhandledPromises  = settings->flags.ignore_unhandled_promises;
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 

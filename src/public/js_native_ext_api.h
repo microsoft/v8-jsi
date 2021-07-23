@@ -16,6 +16,7 @@
 
 EXTERN_C_START
 
+//TODO: Revise relevance. Likely obsoleted by napi_ext_env_settings::flags
 typedef enum {
   napi_ext_env_attribute_none = 0x00000000,
   napi_ext_env_attribute_enable_gc_api = 0x00000001,
