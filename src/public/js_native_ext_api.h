@@ -17,10 +17,11 @@
 EXTERN_C_START
 
 //TODO: Revise relevance. Likely obsoleted by napi_ext_env_settings::flags
-typedef enum {
-  napi_ext_env_attribute_none = 0x00000000,
-  napi_ext_env_attribute_enable_gc_api = 0x00000001,
-  napi_ext_env_attribute_ignore_unhandled_promises = 0x00000002,
+typedef enum
+{
+  napi_ext_env_attribute_none =                       0x00000000,
+  napi_ext_env_attribute_enable_gc_api =              0x00000001,
+  napi_ext_env_attribute_ignore_unhandled_promises =  0x00000002,
 } napi_ext_env_attributes;
 
 typedef struct napi_ext_env_scope__ *napi_ext_env_scope;
@@ -41,7 +42,8 @@ typedef void (*napi_ext_schedule_task_callback)(
     napi_finalize finalize_cb,
     void *finalize_hint);
 
-typedef struct {
+typedef struct _napi_ext_env_settings
+{
   // Size of this struct to allow extending it in future.
   size_t this_size;
 
