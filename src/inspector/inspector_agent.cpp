@@ -460,7 +460,7 @@ bool AgentImpl::IsStarted() {
   return state_ == State::kAccepting || state_ == State::kConnected;
 }
 
-int AgentImpl::getInspectedContextsCount() { assert(inspectedContextsCount_>=0);(return inspectedContextsCount_; }
+int AgentImpl::getInspectedContextsCount() { assert(inspectedContextsCount_>=0); return inspectedContextsCount_; }
 
 void AgentImpl::addContext(v8::Local<v8::Context> context,
                        const char* context_name) {
