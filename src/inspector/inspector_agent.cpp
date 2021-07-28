@@ -79,7 +79,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   void Start();
   void Stop();
 
-  int getInspectedContextsCount();
+  size_t getInspectedContextsCount();
 
   void waitForDebugger();
 
@@ -143,12 +143,14 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   bool dispatching_messages_;
   int session_id_;
 
-  int inspectedContextsCount_{0};
+  // Tracks the number of contexts added to this Isolate/V8Inspector/Agent
+  size_t inspected_contexts_count_{0};
 
+  // This map keeps weak references to Inspector Websocket servers running on a
+  // given port.
+  // This allows us to reuse Websocket servers across inspector agents.
   static std::mutex g_mutex_server_init_;
-  static std::unordered_map<int,
-                            std::weak_ptr<inspector::InspectorSocketServer>>
-      g_servers_;
+  static std::unordered_map<int, std::weak_ptr<inspector::InspectorSocketServer>> g_servers_;
 
   std::string title_;
   std::string loaded_urls_;
@@ -162,8 +164,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
 };
 
 /*static*/ std::mutex AgentImpl::g_mutex_server_init_;
-/*static*/ std::unordered_map < int,
-    std::weak_ptr<inspector::InspectorSocketServer>> AgentImpl::g_servers_;
+/*static*/ std::unordered_map <int, std::weak_ptr<inspector::InspectorSocketServer>> AgentImpl::g_servers_;
 
 void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
@@ -394,10 +395,20 @@ void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &args) {
 
 
 InspectorSocketServer& AgentImpl::ensureServer() {
-  const std::lock_guard<std::mutex> lock(g_mutex_server_init_);
+  if (server_) return *server_;
 
-  auto server = g_servers_.find(port_);
-  if (server == g_servers_.end()) {
+  const std::lock_guard<std::mutex> lock(g_mutex_server_init_);
+  // Reuse if the server is already running on the given port.
+  auto existingServers = g_servers_.find(port_);
+  if (existingServers != g_servers_.end()) {
+    auto server = g_servers_[port_].lock();
+    if (server)
+      server_ = std::move(server);
+    else
+      g_servers_.erase(port_);
+  }
+
+  if (!server_) {
     auto delegate = std::make_unique<InspectorAgentDelegate>();
     auto newserver =
         std::make_shared<InspectorSocketServer>(std::move(delegate), port_);
@@ -407,12 +418,9 @@ InspectorSocketServer& AgentImpl::ensureServer() {
 
     server_ = std::move(newserver);
     g_servers_[port_] = server_;
-  } else {
-    server_ = g_servers_[port_].lock();
   }
-
+  
   return *server_;
-
 }
 
 void AgentImpl::Start() {
@@ -448,10 +456,8 @@ void AgentImpl::waitForDebugger() {
 void AgentImpl::Stop() {
   if (!IsStarted()) return;
 
-
   WaitForDisconnect();
   state_ = State::kDone;
-
 }
 
 bool AgentImpl::IsConnected() { return state_ == State::kConnected; }
@@ -460,18 +466,21 @@ bool AgentImpl::IsStarted() {
   return state_ == State::kAccepting || state_ == State::kConnected;
 }
 
-int AgentImpl::getInspectedContextsCount() { assert(inspectedContextsCount_>=0); return inspectedContextsCount_; }
+size_t AgentImpl::getInspectedContextsCount() {
+  assert(inspected_contexts_count_ >= 0);
+  return inspected_contexts_count_;
+}
 
 void AgentImpl::addContext(v8::Local<v8::Context> context,
                        const char* context_name) {
   title_ = context_name;
   inspector_->setupContext(context, context_name);
-  inspectedContextsCount_++;
+  inspected_contexts_count_++;
 }
 
 void AgentImpl::removeContext(v8::Local<v8::Context> context) {
   inspector_->tearDownContext(context);
-  inspectedContextsCount_--;
+  inspected_contexts_count_--;
 }
 
 void AgentImpl::WaitForDisconnect() {
