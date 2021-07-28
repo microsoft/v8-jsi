@@ -242,12 +242,18 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
 napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
 {
   v8runtime::V8RuntimeArgs args;
+
   args.flags.trackGCObjectStats       = settings->flags.track_gc_object_stats;
   args.flags.enableJitTracing         = settings->flags.enable_jit_tracing;
   args.flags.enableMessageTracing     = settings->flags.enable_message_tracing;
   args.flags.enableGCTracing          = settings->flags.enable_gc_tracing;
   args.flags.enableGCApi              = settings->flags.enable_gc_api;
   args.flags.ignoreUnhandledPromises  = settings->flags.ignore_unhandled_promises;
+
+  args.foreground_task_runner = std::make_shared<NapiJSITaskRunner>(
+    *env,
+    settings->foreground_scheduler
+  );
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 
