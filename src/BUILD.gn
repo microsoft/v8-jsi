@@ -24,6 +24,7 @@ target("shared_library", "v8jsi") {
     "public/js_native_api_types.h",
     "public/js_native_api.h",
     "public/js_native_ext_api.h",
+    "public/NapiJsiRuntime.cpp",
     "public/ScriptStore.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
@@ -38,24 +39,24 @@ target("shared_library", "v8jsi") {
       "etw/tracing.cpp"
     ]
 
-  if (v8jsi_enable_inspector) {
-    sources += [
-      "inspector/inspector_agent.cpp",
-      "inspector/inspector_agent.h",
-      "inspector/inspector_socket.cpp",
-      "inspector/inspector_socket.h",
-      "inspector/inspector_socket_server.cpp",
-      "inspector/inspector_socket_server.h",
-      "inspector/inspector_tcp.cpp",
-      "inspector/inspector_tcp.h",
-      "inspector/inspector_utils.cpp",
-      "inspector/inspector_utils.h",
-      "inspector/llhttp.c",
-      "inspector/llhttp.h",
-      "inspector/llhttp_api.c",
-      "inspector/llhttp_http.c"
-    ]
-  }
+    if (v8jsi_enable_inspector) {
+      sources += [
+        "inspector/inspector_agent.cpp",
+        "inspector/inspector_agent.h",
+        "inspector/inspector_socket.cpp",
+        "inspector/inspector_socket.h",
+        "inspector/inspector_socket_server.cpp",
+        "inspector/inspector_socket_server.h",
+        "inspector/inspector_tcp.cpp",
+        "inspector/inspector_tcp.h",
+        "inspector/inspector_utils.cpp",
+        "inspector/inspector_utils.h",
+        "inspector/llhttp.c",
+        "inspector/llhttp.h",
+        "inspector/llhttp_api.c",
+        "inspector/llhttp_http.c"
+      ]
+    }
 
     ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
 
@@ -68,6 +69,7 @@ target("shared_library", "v8jsi") {
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs -= [ "//build/config/compiler:cet_shadow_stack" ]
   configs -= [ "//build/config/win:default_incremental_linking" ]
 
   if (is_win) {

@@ -212,20 +212,42 @@ static struct EnvScope {
   napi_handle_scope handle_scope_{};
 };
 
-napi_status napi_ext_create_env(napi_ext_env_attributes attributes, napi_env *env) {
+struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
+  NapiJSITaskRunner(napi_env env, napi_ext_schedule_task_callback scheduler) : env_{env}, scheduler_{scheduler} {}
+
+  void postTask(std::unique_ptr<v8runtime::JSITask> task) override {
+    postDelayedTask(std::move(task), 0);
+  }
+
+  void postDelayedTask(std::unique_ptr<v8runtime::JSITask> task, double delay_in_seconds) /*override*/ {
+    scheduler_(
+        env_,
+        [](napi_env env, void *task_data) {
+          auto task = static_cast<v8runtime::JSITask *>(task_data);
+          task->run();
+        },
+        static_cast<void *>(task.release()),
+        delay_in_seconds * 1000,
+        [](napi_env env, void *finalize_data, void *finalize_hint) {
+          std::unique_ptr<v8runtime::JSITask> task{static_cast<v8runtime::JSITask *>(finalize_data)};
+        },
+        nullptr);
+  }
+
+ private:
+  napi_env env_;
+  napi_ext_schedule_task_callback scheduler_;
+};
+
+napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
+{
   v8runtime::V8RuntimeArgs args;
-  args.flags.trackGCObjectStats = false;
-  args.flags.enableJitTracing = false;
-  args.flags.enableMessageTracing = false;
-  args.flags.enableGCTracing = false;
-
-  if ((attributes & napi_ext_env_attribute_enable_gc_api) != 0) {
-    args.flags.enableGCApi = true;
-  }
-
-  if ((attributes & napi_ext_env_attribute_ignore_unhandled_promises) != 0) {
-    args.flags.ignoreUnhandledPromises = true;
-  }
+  args.flags.trackGCObjectStats       = settings->flags.track_gc_object_stats;
+  args.flags.enableJitTracing         = settings->flags.enable_jit_tracing;
+  args.flags.enableMessageTracing     = settings->flags.enable_message_tracing;
+  args.flags.enableGCTracing          = settings->flags.enable_gc_tracing;
+  args.flags.enableGCApi              = settings->flags.enable_gc_api;
+  args.flags.ignoreUnhandledPromises  = settings->flags.ignore_unhandled_promises;
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 

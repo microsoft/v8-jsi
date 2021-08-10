@@ -1821,12 +1821,16 @@ T NapiJsiRuntime::MakePointer(TValue value) const {
 
 } // namespace
 
+} // namespace napijsi
+
+namespace Microsoft { namespace JSI {
+
 //===========================================================================
 // NapiJsiRuntime factory function.
 //===========================================================================
-
-std::unique_ptr<facebook::jsi::Runtime> MakeNapiJsiRuntime(napi_env env) noexcept {
-  return std::make_unique<NapiJsiRuntime>(env);
+std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept
+{
+  return std::make_unique<napijsi::NapiJsiRuntime>(env);
 }
 
-} // namespace napijsi
+}} // nampespace Microsoft::JSI
