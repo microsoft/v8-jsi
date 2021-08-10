@@ -1,32 +1,16 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index d2bfb6129d..b14a7189f2 100644
+index 5e3045bfdc..8072094bfd 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4661,11 +4661,18 @@ v8_component("v8_libbase") {
- 
+@@ -4729,7 +4730,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
--    libs = [
+     libs = [
 -      "dbghelp.lib",
--      "winmm.lib",
--      "ws2_32.lib",
--    ]
-+    if (target_os == "winuwp") {
-+      libs = [
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    } else {
-+      libs = [
-+        "dbghelp.lib",
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    }
- 
-     if (v8_enable_system_instrumentation) {
-       libs += [ "advapi32.lib" ]  # Needed for TraceLoggingProvider.h
-@@ -6212,3 +6219,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+       "winmm.lib",
+       "ws2_32.lib",
+     ]
+@@ -6327,3 +6327,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -37,10 +21,10 @@ index d2bfb6129d..b14a7189f2 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index b27a4e8e8f..056054b8bd 100644
+index d3de2c5ddc..693752054e 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -580,4 +580,15 @@ hooks = [
+@@ -576,4 +576,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -71,14 +55,14 @@ index e855b88e43..61d56e574f 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec610..c054ba8dc9 100644
+index f981bec610..87cab0e18b 100644
 --- a/src/base/debug/stack_trace_win.cc
 +++ b/src/base/debug/stack_trace_win.cc
 @@ -29,6 +29,35 @@ namespace v8 {
  namespace base {
  namespace debug {
  
-+#ifdef WINUWP
++#if defined(WINUWP) || 1 // dbghelp dependency unwanted
 +
 +bool EnableInProcessStackDumping() {
 +  return false;
@@ -120,7 +104,7 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 50da60c72f..3a3b94af98 100644
+index 9fbb257076..dc6aebe360 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
 @@ -1069,7 +1069,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
@@ -128,37 +112,119 @@ index 50da60c72f..3a3b94af98 100644
  
  // DbgHelp isn't supported on MinGW yet
 -#ifndef __MINGW32__
-+#if !defined(__MINGW32__) && !defined(WINUWP)
++#if !defined(__MINGW32__) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
+diff --git a/src/codegen/arm64/register-arm64.h b/src/codegen/arm64/register-arm64.h
+index 1150daf4c6..21007a5973 100644
+--- a/src/codegen/arm64/register-arm64.h
++++ b/src/codegen/arm64/register-arm64.h
+@@ -413,7 +413,7 @@ class VRegister : public CPURegister {
+   static constexpr int kMaxNumRegisters = kNumberOfVRegisters;
+   STATIC_ASSERT(kMaxNumRegisters == kDoubleAfterLast);
+ 
+-  static VRegister from_code(int code) {
++  static constexpr VRegister from_code(int code) {
+     // Always return a D register.
+     return VRegister::Create(code, kDRegSizeInBits);
+   }
+diff --git a/src/compiler/js-operator.h b/src/compiler/js-operator.h
+index 8080d4caef..b136adc573 100644
+--- a/src/compiler/js-operator.h
++++ b/src/compiler/js-operator.h
+@@ -1284,16 +1284,7 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
+  public:
+   explicit constexpr JSCallOrConstructNode(Node* node)
+       : JSNodeWrapperBase(node) {
+-    DCHECK(node->opcode() == IrOpcode::kJSCall ||
+-           node->opcode() == IrOpcode::kJSCallWithArrayLike ||
+-           node->opcode() == IrOpcode::kJSCallWithSpread ||
+-           node->opcode() == IrOpcode::kJSConstruct ||
+-           node->opcode() == IrOpcode::kJSConstructWithArrayLike ||
+-           node->opcode() == IrOpcode::kJSConstructWithSpread
+-#if V8_ENABLE_WEBASSEMBLY
+-           || node->opcode() == IrOpcode::kJSWasmCall
+-#endif  // V8_ENABLE_WEBASSEMBLY
+-    );  // NOLINT(whitespace/parens)
++    DCHECK(IsValidNode(node));
+   }
+ 
+ #define INPUTS(V)              \
+@@ -1367,6 +1358,20 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
+     return TNode<HeapObject>::UncheckedCast(
+         NodeProperties::GetValueInput(node(), FeedbackVectorIndex()));
+   }
++
++ private:
++  static constexpr bool IsValidNode(Node* node) {
++    return node->opcode() == IrOpcode::kJSCall ||
++           node->opcode() == IrOpcode::kJSCallWithArrayLike ||
++           node->opcode() == IrOpcode::kJSCallWithSpread ||
++           node->opcode() == IrOpcode::kJSConstruct ||
++           node->opcode() == IrOpcode::kJSConstructWithArrayLike ||
++           node->opcode() == IrOpcode::kJSConstructWithSpread
++#if V8_ENABLE_WEBASSEMBLY
++           || node->opcode() == IrOpcode::kJSWasmCall
++#endif     // V8_ENABLE_WEBASSEMBLY
++        ;  // NOLINT(whitespace/semicolon)
++  }
+ };
+ 
+ template <int kOpcode>
+diff --git a/src/compiler/node.h b/src/compiler/node.h
+index 37b45c403f..57d49fe1ac 100644
+--- a/src/compiler/node.h
++++ b/src/compiler/node.h
+@@ -50,7 +50,7 @@ class V8_EXPORT_PRIVATE Node final {
+ 
+   const Operator* op() const { return op_; }
+ 
+-  IrOpcode::Value opcode() const {
++  constexpr IrOpcode::Value opcode() const {
+     DCHECK_GE(IrOpcode::kLast, op_->opcode());
+     return static_cast<IrOpcode::Value>(op_->opcode());
+   }
+diff --git a/src/compiler/operator.h b/src/compiler/operator.h
+index 4206e753f1..f641394eb1 100644
+--- a/src/compiler/operator.h
++++ b/src/compiler/operator.h
+@@ -73,7 +73,7 @@ class V8_EXPORT_PRIVATE Operator : public NON_EXPORTED_BASE(ZoneObject) {
+   // A small integer unique to all instances of a particular kind of operator,
+   // useful for quick matching for specific kinds of operators. For fast access
+   // the opcode is stored directly in the operator object.
+-  Opcode opcode() const { return opcode_; }
++  constexpr Opcode opcode() const { return opcode_; }
+ 
+   // Returns a constant string representing the mnemonic of the operator,
+   // without the static parameters. Useful for debugging.
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index 9a5f7069e7..a53c0ad644 100644
+index 6127c0a786..8645a65ff6 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
-@@ -528,7 +528,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
+@@ -531,7 +531,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
    // by the embedder (like Crashpad).
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
-@@ -567,7 +567,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
+@@ -570,7 +570,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
    DCHECK(CanRegisterUnwindInfoForNonABICompliantCodeRange());
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 308b57a309..8e943c7ae9 100644
+index 67a64e873a..332337255c 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -978,7 +978,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
+@@ -977,7 +977,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -183,10 +249,10 @@ index cf380b015d..e5461ea89e 100644
    } else {
      return EmbeddedTargetOs::kGeneric;
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index db4d3ac13b..fac0b2a643 100644
+index 0c7c468d82..f07734e01c 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -76,8 +76,10 @@ const int kAllocationTries = 2;
+@@ -78,8 +78,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
@@ -199,3 +265,16 @@ index db4d3ac13b..fac0b2a643 100644
  }
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
+diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
+index c1d15a834e..3c37e87184 100644
+--- a/src/wasm/wasm-module-builder.h
++++ b/src/wasm/wasm-module-builder.h
+@@ -336,7 +336,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+   };
+ 
+   struct WasmGlobal {
+-    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
++    //MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
+ 
+     ValueType type;
+     bool mutability;
