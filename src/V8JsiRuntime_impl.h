@@ -100,8 +100,10 @@ class V8PlatformHolder {
       // We cannot shutdown the platform once created because V8 internally references bits of the platform from
       // process-globals This cannot be worked around, the design of V8 is not currently embedder-friendly
       // v8::V8::Dispose();
-      v8::V8::ShutdownPlatform();
-      platform_s_ = nullptr;
+
+      // This used to work until 9.2, but afterwards shutting down the platform permanently breaks the code that creates page allocators (through global statics)
+      // v8::V8::ShutdownPlatform();
+      // platform_s_ = nullptr;
     }
   }
 
