@@ -28,7 +28,7 @@ class InspectorAgentDelegate {
   std::string GetTargetUrl(const std::string &id);
   void AddTarget(std::shared_ptr<AgentImpl> agent);
   void RemoveTarget(std::shared_ptr<AgentImpl> agent);
-  bool hasTargets();
+  bool HasTargets();
 
  private:
   std::unordered_map<std::string, std::shared_ptr<AgentImpl>> targets_map_;

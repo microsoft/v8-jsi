@@ -809,7 +809,7 @@ void InspectorAgentDelegate::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
   targets_map_.erase(targetId);
 }
 
-bool InspectorAgentDelegate::hasTargets() { return targets_map_.size() > 0; }
+bool InspectorAgentDelegate::HasTargets() { return targets_map_.size() > 0; }
 
 std::vector<std::string> InspectorAgentDelegate::GetTargetIds() {
   std::vector<std::string> keys;
