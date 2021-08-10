@@ -28,6 +28,7 @@ class InspectorAgentDelegate {
   std::string GetTargetUrl(const std::string &id);
   void AddTarget(std::shared_ptr<AgentImpl> agent);
   void RemoveTarget(std::shared_ptr<AgentImpl> agent);
+  bool hasTargets();
 
  private:
   std::unordered_map<std::string, std::shared_ptr<AgentImpl>> targets_map_;
@@ -53,6 +54,7 @@ public:
 
   void AddTarget(std::shared_ptr<AgentImpl> agent);
   void RemoveTarget(std::shared_ptr<AgentImpl> agent);
+  bool HasTargets();
 
   // Session connection lifecycle
   void Accept(std::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);
