@@ -1,8 +1,17 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 5e3045bfdc..8072094bfd 100644
+index 17bab98e8f..b08181f37f 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4729,7 +4730,6 @@ v8_component("v8_libbase") {
+@@ -1124,7 +1124,7 @@ config("toolchain") {
+   } else if (target_os == "mac") {
+     defines += [ "V8_HAVE_TARGET_OS" ]
+     defines += [ "V8_TARGET_OS_MACOSX" ]
+-  } else if (target_os == "win") {
++  } else if (target_os == "win" || target_os == "winuwp") {
+     defines += [ "V8_HAVE_TARGET_OS" ]
+     defines += [ "V8_TARGET_OS_WIN" ]
+   }
+@@ -4813,7 +4813,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -10,7 +19,7 @@ index 5e3045bfdc..8072094bfd 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6327,3 +6327,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6411,3 +6410,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -20,25 +29,26 @@ index 5e3045bfdc..8072094bfd 100644
 +    "jsi:v8jsi",
 +  ]
 +}
+\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index d3de2c5ddc..693752054e 100644
+index b1e297b106..64a3ce8c2c 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -576,4 +576,15 @@ hooks = [
+@@ -593,4 +593,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
-+ {
-+   'name': 'rc_win',
-+   'pattern': '.',
-+   'condition': 'checkout_win and host_os == "win"',
-+   'action': [ 'download_from_google_storage',
-+               '--no_resume',
-+               '--no_auth',
-+               '--bucket', 'chromium-browser-clang/rc',
-+               '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
-+   ],
-+ }
++  {
++    'name': 'rc_win',
++    'pattern': '.',
++    'condition': 'checkout_win and host_os == "win"',
++    'action': [ 'download_from_google_storage',
++                '--no_resume',
++                '--no_auth',
++                '--bucket', 'chromium-browser-clang/rc',
++                '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
++    ],
++  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
 index e855b88e43..61d56e574f 100644
@@ -116,90 +126,8 @@ index 9fbb257076..dc6aebe360 100644
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
-diff --git a/src/codegen/arm64/register-arm64.h b/src/codegen/arm64/register-arm64.h
-index 1150daf4c6..21007a5973 100644
---- a/src/codegen/arm64/register-arm64.h
-+++ b/src/codegen/arm64/register-arm64.h
-@@ -413,7 +413,7 @@ class VRegister : public CPURegister {
-   static constexpr int kMaxNumRegisters = kNumberOfVRegisters;
-   STATIC_ASSERT(kMaxNumRegisters == kDoubleAfterLast);
- 
--  static VRegister from_code(int code) {
-+  static constexpr VRegister from_code(int code) {
-     // Always return a D register.
-     return VRegister::Create(code, kDRegSizeInBits);
-   }
-diff --git a/src/compiler/js-operator.h b/src/compiler/js-operator.h
-index 8080d4caef..b136adc573 100644
---- a/src/compiler/js-operator.h
-+++ b/src/compiler/js-operator.h
-@@ -1284,16 +1284,7 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
-  public:
-   explicit constexpr JSCallOrConstructNode(Node* node)
-       : JSNodeWrapperBase(node) {
--    DCHECK(node->opcode() == IrOpcode::kJSCall ||
--           node->opcode() == IrOpcode::kJSCallWithArrayLike ||
--           node->opcode() == IrOpcode::kJSCallWithSpread ||
--           node->opcode() == IrOpcode::kJSConstruct ||
--           node->opcode() == IrOpcode::kJSConstructWithArrayLike ||
--           node->opcode() == IrOpcode::kJSConstructWithSpread
--#if V8_ENABLE_WEBASSEMBLY
--           || node->opcode() == IrOpcode::kJSWasmCall
--#endif  // V8_ENABLE_WEBASSEMBLY
--    );  // NOLINT(whitespace/parens)
-+    DCHECK(IsValidNode(node));
-   }
- 
- #define INPUTS(V)              \
-@@ -1367,6 +1358,20 @@ class JSCallOrConstructNode : public JSNodeWrapperBase {
-     return TNode<HeapObject>::UncheckedCast(
-         NodeProperties::GetValueInput(node(), FeedbackVectorIndex()));
-   }
-+
-+ private:
-+  static constexpr bool IsValidNode(Node* node) {
-+    return node->opcode() == IrOpcode::kJSCall ||
-+           node->opcode() == IrOpcode::kJSCallWithArrayLike ||
-+           node->opcode() == IrOpcode::kJSCallWithSpread ||
-+           node->opcode() == IrOpcode::kJSConstruct ||
-+           node->opcode() == IrOpcode::kJSConstructWithArrayLike ||
-+           node->opcode() == IrOpcode::kJSConstructWithSpread
-+#if V8_ENABLE_WEBASSEMBLY
-+           || node->opcode() == IrOpcode::kJSWasmCall
-+#endif     // V8_ENABLE_WEBASSEMBLY
-+        ;  // NOLINT(whitespace/semicolon)
-+  }
- };
- 
- template <int kOpcode>
-diff --git a/src/compiler/node.h b/src/compiler/node.h
-index 37b45c403f..57d49fe1ac 100644
---- a/src/compiler/node.h
-+++ b/src/compiler/node.h
-@@ -50,7 +50,7 @@ class V8_EXPORT_PRIVATE Node final {
- 
-   const Operator* op() const { return op_; }
- 
--  IrOpcode::Value opcode() const {
-+  constexpr IrOpcode::Value opcode() const {
-     DCHECK_GE(IrOpcode::kLast, op_->opcode());
-     return static_cast<IrOpcode::Value>(op_->opcode());
-   }
-diff --git a/src/compiler/operator.h b/src/compiler/operator.h
-index 4206e753f1..f641394eb1 100644
---- a/src/compiler/operator.h
-+++ b/src/compiler/operator.h
-@@ -73,7 +73,7 @@ class V8_EXPORT_PRIVATE Operator : public NON_EXPORTED_BASE(ZoneObject) {
-   // A small integer unique to all instances of a particular kind of operator,
-   // useful for quick matching for specific kinds of operators. For fast access
-   // the opcode is stored directly in the operator object.
--  Opcode opcode() const { return opcode_; }
-+  constexpr Opcode opcode() const { return opcode_; }
- 
-   // Returns a constant string representing the mnemonic of the operator,
-   // without the static parameters. Useful for debugging.
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index 6127c0a786..8645a65ff6 100644
+index 12f9d40e6a..3ee7c9b083 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
 @@ -531,7 +531,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
@@ -221,10 +149,10 @@ index 6127c0a786..8645a65ff6 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 67a64e873a..332337255c 100644
+index 6cafd72d65..cbdd934cdd 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -977,7 +977,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
+@@ -973,7 +973,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -236,7 +164,7 @@ index 67a64e873a..332337255c 100644
            VariableAllocationInfo::CONTEXT &&
        FunctionName() == name) {
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index cf380b015d..e5461ea89e 100644
+index 447d2e9bac..d0df29e01c 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 @@ -139,7 +139,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
@@ -246,13 +174,13 @@ index cf380b015d..e5461ea89e 100644
 -  } else if (string == "win") {
 +  } else if (string == "win" || string == "winuwp") {
      return EmbeddedTargetOs::kWin;
-   } else {
-     return EmbeddedTargetOs::kGeneric;
+   } else if (string == "starboard") {
+     return EmbeddedTargetOs::kStarboard;
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 0c7c468d82..f07734e01c 100644
+index 9cdd53fa6d..3009d06b9a 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -78,8 +78,10 @@ const int kAllocationTries = 2;
+@@ -79,8 +79,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
@@ -266,10 +194,10 @@ index 0c7c468d82..f07734e01c 100644
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
 diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
-index c1d15a834e..3c37e87184 100644
+index d36db5f009..65c0bd26ec 100644
 --- a/src/wasm/wasm-module-builder.h
 +++ b/src/wasm/wasm-module-builder.h
-@@ -336,7 +336,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+@@ -338,7 +338,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
    };
  
    struct WasmGlobal {
