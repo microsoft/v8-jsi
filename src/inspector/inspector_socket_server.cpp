@@ -333,7 +333,7 @@ void InspectorSocketServer::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
 }
 
 bool InspectorSocketServer::HasTargets() {
-  return delegate_->hasTargets();
+  return delegate_->HasTargets();
 }
 
 bool InspectorSocketServer::Start() {
