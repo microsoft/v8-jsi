@@ -18,10 +18,10 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
-        <!-- We have no winmd, so make sure uwp dlls get copied over -->
-    <CopyLocalFilesOutputGroupOutput Condition="'$(V8AppPlatform)' == 'uwp'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(Configuration)\$(V8Platform)\v8jsi.dll" />
+    <!-- We have no winmd, so make sure uwp dlls get copied over -->
+    <CopyLocalFilesOutputGroupOutput Condition="'$(V8AppPlatform)' == 'uwp'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(Configuration)\$(V8Platform)\v8jsi.dll" />
     <!-- Disable publishing PDBs for UWP due to increased package size -->
-    <ReferenceCopyLocalPaths Condition="'$(V8AppPlatform)' == 'win32'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
+    <ReferenceCopyLocalPaths Condition="'$(V8AppPlatform)' == 'win32'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
   </ItemGroup>
 </Project>
