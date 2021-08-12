@@ -1615,11 +1615,7 @@ void openInspector(jsi::Runtime& runtime) {
   }
 }
 
-void openInspectors_toberemoved() {
-  for (auto agent : inspector::Agent::getActiveAgents()) {
-    agent->start();
-  }
-}
+void openInspectors_toberemoved() { inspector::Agent::startAll(); }
 #endif
 
 } // namespace v8runtime
