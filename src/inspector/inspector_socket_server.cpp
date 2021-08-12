@@ -332,6 +332,10 @@ void InspectorSocketServer::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
   delegate_->RemoveTarget(agent);
 }
 
+bool InspectorSocketServer::HasTargets() {
+  return delegate_->HasTargets();
+}
+
 bool InspectorSocketServer::Start() {
   state_ = ServerState::kRunning;
   std::thread([this]() {

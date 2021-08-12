@@ -21,7 +21,14 @@ tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
 }
 
 void tcp_server::run() {
-  io_service_.run();
+  try {
+    io_service_.run();
+  } catch (std::exception const& e) {
+    TRACEV8INSPECTOR_ERROR(
+        "io_service_.run",
+        TraceLoggingString(
+            e.what(), "message"));
+  }
 }
 
 void tcp_server::stop() {
