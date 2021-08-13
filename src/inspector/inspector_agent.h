@@ -14,9 +14,6 @@ class AgentImpl;
 
 class Agent : public std::enable_shared_from_this<Agent> {
  public:
-  // TODO :: safe access to platform
-  // Note :: Currently we do support one platform/isolate/context per agent..
-  // This is enough for our scenarios.
   explicit Agent(
       v8::Isolate *isolate,
       int port);
@@ -40,12 +37,11 @@ class Agent : public std::enable_shared_from_this<Agent> {
   void notifyLoadedUrl(const std::string& url);
   std::shared_ptr<Agent> getShared();
 
-  static std::unordered_set<std::shared_ptr<inspector::Agent>>
-  getActiveAgents();
+  static void startAll();
     
  private:
   std::shared_ptr<AgentImpl> impl;
-  static std::unordered_set<std::shared_ptr<inspector::Agent>> agents_s_;
+  static std::unordered_set<std::shared_ptr<inspector::AgentImpl>> agents_s_;
 };
 
 } // namespace inspector

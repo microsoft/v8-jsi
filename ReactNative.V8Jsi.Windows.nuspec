@@ -13,7 +13,7 @@
   <files>
     <!-- NuGetExcludeExtensions: win32 => ipdb, uwp => pdb -->
     <!-- NuGetFolderExport: win32 or uwp -->
-    <file src="$nugetroot$\lib\$NuGetFolderExport$\**\*.*" target="lib" exclude="**\*.iobj;**\*.$NuGetExcludeExtensions$;**\*.exp;**\*.ilk" />
+    <file src="$nugetroot$\lib\$NuGetFolderExport$\**\*.*" target="lib\$NuGetFolderExport$" exclude="**\*.iobj;**\*.$NuGetExcludeExtensions$;**\*.exp;**\*.ilk" />
     <file src="$nugetroot$\build\**\*.*" target="build" exclude="**\*.targets" />
     <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\native\$Id$.targets" />
     <file src="$nugetroot$\license\*.*" target="license"/>

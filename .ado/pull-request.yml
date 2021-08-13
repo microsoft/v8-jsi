@@ -13,7 +13,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 180
+    timeoutInMinutes: 210
     displayName: Build v8jsi.dll
     strategy:
       matrix:

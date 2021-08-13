@@ -370,6 +370,7 @@ class WsHandler : public ProtocolHandler {
     if (data.size() == 0) {
       std::vector<char> output = data;
       WriteRaw(std::move(output));
+      return;
     }
 
     std::vector<char> output = encode_frame_hybi17(data);
