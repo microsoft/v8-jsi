@@ -617,6 +617,10 @@ jsi::Value V8Runtime::evaluateJavaScript(
   return result;
 }
 
+bool V8Runtime::drainMicrotasks(int /*maxMicrotasksHint*/) {
+  return true;
+}
+
 // The callback that is invoked by v8 whenever the JavaScript 'print'
 // function is called.  Prints its arguments on stdout separated by
 // spaces and ending with a newline.
@@ -905,7 +909,6 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       auto err = jsi::JSError(*this, ex_messages);
       err.value().getObject(*this).setProperty(
           *this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
-      err.setStack(sstr.str());
       throw err;
     } else {
       // If we're already in stack overflow, calling the Error constructor pushes it overboard
