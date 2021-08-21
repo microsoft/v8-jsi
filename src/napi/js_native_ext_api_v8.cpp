@@ -234,6 +234,10 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
         nullptr);
   }
 
+  void setEnv(napi_env env) {
+    env_ = env;
+  }
+
  private:
   napi_env env_;
   napi_ext_schedule_task_callback scheduler_;
@@ -247,18 +251,22 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
   args.flags.enableJitTracing         = settings->flags.enable_jit_tracing;
   args.flags.enableMessageTracing     = settings->flags.enable_message_tracing;
   args.flags.enableGCTracing          = settings->flags.enable_gc_tracing;
+  args.flags.enableInspector          = settings->flags.enable_inspector;
+  args.flags.waitForDebugger          = settings->flags.wait_for_debugger;
   args.flags.enableGCApi              = settings->flags.enable_gc_api;
   args.flags.ignoreUnhandledPromises  = settings->flags.ignore_unhandled_promises;
 
-  args.foreground_task_runner = std::make_shared<NapiJSITaskRunner>(
+  auto taskRunner = std::make_shared<NapiJSITaskRunner>(
     *env,
     settings->foreground_scheduler
   );
+  args.foreground_task_runner = taskRunner;
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 
   auto context = v8impl::PersistentToLocal::Strong(runtime->GetContext());
   *env = new napi_env__(context);
+  taskRunner->setEnv(*env);
 
   // Let the runtime exists. It can be accessed from the Context.
   new v8impl::V8RuntimeHolder(*env, runtime.release());
