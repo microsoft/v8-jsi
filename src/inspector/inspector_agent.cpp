@@ -70,14 +70,14 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
       int port);
   ~AgentImpl();
 
-  InspectorSocketServer& ensureServer();
-
   void addContext(v8::Local<v8::Context> context,
                              const char* context_name);
   void removeContext(v8::Local<v8::Context> context);
 
   void Start();
   void Stop();
+
+  size_t getInspectedContextsCount();
 
   void waitForDebugger();
 
@@ -130,6 +130,8 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   bool shutting_down_;
   State state_;
 
+  std::shared_ptr<InspectorSocketServer> server_;
+
   bool waiting_for_frontend_ = true;
 
   std::unique_ptr<V8NodeInspector> inspector_;
@@ -139,8 +141,14 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   bool dispatching_messages_;
   int session_id_;
 
+  // Tracks the number of contexts added to this Isolate/V8Inspector/Agent
+  size_t inspected_contexts_count_{0};
+
+  // This map keeps weak references to Inspector Websocket servers running on a
+  // given port.
+  // This allows us to reuse Websocket servers across inspector agents.
   static std::mutex g_mutex_server_init_;
-  static std::unordered_map<int, std::unique_ptr<inspector::InspectorSocketServer>> g_servers_;
+  static std::unordered_map<int, std::weak_ptr<inspector::InspectorSocketServer>> g_servers_;
 
   std::string title_;
   std::string loaded_urls_;
@@ -152,10 +160,6 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   friend class V8NodeInspector;
   friend void InterruptCallback(v8::Isolate *, void *agent);
 };
-
-/*static*/ std::mutex AgentImpl::g_mutex_server_init_;
-/*static*/ std::unordered_map < int,
-    std::unique_ptr<inspector::InspectorSocketServer>> AgentImpl::g_servers_;
 
 void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
@@ -384,30 +388,57 @@ void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &args) {
                                 .ToLocalChecked());
 }
 
+class ServerCollection {
+ public:
+  std::shared_ptr<inspector::InspectorSocketServer> getServer(int port) {
+    const std::lock_guard<std::mutex> lock(mutex_server_init_);
 
-InspectorSocketServer& AgentImpl::ensureServer() {
-  const std::lock_guard<std::mutex> lock(g_mutex_server_init_);
-
-  auto server = g_servers_.find(port_);
-  if (server == g_servers_.end()) {
-    auto delegate = std::make_unique<InspectorAgentDelegate>();
-    auto newserver =
-        std::make_unique<InspectorSocketServer>(std::move(delegate), port_);
-    if (!newserver->Start()) {
-      std::abort();
+    std::shared_ptr<inspector::InspectorSocketServer> server;
+    // Reuse if the server is already running on the given port.
+    auto existingServers = servers_.find(port);
+    if (existingServers != servers_.end()) {
+      auto s = servers_[port].lock();
+      if (s)
+        server = std::move(s);
+      else
+        servers_.erase(port);
     }
 
-    g_servers_[port_] = std::move(newserver);
+    if (!server) {
+      auto delegate = std::make_unique<InspectorAgentDelegate>();
+      auto newserver =
+          std::make_shared<InspectorSocketServer>(std::move(delegate), port);
+      if (!newserver->Start()) {
+        std::abort();
+      }
+
+      server = std::move(newserver);
+      servers_[port] = server;
+    }
+
+    return server;
   }
 
-  return *g_servers_[port_];
+  void removeServer(int port) {
+    servers_.erase(port);
+  }
 
-}
+  static ServerCollection& Instance() {
+    static ServerCollection instance;
+    return instance;
+  }
+
+ private:
+  std::mutex mutex_server_init_;
+  std::unordered_map<int, std::weak_ptr<inspector::InspectorSocketServer>> servers_;
+};
 
 void AgentImpl::Start() {
-  auto& server = ensureServer();
+  if (state_ == State::kConnected || state_ == State::kAccepting) return;
+
+  server_ = ServerCollection::Instance().getServer(port_);
+  server_->AddTarget(shared_from_this());
   state_ = State::kAccepting;
-  server.AddTarget(shared_from_this());
 }
 
 void AgentImpl::waitForDebugger() {
@@ -437,17 +468,24 @@ void AgentImpl::waitForDebugger() {
 void AgentImpl::Stop() {
   if (!IsStarted()) return;
 
-  // Note: To close the inspector session, We send a "magic" message, which is an empty message.
-  // Our tcp session code has code to handle the magic message by closing the tcp connection to the browser/vscode/inspector and triggers the close callback to the V8 inspector client.
-  Write(session_id_,
-        v8_inspector::StringBuffer::create((v8_inspector::StringView(
-            reinterpret_cast<const uint8_t*>(""), 0))));
+  if (state_ == State::kConnected) {
+    // Note: To close the inspector session, We send a "magic" message, which is
+    // an empty message. Our tcp session code has code to handle the magic
+    // message by closing the tcp connection to the browser/vscode/inspector and
+    // triggers the close callback to the V8 inspector client.
+    Write(session_id_,
+          v8_inspector::StringBuffer::create((v8_inspector::StringView(
+              reinterpret_cast<const uint8_t*>(""), 0))));
+  }
 
   WaitForDisconnect();
   state_ = State::kDone;
 
-  auto& server = ensureServer();
-  server.RemoveTarget(shared_from_this());
+  server_->RemoveTarget(shared_from_this());
+  if (!server_->HasTargets()) {
+    server_->Stop();
+    ServerCollection::Instance().removeServer(port_);
+  }
 }
 
 bool AgentImpl::IsConnected() { return state_ == State::kConnected; }
@@ -456,14 +494,21 @@ bool AgentImpl::IsStarted() {
   return state_ == State::kAccepting || state_ == State::kConnected;
 }
 
+size_t AgentImpl::getInspectedContextsCount() {
+  assert(inspected_contexts_count_ >= 0);
+  return inspected_contexts_count_;
+}
+
 void AgentImpl::addContext(v8::Local<v8::Context> context,
                        const char* context_name) {
   title_ = context_name;
   inspector_->setupContext(context, context_name);
+  inspected_contexts_count_++;
 }
 
 void AgentImpl::removeContext(v8::Local<v8::Context> context) {
   inspector_->tearDownContext(context);
+  inspected_contexts_count_--;
 }
 
 void AgentImpl::WaitForDisconnect() {
@@ -624,7 +669,7 @@ void AgentImpl::Write(
     TRACEV8INSPECTOR_VERBOSE("OutMessage",
                              TraceLoggingString(message.c_str(), "message"));
 
-    ensureServer().Send(outgoing.first, std::move(message));
+    server_->Send(outgoing.first, std::move(message));
   }
 }
 
@@ -670,8 +715,6 @@ Agent::~Agent() {
   if (IsStarted()) {
     stop();
   }
-
-  agents_s_.erase(shared_from_this());
 }
 
 void Agent::waitForDebugger() {
@@ -695,13 +738,17 @@ void Agent::addContext(v8::Local<v8::Context> context,
   const char* context_name) {
   impl->addContext(context, context_name);
 
-  // We want to add the current to the static list in constructor, but shared_from_this can't be called in constructor.
-  auto shared = shared_from_this();
-  agents_s_.insert(shared);
+  if (impl->getInspectedContextsCount() == 1) {
+    agents_s_.insert(impl);
+  }
 }
 
 void Agent::removeContext(v8::Local<v8::Context> context) {
   impl->removeContext(context);
+
+  if (impl->getInspectedContextsCount() == 0) {
+    agents_s_.erase(impl);
+  }
 }
 
 bool Agent::IsConnected() {
@@ -716,10 +763,13 @@ void Agent::notifyLoadedUrl(const std::string& url) { impl->notifyLoadedUrl(url)
 
 std::shared_ptr<Agent> Agent::getShared() { return shared_from_this(); }
 
-/*static*/ std::unordered_set<std::shared_ptr<inspector::Agent>>
+/*static*/ std::unordered_set<std::shared_ptr<inspector::AgentImpl>>
         Agent::agents_s_;
-std::unordered_set<std::shared_ptr<inspector::Agent>> Agent::getActiveAgents() {
-  return agents_s_;
+
+/*static */void Agent::startAll() {
+  for (auto agent : agents_s_) {
+    agent->Start();
+  }
 }
 
 void Agent::FatalException(
@@ -749,8 +799,6 @@ void InspectorAgentDelegate::EndSession(int session_id) {
   session_targets_map_[session_id]->PostIncomingMessage(session_id,
                                                        TAG_DISCONNECT);
 }
-
-
 void InspectorAgentDelegate::AddTarget(std::shared_ptr<AgentImpl> agent) {
   std::string targetId = agent->targetId();
   targets_map_.emplace(targetId, agent);
@@ -760,6 +808,8 @@ void InspectorAgentDelegate::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
   std::string targetId = agent->targetId();
   targets_map_.erase(targetId);
 }
+
+bool InspectorAgentDelegate::HasTargets() { return targets_map_.size() > 0; }
 
 std::vector<std::string> InspectorAgentDelegate::GetTargetIds() {
   std::vector<std::string> keys;

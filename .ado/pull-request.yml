@@ -13,7 +13,7 @@ pool:
 
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 180
+    timeoutInMinutes: 210
     displayName: Build v8jsi.dll
     strategy:
       matrix:
@@ -101,10 +101,12 @@ jobs:
           NuGetId: ReactNative.V8Jsi.Windows
           NuGetExcludeExtensions: ipdb
           NuGetIncludeSymbols: false
+          NuGetFolderExport: win32
         Universal:
           NuGetId: ReactNative.V8Jsi.Windows.UWP
           NuGetExcludeExtensions: pdb
           NuGetIncludeSymbols: true
+          NuGetFolderExport: uwp
     steps:
       - checkout: none
 
@@ -134,7 +136,7 @@ jobs:
           command: pack
           packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions)
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions);NuGetFolderExport=$(NuGetFolderExport)
           versioningScheme: byEnvVar
           versionEnvVar: Version
           includeSymbols: $(NuGetIncludeSymbols)

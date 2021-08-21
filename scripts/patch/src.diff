@@ -1,32 +1,25 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index d2bfb6129d..b14a7189f2 100644
+index 17bab98e8f..b08181f37f 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -4661,11 +4661,18 @@ v8_component("v8_libbase") {
- 
+@@ -1124,7 +1124,7 @@ config("toolchain") {
+   } else if (target_os == "mac") {
+     defines += [ "V8_HAVE_TARGET_OS" ]
+     defines += [ "V8_TARGET_OS_MACOSX" ]
+-  } else if (target_os == "win") {
++  } else if (target_os == "win" || target_os == "winuwp") {
+     defines += [ "V8_HAVE_TARGET_OS" ]
+     defines += [ "V8_TARGET_OS_WIN" ]
+   }
+@@ -4813,7 +4813,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
--    libs = [
+     libs = [
 -      "dbghelp.lib",
--      "winmm.lib",
--      "ws2_32.lib",
--    ]
-+    if (target_os == "winuwp") {
-+      libs = [
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    } else {
-+      libs = [
-+        "dbghelp.lib",
-+        "winmm.lib",
-+        "ws2_32.lib",
-+      ]
-+    }
- 
-     if (v8_enable_system_instrumentation) {
-       libs += [ "advapi32.lib" ]  # Needed for TraceLoggingProvider.h
-@@ -6212,3 +6219,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+       "winmm.lib",
+       "ws2_32.lib",
+     ]
+@@ -6411,3 +6410,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -36,25 +29,26 @@ index d2bfb6129d..b14a7189f2 100644
 +    "jsi:v8jsi",
 +  ]
 +}
+\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index b27a4e8e8f..056054b8bd 100644
+index b1e297b106..64a3ce8c2c 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -580,4 +580,15 @@ hooks = [
+@@ -593,4 +593,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
-+ {
-+   'name': 'rc_win',
-+   'pattern': '.',
-+   'condition': 'checkout_win and host_os == "win"',
-+   'action': [ 'download_from_google_storage',
-+               '--no_resume',
-+               '--no_auth',
-+               '--bucket', 'chromium-browser-clang/rc',
-+               '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
-+   ],
-+ }
++  {
++    'name': 'rc_win',
++    'pattern': '.',
++    'condition': 'checkout_win and host_os == "win"',
++    'action': [ 'download_from_google_storage',
++                '--no_resume',
++                '--no_auth',
++                '--bucket', 'chromium-browser-clang/rc',
++                '-s', 'build/toolchain/win/rc/win/rc.exe.sha1',
++    ],
++  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
 index e855b88e43..61d56e574f 100644
@@ -71,14 +65,14 @@ index e855b88e43..61d56e574f 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec610..c054ba8dc9 100644
+index f981bec610..87cab0e18b 100644
 --- a/src/base/debug/stack_trace_win.cc
 +++ b/src/base/debug/stack_trace_win.cc
 @@ -29,6 +29,35 @@ namespace v8 {
  namespace base {
  namespace debug {
  
-+#ifdef WINUWP
++#if defined(WINUWP) || 1 // dbghelp dependency unwanted
 +
 +bool EnableInProcessStackDumping() {
 +  return false;
@@ -120,7 +114,7 @@ index f981bec610..c054ba8dc9 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 50da60c72f..3a3b94af98 100644
+index 9fbb257076..dc6aebe360 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
 @@ -1069,7 +1069,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
@@ -128,37 +122,37 @@ index 50da60c72f..3a3b94af98 100644
  
  // DbgHelp isn't supported on MinGW yet
 -#ifndef __MINGW32__
-+#if !defined(__MINGW32__) && !defined(WINUWP)
++#if !defined(__MINGW32__) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index 9a5f7069e7..a53c0ad644 100644
+index 12f9d40e6a..3ee7c9b083 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
-@@ -528,7 +528,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
+@@ -531,7 +531,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
    // by the embedder (like Crashpad).
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
-@@ -567,7 +567,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
+@@ -570,7 +570,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
    DCHECK(CanRegisterUnwindInfoForNonABICompliantCodeRange());
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP)
++#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 308b57a309..8e943c7ae9 100644
+index 6cafd72d65..cbdd934cdd 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -978,7 +978,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
+@@ -973,7 +973,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -170,7 +164,7 @@ index 308b57a309..8e943c7ae9 100644
            VariableAllocationInfo::CONTEXT &&
        FunctionName() == name) {
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index cf380b015d..e5461ea89e 100644
+index 447d2e9bac..d0df29e01c 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 @@ -139,7 +139,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
@@ -180,13 +174,13 @@ index cf380b015d..e5461ea89e 100644
 -  } else if (string == "win") {
 +  } else if (string == "win" || string == "winuwp") {
      return EmbeddedTargetOs::kWin;
-   } else {
-     return EmbeddedTargetOs::kGeneric;
+   } else if (string == "starboard") {
+     return EmbeddedTargetOs::kStarboard;
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index db4d3ac13b..fac0b2a643 100644
+index 9cdd53fa6d..3009d06b9a 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -76,8 +76,10 @@ const int kAllocationTries = 2;
+@@ -79,8 +79,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
@@ -199,3 +193,16 @@ index db4d3ac13b..fac0b2a643 100644
  }
  
  v8::PageAllocator* SetPlatformPageAllocatorForTesting(
+diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
+index d36db5f009..65c0bd26ec 100644
+--- a/src/wasm/wasm-module-builder.h
++++ b/src/wasm/wasm-module-builder.h
+@@ -338,7 +338,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+   };
+ 
+   struct WasmGlobal {
+-    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
++    //MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
+ 
+     ValueType type;
+     bool mutability;
