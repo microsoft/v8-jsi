@@ -909,6 +909,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       auto err = jsi::JSError(*this, ex_messages);
       err.value().getObject(*this).setProperty(
           *this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
+      err.setStack(sstr.str());
       throw err;
     } else {
       // If we're already in stack overflow, calling the Error constructor pushes it overboard
