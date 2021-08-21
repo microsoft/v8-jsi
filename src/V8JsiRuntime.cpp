@@ -617,6 +617,10 @@ jsi::Value V8Runtime::evaluateJavaScript(
   return result;
 }
 
+bool V8Runtime::drainMicrotasks(int /*maxMicrotasksHint*/) {
+  return true;
+}
+
 // The callback that is invoked by v8 whenever the JavaScript 'print'
 // function is called.  Prints its arguments on stdout separated by
 // spaces and ending with a newline.

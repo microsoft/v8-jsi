@@ -210,6 +210,8 @@ class V8Runtime : public facebook::jsi::Runtime {
       const std::shared_ptr<const facebook::jsi::Buffer> &buffer,
       const std::string &sourceURL) override;
 
+  bool drainMicrotasks(int maxMicrotasksHint) override;
+
   facebook::jsi::Object global() override;
 
   std::string description() override;
@@ -618,7 +620,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   V8RuntimeArgs& runtimeArgs() {
     return args_;
   }
- 
+
  private:
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
 
