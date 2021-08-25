@@ -46,5 +46,6 @@ foreach ($Plat in $Platform) {
 
 if (!$?) {
     Write-Host "Build failure"
+    Pop-Location
     exit 1
 }
