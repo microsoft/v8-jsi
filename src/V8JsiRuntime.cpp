@@ -464,6 +464,9 @@ void V8Runtime::initializeV8() {
   if (args_.flags.enableGCApi)
     argv.push_back("--expose_gc");
 
+  if (args_.flags.enableSystemInstrumentation)
+    argv.push_back("--enable-system-instrumentation");
+
   if (args_.flags.sparkplug)
     argv.push_back("--sparkplug");
 

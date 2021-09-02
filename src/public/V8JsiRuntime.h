@@ -68,6 +68,7 @@ struct V8RuntimeArgs {
       bool waitForDebugger:1;
       bool enableGCApi:1;
       bool ignoreUnhandledPromises:1;
+      bool enableSystemInstrumentation:1; // Provider GUID "57277741-3638-4A4B-BDBA-0AC6E45DA56C"
 
       // Experimental flags (for memory-constrained optimization testing)
       bool sparkplug:1; // https://v8.dev/blog/sparkplug

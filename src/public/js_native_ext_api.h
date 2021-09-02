@@ -81,6 +81,7 @@ typedef struct _napi_ext_env_settings
       bool wait_for_debugger:1;
       bool enable_gc_api:1;
       bool ignore_unhandled_promises:1;
+      bool enable_system_instrumentation:1;
 
       // Experimental flags (for memory-constrained optimization testing)
       bool sparkplug:1; // https://v8.dev/blog/sparkplug
