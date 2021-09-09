@@ -598,7 +598,7 @@ V8Runtime::~V8Runtime() {
 jsi::Value V8Runtime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
     const std::string &sourceURL) {
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"), TraceLoggingString(sourceURL.c_str(), "sourceURL"));
 
   _ISOLATE_CONTEXT_ENTER
 
@@ -620,8 +620,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
   }
 
   jsi::Value result = ExecuteString(sourceV8String, sourceURL);
-
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"), TraceLoggingString(sourceURL.c_str(), "sourceURL"));
   DumpCounters("script evaluated");
 
   return result;
