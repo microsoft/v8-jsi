@@ -487,6 +487,11 @@ void V8Runtime::initializeV8() {
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
+  args_.flags.enableMessageTracing = true;
+  args_.flags.enableGCTracing = true;
+  args_.flags.enableJitTracing = true;
+  args_.flags.trackGCObjectStats = true;
+
   initializeTracing();
   initializeV8();
 
@@ -540,6 +545,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     }
   }
 #endif
+
+  TRACEV8RUNTIME_VERBOSE(TraceLoggingString(args_.debuggerRuntimeName.c_str(), "debuggerRuntimeName"));
 
   createHostObjectConstructorPerContext();
 }
