@@ -546,7 +546,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   }
 #endif
 
-  // TRACEV8RUNTIME_VERBOSE(TraceLoggingString(args_.debuggerRuntimeName.c_str(), "debuggerRuntimeName"));
+  TRACEV8RUNTIME_VERBOSE("initialisation", TraceLoggingString(const_cast<char *>(args_.debuggerRuntimeName.c_str()), "debuggerRuntimeName"));
 
   createHostObjectConstructorPerContext();
 }
