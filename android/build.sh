@@ -23,12 +23,14 @@ gclient sync
 
 # apply build and source patches
 echo "Applying patches"
+pwd
 ln -s ../.. jsi
-cd build && git apply < jsi/scripts/patch/build.patch && cd ..
-git apply < jsi/scripts/patch/src.patch
+cd build && git apply < ../jsi/scripts/patch/build.patch
+cd .. && git apply < jsi/scripts/patch/src.patch
 
 # install Android NDK r21b
 echo "Installing Android NDK r21b"
+pwd
 cd third_party
 curl -o android_ndk_r21b.zip https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
 unzip android_ndk_r21b.zip && mv android-ndk-r21b android_ndk_r21b
