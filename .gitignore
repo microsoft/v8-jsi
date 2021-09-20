@@ -1,5 +1,5 @@
 build
-out*
+out.*
 .vscode
 build.log
 src/version_gen.rc
