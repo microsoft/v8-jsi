@@ -49,6 +49,22 @@ echo "Building"
 ninja -C out/x86/debug v8jsi && ninja -C out/x86/ship v8jsi && ninja -C out/x64/debug v8jsi && ninja -C out/x64/ship v8jsi && ninja -C out/arm/debug v8jsi && ninja -C out/arm/ship v8jsi && ninja -C out/arm64/debug v8jsi && ninja -C out/arm64/ship v8jsi
 mv out jsi
 
+# package
+
+cd jsi
+mkdir ReactNative.V8jsi.Android.7.0.276.32-v1
+mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidx86/
+mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidx64/
+mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm/
+mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm64/
+cd ReactNative.V8jsi.Android.7.0.276.32-v1
+
+cp out/x86/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidx86/
+cp out/x64/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidx64/
+cp out/arm/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm/
+cp out/arm64/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm64/
+
+
 # add files to a package
 # nuspec
 # nuget pack
