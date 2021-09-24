@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 3e48fb11bf..5280aa1f8c 100644
+index 5c7d931b27..d9b304fe7d 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1141,7 +1141,7 @@ config("toolchain") {
+@@ -1178,7 +1178,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOSX" ]
@@ -11,7 +11,7 @@ index 3e48fb11bf..5280aa1f8c 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -4866,7 +4866,6 @@ v8_component("v8_libbase") {
+@@ -4963,7 +4963,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -19,7 +19,7 @@ index 3e48fb11bf..5280aa1f8c 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6476,3 +6475,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6579,3 +6578,8 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -31,10 +31,10 @@ index 3e48fb11bf..5280aa1f8c 100644
 +}
 \ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 439f45ca58..be0cba2859 100644
+index 8059e3b8c3..a30b143fe5 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -593,4 +593,15 @@ hooks = [
+@@ -591,4 +591,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -51,7 +51,7 @@ index 439f45ca58..be0cba2859 100644
 +  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index e855b88e43..61d56e574f 100644
+index feabd079e0..d9651731e4 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
 @@ -70,6 +70,9 @@ if (v8_snapshot_toolchain == "") {
@@ -65,14 +65,14 @@ index e855b88e43..61d56e574f 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or a different target OS. Clang will always be used by default on the
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec610..87cab0e18b 100644
+index f981bec610..574602f10b 100644
 --- a/src/base/debug/stack_trace_win.cc
 +++ b/src/base/debug/stack_trace_win.cc
 @@ -29,6 +29,35 @@ namespace v8 {
  namespace base {
  namespace debug {
  
-+#if defined(WINUWP) || 1 // dbghelp dependency unwanted
++#if 1 // dbghelp dependency unwanted
 +
 +bool EnableInProcessStackDumping() {
 +  return false;
@@ -108,39 +108,28 @@ index f981bec610..87cab0e18b 100644
    }
  }
  
-+#endif // WINUWP
++#endif // dbghelp
 +
  }  // namespace debug
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 79c1aa06ce..0f8b8e918a 100644
+index 6b5c5df496..2e76703d48 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1096,7 +1096,7 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+@@ -1110,8 +1110,8 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+ #define VOID void
  #endif
  
- // DbgHelp isn't supported on MinGW yet
+-// DbgHelp isn't supported on MinGW yet
 -#ifndef __MINGW32__
-+#if !defined(__MINGW32__) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
++// DbgHelp isn't supported on Windows
++#if 0
  // DbgHelp.h functions.
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
-diff --git a/src/base/platform/platform.h b/src/base/platform/platform.h
-index 6ad724db08..d196578342 100644
---- a/src/base/platform/platform.h
-+++ b/src/base/platform/platform.h
-@@ -47,7 +47,7 @@
- // And, intrin.h is a very expensive header that we want to avoid here, and
- // the cheaper intrin0.h is not available for all build configurations. That is
- // why we declare this intrinsic.
--unsigned long __readfsdword(unsigned long);  // NOLINT(runtime/int)
-+extern "C" unsigned long __readfsdword(unsigned long);  // NOLINT(runtime/int)
- #endif                                       // V8_CC_MSVC && V8_HOST_ARCH_IA32
- #endif                                       // V8_NO_FAST_TLS
- 
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index d50767421a..8f13ae9f36 100644
+index d50767421a..3d296db7c6 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
 @@ -536,7 +536,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
@@ -148,7 +137,7 @@ index d50767421a..8f13ae9f36 100644
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
++#if 0
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
@@ -157,7 +146,7 @@ index d50767421a..8f13ae9f36 100644
  
    if (RegisterUnwindInfoForExceptionHandlingOnly()) {
 -#if defined(V8_OS_WIN_X64)
-+#if defined(V8_OS_WIN_X64) && !defined(WINUWP) && 0 // dbghelp dependency unwanted
++#if 0
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
@@ -190,32 +179,32 @@ index 447d2e9bac..d0df29e01c 100644
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 9cdd53fa6d..3009d06b9a 100644
+index 6f6225797a..54d31605fc 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -79,8 +79,10 @@ const int kAllocationTries = 2;
+@@ -90,8 +90,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
--  DCHECK_NOT_NULL(GetPageTableInitializer()->page_allocator());
--  return GetPageTableInitializer()->page_allocator();
-+  //DCHECK_NOT_NULL(GetPageTableInitializer()->page_allocator());
-+  //return GetPageTableInitializer()->page_allocator();
+-  DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
+-  return GetPageAllocatorInitializer()->page_allocator();
++  // DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
++  // return GetPageAllocatorInitializer()->page_allocator();
 +
 +  return V8::GetCurrentPlatform()->GetPageAllocator();
  }
  
- v8::PageAllocator* SetPlatformPageAllocatorForTesting(
+ #ifdef V8_VIRTUAL_MEMORY_CAGE
 diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
-index db2091cdba..e918cd2e24 100644
+index 8eeac56afd..dc9e4479e4 100644
 --- a/src/wasm/wasm-module-builder.h
 +++ b/src/wasm/wasm-module-builder.h
-@@ -351,7 +351,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+@@ -433,7 +433,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
    };
  
    struct WasmGlobal {
 -    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
-+    //MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
++    // MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
  
      ValueType type;
      bool mutability;
