@@ -1,5 +1,5 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 5c7d931b27..d9b304fe7d 100644
+index 5c7d931b27..a13c41a1c4 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
 @@ -1178,7 +1178,7 @@ config("toolchain") {
@@ -19,7 +19,7 @@ index 5c7d931b27..d9b304fe7d 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6579,3 +6578,8 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6579,3 +6578,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
