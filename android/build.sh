@@ -1,5 +1,8 @@
+# defining params
+platform_list="x86 x64 arm arm64"
+
 # removing output
-rm -rf out ReactNative.V8jsi.Android.7.0.276.32-v1
+rm -rf out
 
 # install depot_tools
 if [ ! -d build ]; then
@@ -32,6 +35,7 @@ cd .. && git apply < jsi/scripts/patch/src.patch
 
 # install Android NDK r21b
 cd third_party
+# not the best way to check for NDK - should push this to repo / add a docker image for this and other deps
 if [ ! -d android_ndk_r21b ]; then
   echo "Installing Android NDK r21b"
   curl -o android_ndk_r21b.zip https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
@@ -42,37 +46,37 @@ else
   echo "Android NDK installed"
 fi
 cd ..
+
 # # configure 
 echo "Setting build configuration"
 rm -rf out
-gn gen out/x86/debug --args='target_os="android" target_cpu="x86" is_debug=true v8_enable_i18n_support=false v8_target_cpu="x86" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21'
-gn gen out/x86/ship --args='target_os="android" target_cpu="x86" is_debug=false v8_enable_i18n_support=false v8_target_cpu="x86" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21 is_official_build=true'
-gn gen out/x64/debug --args='target_os="android" target_cpu="x64" is_debug=true v8_enable_i18n_support=false v8_target_cpu="x64" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21'
-gn gen out/x64/ship --args='target_os="android" target_cpu="x64" is_debug=false v8_enable_i18n_support=false v8_target_cpu="x64" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21 is_official_build=true'
-gn gen out/arm/debug --args='target_os="android" target_cpu="arm" is_debug=true v8_enable_i18n_support=false v8_target_cpu="arm" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21'
-gn gen out/arm/ship --args='target_os="android" target_cpu="arm" is_debug=false v8_enable_i18n_support=false v8_target_cpu="arm" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21 is_official_build=true'
-gn gen out/arm64/debug --args='target_os="android" target_cpu="arm64" is_debug=true v8_enable_i18n_support=false v8_target_cpu="arm64" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21'
-gn gen out/arm64/ship --args='target_os="android" target_cpu="arm64" is_debug=false v8_enable_i18n_support=false v8_target_cpu="arm64" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21 is_official_build=true'
+for platform in $platform_list; do
+  gn gen out/$platform/debug --args='target_os="android" target_cpu="'$platform'" is_debug=true v8_enable_i18n_support=false v8_target_cpu="'$platform'" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21'
+  gn gen out/$platform/ship --args='target_os="android" target_cpu="'$platform'" is_debug=false v8_enable_i18n_support=false v8_target_cpu="'$platform'" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root="//third_party/android_ndk_r21b" android_ndk_version="r21b" android_ndk_major_version=21 is_official_build=true'
+done
 
 # build
 echo "Building"
-ninja -C out/x86/debug v8jsi && ninja -C out/x86/ship v8jsi && ninja -C out/x64/debug v8jsi && ninja -C out/x64/ship v8jsi && ninja -C out/arm/debug v8jsi && ninja -C out/arm/ship v8jsi && ninja -C out/arm64/debug v8jsi && ninja -C out/arm64/ship v8jsi
-mv out jsi
 
-# package
+for platform in $platform_list; do
+  echo "Running build for $platform"
+  ninja -C out/$platform/debug v8jsi && ninja -C out/$platform/ship v8jsi
+done
 
-cd jsi
-mkdir ReactNative.V8jsi.Android.7.0.276.32-v1
-mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidx86/
-mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidx64/
-mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm/
-mkdir -p ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm64/
-cd ReactNative.V8jsi.Android.7.0.276.32-v1
+# packaging
 
-cp out/x86/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidx86/
-cp out/x64/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidx64/
-cp out/arm/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm/
-cp out/arm64/debug/libv8jsi.so ReactNative.V8jsi.Android.7.0.276.32-v1/droidarm64/
+echo "Packaging"
+
+mkdir -p jsi/out/android/headers/include
+cp jsi/{V8Runtime.h,V8Runtime_impl.h,V8Platform.h,FileUtils.h} jsi/out/android/headers/include # headers
+
+mkdir -p jsi/out/android/lib
+
+for platform in $platform_list; do
+  mkdir -p jsi/out/android/lib/$platform/{debug,ship}
+  cp -r out/$platform/debug/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/debug/
+  cp -r out/$platform/ship/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/ship/
+done
 
 
 # add files to a package
