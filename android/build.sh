@@ -1,5 +1,5 @@
 # defining params
-platform_list="x86 x64 arm arm64"
+platform_list="x86 x64 arm arm64" # TODO: perhaps should only build one platform by default?
 
 # removing output
 rm -rf out
@@ -79,38 +79,3 @@ for platform in $platform_list; do
   cp -r out/$platform/debug/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/debug/
   cp -r out/$platform/ship/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/ship/
 done
-
-
-# add files to a package
-# nuspec
-# nuget pack
-# ado pipeline
-
-# # Copy
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx86/debug/x-none/* 
-# cp out/x86/debug/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx86/debug/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx86/ship/x-none/* 
-# cp out/x86/ship/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx86/ship/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx64/debug/x-none/* 
-# cp out/x64/debug/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx64/debug/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx64/ship/x-none/* 
-# cp out/x64/ship/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidx64/ship/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm/debug/x-none/* 
-# cp out/arm/debug/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm/debug/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm/ship/x-none/* 
-# cp out/arm/ship/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm/ship/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm64/debug/x-none/* 
-# cp out/arm64/debug/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm64/debug/x-none/ 
-
-# rm -rf ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm64/ship/x-none/* 
-# cp out/arm64/ship/libv8jsi.so ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/droidarm64/ship/x-none/ 
-
-# cp jsi/V8Runtime.h ~/code/react-native-macos/ReactAndroid/packages/ReactNative.V8.Android.7.0.276.32-v1/headers/include/jsi/V8Runtime.h
-
-# rn tester

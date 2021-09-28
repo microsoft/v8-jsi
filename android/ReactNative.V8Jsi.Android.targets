@@ -1,0 +1,29 @@
+<!-- TODO -->
+
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <V8AppPlatform Condition="'$(V8AppPlatform)' == '' AND $(AppContainerApplication) == 'true'">uwp</V8AppPlatform>
+    <V8AppPlatform Condition="'$(V8AppPlatform)' == ''">win32</V8AppPlatform>
+
+    <V8Platform Condition="'$(V8Platform)' == ''">$(Platform)</V8Platform>
+    <!-- Fix platform name (win32 should be x86) -->
+    <V8Platform Condition="'$(V8Platform)' == 'Win32'">x86</V8Platform>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <Link>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>v8jsi.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <DelayLoadDLLs>v8jsi.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+    </Link>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
+        <!-- We have no winmd, so make sure uwp dlls get copied over -->
+    <CopyLocalFilesOutputGroupOutput Condition="'$(V8AppPlatform)' == 'uwp'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll" />
+    <!-- Disable publishing PDBs for UWP due to increased package size -->
+    <ReferenceCopyLocalPaths Condition="'$(V8AppPlatform)' == 'win32'" Include="$(MSBuildThisFileDirectory)..\..\lib\$(V8AppPlatform)\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
+  </ItemGroup>
+</Project>
