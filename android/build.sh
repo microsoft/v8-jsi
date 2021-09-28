@@ -69,6 +69,8 @@ echo "Packaging"
 
 mkdir -p jsi/out/android/headers/include
 cp jsi/{V8Runtime.h,V8Runtime_impl.h,V8Platform.h,FileUtils.h} jsi/out/android/headers/include # headers
+cp jsi/build.config jsi/out/android # config file
+# TODO: copy JSI headers as well?
 
 mkdir -p jsi/out/android/lib
 
