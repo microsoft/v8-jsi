@@ -3,6 +3,7 @@
 // This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
 #include "v8-inspector.h"
 #include "v8-platform.h"
+#include "v8-message.h"
 
 #include "inspector_agent.h"
 #include "inspector_socket_server.h"
@@ -540,7 +541,7 @@ void AgentImpl::FatalException(
   v8::Local<v8::Context> context =
       v8::Isolate::GetCurrent()->GetCurrentContext();
 
-  int script_id = message->GetScriptOrigin().ScriptID()->Value();
+  int script_id = message->GetScriptOrigin().ScriptId();
 
   v8::Local<v8::StackTrace> stack_trace = message->GetStackTrace();
 
