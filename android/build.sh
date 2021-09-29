@@ -71,10 +71,10 @@ done
 echo "Packaging"
 
 mkdir -p jsi/out/android/headers/include/jsi
-cp jsi/{V8Runtime.h} jsi/out/android/headers/include # headers
+cp jsi/V8Runtime.h jsi/out/android/headers/include # headers
 cp jsi/build.config jsi/out/android # config file
 cp third_party/android_ndk_r21b/source.properties jsi/out/android/ndk_source.properties # ndk source.properties
-cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} jsi/out/android/headers/include/jsi
+cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} jsi/out/android/headers/include/jsi # jsi headers
 
 mkdir -p jsi/out/android/lib
 
