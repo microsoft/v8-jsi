@@ -1,7 +1,9 @@
 # defining params
-platform_list="x86 x64 arm arm64" # TODO: perhaps should only build one platform by default?
+# TODO: should only build one platform by default - will change when ADO pipeline is set up
 
-# removing output
+platform_list="x86 x64 arm arm64" 
+
+# cleaning output
 rm -rf out
 
 # install depot_tools
@@ -35,8 +37,9 @@ cd .. && git apply < jsi/scripts/patch/src.patch
 
 # install Android NDK r21b
 cd third_party
-# not the best way to check for NDK - should push this to repo / add a docker image for this and other deps
-if [ ! -d android_ndk_r21b ]; then
+
+# TODO: use a docker image for dependencies instead
+if [ ! -f android_ndk_r21b/source.properties ]; then
   echo "Installing Android NDK r21b"
   curl -o android_ndk_r21b.zip https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
   unzip android_ndk_r21b.zip
@@ -47,7 +50,7 @@ else
 fi
 cd ..
 
-# # configure 
+# configure 
 echo "Setting build configuration"
 rm -rf out
 for platform in $platform_list; do
@@ -67,15 +70,18 @@ done
 
 echo "Packaging"
 
-mkdir -p jsi/out/android/headers/include
-cp jsi/{V8Runtime.h,V8Runtime_impl.h,V8Platform.h,FileUtils.h} jsi/out/android/headers/include # headers
+mkdir -p jsi/out/android/headers/include/jsi
+cp jsi/{V8Runtime.h} jsi/out/android/headers/include # headers
 cp jsi/build.config jsi/out/android # config file
-# TODO: copy JSI headers as well?
+cp third_party/android_ndk_r21b/source.properties jsi/out/android/ndk_source.properties # ndk source.properties
+cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} jsi/out/android/headers/include/jsi
 
 mkdir -p jsi/out/android/lib
 
 for platform in $platform_list; do
   mkdir -p jsi/out/android/lib/$platform/{debug,ship}
-  cp -r out/$platform/debug/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/debug/
-  cp -r out/$platform/ship/{libv8jsi.so,args.gn,lib.unstripped} jsi/out/android/lib/$platform/ship/
+
+  # TODO: add unstripped lib after ADO pipeline works due to large size
+  cp -r out/$platform/debug/{libv8jsi.so,args.gn} jsi/out/android/lib/$platform/debug/
+  cp -r out/$platform/ship/{libv8jsi.so,args.gn} jsi/out/android/lib/$platform/ship/
 done
