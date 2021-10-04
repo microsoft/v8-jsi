@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # defining params
 # TODO: should only build one platform by default - will change when ADO pipeline is set up
 
@@ -32,11 +34,11 @@ gclient sync
 # apply build and source patches
 echo "Applying patches"
 ln -s ../.. jsi
-cd build && git apply < ../jsi/scripts/patch/build.patch
-cd .. && git apply < jsi/scripts/patch/src.patch
+pushd build && git apply < ../jsi/scripts/patch/build.patch
+popd && git apply < jsi/scripts/patch/src.patch
 
 # install Android NDK r21b
-cd third_party
+pushd third_party
 
 # TODO: use a docker image for dependencies instead
 if [ ! -f android_ndk_r21b/source.properties ]; then
@@ -48,7 +50,7 @@ if [ ! -f android_ndk_r21b/source.properties ]; then
 else
   echo "Android NDK installed"
 fi
-cd ..
+popd
 
 # configure 
 echo "Setting build configuration"

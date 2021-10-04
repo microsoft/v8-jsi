@@ -9,7 +9,9 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
 Run `./localbuild.ps1` in a PowerShell terminal; by default, this will only build the win32 x64 release version of the binary. Edit the file to specify other platforms, architectures or flavors.
 
 #### Android
-From the `android` directory, run `./build.sh` in a bash terminal. This builds the x64, x86, arm and arm64 debug and release version of the binary for Android. Currently, these builds use V8 7.0.276.32 and Android NDK version r21b.
+From the `android` directory, run `./build.sh` in a bash terminal. This builds the x64, x86, arm and arm64 debug and release version of the binary for Android. 
+
+Currently, the Android version builds on V8 7.0.276.32 and the JSI headers from React Native 0.64.2, while the Windows build uses V8 9.5 and the JSI headers from React Native 0.65.5. Because of this, the Android build currently uses a different V8Runtime ([V8Runtime.h](android/V8Runtime.h)) than Windows ([V8JsiRuntime.h](src/public/V8JsiRuntime.h)). Future Android releases will aim to sync the Android dependencies with Windows.
 
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
