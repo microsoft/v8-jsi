@@ -1,5 +1,8 @@
 build
-out
 .vscode
 build.log
 src/version_gen.rc
+
+# outputs
+out*
+.nupkg
