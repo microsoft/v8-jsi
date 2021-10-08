@@ -5,4 +5,4 @@ src/version_gen.rc
 
 # outputs
 out*
-.nupkg
+*.nupkg
