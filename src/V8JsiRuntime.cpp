@@ -487,6 +487,11 @@ void V8Runtime::initializeV8() {
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
+  args_.flags.enableMessageTracing = true;
+  args_.flags.enableGCTracing = true;
+  args_.flags.enableJitTracing = true;
+  args_.flags.trackGCObjectStats = true;
+
   initializeTracing();
   initializeV8();
 
@@ -541,6 +546,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   }
 #endif
 
+  TRACEV8RUNTIME_VERBOSE("initialisation", TraceLoggingString(const_cast<char *>(args_.debuggerRuntimeName.c_str()), "debuggerRuntimeName"));
+
   createHostObjectConstructorPerContext();
 }
 
@@ -591,7 +598,7 @@ V8Runtime::~V8Runtime() {
 jsi::Value V8Runtime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
     const std::string &sourceURL) {
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"));
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"), TraceLoggingString(sourceURL.c_str(), "sourceURL"));
 
   _ISOLATE_CONTEXT_ENTER
 
@@ -613,8 +620,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
   }
 
   jsi::Value result = ExecuteString(sourceV8String, sourceURL);
-
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"), TraceLoggingString(sourceURL.c_str(), "sourceURL"));
   DumpCounters("script evaluated");
 
   return result;
