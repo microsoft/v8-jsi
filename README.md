@@ -5,7 +5,7 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
 
 ## Building
 
-#### Win32
+#### Windows
 Run `./localbuild.ps1` in a PowerShell terminal; by default, this will only build the win32 x64 release version of the binary. Edit the file to specify other platforms, architectures or flavors.
 
 #### Android
@@ -15,7 +15,7 @@ From the `android` directory, run `./localbuild.sh` in a bash terminal; by defau
 
 The following platforms and flavors are supported:
 *   `<platform-name>`: x64 (default), x86, arm, arm64
-*   `<flavor-name>` debug (default), ship.
+*   `<flavor-name>` debug (default), release.
 
 This build requires **Ubuntu 18.04** or below, or **Debian 8** or later.
 

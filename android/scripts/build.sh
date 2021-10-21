@@ -26,7 +26,7 @@ while [ "${1:-}" != "" ]; do
     "-f" | "--flavor")
       shift
       case "$1" in
-        "debug" | "ship")
+        "debug" | "release")
           BUILD_FLAVOR="$1"
           ;;
         *)
@@ -114,7 +114,7 @@ echo "Setting build configuration"
 rm -rf $BUILD_PATH/v8/out/*
 config_args="target_os=\"android\" target_cpu=\"$BUILD_PLATFORM\" v8_enable_i18n_support=false v8_target_cpu=\"$BUILD_PLATFORM\" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root=\"//third_party/android_ndk_r21b\" android_ndk_version=\"r21b\" android_ndk_major_version=21"
 
-if [ "$BUILD_FLAVOR" == "ship" ]; then
+if [ "$BUILD_FLAVOR" == "release" ]; then
   config_args="${config_args} is_debug=false is_official_build=true"
 else
   config_args="${config_args} is_debug=true"
