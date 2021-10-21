@@ -89,8 +89,9 @@ gclient sync
 
 # apply build and source patches
 echo "Applying patches"
-pushd build && git apply < $SOURCES_PATH/scripts/patch/build.patch
-popd && git apply < $SOURCES_PATH/scripts/patch/src.patch
+ln -sfn $SOURCES_PATH jsi # for the patches to work
+pushd build && git apply < ../jsi/scripts/patch/build.patch
+popd && git apply < jsi/scripts/patch/src.patch
 
 # install Android NDK r21b
 pushd third_party
@@ -111,7 +112,7 @@ popd
 
 BUILD_OUTPUT_PATH="$BUILD_PATH/v8/out/$BUILD_PLATFORM/$BUILD_FLAVOR"
 echo "Setting build configuration"
-rm -rf $BUILD_PATH/v8/out/*
+rm -rf $BUILD_OUTPUT_PATH
 config_args="target_os=\"android\" target_cpu=\"$BUILD_PLATFORM\" v8_enable_i18n_support=false v8_target_cpu=\"$BUILD_PLATFORM\" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root=\"//third_party/android_ndk_r21b\" android_ndk_version=\"r21b\" android_ndk_major_version=21"
 
 if [ "$BUILD_FLAVOR" == "release" ]; then
@@ -136,13 +137,15 @@ ninja -C $BUILD_OUTPUT_PATH v8jsi
 echo "Packaging"
 
 mkdir -p $OUTPUT_PATH/android/headers/include/jsi
-cp $SOURCES_PATH/V8Runtime.h $OUTPUT_PATH/android/headers/include # headers
-cp $SOURCES_PATH/build.config $OUTPUT_PATH/android # config file
-cp $SOURCES_PATH/ReactNative.V8JSI.Android.nuspec $OUTPUT_PATH/android # nuspec
+cp jsi/V8Runtime.h $OUTPUT_PATH/android/headers/include # headers
+cp jsi/build.config $OUTPUT_PATH/android # config file
+cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec
 cp third_party/android_ndk_r21b/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
-cp $SOURCES_PATH/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
+cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
 
 mkdir -p $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
 
 # TODO: add unstripped lib after ADO pipeline works due to large size
 cp -r $BUILD_OUTPUT_PATH/{libv8jsi.so,args.gn} $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
+
+echo "Done!"

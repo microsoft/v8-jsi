@@ -69,16 +69,16 @@ jobs:
         inputs:
           targetType: 'inline'
           script: |
-            source $(System.DefaultWorkingDirectory)/V8JsiAndroid/build.config
+            source $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/build.config
             echo '##vso[task.setvariable variable=Version]$RN_VERSION'
-            echo '##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION; V8 version: $V8_TAG; Git revision: $(Build.SourceVersion)"
+            echo '##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION; V8 version: $V8_TAG; Git revision: $(Build.SourceVersion)'
         displayName: Set nuspec variables
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
         inputs:
           command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)/V8JsiAndroid/ReactNative.V8JSI.Android.nuspec
+          packagesToPack: $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/ReactNative.V8Jsi.Android.nuspec
           packDestination: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
           buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)/V8JsiAndroid;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
           versioningScheme: byEnvVar
