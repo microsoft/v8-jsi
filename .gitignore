@@ -4,5 +4,5 @@ build.log
 src/version_gen.rc
 
 # outputs
-out*
+out
 *.nupkg
