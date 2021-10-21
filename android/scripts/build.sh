@@ -83,7 +83,7 @@ git checkout tags/$V8_TAG
 
 # install dependencies
 echo "Installing dependencies for Android"
-./build/install-build-deps-android.sh
+sudo ./build/install-build-deps-android.sh # since this requires password
 echo "target_os = ['android']" >> ../.gclient
 gclient sync
 
