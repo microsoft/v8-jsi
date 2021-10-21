@@ -138,6 +138,7 @@ echo "Packaging"
 mkdir -p $OUTPUT_PATH/android/headers/include/jsi
 cp $SOURCES_PATH/V8Runtime.h $OUTPUT_PATH/android/headers/include # headers
 cp $SOURCES_PATH/build.config $OUTPUT_PATH/android # config file
+cp $SOURCES_PATH/ReactNative.V8JSI.Android.nuspec $OUTPUT_PATH/android # nuspec
 cp third_party/android_ndk_r21b/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
 cp $SOURCES_PATH/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
 

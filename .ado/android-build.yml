@@ -1,0 +1,17 @@
+parameters:
+- name: outputPath
+  type: string
+
+steps:
+  - task: Bash@3
+    displayName: Run the Android build
+    inputs:
+      targetType: filePath
+      filePath: $(Build.SourcesDirectory)/android/scripts/build.sh
+      arguments: -p $(BuildPlatform) -f $(BuildFlavor) -s $(Build.SourcesDirectory)/android -o ${{parameters.outputPath}}
+
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish Android artifacts"
+    inputs:
+      artifactName: V8JsiAndroid
+      pathtoPublish: ${{parameters.outputPath}}
