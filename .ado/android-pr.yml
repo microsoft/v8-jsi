@@ -1,0 +1,102 @@
+name: v8jsi_0.0.$(Date:yyMM.d)$(Rev:rrr)
+
+trigger:
+- master
+- "*-stable"
+
+pr:
+  - master
+  - "*-stable"
+
+pool:
+  vmImage: 'ubuntu-18.04'
+
+jobs:
+  - job: V8JsiAndroidBuild
+    timeoutInMinutes: 300 # since Android build may take time; once env is set up, can reduce this
+    displayName: Build Android libv8jsi.so
+    strategy:
+      matrix:
+        x64|Debug:
+          BuildFlavor: debug
+          BuildPlatform: x64
+        x86|Debug:
+          BuildFlavor: debug
+          BuildPlatform: x86
+        arm|Debug:
+          BuildFlavor: debug
+          BuildPlatform: arm
+        arm64|Debug:
+          BuildFlavor: debug
+          BuildPlatform: arm64
+        x64|Release:
+          BuildFlavor: release
+          BuildPlatform: x64
+        x86|Release:
+          BuildFlavor: release
+          BuildPlatform: x86
+        arm|Release:
+          BuildFlavor: release
+          BuildPlatform: arm
+        arm64|Release:
+          BuildFlavor: release
+          BuildPlatform: arm64
+    steps:
+      - template: android-build.yml
+        parameters:
+          outputPath: $(Build.ArtifactStagingDirectory)
+
+  - job: V8JsiPublishAndroidNuget
+    dependsOn:
+      - V8JsiAndroidBuild
+    displayName: Publish Nuget for Android Build
+    variables:
+      NuGetId: ReactNative.V8Jsi.Android
+    steps:
+      - checkout: none
+
+      - task: NuGetToolInstaller@0
+        inputs:
+          versionSpec: ">=4.6.0"
+
+      - task: DownloadBuildArtifacts@0
+        displayName: Download Build outputs
+        inputs:
+          artifactName: V8JsiAndroid
+          downloadPath: $(System.DefaultWorkingDirectory)
+
+      - task: Bash@3
+        inputs:
+          targetType: 'inline'
+          script: |
+            source $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/build.config
+            echo "##vso[task.setvariable variable=Version]$RN_VERSION"
+            echo "##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION; V8 version: $V8_TAG; Git revision: $(Build.SourceVersion)"
+        displayName: Set nuspec variables
+
+      - task: NuGetCommand@2
+        displayName: 'NuGet Pack'
+        inputs:
+          command: pack
+          packagesToPack: $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/ReactNative.V8Jsi.Android.nuspec
+          packDestination: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)/V8JsiAndroid;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
+          versioningScheme: byEnvVar
+          versionEnvVar: Version
+
+      - task: Bash@3
+        inputs:
+          targetType: 'inline'
+          script: |
+            count=`ls -1 $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid/*.nupkg 2>/dev/null | wc -l`
+            if [ $count -lt 1 ]; then
+              echo "No Android NUPKG generated"
+              exit 1
+            fi
+        displayName: Verify NuGet Android package creation
+
+      - task: PublishBuildArtifacts@1
+        displayName: "Publish final Android nuget artifacts"
+        inputs:
+          PathtoPublish: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
+          ArtifactName: "V8JsiAndroid-final-nuget"

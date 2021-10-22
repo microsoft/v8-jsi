@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>$Id$</id>
+    <version>$Version$</version>
+    <!-- VERSION_DETAILS => [Android] V8 version: $v8Version; Git revision: $gitRevision -->
+    <description>Contains an Android implementation of the V8 JSI wrapper for React Native ($VersionDetails$)</description>
+    <authors>Facebook, Google, Microsoft</authors>
+    <projectUrl>https://github.com/microsoft/v8-jsi/tree/master/android</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <repository type="git" url="$RepoUri$" commit="$CommitId$" />
+  </metadata>
+  <files>
+    <file src="$nugetroot$\android\*.*" target="" />
+    <file src="$nugetroot$\android\lib\**\*.*" target="lib" />
+    <file src="$nugetroot$\android\headers\include\**\*.*" target="headers" />
+  </files>
+</package>
