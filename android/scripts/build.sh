@@ -130,7 +130,8 @@ gn gen $BUILD_OUTPUT_PATH --args="$config_args"
 
 echo "Running build for $BUILD_PLATFORM $BUILD_FLAVOR"
 
-ninja -C $BUILD_OUTPUT_PATH v8jsi
+NUM_THREADS=$((`nproc` * 2))
+ninja -j $NUM_THREADS -C $BUILD_OUTPUT_PATH v8jsi
 
 # packaging
 

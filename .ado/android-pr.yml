@@ -70,8 +70,8 @@ jobs:
           targetType: 'inline'
           script: |
             source $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/build.config
-            echo '##vso[task.setvariable variable=Version]$RN_VERSION'
-            echo '##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION; V8 version: $V8_TAG; Git revision: $(Build.SourceVersion)'
+            echo "##vso[task.setvariable variable=Version]$RN_VERSION"
+            echo "##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION; V8 version: $V8_TAG; Git revision: $(Build.SourceVersion)"
         displayName: Set nuspec variables
 
       - task: NuGetCommand@2
@@ -89,7 +89,7 @@ jobs:
           targetType: 'inline'
           script: |
             count=`ls -1 $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid/*.nupkg 2>/dev/null | wc -l`
-            if [ $count < 1 ]; then
+            if [ $count -lt 1 ]; then
               echo "No Android NUPKG generated"
               exit 1
             fi
