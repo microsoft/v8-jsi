@@ -3,7 +3,7 @@
   <metadata>
     <id>$Id$</id>
     <version>$Version$</version>
-    <description>Contains the Android implementation of the V8 JSI wrapper for React Native ($VersionDetails$)</description>
+    <description>Contains the unstripped (i.e with debug symbols) Android implementation of the V8 JSI wrapper for React Native ($VersionDetails$)</description>
     <authors>Facebook, Google, Microsoft</authors>
     <projectUrl>https://github.com/microsoft/v8-jsi/tree/master/android</projectUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
@@ -11,7 +11,8 @@
   </metadata>
   <files>
     <file src="$nugetroot$\android\*.*" target="" />
-    <file src="$nugetroot$\android\lib\**\*.*" target="lib" exclude="**\lib.unstripped\**\*.*"/>
+    <file src="$nugetroot$\android\lib\**\args.gn" target="lib" />
+    <file src="$nugetroot$\android\lib\**\lib.unstripped\**\*.*" target="lib" />
     <file src="$nugetroot$\android\headers\include\**\*.*" target="headers" />
   </files>
 </package>
