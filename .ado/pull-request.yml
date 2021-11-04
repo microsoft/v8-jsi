@@ -8,6 +8,8 @@ trigger:
   paths:
     exclude:
       - android
+      - .ado/android-pr.yml
+      - .ado/android-build.yml
       - README.md
       - docs
 
@@ -19,6 +21,8 @@ pr:
   paths:
     exclude:
       - android
+      - .ado/android-pr.yml
+      - .ado/android-build.yml
       - README.md
       - docs
 

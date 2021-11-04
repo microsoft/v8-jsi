@@ -8,6 +8,8 @@ trigger:
   paths:
     include:
       - android
+      - .ado/android-pr.yml
+      - .ado/android-build.yml
 
 pr:
   branches:
@@ -17,6 +19,8 @@ pr:
   paths:
     include:
       - android
+      - .ado/android-pr.yml
+      - .ado/android-build.yml
 
 pool:
   vmImage: 'ubuntu-18.04'
