@@ -7,7 +7,7 @@ trigger:
       - "*-stable"
   paths:
     include:
-      - android
+      - android/
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
@@ -18,7 +18,7 @@ pr:
       - "*-stable"
   paths:
     include:
-      - android
+      - android/
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
@@ -63,10 +63,9 @@ jobs:
   - job: V8JsiPublishAndroidNuget
     dependsOn:
       - V8JsiAndroidBuild
-    displayName: Publish Nugets for Android Build
+    displayName: Publish Nuget for Android Build
     variables:
       NuGetId: ReactNative.V8Jsi.Android
-      NuGetIdUnstripped: ReactNative.V8Jsi.Android.unstripped
     steps:
       - checkout: none
 
@@ -90,22 +89,12 @@ jobs:
         displayName: Set nuspec variables
 
       - task: NuGetCommand@2
-        displayName: 'NuGet Pack stripped'
+        displayName: 'NuGet Pack'
         inputs:
           command: pack
           packagesToPack: $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/ReactNative.V8Jsi.Android.nuspec
           packDestination: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
           buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)/V8JsiAndroid;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
-          versioningScheme: byEnvVar
-          versionEnvVar: Version
-      
-      - task: NuGetCommand@2
-        displayName: 'NuGet Pack unstripped'
-        inputs:
-          command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/ReactNative.V8Jsi.Android.unstripped.nuspec
-          packDestination: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
-          buildProperties: Id=$(NuGetIdUnstripped);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)/V8JsiAndroid;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
           versioningScheme: byEnvVar
           versionEnvVar: Version
 

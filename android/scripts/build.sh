@@ -101,7 +101,7 @@ if [ ! -f android_ndk_$NDK_VERSION/source.properties ]; then
   echo "Installing Android NDK $NDK_VERSION"
   NDK_URL="https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux.zip"
 
-  if [[ $NDK_VERSION < "r23b" ]]; then # since the download link is different for newer versions
+  if [[ $NDK_VERSION < "r23b" ]]; then # since the download link is different for older versions
     NDK_URL="https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux-x86_64.zip"
   fi
 
@@ -149,8 +149,7 @@ echo "Packaging"
 mkdir -p $OUTPUT_PATH/android/headers/include/jsi
 cp jsi/V8Runtime.h $OUTPUT_PATH/android/headers/include # headers
 cp jsi/build.config $OUTPUT_PATH/android # config file
-cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec
-cp jsi/ReactNative.V8Jsi.Android.unstripped.nuspec $OUTPUT_PATH/android # unstripped nuspec
+cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec including unstripped libs
 cp third_party/android_ndk_$NDK_VERSION/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
 cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
 

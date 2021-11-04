@@ -7,11 +7,11 @@ trigger:
       - "*-stable"
   paths:
     exclude:
-      - android
+      - android/
       - .ado/android-pr.yml
       - .ado/android-build.yml
       - README.md
-      - docs
+      - docs/
 
 pr:
   branches:
@@ -20,11 +20,11 @@ pr:
       - "*-stable"
   paths:
     exclude:
-      - android
+      - android/
       - .ado/android-pr.yml
       - .ado/android-build.yml
       - README.md
-      - docs
+      - docs/
 
 pool:
   vmImage: 'windows-2019'

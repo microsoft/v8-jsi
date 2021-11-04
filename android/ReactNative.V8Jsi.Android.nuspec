@@ -11,7 +11,7 @@
   </metadata>
   <files>
     <file src="$nugetroot$\android\*.*" target="" />
-    <file src="$nugetroot$\android\lib\**\*.*" target="lib" exclude="**\lib.unstripped\**\*.*"/>
+    <file src="$nugetroot$\android\lib\**\*.*" target="lib" />
     <file src="$nugetroot$\android\headers\include\**\*.*" target="headers" />
   </files>
 </package>
