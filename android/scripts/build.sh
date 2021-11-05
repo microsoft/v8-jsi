@@ -93,27 +93,36 @@ ln -sfn $SOURCES_PATH jsi # for the patches to work
 pushd build && git apply < ../jsi/scripts/patch/build.patch
 popd && git apply < jsi/scripts/patch/src.patch
 
-# install Android NDK r21b
+# install Android NDK
 pushd third_party
 
 # TODO: use a docker image for dependencies instead
-if [ ! -f android_ndk_r21b/source.properties ]; then
-  echo "Installing Android NDK r21b"
-  curl -o android_ndk_r21b.zip https://dl.google.com/android/repository/android-ndk-r21b-linux-x86_64.zip
-  unzip android_ndk_r21b.zip
-  mv android-ndk-r21b android_ndk_r21b
-  rm -rf android_ndk_r21b.zip
+if [ ! -f android_ndk_$NDK_VERSION/source.properties ]; then
+  echo "Installing Android NDK $NDK_VERSION"
+  NDK_URL="https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux.zip"
+
+  if [[ $NDK_VERSION < "r23b" ]]; then # since the download link is different for older versions
+    NDK_URL="https://dl.google.com/android/repository/android-ndk-$NDK_VERSION-linux-x86_64.zip"
+  fi
+
+  curl -o android_ndk_$NDK_VERSION.zip $NDK_URL
+  unzip android_ndk_$NDK_VERSION.zip
+  mv android-ndk-$NDK_VERSION android_ndk_$NDK_VERSION
+  rm -rf android_ndk_$NDK_VERSION.zip
 else
-  echo "Android NDK installed"
+  echo "Android NDK $NDK_VERSION installed"
 fi
 popd
 
 # configure
 
+NDK_R_VERSION=$(echo "$NDK_VERSION" | sed 's/r\([0-9]\{1,2\}[a-z]\).*/\1/')
+NDK_MAJOR_VERSION=$(echo "$NDK_R_VERSION" | sed 's/\([0-9]\{1,2\}\).*/\1/') # for major version in build args
 BUILD_OUTPUT_PATH="$BUILD_PATH/v8/out/$BUILD_PLATFORM/$BUILD_FLAVOR"
+
 echo "Setting build configuration"
 rm -rf $BUILD_OUTPUT_PATH
-config_args="target_os=\"android\" target_cpu=\"$BUILD_PLATFORM\" v8_enable_i18n_support=false v8_target_cpu=\"$BUILD_PLATFORM\" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root=\"//third_party/android_ndk_r21b\" android_ndk_version=\"r21b\" android_ndk_major_version=21"
+config_args="target_os=\"android\" target_cpu=\"$BUILD_PLATFORM\" v8_enable_i18n_support=false v8_target_cpu=\"$BUILD_PLATFORM\" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root=\"//third_party/android_ndk_$NDK_VERSION\" android_ndk_version=\"$NDK_VERSION\" android_ndk_major_version=$NDK_MAJOR_VERSION"
 
 if [ "$BUILD_FLAVOR" == "release" ]; then
   config_args="${config_args} is_debug=false is_official_build=true"
@@ -140,13 +149,12 @@ echo "Packaging"
 mkdir -p $OUTPUT_PATH/android/headers/include/jsi
 cp jsi/V8Runtime.h $OUTPUT_PATH/android/headers/include # headers
 cp jsi/build.config $OUTPUT_PATH/android # config file
-cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec
-cp third_party/android_ndk_r21b/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
+cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec including unstripped libs
+cp third_party/android_ndk_$NDK_VERSION/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
 cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
 
 mkdir -p $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
 
-# TODO: add unstripped lib after ADO pipeline works due to large size
-cp -r $BUILD_OUTPUT_PATH/{libv8jsi.so,args.gn} $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
+cp -r $BUILD_OUTPUT_PATH/{libv8jsi.so,args.gn,lib.unstripped} $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
 
 echo "Done!"

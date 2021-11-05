@@ -3,8 +3,7 @@
   <metadata>
     <id>$Id$</id>
     <version>$Version$</version>
-    <!-- VERSION_DETAILS => [Android] V8 version: $v8Version; Git revision: $gitRevision -->
-    <description>Contains an Android implementation of the V8 JSI wrapper for React Native ($VersionDetails$)</description>
+    <description>Contains the Android implementation of the V8 JSI wrapper for React Native ($VersionDetails$)</description>
     <authors>Facebook, Google, Microsoft</authors>
     <projectUrl>https://github.com/microsoft/v8-jsi/tree/master/android</projectUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
