@@ -7,7 +7,7 @@ trigger:
       - "*-stable"
   paths:
     include:
-      - android/
+      - android/*
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
@@ -18,7 +18,7 @@ pr:
       - "*-stable"
   paths:
     include:
-      - android/
+      - android/*
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
