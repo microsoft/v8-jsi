@@ -7,7 +7,7 @@ trigger:
       - "*-stable"
   paths:
     include:
-      - android/
+      - android/*
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
@@ -18,7 +18,7 @@ pr:
       - "*-stable"
   paths:
     include:
-      - android/
+      - android/*
       - .ado/android-pr.yml
       - .ado/android-build.yml
 
@@ -84,7 +84,7 @@ jobs:
           targetType: 'inline'
           script: |
             source $(System.DefaultWorkingDirectory)/V8JsiAndroid/android/build.config
-            echo "##vso[task.setvariable variable=Version]$RN_VERSION"
+            echo "##vso[task.setvariable variable=Version]$NUGET_PKG_VERSION"
             echo "##vso[task.setvariable variable=VersionDetails]React Native version: $RN_VERSION, V8 version: $V8_TAG, Android NDK version: $NDK_VERSION, v8-jsi Git revision: $(Build.SourceVersion)"
         displayName: Set nuspec variables
 
