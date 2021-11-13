@@ -12,7 +12,7 @@ steps:
 
   - task: ComponentGovernanceComponentDetection@0
     inputs:
-      ignoreDirectories: 'build\v8build\depot_tools'
+      ignoreDirectories: 'android/build/depot_tools'
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish Android artifacts"

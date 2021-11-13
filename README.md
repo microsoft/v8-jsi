@@ -19,7 +19,7 @@ The following platforms and flavors are supported:
 
 This build requires **Ubuntu 18.04** or below, or **Debian 8** or later.
 
-Currently, the Android version builds on an older release of V8 (7.0.276.32) and uses the JSI headers from React Native 0.64.2, while the Windows build uses V8 9.5 and the JSI headers from React Native 0.65.5. Android also currently uses a different V8Runtime ([V8Runtime.h](android/V8Runtime.h)) than Windows ([V8JsiRuntime.h](src/public/V8JsiRuntime.h)). Future Android releases will sync the Android dependencies with Windows and support newer Linux versions.
+Currently, the Android version builds an older release of V8 (7.0.276.32) and uses Android NDK r21b and the JSI headers from React Native 0.64.2 (see [build.config](android/build.config)). The Windows version builds V8 9.5 and uses the JSI headers from React Native 0.65.5. Android also currently uses a different V8Runtime ([V8Runtime.h](android/V8Runtime.h)) than Windows ([V8JsiRuntime.h](src/public/V8JsiRuntime.h)). Future Android releases will sync the Android dependencies with Windows and support newer Linux versions.
 
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
