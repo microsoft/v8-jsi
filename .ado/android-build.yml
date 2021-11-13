@@ -10,6 +10,10 @@ steps:
       filePath: $(Build.SourcesDirectory)/android/scripts/build.sh
       arguments: -p $(BuildPlatform) -f $(BuildFlavor) -s $(Build.SourcesDirectory)/android -o ${{parameters.outputPath}}
 
+  - task: ComponentGovernanceComponentDetection@0
+    inputs:
+      ignoreDirectories: 'build\v8build\depot_tools'
+
   - task: PublishBuildArtifacts@1
     displayName: "Publish Android artifacts"
     inputs:
