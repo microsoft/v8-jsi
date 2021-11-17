@@ -26,7 +26,7 @@ while [ "${1:-}" != "" ]; do
     "-f" | "--flavor")
       shift
       case "$1" in
-        "debug" | "release")
+        "debug" | "ship")
           BUILD_FLAVOR="$1"
           ;;
         *)
@@ -124,7 +124,7 @@ echo "Setting build configuration"
 rm -rf $BUILD_OUTPUT_PATH
 config_args="target_os=\"android\" target_cpu=\"$BUILD_PLATFORM\" v8_enable_i18n_support=false v8_target_cpu=\"$BUILD_PLATFORM\" is_component_build=false use_goma=false v8_use_snapshot=true v8_use_external_startup_data=false v8_static_library=false strip_debug_info=true symbol_level=0 strip_absolute_paths_from_debug_symbols=true android_ndk_root=\"//third_party/android_ndk_$NDK_VERSION\" android_ndk_version=\"$NDK_VERSION\" android_ndk_major_version=$NDK_MAJOR_VERSION"
 
-if [ "$BUILD_FLAVOR" == "release" ]; then
+if [ "$BUILD_FLAVOR" == "ship" ]; then
   config_args="${config_args} is_debug=false is_official_build=true"
 else
   config_args="${config_args} is_debug=true"
@@ -153,8 +153,8 @@ cp jsi/ReactNative.V8Jsi.Android.nuspec $OUTPUT_PATH/android # nuspec including 
 cp third_party/android_ndk_$NDK_VERSION/source.properties $OUTPUT_PATH/android/ndk_source.properties # ndk source.properties
 cp jsi/jsi/{decorator.h,instrumentation.h,jsi-inl.h,jsi.h,JSIDynamic.h,jsilib.h,threadsafe.h} $OUTPUT_PATH/android/headers/include/jsi # jsi headers
 
-mkdir -p $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
+mkdir -p $OUTPUT_PATH/android/lib/"droid$BUILD_PLATFORM"/$BUILD_FLAVOR/x-none
 
-cp -r $BUILD_OUTPUT_PATH/{libv8jsi.so,args.gn,lib.unstripped} $OUTPUT_PATH/android/lib/$BUILD_PLATFORM/$BUILD_FLAVOR
+cp -r $BUILD_OUTPUT_PATH/{libv8jsi.so,args.gn,lib.unstripped} $OUTPUT_PATH/android/lib/"droid$BUILD_PLATFORM"/$BUILD_FLAVOR/x-none
 
 echo "Done!"

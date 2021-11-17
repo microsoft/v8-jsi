@@ -15,7 +15,7 @@ From the `android` directory, run `./localbuild.sh` in a bash terminal; by defau
 
 The following platforms and flavors are supported:
 *   `<platform-name>`: x64 (default), x86, arm, arm64
-*   `<flavor-name>` debug (default), release.
+*   `<flavor-name>` debug (default), ship
 
 This build requires **Ubuntu 18.04** or below, or **Debian 8** or later.
 

@@ -3,7 +3,7 @@
 usage() {
   echo "usage: $0 [-p platform][--platform platform] [-f flavor][--flavor flavor]"
   echo "-p platform, --platform platform:         the platform to build for (platform options: x64 (default), x86, arm, arm64)"
-  echo "-f flavor, --flavor flavor:               the build flavor (flavor options: debug (default), release)"
+  echo "-f flavor, --flavor flavor:               the build flavor (flavor options: debug (default), ship)"
   echo "-h, --help:                               this help message"
 }
 
@@ -33,7 +33,7 @@ while [ "${1:-}" != "" ]; do
     "-f" | "--flavor")
       shift
       case "$1" in
-        "debug" | "release")
+        "debug" | "ship")
           BUILD_FLAVOR="$1"
           ;;
         *)
