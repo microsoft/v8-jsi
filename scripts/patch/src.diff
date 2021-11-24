@@ -176,6 +176,65 @@ index 447d2e9bac..d0df29e01c 100644
      return EmbeddedTargetOs::kWin;
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
+diff --git a/src/trap-handler/handler-inside-win.cc b/src/trap-handler/handler-inside-win.cc
+index fcccc78ee5..42d8d190ba 100644
+--- a/src/trap-handler/handler-inside-win.cc
++++ b/src/trap-handler/handler-inside-win.cc
+@@ -60,6 +60,7 @@ extern "C" char v8_probe_memory_continuation[];
+ #endif  // V8_TRAP_HANDLER_VIA_SIMULATOR
+ 
+ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
++#if V8_TRAP_HANDLER_SUPPORTED
+   // VectoredExceptionHandlers need extreme caution. Do as little as possible
+   // to determine if the exception should be handled or not. Exceptions can be
+   // thrown very early in a threads life, before the thread has even completed
+@@ -120,6 +121,9 @@ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
+   // We will return to wasm code, so restore the g_thread_in_wasm_code flag.
+   g_thread_in_wasm_code = true;
+   return true;
++#else // V8_TRAP_HANDLER_SUPPORTED
++  return true;
++#endif
+ }
+ 
+ LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
+diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
+index d59debe625..fc35a6e8f6 100644
+--- a/src/trap-handler/handler-outside-simulator.cc
++++ b/src/trap-handler/handler-outside-simulator.cc
+@@ -11,6 +11,12 @@
+ #define SYMBOL(name) #name
+ #endif  // !V8_OS_MACOSX
+ 
++#if V8_TARGET_ARCH_ARM64 && V8_OS_WIN
++
++// ARM64 Windows can't compile this
++
++#else
++
+ // Define the ProbeMemory function declared in trap-handler-simulators.h.
+ asm(
+     ".globl " SYMBOL(ProbeMemory) "                 \n"
+@@ -35,3 +41,5 @@ asm(
+     SYMBOL(v8_probe_memory_continuation) ":         \n"
+     // If the trap handler continues here, it wrote the landing pad in %rax.
+     "  ret                                          \n");
++
++#endif
+\ No newline at end of file
+diff --git a/src/trap-handler/trap-handler.h b/src/trap-handler/trap-handler.h
+index 79ddf56653..d83f88ebb9 100644
+--- a/src/trap-handler/trap-handler.h
++++ b/src/trap-handler/trap-handler.h
+@@ -27,7 +27,7 @@ namespace trap_handler {
+ #define V8_TRAP_HANDLER_SUPPORTED true
+ // Arm64 simulator on x64 on Linux, Mac, or Windows.
+ #elif V8_TARGET_ARCH_ARM64 && V8_HOST_ARCH_X64 && \
+-    (V8_OS_LINUX || V8_OS_MACOSX || V8_OS_WIN)
++    (V8_OS_LINUX || V8_OS_MACOSX)
+ #define V8_TRAP_HANDLER_VIA_SIMULATOR
+ #define V8_TRAP_HANDLER_SUPPORTED true
+ // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
 index f7bf9af2fb..c4bfd36288 100644
 --- a/src/utils/allocation.cc
