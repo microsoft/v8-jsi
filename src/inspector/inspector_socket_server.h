@@ -81,6 +81,7 @@ private:
   const std::string host_;
   int port_;
 
+  std::mutex mutex_tcp_server_;
   std::shared_ptr<tcp_server> tcp_server_;
   
   int next_session_id_;
