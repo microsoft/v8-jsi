@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 5c7d931b27..a13c41a1c4 100644
+index bca5b5356b..bd31583843 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1178,7 +1178,7 @@ config("toolchain") {
+@@ -1191,7 +1191,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOSX" ]
@@ -11,7 +11,7 @@ index 5c7d931b27..a13c41a1c4 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -4963,7 +4963,6 @@ v8_component("v8_libbase") {
+@@ -5152,7 +5152,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -19,7 +19,7 @@ index 5c7d931b27..a13c41a1c4 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6579,3 +6578,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6770,3 +6769,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -31,10 +31,10 @@ index 5c7d931b27..a13c41a1c4 100644
 +}
 \ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 8059e3b8c3..a30b143fe5 100644
+index 8d1be4a658..33e03b3def 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -591,4 +591,15 @@ hooks = [
+@@ -593,4 +593,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -114,7 +114,7 @@ index f981bec610..574602f10b 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 6b5c5df496..2e76703d48 100644
+index 919c3ef4df..e9422a7752 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
 @@ -1110,8 +1110,8 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
@@ -151,20 +151,18 @@ index d50767421a..3d296db7c6 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 6cafd72d65..cbdd934cdd 100644
+index 08b744e4a2..23f60e2918 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -973,7 +973,9 @@ int ScopeInfo::ReceiverContextSlotIndex() const {
+@@ -944,6 +944,8 @@ int ScopeInfo::ParametersStartIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
--  DCHECK(name.IsInternalizedString());
-+  // This debug check in failing when running CPU profiler on some V8-JSI instances.
-+  // TODO: Investigate and find the root cause.
-+  // DCHECK(name.IsInternalizedString());
-   if (FunctionVariableBits::decode(Flags()) ==
-           VariableAllocationInfo::CONTEXT &&
-       FunctionName() == name) {
++  // This debug check in failing when running CPU profiler on some V8-JSI instances
++  // TODO: Investigate and find the root cause
+   DCHECK(name.IsInternalizedString());
+   if (HasContextAllocatedFunctionName()) {
+     DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index 447d2e9bac..d0df29e01c 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
@@ -178,11 +176,70 @@ index 447d2e9bac..d0df29e01c 100644
      return EmbeddedTargetOs::kWin;
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
+diff --git a/src/trap-handler/handler-inside-win.cc b/src/trap-handler/handler-inside-win.cc
+index fcccc78ee5..42d8d190ba 100644
+--- a/src/trap-handler/handler-inside-win.cc
++++ b/src/trap-handler/handler-inside-win.cc
+@@ -60,6 +60,7 @@ extern "C" char v8_probe_memory_continuation[];
+ #endif  // V8_TRAP_HANDLER_VIA_SIMULATOR
+ 
+ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
++#if V8_TRAP_HANDLER_SUPPORTED
+   // VectoredExceptionHandlers need extreme caution. Do as little as possible
+   // to determine if the exception should be handled or not. Exceptions can be
+   // thrown very early in a threads life, before the thread has even completed
+@@ -120,6 +121,9 @@ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
+   // We will return to wasm code, so restore the g_thread_in_wasm_code flag.
+   g_thread_in_wasm_code = true;
+   return true;
++#else // V8_TRAP_HANDLER_SUPPORTED
++  return true;
++#endif
+ }
+ 
+ LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
+diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
+index d59debe625..fc35a6e8f6 100644
+--- a/src/trap-handler/handler-outside-simulator.cc
++++ b/src/trap-handler/handler-outside-simulator.cc
+@@ -11,6 +11,12 @@
+ #define SYMBOL(name) #name
+ #endif  // !V8_OS_MACOSX
+ 
++#if V8_TARGET_ARCH_ARM64 && V8_OS_WIN
++
++// ARM64 Windows can't compile this
++
++#else
++
+ // Define the ProbeMemory function declared in trap-handler-simulators.h.
+ asm(
+     ".globl " SYMBOL(ProbeMemory) "                 \n"
+@@ -35,3 +41,5 @@ asm(
+     SYMBOL(v8_probe_memory_continuation) ":         \n"
+     // If the trap handler continues here, it wrote the landing pad in %rax.
+     "  ret                                          \n");
++
++#endif
+\ No newline at end of file
+diff --git a/src/trap-handler/trap-handler.h b/src/trap-handler/trap-handler.h
+index 79ddf56653..d83f88ebb9 100644
+--- a/src/trap-handler/trap-handler.h
++++ b/src/trap-handler/trap-handler.h
+@@ -27,7 +27,7 @@ namespace trap_handler {
+ #define V8_TRAP_HANDLER_SUPPORTED true
+ // Arm64 simulator on x64 on Linux, Mac, or Windows.
+ #elif V8_TARGET_ARCH_ARM64 && V8_HOST_ARCH_X64 && \
+-    (V8_OS_LINUX || V8_OS_MACOSX || V8_OS_WIN)
++    (V8_OS_LINUX || V8_OS_MACOSX)
+ #define V8_TRAP_HANDLER_VIA_SIMULATOR
+ #define V8_TRAP_HANDLER_SUPPORTED true
+ // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 6f6225797a..54d31605fc 100644
+index f7bf9af2fb..c4bfd36288 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -90,8 +90,10 @@ const int kAllocationTries = 2;
+@@ -80,8 +80,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
@@ -196,10 +253,10 @@ index 6f6225797a..54d31605fc 100644
  
  #ifdef V8_VIRTUAL_MEMORY_CAGE
 diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
-index 8eeac56afd..dc9e4479e4 100644
+index 7ba140775d..0de10ba95c 100644
 --- a/src/wasm/wasm-module-builder.h
 +++ b/src/wasm/wasm-module-builder.h
-@@ -433,7 +433,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+@@ -438,7 +438,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
    };
  
    struct WasmGlobal {
