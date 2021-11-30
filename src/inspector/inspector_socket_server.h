@@ -83,6 +83,7 @@ private:
 
   std::mutex mutex_tcp_server_;
   std::shared_ptr<tcp_server> tcp_server_;
+  bool tcp_server_stopped_{false};
   
   int next_session_id_;
   FILE* out_;
