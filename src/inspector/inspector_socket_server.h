@@ -38,7 +38,7 @@ class InspectorAgentDelegate {
 // HTTP Server, writes messages requested as TransportActions, and responds
 // to HTTP requests and WS upgrades.
 
-class InspectorSocketServer {
+class InspectorSocketServer : public std::enable_shared_from_this<InspectorSocketServer> {
 public:
   InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, int port,
     FILE* out = stderr);
