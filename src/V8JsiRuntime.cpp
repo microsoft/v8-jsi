@@ -697,10 +697,12 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
   v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
 
+  jsi::JSRuntimeVersion_t runtimeVersion = V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER;
+
   std::shared_ptr<const jsi::Buffer> cache;
   if (args_.preparedScriptStore) {
     jsi::ScriptSignature scriptSignature = {sourceURL, 1};
-    jsi::JSRuntimeSignature runtimeSignature = {"V8", V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
+    jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
     cache = args_.preparedScriptStore->tryGetPreparedScript(scriptSignature, runtimeSignature, "perf");
   }
 
@@ -736,7 +738,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
         v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
         jsi::ScriptSignature scriptSignature = {sourceURL, 1};
-        jsi::JSRuntimeSignature runtimeSignature = {"V8", V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
+        jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
 
         args_.preparedScriptStore->persistPreparedScript(
             std::make_shared<ByteArrayBuffer>(codeCache->data, codeCache->length),

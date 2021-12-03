@@ -337,6 +337,7 @@ bool InspectorSocketServer::HasTargets() {
 }
 
 bool InspectorSocketServer::Start() {
+  CHECK_NE(state_, ServerState::kStopped);
   state_ = ServerState::kRunning;
 
   std::thread([self = shared_from_this()]() {
@@ -364,7 +365,10 @@ void InspectorSocketServer::Stop() {
   {
     std::unique_lock<std::mutex> tcp_server_lock(mutex_tcp_server_);
     // This will stop the the server io_context which will result in stopping the server thread as well.
-    tcp_server_->stop();
+    if (tcp_server_) {
+      tcp_server_->stop();
+    }
+
     tcp_server_stopped_ = true;
   }
 
