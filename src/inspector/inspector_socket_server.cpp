@@ -337,11 +337,20 @@ bool InspectorSocketServer::HasTargets() {
 }
 
 bool InspectorSocketServer::Start() {
+  CHECK_NE(state_, ServerState::kStopped);
   state_ = ServerState::kRunning;
-  std::thread([this]() {
-    tcp_server_ = std::make_shared<tcp_server>(
-        port_, InspectorSocketServer::SocketConnectedCallback, this);
-    tcp_server_->run();
+
+  std::thread([self = shared_from_this()]() {
+    {
+      std::unique_lock<std::mutex> tcp_server_lock(self->mutex_tcp_server_);
+      if (self->tcp_server_stopped_) {
+        return;
+      }
+
+      self->tcp_server_ = std::make_shared<tcp_server>(self->port_, InspectorSocketServer::SocketConnectedCallback, self.get());
+    }
+
+    self->tcp_server_->run();
   }).detach();
   return true;
 }
@@ -353,8 +362,15 @@ void InspectorSocketServer::Stop() {
 
   state_ = ServerState::kStopped;
 
-  // This will stop the the server io_context which will result in stopping the server thread as well.
-  tcp_server_->stop();
+  {
+    std::unique_lock<std::mutex> tcp_server_lock(mutex_tcp_server_);
+    // This will stop the the server io_context which will result in stopping the server thread as well.
+    if (tcp_server_) {
+      tcp_server_->stop();
+    }
+
+    tcp_server_stopped_ = true;
+  }
 
   if (state_ == ServerState::kStopped) {
     delegate_.reset();

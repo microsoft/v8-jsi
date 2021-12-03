@@ -28,6 +28,17 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
 } // namespace jsi
 } // namespace facebook
 
+TEST(Basic, CreateManyRuntimes) {
+  for(size_t i = 0; i < 100; i++) {
+    v8runtime::V8RuntimeArgs args;
+    args.flags.enableInspector = true;
+    auto runtime = v8runtime::makeV8Runtime(std::move(args));
+
+    runtime->evaluateJavaScript(std::make_unique<facebook::jsi::StringBuffer>("x = 1"), "");
+    EXPECT_EQ(runtime->global().getProperty(*runtime, "x").getNumber(), 1);
+  }
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
