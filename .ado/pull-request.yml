@@ -29,6 +29,13 @@ pr:
 pool:
   vmImage: 'windows-2019'
 
+variables:
+  - group: v8-jsi Secrets
+  - name: ArtifactServices.Symbol.AccountName
+    value: microsoft
+  - name: ArtifactServices.Symbol.PAT
+    value: $(pat-symbols-publish-microsoft)
+
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 210
@@ -138,7 +145,16 @@ jobs:
           artifactName: V8Jsi
           downloadPath: $(System.DefaultWorkingDirectory)
 
+      # Make symbols available through http://symweb.
+      - task: PublishSymbols@2
+        displayName: Publish symbols
+        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+        inputs:
+          SearchPattern: $(System.DefaultWorkingDirectory)/**/*.pdb
+          SymbolServerType: TeamServices
+
       - task: PowerShell@2
+        displayName: Set AppPlatform-dependent variables
         inputs:
           targetType: 'inline'
           script: |
@@ -146,7 +162,6 @@ jobs:
             $Version = $config.version
             Write-Host "##vso[task.setvariable variable=Version]$Version"
             Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
-        displayName: Set AppPlatform-dependent variables
 
       - task: NuGetCommand@2
         displayName: 'NuGet Pack'
