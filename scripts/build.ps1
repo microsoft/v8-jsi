@@ -23,34 +23,36 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-if ($Configuration -like "*android") {
-    $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
+# commenting this out for now since Android build is at android/build.sh
+
+# if ($Configuration -like "*android") {
+#     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
+# }
+# else {
+if (-not ($UseLibCpp)) {
+    $gnargs += ' use_custom_libcxx=false'
+}
+
+if ($AppPlatform -eq "uwp") {
+    # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
+    $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
+}
+
+$gnargs += ' target_cpu=\"' + $Platform + '\"'
+
+if ($UseClang) {
+    #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
+    $gnargs += ' is_clang=true'
 }
 else {
-    if (-not ($UseLibCpp)) {
-        $gnargs += ' use_custom_libcxx=false'
-    }
-
-    if ($AppPlatform -eq "uwp") {
-        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
-        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
-    }
-
-    $gnargs += ' target_cpu=\"' + $Platform + '\"'
-
-    if ($UseClang) {
-        #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
-        $gnargs += ' is_clang=true'
-    }
-    else {
-        $gnargs += ' is_clang=false'
-    }
-
-    if ($Platform -like "?64") {
-        # Pointer compression only makes sense on 64-bit builds
-        $gnargs += ' v8_enable_pointer_compression=true'
-    }
+    $gnargs += ' is_clang=false'
 }
+
+if ($Platform -like "?64") {
+    # Pointer compression only makes sense on 64-bit builds
+    $gnargs += ' v8_enable_pointer_compression=true'
+}
+# }
 
 if ($Configuration -like "*ebug*") {
     $gnargs += ' enable_iterator_debugging=true is_debug=true'
