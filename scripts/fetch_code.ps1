@@ -15,13 +15,14 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 Push-Location (Join-Path $workpath "v8build")
 & fetch v8
 
-if ($Configuration -like "*android") {
-    $target_os = @'
-target_os= ['android']
-'@
+# commenting this out since the Android build is in android/build.sh
+# if ($Configuration -like "*android") {
+#     $target_os = @'
+# target_os= ['android']
+# '@
 
-    Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
-}
+#     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
+# }
 
 & gclient sync --with_branch_heads
 
@@ -78,11 +79,12 @@ Copy-Item $SourcesPath\ReactNative.V8Jsi.Windows.nuspec $OutputPath
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build depndencies for Android
-if ($PSVersionTable.Platform -and !$IsWindows) {
-    $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
+# commenting this since Android build is in android/build.sh
+# if ($PSVersionTable.Platform -and !$IsWindows) {
+#     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
 
-    & sudo bash $install_script_path
-}
+#     & sudo bash $install_script_path
+# }
 
 # Download dependencies (ASIO used by Inspector implementation)
 $asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-18-1.zip"

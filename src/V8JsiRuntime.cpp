@@ -446,9 +446,13 @@ void V8Runtime::createHostObjectConstructorPerContext() {
       isolate_, constructorForHostObjectTemplate->GetFunction(context_.Get(isolate_)).ToLocalChecked());
 }
 
+#ifdef _WIN32
+std::once_flag g_tracingInitialized;
+#endif
+
 void V8Runtime::initializeTracing() {
 #ifdef _WIN32
-  globalInitializeTracing();
+  std::call_once(g_tracingInitialized, [](){ globalInitializeTracing(); });
 #endif
 
   TRACEV8RUNTIME_VERBOSE("Initializing");
