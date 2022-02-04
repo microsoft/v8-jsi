@@ -8,61 +8,11 @@ parameters:
   type: string
 
 steps:
-  - task: PowerShell@2
-    displayName: Download and extract depot_tools.zip
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish tools folder"
     inputs:
-      targetType: filePath
-      filePath: $(Build.SourcesDirectory)\scripts\download_depottools.ps1
-      arguments:
-        -SourcesPath:$(Build.SourcesDirectory)
-
-  - task: PowerShell@2
-    displayName: Fetch the V8 source code and extra build tools
-    inputs:
-      targetType: filePath
-      filePath: $(Build.SourcesDirectory)\scripts\fetch_code.ps1
-      arguments:
-        -SourcesPath:$(Build.SourcesDirectory)
-        -Configuration:$(BuildConfiguration)
-        -OutputPath:${{parameters.outputPath}}
-        -AppPlatform:${{parameters.appPlatform}}
-
-  - task: PowerShell@2
-    displayName: Actually run the build
-    inputs:
-      targetType: filePath
-      filePath: $(Build.SourcesDirectory)\scripts\build.ps1
-      arguments:
-        -OutputPath:${{parameters.outputPath}}
-        -SourcesPath:$(Build.SourcesDirectory)
-        -Platform:$(BuildPlatform)
-        -Configuration:$(BuildConfiguration)
-        -AppPlatform:${{parameters.appPlatform}}
-
-  - powershell: |
-      Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$((Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Enterprise\Common7\IDE\Extensions\" -Directory | Where-Object -FilterScript { Test-Path $_\GoogleTestAdapter.Core.dll}).FullName)"
-      Write-Host "Set environment variable to ($env:GoogleTestAdapterPath)"
-    displayName: Set GoogleTestAdapterPath
-
-  - task: VSTest@2
-    displayName: Run Unit Tests
-    timeoutInMinutes: 2
-    inputs:
-      testSelector: testAssemblies
-      testAssemblyVer2: jsitests.exe
-      pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
-      searchFolder: $(Build.SourcesDirectory)/build/v8build/v8/out/${{parameters.appPlatform}}/$(BuildPlatform)/$(BuildConfiguration)
-      runTestsInIsolation: true
-      platform: $(BuildPlatform)
-      configuration: $(BuildConfiguration)
-      publishRunAttachments: true
-      collectDumpOn: onAbortOnly
-      vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq(variables.RunUnitTests, true))
-
-  - task: ComponentGovernanceComponentDetection@0
-    inputs:
-      ignoreDirectories: 'build\v8build\depot_tools'
+      artifactName: Tools-${{parameters.appPlatform}}-$(BuildPlatform)-$(BuildFlavor)
+      pathtoPublish: /home/vsts/work/_tasks
 
   - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
     displayName: 📒 Generate Manifest
