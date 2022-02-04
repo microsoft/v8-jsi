@@ -3,11 +3,16 @@ parameters:
   type: string
 
 steps:
-  - task: PublishBuildArtifacts@1
-    displayName: "Publish tools folder"
+  - task: Bash@3
+    displayName: Run the Android build
     inputs:
-      artifactName: Tools-Android-$(BuildPlatform)-$(BuildFlavor)
-      pathtoPublish: /home/vsts/work/_tasks
+      targetType: filePath
+      filePath: $(Build.SourcesDirectory)/android/scripts/build.sh
+      arguments: -p $(BuildPlatform) -f $(BuildFlavor) -s $(Build.SourcesDirectory)/android -o ${{parameters.outputPath}}
+
+  - task: ComponentGovernanceComponentDetection@0
+    inputs:
+      ignoreDirectories: 'android/build/depot_tools'
 
   - script: mkdir -p ${{parameters.outputPath}}/_manifest/$(BuildPlatform)/$(BuildFlavor)
 
