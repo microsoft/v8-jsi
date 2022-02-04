@@ -64,6 +64,11 @@ steps:
     inputs:
       ignoreDirectories: 'build\v8build\depot_tools'
 
+  - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+    displayName: 📒 Generate Manifest
+    inputs:
+      BuildDropPath: ${{parameters.outputPath}}
+
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
     inputs:
