@@ -18,6 +18,8 @@ steps:
     displayName: 📒 Generate Manifest
     inputs:
       BuildDropPath: ${{parameters.outputPath}}
+      ManifestDirPath: ${{parameters.outputPath}}/_manifest/$(BuildPlatform)/$(BuildFlavor)
+
 
   - task: PublishBuildArtifacts@1
     displayName: "Publish Android artifacts"
