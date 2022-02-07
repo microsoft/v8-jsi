@@ -1,16 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 //
-// The JavaScript code in this file is adopted from the Node.js priject.
+// The JavaScript code in this file is adopted from the Node.js project.
 // See the src\napi\Readme.md about the Node.js copyright notice.
-
-#include "modules.h"
-
-namespace napitest {
-namespace module {
-
-DEFINE_TEST_SCRIPT(common_js, R"JavaScript(
-
 'use strict';
 
 const { mustCall, mustCallAtLeast, mustNotCall } = require('assert');
@@ -48,8 +40,3 @@ Object.assign(module.exports, {
   mustCallAtLeast,
   mustNotCall,
 });
-
-)JavaScript");
-
-} // namespace module
-} // namespace napitest
