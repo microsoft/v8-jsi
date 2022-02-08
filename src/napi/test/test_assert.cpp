@@ -57,6 +57,8 @@ TEST_P(NapiTest, test_assert) {
       EXPECT_EQ(ex.AssertionErrorInfo()->Actual, "0 calls");
     });
 
+    RUN_TEST_SCRIPT("require('assert').deepStrictEqual({foo: 'bar'}, {foo: 'bar'});");
+
     RUN_TEST_SCRIPT(R"(
       const assert = require('assert');
       const fn = assert.mustCall();

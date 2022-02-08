@@ -1,15 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 //
-// The JavaScript code in this file is adopted from the Node.js priject.
+// The JavaScript code in this file is adopted from the Node.js project.
 // See the src\napi\Readme.md about the Node.js copyright notice.
-
-#include "modules.h"
-
-namespace napitest {
-namespace module {
-
-DEFINE_TEST_SCRIPT(assert_js, R"JavaScript(
 
 'use strict';
 
@@ -233,24 +226,29 @@ function isDeepStrictEqual(left, right) {
     return true;
   }
 
+//TODO: provide detailed error info
   function checkObject(left, right) {
     const leftNames = Object.getOwnPropertyNames(left);
     const rightNames = Object.getOwnPropertyNames(right);
     if (leftNames.length !== rightNames.length) {
+      throw "Different set of properties";
       return false;
     }
     for (let i = 0; i < leftNames.length; ++i) {
       if (!check(left[leftNames[i]], right[leftNames[i]])) {
+        throw leftNames[i] + ": " + left[leftNames[i]] + " vs " + right[leftNames[i]];
         return false;
       }
     }
     const leftSymbols = Object.getOwnPropertySymbols(left);
     const rightSymbols = Object.getOwnPropertySymbols(right);
     if (leftSymbols.length !== rightSymbols.length) {
+      throw "Different set of symbol names";
       return false;
     }
     for (let i = 0; i < leftSymbols.length; ++i) {
       if (!check(left[leftSymbols[i]], right[leftSymbols[i]])) {
+        throw leftSymbols[i].ToString() + ": different value";
         return false;
       }
     }
@@ -353,8 +351,3 @@ function formatValue(value) {
   }
   return `<${type}> ${value}`;
 }
-
-)JavaScript");
-
-} // namespace module
-} // namespace napitest

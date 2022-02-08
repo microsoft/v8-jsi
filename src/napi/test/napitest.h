@@ -6,9 +6,9 @@
 #pragma once
 
 #include <functional>
+#include <list>
 #include <map>
 #include <memory>
-#include <queue>
 #include <string>
 #include <vector>
 
@@ -16,11 +16,20 @@
 
 #define NAPI_EXPERIMENTAL
 #include "js_native_ext_api.h"
-#include "lib/modules.h"
 
 extern "C" {
 #include "js-native-api/common.h"
 }
+
+// Crash if the condition is false.
+#define CRASH_IF_FALSE(condition)  \
+  do {                             \
+    if (!(condition)) {            \
+      assert(false && #condition); \
+      *((int *)nullptr) = 1;       \
+      std::terminate();            \
+    }                              \
+  } while (false)
 
 // Use this macro to handle NAPI function results in test code.
 // It throws NapiTestException that we then convert to GTest failure.
@@ -59,12 +68,16 @@ struct NapiTestErrorHandler;
 struct NapiTestException;
 
 // Use for test parameterization.
-using NapiEnvFactory = std::function<napi_env()>;
-std::vector<NapiEnvFactory> NapiEnvFactories();
+struct NapiTestData {
+  std::string TestJSPath;
+  std::function<napi_env()> EnvFactory;
+};
 
-// The base class for unit tests that we parameterize by NapiEnvFactory.
-struct NapiTest : ::testing::TestWithParam<NapiEnvFactory> {
-  static NapiTestErrorHandler ExecuteNapi(std::function<void(NapiTestContext *, napi_env)> code) noexcept;
+std::vector<NapiTestData> NapiEnvFactories();
+
+// The base class for unit tests that we parameterize by NapiTestData.
+struct NapiTest : ::testing::TestWithParam<NapiTestData> {
+  NapiTestErrorHandler ExecuteNapi(std::function<void(NapiTestContext *, napi_env)> code) noexcept;
 };
 
 // Properies from JavaScript Error object.
@@ -83,6 +96,16 @@ struct NapiAssertionErrorInfo {
   int32_t SourceLine;
   std::string ErrorStack;
 };
+
+struct TestScriptInfo {
+  std::string script;
+  std::string file;
+  int32_t line;
+};
+
+inline int32_t GetEndOfLineCount(char const *script) noexcept {
+  return std::count(script, script + strlen(script), '\n');
+}
 
 // The exception used to propagate NAPI and script errors.
 struct NapiTestException : std::exception {
@@ -114,12 +137,11 @@ struct NapiTestException : std::exception {
 
  private:
   void ApplyScriptErrorData(napi_env env, napi_value error);
-
   static napi_value GetProperty(napi_env env, napi_value obj, char const *name);
-
   static std::string GetPropertyString(napi_env env, napi_value obj, char const *name);
-
   static int32_t GetPropertyInt32(napi_env env, napi_value obj, char const *name);
+  static std::string CoerceToString(napi_env env, napi_value value);
+  static std::string ToString(napi_env env, napi_value value);
 
  private:
   napi_status m_errorCode{};
@@ -129,7 +151,8 @@ struct NapiTestException : std::exception {
   std::shared_ptr<NapiAssertionErrorInfo> m_assertionErrorInfo;
 };
 
-// Define NapiRef "smart pointer" for napi_ref as unique_ptr with a custom deleter.
+// Define NapiRef "smart pointer" for napi_ref as unique_ptr with a custom
+// deleter.
 struct NapiRefDeleter {
   NapiRefDeleter(napi_env env) noexcept : env(env) {}
 
@@ -144,46 +167,82 @@ struct NapiRefDeleter {
 using NapiRef = std::unique_ptr<napi_ref__, NapiRefDeleter>;
 extern NapiRef MakeNapiRef(napi_env env, napi_value value);
 
+struct NapiHandleScope {
+  NapiHandleScope(napi_env env) noexcept : m_env{env} {
+    CRASH_IF_FALSE(napi_open_handle_scope(env, &m_scope) == napi_ok);
+  }
+
+  ~NapiHandleScope() noexcept {
+    CRASH_IF_FALSE(napi_close_handle_scope(m_env, m_scope) == napi_ok);
+  }
+
+ private:
+  napi_env m_env{nullptr};
+  napi_handle_scope m_scope{nullptr};
+};
+
+struct NapiEnvScope {
+  NapiEnvScope(napi_env env) noexcept : m_env{env} {
+    CRASH_IF_FALSE(napi_ext_open_env_scope(env, &m_scope) == napi_ok);
+  }
+
+  ~NapiEnvScope() noexcept {
+    CRASH_IF_FALSE(napi_ext_close_env_scope(m_env, m_scope) == napi_ok);
+  }
+
+ private:
+  napi_env m_env{};
+  napi_ext_env_scope m_scope{};
+};
+
 // The context to run a NAPI test.
 // Some tests require interaction of multiple JS environments.
 // Thus, it is more convenient to have a special NapiTestContext instead of
 // setting the environment per test.
 struct NapiTestContext {
-  NapiTestContext(napi_env env);
-  ~NapiTestContext();
+  NapiTestContext(napi_env env, std::string const &testJSPath);
 
-  napi_value RunScript(char const *code, char const *sourceUrl = nullptr);
-  napi_value GetModule(char const *moduleName);
+  static std::map<std::string, TestScriptInfo, std::less<>> GetCommonScripts(std::string const &testJSPath) noexcept;
+
+  napi_value RunScript(std::string const &code, char const *sourceUrl = nullptr);
+  napi_value GetModule(std::string const &moduleName);
   TestScriptInfo *GetTestScriptInfo(std::string const &moduleName);
 
   NapiTestErrorHandler RunTestScript(char const *script, char const *file, int32_t line);
-
   NapiTestErrorHandler RunTestScript(TestScriptInfo const &scripInfo);
+  NapiTestErrorHandler RunTestScript(std::string const &scriptFile);
+
+  static std::string ReadScriptText(std::string const &testJSPath, std::string const &scriptFile);
+  static std::string ReadFileText(std::string const &fileName);
 
   void AddNativeModule(char const *moduleName, std::function<napi_value(napi_env, napi_value)> initModule);
 
-  void StartTest();
-  void EndTest();
+  void DefineGlobalFunctions();
   void RunCallChecks();
   void HandleUnhandledPromiseRejections();
 
   std::string ProcessStack(std::string const &stack, std::string const &assertMethod);
 
   // The callback function to be executed after the script completion.
-  void SetImmediate(napi_value callback) noexcept;
+  uint32_t AddTask(napi_value callback) noexcept;
+  void RemoveTask(uint32_t taskId) noexcept;
+  void DrainTaskQueue();
 
  private:
   napi_env env;
-  napi_ext_env_scope m_envScope{nullptr};
-  napi_handle_scope m_handleScope;
+  std::string m_testJSPath;
+  NapiEnvScope m_envScope;
+  NapiHandleScope m_handleScope;
   std::map<std::string, NapiRef, std::less<>> m_modules;
   std::map<std::string, TestScriptInfo, std::less<>> m_scriptModules;
   std::map<std::string, std::function<napi_value(napi_env, napi_value)>> m_nativeModules;
-  std::queue<NapiRef> m_immediateQueue;
+  std::list<std::pair<uint32_t, NapiRef>> m_taskQueue;
+  uint32_t m_nextTaskId{1};
 };
 
 // Handles the exceptions after running tests.
-// In case if the exception is expected, we can add a custom Throws exception handler.
+// In case if the exception is expected, we can add a custom Throws exception
+// handler.
 struct NapiTestErrorHandler {
   NapiTestErrorHandler(
       NapiTestContext *testContext,
