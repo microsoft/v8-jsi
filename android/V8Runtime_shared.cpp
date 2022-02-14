@@ -303,6 +303,10 @@ namespace facebook { namespace v8runtime {
     }
   }
 
+  bool V8Runtime::drainMicrotasks(int /*maxMicrotasksHint*/) {
+    return true;
+  }
+
   jsi::Object V8Runtime::global() {
     _ISOLATE_CONTEXT_ENTER
     return createObject(context_.Get(isolate)->Global());

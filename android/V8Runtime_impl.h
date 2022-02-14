@@ -55,6 +55,8 @@ namespace facebook { namespace v8runtime {
 
     jsi::Value evaluateJavaScript(const std::shared_ptr<const jsi::Buffer>& buffer, const std::string& sourceURL) override;
 
+    bool drainMicrotasks(int maxMicrotasksHint) override;
+
     jsi::Object global() override;
 
     std::string description() override;
