@@ -1,4 +1,4 @@
-name: v8jsi_droid_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
+name: v8jsi_win_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
 trigger: none
 pr:
@@ -7,13 +7,15 @@ pr:
       - master
       - "*-stable"
   paths:
-    include:
+    exclude:
       - android/*
       - .ado/android-pr.yml
       - .ado/android-build.yml
+      - README.md
+      - docs/*
 
 pool:
-  vmImage: 'ubuntu-18.04'
+  vmImage: 'windows-2019'
 
 jobs:
-  - template: andoid-jobs.yml
+  - template: windows-jobs.yml

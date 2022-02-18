@@ -1,0 +1,23 @@
+name: v8jsi_droid_ci_0.0.$(Date:yyMM.d)$(Rev:rrr)
+
+pr: none
+trigger:
+  branches:
+    include:
+      - master
+      - "*-stable"
+  paths:
+    include:
+      - android/*
+      - .ado/android-pr.yml
+      - .ado/android-build.yml
+
+pool: Azure-Pipelines-EO-Ubuntu1804-Office
+
+variables:
+  - group: InfoSec-SecurityResults
+  - name: tags
+    value: production,externalfacing
+
+jobs:
+  - template: andoid-jobs.yml

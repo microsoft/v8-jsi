@@ -1,41 +1,3 @@
-name: v8jsi_0.0.$(Date:yyMM.d)$(Rev:rrr)
-
-trigger:
-  branches:
-    include:
-      - master
-      - "*-stable"
-  paths:
-    exclude:
-      - android/*
-      - .ado/android-pr.yml
-      - .ado/android-build.yml
-      - README.md
-      - docs/*
-
-pr:
-  branches:
-    include:
-      - master
-      - "*-stable"
-  paths:
-    exclude:
-      - android/*
-      - .ado/android-pr.yml
-      - .ado/android-build.yml
-      - README.md
-      - docs/*
-
-pool:
-  vmImage: 'windows-2019'
-
-variables:
-  - group: v8-jsi Secrets
-  - name: ArtifactServices.Symbol.AccountName
-    value: microsoft
-  - name: ArtifactServices.Symbol.PAT
-    value: $(pat-symbols-publish-microsoft)
-
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 210
@@ -111,7 +73,7 @@ jobs:
           versionSpec: '2.x'
           addToPath: true
           architecture: 'x64'
-      - template: build-dll.yml
+      - template: windows-build.yml
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
@@ -179,6 +141,12 @@ jobs:
             Write-Error 'No NUPKG generated'
           }
         displayName: Verify NuGet packages creation
+
+      - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+        displayName: 📒 Generate Manifest NuGet
+        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+        inputs:
+          BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
 
       - task: PublishBuildArtifacts@1
         displayName: "Publish final nuget artifacts"

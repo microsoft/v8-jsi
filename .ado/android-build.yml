@@ -27,3 +27,5 @@ steps:
     inputs:
       artifactName: V8JsiAndroid
       pathtoPublish: ${{parameters.outputPath}}
+
+  - task: ComponentGovernanceComponentDetection@0

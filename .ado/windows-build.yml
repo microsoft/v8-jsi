@@ -77,3 +77,5 @@ steps:
     inputs:
       artifactName: V8Jsi
       pathtoPublish: ${{parameters.outputPath}}
+
+  - task: ComponentGovernanceComponentDetection@0
