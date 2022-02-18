@@ -9,8 +9,7 @@ pr:
   paths:
     exclude:
       - android/*
-      - .ado/android-pr.yml
-      - .ado/android-build.yml
+      - .ado/android-*.yml
       - README.md
       - docs/*
 

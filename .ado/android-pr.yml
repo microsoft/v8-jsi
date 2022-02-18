@@ -9,8 +9,8 @@ pr:
   paths:
     include:
       - android/*
-      - .ado/android-pr.yml
-      - .ado/android-build.yml
+      - .ado/android-*.yml
+
 
 pool:
   vmImage: 'ubuntu-18.04'
