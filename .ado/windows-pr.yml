@@ -18,5 +18,3 @@ pool:
 
 jobs:
   - template: windows-jobs.yml
-
-# Will be deleted, need to rename to windows-pr.yml

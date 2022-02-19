@@ -1,0 +1,29 @@
+name: v8jsi_win_ci_0.0.$(Date:yyMM.d)$(Rev:rrr)
+
+pr: none
+trigger:
+  branches:
+    include:
+      - master
+      - "*-stable"
+  paths:
+    exclude:
+      - android/*
+      - .ado/android-*.yml
+      - README.md
+      - docs/*
+
+pool: OE-OfficePublic
+
+variables:
+  - group: V8-Jsi Secrets
+  - group: InfoSec-SecurityResults
+  - name: ArtifactServices.Symbol.AccountName
+    value: microsoft
+  - name: ArtifactServices.Symbol.PAT
+    value: $(pat-symbols-publish-microsoft)
+  - name: tags
+    value: production,externalfacing
+
+jobs:
+  - template: windows-jobs.yml

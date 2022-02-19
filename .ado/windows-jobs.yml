@@ -1,0 +1,155 @@
+jobs:
+  - job: V8JsiBuild
+    timeoutInMinutes: 210
+    displayName: Build v8jsi.dll
+    strategy:
+      matrix:
+        Desktop|x64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x64
+          AppPlatform: win32
+        Desktop|x86|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x86
+          AppPlatform: win32
+        Desktop|ARM64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          AppPlatform: win32
+        Desktop|x64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x64
+          AppPlatform: win32
+        Desktop|x86|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x86
+          AppPlatform: win32
+        Desktop|ARM64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
+          AppPlatform: win32
+        Universal|x64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x64
+          AppPlatform: uwp
+        Universal|x86|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: x86
+          AppPlatform: uwp
+        Universal|ARM64|Debug:
+          BuildConfiguration: Debug
+          BuildPlatform: arm64
+          AppPlatform: uwp
+        Universal|x64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x64
+          AppPlatform: uwp
+        Universal|x86|Release:
+          BuildConfiguration: Release
+          BuildPlatform: x86
+          AppPlatform: uwp
+        Universal|ARM64|Release:
+          BuildConfiguration: Release
+          BuildPlatform: arm64
+          AppPlatform: uwp
+
+    steps:
+      - pwsh: |
+          $vars = @{
+            'win32' = @{
+              'RunUnitTests' = $true
+            };
+            'uwp' = @{
+              'RunUnitTests' = $false
+            }
+          }
+          Write-Host "Setting variables for app platform ${env:AppPlatform}"
+          Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
+        name: setvarStep
+        displayName: Set AppPlatform-dependent variables
+
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '2.x'
+          addToPath: true
+          architecture: 'x64'
+      - template: windows-build.yml
+        parameters:
+          outputPath: $(Build.ArtifactStagingDirectory)
+          appPlatform: $(AppPlatform)
+
+  - job: V8JsiPublishNuget
+    dependsOn:
+      - V8JsiBuild
+    displayName: Publish Nuget
+    strategy:
+      matrix:
+        Desktop:
+          NuGetId: ReactNative.V8Jsi.Windows
+          NuGetExcludeExtensions: ipdb
+          NuGetIncludeSymbols: false
+          NuGetFolderExport: win32
+        Universal:
+          NuGetId: ReactNative.V8Jsi.Windows.UWP
+          NuGetExcludeExtensions: pdb
+          NuGetIncludeSymbols: true
+          NuGetFolderExport: uwp
+    steps:
+      - checkout: none
+
+      - task: NuGetToolInstaller@0
+        inputs:
+          versionSpec: ">=4.6.0"
+
+      - task: DownloadBuildArtifacts@0
+        displayName: Download Build outputs
+        inputs:
+          artifactName: V8Jsi
+          downloadPath: $(System.DefaultWorkingDirectory)
+
+      # Make symbols available through http://symweb.
+      - task: PublishSymbols@2
+        displayName: Publish symbols
+        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+        inputs:
+          SearchPattern: $(System.DefaultWorkingDirectory)/**/*.pdb
+          SymbolServerType: TeamServices
+
+      - task: PowerShell@2
+        displayName: Set AppPlatform-dependent variables
+        inputs:
+          targetType: 'inline'
+          script: |
+            $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | ConvertFrom-Json
+            $Version = $config.version
+            Write-Host "##vso[task.setvariable variable=Version]$Version"
+            Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
+
+      - task: NuGetCommand@2
+        displayName: 'NuGet Pack'
+        inputs:
+          command: pack
+          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
+          packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
+          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions);NuGetFolderExport=$(NuGetFolderExport)
+          versioningScheme: byEnvVar
+          versionEnvVar: Version
+          includeSymbols: $(NuGetIncludeSymbols)
+
+      - pwsh: |
+          if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
+            Write-Error 'No NUPKG generated'
+          }
+        displayName: Verify NuGet packages creation
+
+      - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+        displayName: 📒 Generate Manifest NuGet
+        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+        inputs:
+          BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
+
+      - task: PublishBuildArtifacts@1
+        displayName: "Publish final nuget artifacts"
+        inputs:
+          PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
+          ArtifactName: "V8Jsi-final-nuget"
