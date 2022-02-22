@@ -16,4 +16,4 @@ pool:
   vmImage: 'ubuntu-18.04'
 
 jobs:
-  - template: andoid-jobs.yml
+  - template: android-jobs.yml
