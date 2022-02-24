@@ -19,4 +19,4 @@ variables:
     value: production,externalfacing
 
 jobs:
-  - template: andoid-jobs.yml
+  - template: android-jobs.yml
