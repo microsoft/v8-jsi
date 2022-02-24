@@ -11,7 +11,7 @@ trigger:
       - android/*
       - .ado/android-*.yml
 
-pool: Azure-Pipelines-EO-Ubuntu1804-Office
+pool: Azure-Pipelines-EO-Ubuntu20.04-Office
 
 variables:
   - group: InfoSec-SecurityResults
