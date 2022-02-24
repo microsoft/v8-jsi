@@ -446,9 +446,13 @@ void V8Runtime::createHostObjectConstructorPerContext() {
       isolate_, constructorForHostObjectTemplate->GetFunction(context_.Get(isolate_)).ToLocalChecked());
 }
 
+#ifdef _WIN32
+std::once_flag g_tracingInitialized;
+#endif
+
 void V8Runtime::initializeTracing() {
 #ifdef _WIN32
-  globalInitializeTracing();
+  std::call_once(g_tracingInitialized, [](){ globalInitializeTracing(); });
 #endif
 
   TRACEV8RUNTIME_VERBOSE("Initializing");
@@ -1574,17 +1578,6 @@ void V8Runtime::SetIsEnvDeleted() noexcept {
 }
 
 //=============================================================================
-// StringViewHash implementation
-//=============================================================================
-
-size_t StringViewHash::operator()(napijsi::string_view view) const noexcept {
-  return s_classic_collate.hash(view.begin(), view.end());
-}
-
-/*static*/ const std::collate<char> &StringViewHash::s_classic_collate =
-    std::use_facet<std::collate<char>>(std::locale::classic());
-
-//=============================================================================
 // NapiUniqueString implementation
 //=============================================================================
 
@@ -1592,8 +1585,8 @@ NapiUniqueString::NapiUniqueString(napi_env env, std::string value) noexcept : e
 
 NapiUniqueString::~NapiUniqueString() noexcept {}
 
-napijsi::string_view NapiUniqueString::GetView() const noexcept {
-  return napijsi::string_view{value_};
+std::string_view NapiUniqueString::GetView() const noexcept {
+  return std::string_view{value_};
 }
 
 napi_ext_ref NapiUniqueString::GetRef() const noexcept {
