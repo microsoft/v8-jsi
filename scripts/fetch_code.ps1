@@ -96,3 +96,6 @@ $asioDownload | Expand-Archive -DestinationPath $asioPath -Force
 
 $env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
 Write-Host "##vso[task.setvariable variable=ASIO_ROOT;]$env:ASIO_ROOT"
+
+# Remove unused code
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\perfetto")
