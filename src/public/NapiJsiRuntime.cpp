@@ -6,6 +6,7 @@
 #include <array>
 #include <memory>
 #include <sstream>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include "compat.h"
@@ -51,6 +52,9 @@
 namespace napijsi {
 // Make the whole implementation local.
 namespace {
+
+using std::string_view;
+using namespace std::literals;
 
 // Implementation of N-API JSI Runtime
 struct NapiJsiRuntime : facebook::jsi::Runtime {
@@ -500,26 +504,26 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
 
 NapiJsiRuntime::NapiJsiRuntime(napi_env env) noexcept : m_env{env} {
   EnvScope envScope{m_env};
-  m_propertyId.Error = NapiRefHolder{this, GetPropertyIdFromName("Error"_sv)};
-  m_propertyId.Object = NapiRefHolder{this, GetPropertyIdFromName("Object"_sv)};
-  m_propertyId.Proxy = NapiRefHolder{this, GetPropertyIdFromName("Proxy"_sv)};
-  m_propertyId.Symbol = NapiRefHolder{this, GetPropertyIdFromName("Symbol"_sv)};
-  m_propertyId.byteLength = NapiRefHolder{this, GetPropertyIdFromName("byteLength"_sv)};
-  m_propertyId.configurable = NapiRefHolder{this, GetPropertyIdFromName("configurable"_sv)};
-  m_propertyId.enumerable = NapiRefHolder{this, GetPropertyIdFromName("enumerable"_sv)};
-  m_propertyId.get = NapiRefHolder{this, GetPropertyIdFromName("get"_sv)};
-  m_propertyId.getOwnPropertyDescriptor = NapiRefHolder{this, GetPropertyIdFromName("getOwnPropertyDescriptor"_sv)};
-  m_propertyId.hostFunctionSymbol = NapiRefHolder{this, CreateSymbol("hostFunctionSymbol"_sv)};
-  m_propertyId.hostObjectSymbol = NapiRefHolder{this, CreateSymbol("hostObjectSymbol"_sv)};
-  m_propertyId.length = NapiRefHolder{this, GetPropertyIdFromName("length"_sv)};
-  m_propertyId.message = NapiRefHolder{this, GetPropertyIdFromName("message"_sv)};
-  m_propertyId.ownKeys = NapiRefHolder{this, GetPropertyIdFromName("ownKeys"_sv)};
-  m_propertyId.propertyIsEnumerable = NapiRefHolder{this, GetPropertyIdFromName("propertyIsEnumerable"_sv)};
-  m_propertyId.prototype = NapiRefHolder{this, GetPropertyIdFromName("prototype"_sv)};
-  m_propertyId.set = NapiRefHolder{this, GetPropertyIdFromName("set"_sv)};
-  m_propertyId.toString = NapiRefHolder{this, GetPropertyIdFromName("toString"_sv)};
-  m_propertyId.value = NapiRefHolder{this, GetPropertyIdFromName("value"_sv)};
-  m_propertyId.writable = NapiRefHolder{this, GetPropertyIdFromName("writable"_sv)};
+  m_propertyId.Error = NapiRefHolder{this, GetPropertyIdFromName("Error"sv)};
+  m_propertyId.Object = NapiRefHolder{this, GetPropertyIdFromName("Object"sv)};
+  m_propertyId.Proxy = NapiRefHolder{this, GetPropertyIdFromName("Proxy"sv)};
+  m_propertyId.Symbol = NapiRefHolder{this, GetPropertyIdFromName("Symbol"sv)};
+  m_propertyId.byteLength = NapiRefHolder{this, GetPropertyIdFromName("byteLength"sv)};
+  m_propertyId.configurable = NapiRefHolder{this, GetPropertyIdFromName("configurable"sv)};
+  m_propertyId.enumerable = NapiRefHolder{this, GetPropertyIdFromName("enumerable"sv)};
+  m_propertyId.get = NapiRefHolder{this, GetPropertyIdFromName("get"sv)};
+  m_propertyId.getOwnPropertyDescriptor = NapiRefHolder{this, GetPropertyIdFromName("getOwnPropertyDescriptor"sv)};
+  m_propertyId.hostFunctionSymbol = NapiRefHolder{this, CreateSymbol("hostFunctionSymbol"sv)};
+  m_propertyId.hostObjectSymbol = NapiRefHolder{this, CreateSymbol("hostObjectSymbol"sv)};
+  m_propertyId.length = NapiRefHolder{this, GetPropertyIdFromName("length"sv)};
+  m_propertyId.message = NapiRefHolder{this, GetPropertyIdFromName("message"sv)};
+  m_propertyId.ownKeys = NapiRefHolder{this, GetPropertyIdFromName("ownKeys"sv)};
+  m_propertyId.propertyIsEnumerable = NapiRefHolder{this, GetPropertyIdFromName("propertyIsEnumerable"sv)};
+  m_propertyId.prototype = NapiRefHolder{this, GetPropertyIdFromName("prototype"sv)};
+  m_propertyId.set = NapiRefHolder{this, GetPropertyIdFromName("set"sv)};
+  m_propertyId.toString = NapiRefHolder{this, GetPropertyIdFromName("toString"sv)};
+  m_propertyId.value = NapiRefHolder{this, GetPropertyIdFromName("value"sv)};
+  m_propertyId.writable = NapiRefHolder{this, GetPropertyIdFromName("writable"sv)};
 
   m_value.Undefined = NapiRefHolder{this, GetUndefined()};
   m_value.Null = NapiRefHolder{this, GetNull()};
@@ -1239,7 +1243,7 @@ void NapiJsiRuntime::RewriteErrorMessage(napi_value jsError) const {
   } else if (TypeOf(message) == napi_string) {
     // JSI unit tests expect V8- or JSC-like messages for the stack overflow.
     if (StringToStdString(message) == "Out of stack space") {
-      SetProperty(jsError, m_propertyId.message, CreateStringUtf8("RangeError : Maximum call stack size exceeded"_sv));
+      SetProperty(jsError, m_propertyId.message, CreateStringUtf8("RangeError : Maximum call stack size exceeded"sv));
     }
   }
 }

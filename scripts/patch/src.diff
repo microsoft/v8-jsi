@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index bca5b5356b..bd31583843 100644
+index 7304e8c3f9..264dd4e4f6 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1191,7 +1191,7 @@ config("toolchain") {
+@@ -1195,7 +1195,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOSX" ]
@@ -11,7 +11,7 @@ index bca5b5356b..bd31583843 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -5152,7 +5152,6 @@ v8_component("v8_libbase") {
+@@ -5179,7 +5179,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -19,7 +19,7 @@ index bca5b5356b..bd31583843 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6770,3 +6769,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6797,3 +6796,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -31,10 +31,10 @@ index bca5b5356b..bd31583843 100644
 +}
 \ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 8d1be4a658..33e03b3def 100644
+index 7ef726b46f..a3dbe02f9a 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -593,4 +593,15 @@ hooks = [
+@@ -597,4 +597,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -51,13 +51,13 @@ index 8d1be4a658..33e03b3def 100644
 +  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index feabd079e0..d9651731e4 100644
+index 39b196521c..f8c8b339ab 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
-@@ -70,6 +70,9 @@ if (v8_snapshot_toolchain == "") {
-     # therefore snapshots will need to be built using native mksnapshot
-     # in combination with qemu
-     v8_snapshot_toolchain = current_toolchain
+@@ -74,6 +74,9 @@ if (v8_snapshot_toolchain == "") {
+     # Cross-build from arm64 to intel (likely on an Apple Silicon mac).
+     v8_snapshot_toolchain =
+         "//build/toolchain/${host_os}:clang_arm64_v8_$v8_current_cpu"
 +  } else if (target_os == "winuwp") {
 +    # cross compile UWP Windows with host toolchain (for x64 and x86)
 +    v8_snapshot_toolchain = host_toolchain
@@ -114,10 +114,10 @@ index f981bec610..574602f10b 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 919c3ef4df..e9422a7752 100644
+index 4292f7e728..cba916a46e 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1110,8 +1110,8 @@ Win32MemoryMappedFile::~Win32MemoryMappedFile() {
+@@ -1212,8 +1212,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -151,10 +151,10 @@ index d50767421a..3d296db7c6 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 08b744e4a2..23f60e2918 100644
+index 982ecbc4d0..d87643eb26 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -944,6 +944,8 @@ int ScopeInfo::ParametersStartIndex() const {
+@@ -951,6 +951,8 @@ int ScopeInfo::ParametersStartIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -199,7 +199,7 @@ index fcccc78ee5..42d8d190ba 100644
  
  LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
 diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
-index d59debe625..fc35a6e8f6 100644
+index d59debe625..0e48707985 100644
 --- a/src/trap-handler/handler-outside-simulator.cc
 +++ b/src/trap-handler/handler-outside-simulator.cc
 @@ -11,6 +11,12 @@
@@ -236,24 +236,24 @@ index 79ddf56653..d83f88ebb9 100644
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index f7bf9af2fb..c4bfd36288 100644
+index 033cdc32f0..590fd5c602 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -80,8 +80,10 @@ const int kAllocationTries = 2;
+@@ -82,8 +82,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
 -  DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
 -  return GetPageAllocatorInitializer()->page_allocator();
-+  // DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
-+  // return GetPageAllocatorInitializer()->page_allocator();
++  //DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
++  //return GetPageAllocatorInitializer()->page_allocator();
 +
 +  return V8::GetCurrentPlatform()->GetPageAllocator();
  }
  
- #ifdef V8_VIRTUAL_MEMORY_CAGE
+ v8::VirtualAddressSpace* GetPlatformVirtualAddressSpace() {
 diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
-index 7ba140775d..0de10ba95c 100644
+index ca4ed582df..308a7bf7ea 100644
 --- a/src/wasm/wasm-module-builder.h
 +++ b/src/wasm/wasm-module-builder.h
 @@ -438,7 +438,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
