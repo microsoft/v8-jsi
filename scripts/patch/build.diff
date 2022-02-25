@@ -1,17 +1,28 @@
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 51437c66c..728555267 100644
+index 1e76a54cc..449f7ccd5 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -486,7 +486,7 @@ config("default_crt") {
-       configs = [ ":dynamic_crt" ]
+@@ -481,16 +481,16 @@ config("default_crt") {
+     # Component mode: dynamic CRT. Since the library is shared, it requires
+     # exceptions or will give errors about things not matching, so keep
+     # exceptions on.
+-    configs = [ ":dynamic_crt" ]
++    configs = [ ":dynamic_crt", ":win_msvc_cfg" ]
+   } else {
+     if (current_os == "winuwp") {
+       # https://blogs.msdn.microsoft.com/vcblog/2014/06/10/the-great-c-runtime-crt-refactoring/
+       # contains a details explanation of what is happening with the Windows
+       # CRT in Visual Studio releases related to Windows store applications.
+-      configs = [ ":dynamic_crt" ]
++      configs = [ ":dynamic_crt", ":win_msvc_cfg" ]
      } else {
        # Desktop Windows: static CRT.
 -      configs = [ ":static_crt" ]
-+      configs = [ ":dynamic_crt" ]
++      configs = [ ":dynamic_crt", ":win_msvc_cfg" ]
      }
    }
  }
-@@ -594,3 +594,11 @@ config("lean_and_mean") {
+@@ -619,3 +619,11 @@ config("lean_and_mean") {
  config("nominmax") {
    defines = [ "NOMINMAX" ]
  }
@@ -19,8 +30,20 @@ index 51437c66c..728555267 100644
 +# Control Flow Guard (CFG)
 +config("win_msvc_cfg") {
 +  if (!is_clang && !is_debug) {
-+    cflags = [ "/guard:cf", "/Qspectre" ]
-+    ldflags = [ "/guard:cf" ]
++    cflags = [ "/guard:cf", "/Qspectre", "/W3" ]
++    ldflags = [ "/guard:cf", "/CETCOMPAT" ]
 +  }
 +}
-\ No newline at end of file
+diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
+index ec9e9eeda..69e44883f 100644
+--- a/toolchain/win/setup_toolchain.py
++++ b/toolchain/win/setup_toolchain.py
+@@ -176,6 +176,8 @@ def _LoadToolchainEnv(cpu, toolchain_root, sdk_dir, target_store):
+     # building with a new and untested SDK. This should stay in sync with the
+     # packaged toolchain in build/vs_toolchain.py.
+     args.append('10.0.19041.0')
++    # Use Spectre runtime libraries
++    args.append('-vcvars_spectre_libs=spectre')
+     variables = _LoadEnvFromBat(args)
+   return _ExtractImportantEnvironment(variables)
+ 

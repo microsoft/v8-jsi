@@ -121,6 +121,7 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
     # Debugging extension
     if ($AppPlatform -ne "uwp") {
         Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
     }
 }
 else {
