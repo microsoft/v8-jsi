@@ -300,3 +300,16 @@ index ca4ed582df..308a7bf7ea 100644
  
      ValueType type;
      bool mutability;
+diff --git a/tools/v8windbg/BUILD.gn b/tools/v8windbg/BUILD.gn
+index 5516a6109f..d6cde0082c 100644
+--- a/tools/v8windbg/BUILD.gn
++++ b/tools/v8windbg/BUILD.gn
+@@ -26,7 +26,7 @@ source_set("v8windbg_base") {
+     "DbgEng.lib",
+     "DbgModel.lib",
+     "RuntimeObject.lib",
+-    "comsuppwd.lib",
++    "comsuppw.lib",
+   ]
+ 
+   public_configs = [ ":v8windbg_config" ]
