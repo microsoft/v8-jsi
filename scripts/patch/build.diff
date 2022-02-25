@@ -1,3 +1,25 @@
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index e49fc28c0..f9c12d11b 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -1427,7 +1427,7 @@ config("default_warnings") {
+       # TODO(thakis): Remove this once
+       # https://swiftshader-review.googlesource.com/c/SwiftShader/+/57968 has
+       # rolled into angle.
+-      cflags += [ "/wd4244" ]
++      # cflags += [ "/wd4244" ]
+     }
+   } else {
+     if (is_apple && !is_nacl) {
+@@ -1682,7 +1682,7 @@ config("no_chromium_code") {
+     }
+     cflags += [
+       "/wd4800",  # Disable warning when forcing value to bool.
+-      "/wd4267",  # TODO(jschuh): size_t to int.
++      #"/wd4267",  # TODO(jschuh): size_t to int.
+     ]
+   } else {
+     # GCC may emit unsuppressible warnings so don't add -Werror for no chromium
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
 index 1e76a54cc..449f7ccd5 100644
 --- a/config/win/BUILD.gn
