@@ -42,6 +42,10 @@ $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 Push-Location (Join-Path $workpath "v8build\v8\build")
 & git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\build.diff")
 
+Push-Location (Join-Path $workpath "v8build\v8\third_party\zlib")
+& git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\zlib.diff")
+
+Pop-Location
 Pop-Location
 Pop-Location
 Pop-Location

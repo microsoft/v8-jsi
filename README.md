@@ -25,8 +25,10 @@ Currently, the Android version builds an older release of V8 (7.0.276.32) and us
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
 
 ### Build script patches
-To regenerate after manual fix-ups, run `git diff --output=..\..\..\..\scripts\patch\build.diff --ignore-cr-at-eol` from `\build\v8build\v8\build\`.
-And `git diff --output=..\..\..\scripts\patch\src.diff --ignore-cr-at-eol` from `\build\v8build\v8\`.
+To regenerate after manual fix-ups, run:
+* `git diff --output=..\..\..\..\scripts\patch\build.diff --ignore-cr-at-eol` from `\build\v8build\v8\build\`.
+* `git diff --output=..\..\..\scripts\patch\src.diff --ignore-cr-at-eol` from `\build\v8build\v8\`.
+* `git diff --output=..\..\..\..\..\scripts\patch\zlib.diff --ignore-cr-at-eol` from `\build\v8build\v8\third_party\zlib\`.
 
 ## Contributing
 See [Contributing guidelines](./docs/CONTRIBUTING.md) for how to setup your fork of the repo and start a PR to contribute to React Native V8 JSI adapter.
