@@ -145,7 +145,7 @@ namespace facebook { namespace v8runtime {
 
       static void Enumerator(const v8::PropertyCallbackInfo<v8::Array>& info)
       {
-        v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.Data());
+        v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.This()->GetInternalField(0));
         HostObjectProxy* hostObjectProxy = reinterpret_cast<HostObjectProxy*>(data->Value());
 
         if (hostObjectProxy != nullptr) {
