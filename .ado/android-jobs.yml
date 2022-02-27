@@ -86,7 +86,7 @@ jobs:
         displayName: 📒 Generate Manifest NuGet
         condition: not(eq(variables['Build.Reason'], 'PullRequest'))
         inputs:
-          BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
+          BuildDropPath: $(System.DefaultWorkingDirectory)/NugetRootFinalAndroid
           
       - task: PublishBuildArtifacts@1
         displayName: "Publish final Android nuget artifacts"
