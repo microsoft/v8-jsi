@@ -114,6 +114,9 @@ else
 fi
 popd
 
+# remove unused code
+rm -rf "$BUILD_PATH/v8/third_party/catapult"
+
 # configure
 
 NDK_R_VERSION=$(echo "$NDK_VERSION" | sed 's/r\([0-9]\{1,2\}[a-z]\).*/\1/')
