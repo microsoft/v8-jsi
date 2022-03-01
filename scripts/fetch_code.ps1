@@ -102,7 +102,9 @@ $env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
 Write-Host "##vso[task.setvariable variable=ASIO_ROOT;]$env:ASIO_ROOT"
 
 # Remove unused code
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\test\test262\data\tools")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\google_benchmark")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\perfetto")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\protobuf")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\clusterfuzz")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\turbolizer")

@@ -115,7 +115,13 @@ fi
 popd
 
 # remove unused code
+rm -rf "$BUILD_PATH/v8/test/test262/data/tools"
 rm -rf "$BUILD_PATH/v8/third_party/catapult"
+rm -rf "$BUILD_PATH/v8/third_party/google_benchmark"
+rm -rf "$BUILD_PATH/v8/third_party/perfetto"
+rm -rf "$BUILD_PATH/v8/third_party/protobuf"
+rm -rf "$BUILD_PATH/v8/tools/clusterfuzz"
+rm -rf "$BUILD_PATH/v8/tools/turbolizer"
 
 # configure
 
