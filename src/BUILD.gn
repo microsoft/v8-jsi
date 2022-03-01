@@ -99,11 +99,61 @@ target("shared_library", "v8jsi") {
   }
 }
 
+# copy test JS files
+copy("napi_test_js_files") {
+  sources = [
+    "napi/test/js-native-api/2_function_arguments/test.js",
+    "napi/test/js-native-api/3_callbacks/test.js",
+    "napi/test/js-native-api/4_object_factory/test.js",
+    "napi/test/js-native-api/5_function_factory/test.js",
+    "napi/test/js-native-api/6_object_wrap/test.js",
+    "napi/test/js-native-api/7_factory_wrap/test.js",
+    "napi/test/js-native-api/8_passing_wrapped/test.js",
+    "napi/test/js-native-api/common/assert.js",
+    "napi/test/js-native-api/common/common.js",
+    "napi/test/js-native-api/test_array/test.js",
+    "napi/test/js-native-api/test_bigint/test.js",
+    "napi/test/js-native-api/test_constructor/test.js",
+    "napi/test/js-native-api/test_constructor/test2.js",
+    "napi/test/js-native-api/test_conversions/test.js",
+    "napi/test/js-native-api/test_dataview/test.js",
+    "napi/test/js-native-api/test_date/test.js",
+    "napi/test/js-native-api/test_error/test.js",
+    "napi/test/js-native-api/test_exception/test.js",
+    "napi/test/js-native-api/test_exception/testFinalizerException.js",
+    "napi/test/js-native-api/test_function/test.js",
+    "napi/test/js-native-api/test_general/test.js",
+    "napi/test/js-native-api/test_general/testEnvCleanup.js",
+    "napi/test/js-native-api/test_general/testFinalizer.js",
+    "napi/test/js-native-api/test_general/testGlobals.js",
+    "napi/test/js-native-api/test_general/testInstanceOf.js",
+    "napi/test/js-native-api/test_general/testNapiRun.js",
+    "napi/test/js-native-api/test_general/testNapiStatus.js",
+    "napi/test/js-native-api/test_handle_scope/test.js",
+    "napi/test/js-native-api/test_instance_data/test.js",
+    "napi/test/js-native-api/test_new_target/test.js",
+    "napi/test/js-native-api/test_number/test.js",
+    "napi/test/js-native-api/test_object/test.js",
+    "napi/test/js-native-api/test_object/test_null.js",
+    "napi/test/js-native-api/test_promise/test.js",
+    "napi/test/js-native-api/test_properties/test.js",
+    "napi/test/js-native-api/test_reference/test.js",
+    "napi/test/js-native-api/test_reference_double_free/test.js",
+    "napi/test/js-native-api/test_string/test.js",
+    "napi/test/js-native-api/test_symbol/test1.js",
+    "napi/test/js-native-api/test_symbol/test2.js",
+    "napi/test/js-native-api/test_symbol/test3.js",
+    "napi/test/js-native-api/test_typedarray/test.js",
+  ]
+  outputs = [ "$root_out_dir/{{source}}" ]
+}
+
 target("executable", "jsitests") {
   testonly = true
 
   deps = [
     ":v8jsi",
+    ":napi_test_js_files",
     "//build/win:default_exe_manifest",
     "//testing/gtest",
   ]
@@ -128,9 +178,6 @@ target("executable", "jsitests") {
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
     "jsi/test/testlib.cpp",
-    "napi/test/lib/assert_js.cpp",
-    "napi/test/lib/common_js.cpp",
-    "napi/test/lib/modules.h",
     "napi/test/napitest_v8.cpp",
     "napi/test/napitest.cpp",
     "napi/test/napitest.h",

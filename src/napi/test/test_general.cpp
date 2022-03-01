@@ -12,13 +12,6 @@
 #define printf(...) test_printf(s_output, __VA_ARGS__)
 static std::string s_output;
 
-#include "js-native-api/test_general/test.js.h"
-#include "js-native-api/test_general/testEnvCleanup.js.h"
-#include "js-native-api/test_general/testFinalizer.js.h"
-#include "js-native-api/test_general/testGlobals.js.h"
-#include "js-native-api/test_general/testInstanceOf.js.h"
-#include "js-native-api/test_general/testNapiRun.js.h"
-#include "js-native-api/test_general/testNapiStatus.js.h"
 #include "js-native-api/test_general/test_general.c"
 
 void ResetStatics() {
@@ -33,7 +26,7 @@ TEST_P(NapiTest, test_general) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
         "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
-    testContext->RunTestScript(test_general_test_js);
+    testContext->RunTestScript("test_general/test.js");
   });
 }
 
@@ -42,7 +35,7 @@ TEST_P(NapiTest, test_general_NapiStatus) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
         "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
-    testContext->RunTestScript(test_general_testNapiStatus_js);
+    testContext->RunTestScript("test_general/testNapiStatus.js");
   });
 }
 
@@ -51,7 +44,7 @@ TEST_P(NapiTest, test_general_NapiRun) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
         "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
-    testContext->RunTestScript(test_general_testNapiRun_js);
+    testContext->RunTestScript("test_general/testNapiRun.js");
   });
 }
 
@@ -62,7 +55,7 @@ TEST_P(NapiTest, test_general_NapiRun) {
 //     testContext->AddNativeModule(
 //         "./build/x86/test_general",
 //         [](napi_env env, napi_value exports) { return Init(env, exports); });
-//     testContext->RunTestScript(test_general_testInstanceOf_js);
+//     testContext->RunTestScript("test_general/testInstanceOf.js");
 //   });
 // }
 
@@ -71,7 +64,7 @@ TEST_P(NapiTest, test_general_Globals) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
         "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
-    testContext->RunTestScript(test_general_testGlobals_js);
+    testContext->RunTestScript("test_general/testGlobals.js");
   });
 }
 
@@ -80,16 +73,18 @@ TEST_P(NapiTest, test_general_Finalizer) {
   ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
     testContext->AddNativeModule(
         "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
-    testContext->RunTestScript(test_general_testFinalizer_js);
+    testContext->RunTestScript("test_general/testFinalizer.js");
   });
 }
 
 TEST_P(NapiTest, test_general_EnvCleanup) {
   ResetStatics();
   s_output = "";
-  auto spawnSyncCallback = [](napi_env env, napi_callback_info /*info*/) -> napi_value {
-    auto childThread = std::thread([]() {
-      ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
+  auto spawnSyncCallback = [](napi_env env, napi_callback_info info) -> napi_value {
+    NapiTest *test;
+    napi_get_cb_info(env, info, nullptr, nullptr, nullptr, reinterpret_cast<void **>(&test));
+    auto childThread = std::thread([test]() {
+      test->ExecuteNapi([](NapiTestContext *testContext, napi_env env) {
         testContext->AddNativeModule(
             "./build/x86/test_general", [](napi_env env, napi_value exports) { return Init(env, exports); });
 
@@ -97,7 +92,7 @@ TEST_P(NapiTest, test_general_EnvCleanup) {
           process = { argv:['', '', 'child'] };
         )");
 
-        testContext->RunTestScript(test_general_testEnvCleanup_js);
+        testContext->RunTestScript("test_general/testEnvCleanup.js");
       });
     });
     childThread.join();
@@ -122,11 +117,11 @@ TEST_P(NapiTest, test_general_EnvCleanup) {
 
     testContext->AddNativeModule("child_process", [&](napi_env env, napi_value exports) {
       napi_value spawnSync{};
-      THROW_IF_NOT_OK(napi_create_function(env, "spawnSync", NAPI_AUTO_LENGTH, spawnSyncCallback, nullptr, &spawnSync));
+      THROW_IF_NOT_OK(napi_create_function(env, "spawnSync", NAPI_AUTO_LENGTH, spawnSyncCallback, this, &spawnSync));
       THROW_IF_NOT_OK(napi_set_named_property(env, exports, "spawnSync", spawnSync));
       return exports;
     });
 
-    testContext->RunTestScript(test_general_testEnvCleanup_js);
+    testContext->RunTestScript("test_general/testEnvCleanup.js");
   });
 }

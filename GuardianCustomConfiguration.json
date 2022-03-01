@@ -1,0 +1,22 @@
+{
+    "Enabled": true,
+    "Tools": {
+        "CredScan": {
+            "Enabled": true
+        },
+        "ESLint": {
+            "Enabled": false,
+            "_justification": "The only js and ts files are under src/napi/test/js-native-api which don't ship and need to test all patterns of the js engine causing false positives and even crashes in eslint."
+        },
+        "BinSkim": {
+            "Enabled": true,
+            "Inputs": {
+                "AnalyzeTargetGlob": "",
+                "AnalyzeSymPath": ""
+            }
+        },
+        "SDLNativeRules": {
+            "Enabled": true
+        }
+    }
+}

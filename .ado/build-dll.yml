@@ -64,6 +64,27 @@ steps:
     inputs:
       ignoreDirectories: 'build\v8build\depot_tools'
 
+  - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+    displayName: 📒 Prep Manifest
+
+  - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+    displayName: 📒 Generate Manifest
+    inputs:
+      BuildDropPath: ${{parameters.outputPath}}
+      ManifestDirPath: ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+
+  # Guardian does not handle custom builds, so manually running Binskim
+  - task: BinSkim@3
+    displayName: Run Binskim Analysis
+    inputs:
+        InputType: 'Basic'
+        Function: 'analyze'
+        AnalyzeTarget: $(Build.ArtifactStagingDirectory)/**/*.dll
+        AnalyzeVerbose: true
+        toolVersion: 'LatestPreRelease'
+    continueOnError: true
+    condition: and(eq(variables.BuildConfiguration, 'Release'), not(eq(variables.BuildPlatform, 'arm64')))
+
   - task: PublishBuildArtifacts@1
     displayName: "Publish artifacts"
     inputs:
