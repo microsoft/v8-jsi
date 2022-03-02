@@ -42,7 +42,7 @@ assert.strictEqual(externalResult[2], 2);
 const buffer = new ArrayBuffer(128);
 const arrayTypes = [ Int8Array, Uint8Array, Uint8ClampedArray, Int16Array,
                      Uint16Array, Int32Array, Uint32Array, Float32Array,
-                     Float64Array, BigInt64Array, BigUint64Array ];
+                     Float64Array /*, BigInt64Array, BigUint64Array*/ ];
 
 arrayTypes.forEach((currentType) => {
   const template = Reflect.construct(currentType, buffer);
@@ -64,8 +64,8 @@ arrayTypes.forEach((currentType) => {
 });
 
 const nonByteArrayTypes = [ Int16Array, Uint16Array, Int32Array, Uint32Array,
-                            Float32Array, Float64Array,
-                            BigInt64Array, BigUint64Array ];
+                            Float32Array, Float64Array /*,
+                            BigInt64Array, BigUint64Array*/ ];
 nonByteArrayTypes.forEach((currentType) => {
   const template = Reflect.construct(currentType, buffer);
   assert.throws(() => {
@@ -77,24 +77,24 @@ nonByteArrayTypes.forEach((currentType) => {
 
 // Test detaching
 arrayTypes.forEach((currentType) => {
-  const buffer = Reflect.construct(currentType, [8]);
-  assert.strictEqual(buffer.length, 8);
-  assert.ok(!test_typedarray.IsDetached(buffer.buffer));
-  test_typedarray.Detach(buffer);
-  assert.ok(test_typedarray.IsDetached(buffer.buffer));
-  assert.strictEqual(buffer.length, 0);
+  const typedArray = Reflect.construct(currentType, [8]);
+  assert.strictEqual(typedArray.length, 8);
+  assert.ok(!test_typedarray.IsDetached(typedArray.buffer));
+  test_typedarray.Detach(typedArray);
+  assert.ok(test_typedarray.IsDetached(typedArray.buffer));
+  assert.strictEqual(typedArray.length, 0);
 });
 {
-  const buffer = test_typedarray.External();
-  assert.ok(externalResult instanceof Int8Array);
-  assert.strictEqual(externalResult.length, 3);
-  assert.strictEqual(externalResult.byteLength, 3);
-  assert.ok(!test_typedarray.IsDetached(buffer.buffer));
-  test_typedarray.Detach(buffer);
-  assert.ok(test_typedarray.IsDetached(buffer.buffer));
-  assert.ok(externalResult instanceof Int8Array);
-  assert.strictEqual(buffer.length, 0);
-  assert.strictEqual(buffer.byteLength, 0);
+  const externalTypedArray = test_typedarray.External();
+  assert.ok(externalTypedArray instanceof Int8Array);
+  assert.strictEqual(externalTypedArray.length, 3);
+  assert.strictEqual(externalTypedArray.byteLength, 3);
+  assert.ok(!test_typedarray.IsDetached(externalTypedArray.buffer));
+  test_typedarray.Detach(externalTypedArray);
+  assert.ok(test_typedarray.IsDetached(externalTypedArray.buffer));
+  assert.ok(externalTypedArray instanceof Int8Array);
+  assert.strictEqual(externalTypedArray.length, 0);
+  assert.strictEqual(externalTypedArray.byteLength, 0);
 }
 
 {

@@ -1,0 +1,13 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 49f52e1..7ee4871 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -32,7 +32,7 @@ config("zlib_internal_config") {
+     # V8 supports building with msvc, these silence some warnings that
+     # causes compilation to fail (https://crbug.com/1255096).
+     cflags = [
+-      "/wd4244",
++      #"/wd4244",
+       "/wd4100",
+       "/wd4702",
+       "/wd4127",

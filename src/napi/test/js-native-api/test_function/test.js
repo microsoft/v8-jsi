@@ -13,7 +13,7 @@ function func1() {
 assert.strictEqual(test_function.TestCall(func1), 1);
 
 function func2() {
-  console.log('hello world!');
+  // console.log('hello world!');
   return null;
 }
 assert.strictEqual(test_function.TestCall(func2), null);
@@ -31,9 +31,11 @@ assert.strictEqual(test_function.TestCall(func4, 1), 2);
 assert.strictEqual(test_function.TestName.name, 'Name');
 assert.strictEqual(test_function.TestNameShort.name, 'Name_');
 
-let tracked_function = test_function.MakeTrackedFunction(common.mustCall());
-assert(!!tracked_function);
-tracked_function = null;
+(function () {
+  let tracked_function = test_function.MakeTrackedFunction(common.mustCall());
+  assert(!!tracked_function);
+  tracked_function = null;
+})();
 global.gc();
 
 assert.deepStrictEqual(test_function.TestCreateFunctionParameters(), {
