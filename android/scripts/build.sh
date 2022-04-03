@@ -91,7 +91,9 @@ gclient sync
 echo "Applying patches"
 ln -sfn $SOURCES_PATH jsi # for the patches to work
 pushd build && git apply < ../jsi/scripts/patch/build.patch
-popd && git apply < jsi/scripts/patch/src.patch
+popd
+git apply < jsi/scripts/patch/src.patch
+git apply < jsi/scripts/patch/src_freeze_hostobjects.patch
 
 # install Android NDK
 pushd third_party
