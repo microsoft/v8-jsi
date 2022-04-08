@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 7304e8c3f9..f3a12486f3 100644
+index fb68d0ec4d..7a55c15ce7 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1195,7 +1195,7 @@ config("toolchain") {
+@@ -1214,7 +1214,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOSX" ]
@@ -11,7 +11,7 @@ index 7304e8c3f9..f3a12486f3 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -1257,7 +1257,7 @@ config("toolchain") {
+@@ -1276,7 +1276,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index 7304e8c3f9..f3a12486f3 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1361,14 +1361,14 @@ config("toolchain") {
+@@ -1380,14 +1380,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index 7304e8c3f9..f3a12486f3 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1392,7 +1392,7 @@ config("toolchain") {
+@@ -1411,7 +1411,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index 7304e8c3f9..f3a12486f3 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5179,7 +5179,6 @@ v8_component("v8_libbase") {
+@@ -5229,7 +5229,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,43 @@ index 7304e8c3f9..f3a12486f3 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6797,3 +6796,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -5929,26 +5928,6 @@ group("v8_python_base") {
+   data = [ ".vpython" ]
+ }
+ 
+-group("v8_clusterfuzz") {
+-  testonly = true
+-
+-  deps = [
+-    ":d8",
+-    ":v8_simple_inspector_fuzzer",
+-    "tools/clusterfuzz/trials:v8_clusterfuzz_resources",
+-  ]
+-
+-  if (v8_multi_arch_build) {
+-    deps += [
+-      ":d8(//build/toolchain/linux:clang_x64)",
+-      ":d8(//build/toolchain/linux:clang_x64_v8_arm64)",
+-      ":d8(//build/toolchain/linux:clang_x86)",
+-      ":d8(//build/toolchain/linux:clang_x86_v8_arm)",
+-      ":d8(tools/clusterfuzz/foozzie/toolchain:clang_x64_pointer_compression)",
+-    ]
+-  }
+-}
+-
+ group("v8_archive") {
+   testonly = true
+ 
+@@ -6160,7 +6139,7 @@ v8_executable("d8") {
+   }
+ 
+   if (v8_correctness_fuzzer) {
+-    deps += [ "tools/clusterfuzz/foozzie:v8_correctness_fuzzer_resources" ]
++    # deps += [ "tools/clusterfuzz/foozzie:v8_correctness_fuzzer_resources" ]
+   }
+ 
+   defines = []
+@@ -6848,3 +6827,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -66,7 +102,7 @@ index 7304e8c3f9..f3a12486f3 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 7ef726b46f..a3dbe02f9a 100644
+index 9563e1cc81..b537ed6b58 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -597,4 +597,15 @@ hooks = [
@@ -149,10 +185,10 @@ index f981bec610..574602f10b 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 4292f7e728..cba916a46e 100644
+index 1887ad639f..959c9848c1 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1212,8 +1212,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
+@@ -1307,8 +1307,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -186,10 +222,10 @@ index d50767421a..3d296db7c6 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 982ecbc4d0..d87643eb26 100644
+index 70bc3de7b6..8ee5d81840 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -951,6 +951,8 @@ int ScopeInfo::ParametersStartIndex() const {
+@@ -1016,6 +1016,8 @@ int ScopeInfo::ParametersStartIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -234,7 +270,7 @@ index fcccc78ee5..42d8d190ba 100644
  
  LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
 diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
-index d59debe625..0e48707985 100644
+index d59debe625..fc35a6e8f6 100644
 --- a/src/trap-handler/handler-outside-simulator.cc
 +++ b/src/trap-handler/handler-outside-simulator.cc
 @@ -11,6 +11,12 @@
@@ -271,7 +307,7 @@ index 79ddf56653..d83f88ebb9 100644
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 033cdc32f0..590fd5c602 100644
+index 950f0effe6..dedb06a425 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -82,8 +82,10 @@ const int kAllocationTries = 2;
@@ -288,10 +324,10 @@ index 033cdc32f0..590fd5c602 100644
  
  v8::VirtualAddressSpace* GetPlatformVirtualAddressSpace() {
 diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
-index ca4ed582df..308a7bf7ea 100644
+index dc8ccf5557..5e2c1546f6 100644
 --- a/src/wasm/wasm-module-builder.h
 +++ b/src/wasm/wasm-module-builder.h
-@@ -438,7 +438,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+@@ -424,7 +424,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
    };
  
    struct WasmGlobal {
