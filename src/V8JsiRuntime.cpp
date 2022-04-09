@@ -486,6 +486,9 @@ void V8Runtime::initializeV8() {
   if (args_.flags.jitless)
     argv.push_back("--jitless");
 
+  if (args_.flags.lite_mode)
+    argv.push_back("--lite_mode");
+
   int argc = static_cast<int>(argv.size());
   v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
 }
@@ -504,7 +507,7 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
     isolate_ = v8::Isolate::GetCurrent();
   } else {
-    platform_holder_.addUsage();
+    platform_holder_.addUsage(args.flags.thread_pool_size);
     CreateNewIsolate();
   }
 
@@ -697,7 +700,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
 
   v8::Local<v8::String> urlV8String =
       v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(isolate, urlV8String);
 
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
@@ -788,7 +791,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
 
   v8::Local<v8::String> urlV8String =
       v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(isolate, urlV8String);
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
   v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
@@ -830,7 +833,7 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
   v8::Local<v8::String> urlV8String =
       v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->scriptSignature.url.c_str()))
           .ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(isolate, urlV8String);
   v8::Local<v8::Context> context(isolate->GetCurrentContext());
   v8::Local<v8::Script> script;
 
@@ -988,7 +991,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerVa
 
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   _ISOLATE_CONTEXT_ENTER
-  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description())) +
+  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description(isolate))) +
       ")";
 }
 

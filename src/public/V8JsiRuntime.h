@@ -76,6 +76,13 @@ struct V8RuntimeArgs {
       bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
       bool always_compact:1; // perform compaction on every full GC
       bool jitless:1; // disable JIT entirely
+      bool lite_mode:1; // enables trade-off of performance for memory savings
+
+      // unused padding to get better alignment at byte boundary
+      bool padding:1;
+
+      // caps the number of worker threads (trade fewer threads for time)
+      std::uint8_t thread_pool_size; // by default (0) V8 uses min(N-1,16) where N = number of cores
     } flags;
     uint32_t _flagspad {0};
   };

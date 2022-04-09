@@ -81,12 +81,13 @@ class V8PlatformHolder {
  public:
   V8PlatformHolder() {}
 
-  void addUsage() {
+  // thread_pool_size of 0 is the default (V8 will use the number of cores N to compute it as min(N-1, 16))
+  void addUsage(int thread_pool_size = 0) {
     std::lock_guard<std::mutex> guard(mutex_s_);
 
     if (use_count_s_++ == 0) {
       if (!platform_s_) {
-        platform_s_ = v8::platform::NewDefaultPlatform();
+        platform_s_ = v8::platform::NewDefaultPlatform(thread_pool_size);
 
         v8::V8::InitializePlatform(platform_s_.get());
         v8::V8::Initialize();

@@ -261,6 +261,8 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
   args.flags.optimize_for_size            = settings->flags.optimize_for_size;
   args.flags.always_compact               = settings->flags.always_compact;
   args.flags.jitless                      = settings->flags.jitless;
+  args.flags.lite_mode                    = settings->flags.lite_mode;
+  args.flags.thread_pool_size             = settings->flags.thread_pool_size;
 
   auto taskRunner = std::make_shared<NapiJSITaskRunner>(
     *env,
@@ -350,7 +352,7 @@ napi_status napi_ext_run_script(napi_env env, napi_value source, const char *sou
   v8::Local<v8::Context> context = env->context();
 
   v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(context->GetIsolate(), source_url).ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(context->GetIsolate(), urlV8String);
 
   auto maybe_script = v8::Script::Compile(context, v8::Local<v8::String>::Cast(v8_source), &origin);
   CHECK_MAYBE_EMPTY(env, maybe_script, napi_generic_failure);
@@ -386,7 +388,7 @@ napi_status napi_ext_run_serialized_script(
   v8::Local<v8::Context> context = env->context();
 
   v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(context->GetIsolate(), source_url).ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(context->GetIsolate(), urlV8String);
 
   auto cached_data = new v8::ScriptCompiler::CachedData(buffer, static_cast<int>(buffer_length));
   v8::ScriptCompiler::Source script_source(v8::Local<v8::String>::Cast(v8_source), origin, cached_data);
@@ -421,7 +423,7 @@ napi_status napi_ext_serialize_script(
   v8::Local<v8::Context> context = env->context();
 
   v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(context->GetIsolate(), source_url).ToLocalChecked();
-  v8::ScriptOrigin origin(urlV8String);
+  v8::ScriptOrigin origin(context->GetIsolate(), urlV8String);
 
   v8::Local<v8::UnboundScript> script;
   v8::ScriptCompiler::Source script_source(v8::Local<v8::String>::Cast(v8_source), origin);
