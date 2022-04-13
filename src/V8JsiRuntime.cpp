@@ -1606,12 +1606,13 @@ void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
 // Make V8 JSI runtime
 //=============================================================================
 
-std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
+#ifdef _WIN32
+__declspec(dllexport)
+#else
+__attribute__((visibility("default")))
+#endif
+std::unique_ptr<jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args) {
   return std::make_unique<V8Runtime>(std::move(args));
-}
-
-std::unique_ptr<jsi::Runtime> makeV8Runtime() {
-  return std::make_unique<V8Runtime>(V8RuntimeArgs());
 }
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)

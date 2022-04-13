@@ -102,10 +102,10 @@ index fb68d0ec4d..7a55c15ce7 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 9563e1cc81..b537ed6b58 100644
+index 0041a2ded2..d58e401327 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -597,4 +597,15 @@ hooks = [
+@@ -595,4 +595,15 @@ hooks = [
        'tools/generate-header-include-checks.py',
      ],
    },
@@ -336,6 +336,21 @@ index dc8ccf5557..5e2c1546f6 100644
  
      ValueType type;
      bool mutability;
+diff --git a/third_party/googletest/BUILD.gn b/third_party/googletest/BUILD.gn
+index bc82c635da..5e72348203 100644
+--- a/third_party/googletest/BUILD.gn
++++ b/third_party/googletest/BUILD.gn
+@@ -88,8 +88,8 @@ source_set("gtest") {
+ 
+   all_dependent_configs = [ ":gtest_config" ]
+ 
+-  configs -= [ "//build/config/compiler:chromium_code" ]
+-  configs += [ "//build/config/compiler:no_chromium_code" ]
++  configs -= [ "//build/config/compiler:chromium_code", "//build/config/compiler:no_rtti" ]
++  configs += [ "//build/config/compiler:no_chromium_code", "//build/config/compiler:rtti" ]
+ 
+   # V8-only workaround for http://crbug.com/chromium/1191946. Ensures that
+   # googletest is compiled with the same visibility such as the rest of V8, see
 diff --git a/tools/v8windbg/BUILD.gn b/tools/v8windbg/BUILD.gn
 index 5516a6109f..d6cde0082c 100644
 --- a/tools/v8windbg/BUILD.gn

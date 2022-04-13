@@ -68,6 +68,8 @@ target("shared_library", "v8jsi") {
     }
   } else {
     ldflags = [ "-Wl,--allow-multiple-definition" ]
+
+    ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ] 
   }
 
   include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]

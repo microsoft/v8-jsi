@@ -27,6 +27,9 @@ $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=t
 if ($Configuration -like "*android") {
     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
+elseif ($Configuration -like "*linux") {
+    $gnargs += ' use_goma=false target_os=\"linux\" target_cpu=\"' + $Platform + '\"'
+}
 else {
 if (-not ($UseLibCpp)) {
     $gnargs += ' use_custom_libcxx=false'
@@ -41,7 +44,7 @@ $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
 }
 
-if ($Configuration -notlike "*android") {
+if (($Configuration -notlike "*android") -and ($Configuration -notlike "*linux")) {
     if ($UseClang) {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
@@ -84,7 +87,11 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 $ninjaExtraTargets = @()
 
 if (($AppPlatform -ne "uwp") -and ($Configuration -notlike "*android")) {
-    $ninjaExtraTargets += @("jsitests", "v8windbg")
+    $ninjaExtraTargets += "jsitests"
+
+    if ($Configuration -notlike "*linux") {
+        $ninjaExtraTargets += "v8windbg"
+    }
 }
 
 & ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"

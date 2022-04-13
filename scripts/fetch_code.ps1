@@ -23,6 +23,14 @@ target_os= ['android']
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 
+if ($Configuration -like "*linux") {
+    $target_os = @'
+target_os= ['linux']
+'@
+
+    Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
+}
+
 & gclient sync --with_branch_heads
 
 Push-Location (Join-Path $workpath "v8build\v8")
@@ -82,8 +90,14 @@ Copy-Item $SourcesPath\ReactNative.V8Jsi.Windows.nuspec $OutputPath
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build depndencies for Android
-if ($PSVersionTable.Platform -and !$IsWindows) {
+if ($Configuration -like "*android") {
     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
+
+    & sudo bash $install_script_path
+}
+
+if ($Configuration -like "*linux") {
+    $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps.sh"
 
     & sudo bash $install_script_path
 }

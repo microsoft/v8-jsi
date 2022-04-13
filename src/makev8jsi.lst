@@ -1,0 +1,6 @@
+{ 
+  global: 
+    _ZN9v8runtime13makeV8RuntimeEONS_13V8RuntimeArgsE;
+  local: 
+    *; 
+}; 

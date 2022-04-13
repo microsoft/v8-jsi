@@ -8,7 +8,7 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')]
     [String[]]$Platform = @('x64'),
 
-    [ValidateSet('Debug', 'Release', 'Releaseandroid')]
+    [ValidateSet('Debug', 'Release', 'ReleaseAndroid', 'ReleaseLinux')]
     [String[]]$Configuration = @('Debug'),
 
     [ValidateSet('win32', 'uwp')]
