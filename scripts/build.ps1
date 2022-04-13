@@ -13,7 +13,7 @@ param(
 $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 
-Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore | Out-Null
+Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
 New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
 Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force | Out-Null
 
