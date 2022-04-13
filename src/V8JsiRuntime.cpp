@@ -452,7 +452,7 @@ std::once_flag g_tracingInitialized;
 
 void V8Runtime::initializeTracing() {
 #ifdef _WIN32
-  std::call_once(g_tracingInitialized, [](){ globalInitializeTracing(); });
+  std::call_once(g_tracingInitialized, []() { globalInitializeTracing(); });
 #endif
 
   TRACEV8RUNTIME_VERBOSE("Initializing");
@@ -525,16 +525,16 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   v8::Context::Scope context_scope(context);
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  void* inspector_agent = isolate_->GetData(ISOLATE_INSPECTOR_SLOT);
+  void *inspector_agent = isolate_->GetData(ISOLATE_INSPECTOR_SLOT);
   if (inspector_agent) {
-    inspector_agent_ = reinterpret_cast<inspector::Agent*>(inspector_agent)->getShared();
+    inspector_agent_ = reinterpret_cast<inspector::Agent *>(inspector_agent)->getShared();
   } else {
-    inspector_agent_ = std::make_shared<inspector::Agent>(
-        isolate_, args_.inspectorPort);
+    inspector_agent_ = std::make_shared<inspector::Agent>(isolate_, args_.inspectorPort);
     isolate_->SetData(ISOLATE_INSPECTOR_SLOT, inspector_agent_.get());
   }
 
-  const char* context_name = args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
+  const char *context_name =
+      args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
   inspector_agent_->addContext(context_.Get(GetIsolate()), context_name);
 
   if (args_.flags.enableInspector) {
@@ -574,7 +574,7 @@ V8Runtime::~V8Runtime() {
   host_object_lifetime_tracker_list_.clear();
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (inspector_agent_){
+  if (inspector_agent_) {
     inspector_agent_.reset();
   }
 #endif
@@ -991,8 +991,8 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerVa
 
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   _ISOLATE_CONTEXT_ENTER
-  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description(isolate))) +
-      ")";
+  return "Symbol(" +
+      JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description(isolate))) + ")";
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromAscii(const char *str, size_t length) {
@@ -1031,6 +1031,11 @@ jsi::PropNameID V8Runtime::createPropNameIDFromUtf8(const uint8_t *utf8, size_t 
 jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
   _ISOLATE_CONTEXT_ENTER
   return make<jsi::PropNameID>(V8StringValue::make(v8::Local<v8::String>::Cast(stringRef(str))));
+}
+
+jsi::PropNameID V8Runtime::createPropNameIDFromSymbol(const jsi::Symbol &sym) {
+  _ISOLATE_CONTEXT_ENTER
+  throw std::logic_error("Not implemented");
 }
 
 std::string V8Runtime::utf8(const jsi::PropNameID &sym) {
@@ -1613,16 +1618,17 @@ std::unique_ptr<jsi::Runtime> makeV8Runtime() {
 }
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-void openInspector(jsi::Runtime& runtime) {
-  V8Runtime& v8Runtime = reinterpret_cast<V8Runtime&>(runtime);
-  std::shared_ptr<inspector::Agent> inspector_agent =
-      v8Runtime.getInspectorAgent();
+void openInspector(jsi::Runtime &runtime) {
+  V8Runtime &v8Runtime = reinterpret_cast<V8Runtime &>(runtime);
+  std::shared_ptr<inspector::Agent> inspector_agent = v8Runtime.getInspectorAgent();
   if (inspector_agent) {
     inspector_agent->start();
   }
 }
 
-void openInspectors_toberemoved() { inspector::Agent::startAll(); }
+void openInspectors_toberemoved() {
+  inspector::Agent::startAll();
+}
 #endif
 
 } // namespace v8runtime

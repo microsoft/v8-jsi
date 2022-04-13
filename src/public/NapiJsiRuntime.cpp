@@ -92,6 +92,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromString(const facebook::jsi::String &str) override;
+  facebook::jsi::PropNameID createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) override;
   std::string utf8(const facebook::jsi::PropNameID &id) override;
   bool compare(const facebook::jsi::PropNameID &lhs, const facebook::jsi::PropNameID &rhs) override;
 
@@ -626,6 +627,11 @@ facebook::jsi::PropNameID NapiJsiRuntime::createPropNameIDFromString(const faceb
   return MakePointer<facebook::jsi::PropNameID>(uniqueStr);
 }
 
+facebook::jsi::PropNameID NapiJsiRuntime::createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) {
+  CHECK_ELSE_CRASH(false, "Not implemented");
+  throw;
+}
+
 std::string NapiJsiRuntime::utf8(const facebook::jsi::PropNameID &id) {
   EnvScope envScope{m_env};
   return PropertyIdToStdString(GetNapiValue(id));
@@ -1144,7 +1150,7 @@ size_t NapiJsiRuntime::JsiValueViewArgs::Size() const noexcept {
 //===========================================================================
 
 NapiJsiRuntime::PropNameIDView::PropNameIDView(NapiJsiRuntime *runtime, napi_value propertyId) noexcept
-    : m_propertyId{make<facebook::jsi::PropNameID>(new (std::addressof(m_pointerStore))
+    : m_propertyId{make<facebook::jsi::PropNameID>(new(std::addressof(m_pointerStore))
                                                        NapiPointerValueView{runtime, propertyId})} {}
 
 NapiJsiRuntime::PropNameIDView::operator facebook::jsi::PropNameID const &() const noexcept {
@@ -1833,14 +1839,15 @@ T NapiJsiRuntime::MakePointer(TValue value) const {
 
 } // namespace napijsi
 
-namespace Microsoft { namespace JSI {
+namespace Microsoft {
+namespace JSI {
 
 //===========================================================================
 // NapiJsiRuntime factory function.
 //===========================================================================
-std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept
-{
+std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept {
   return std::make_unique<napijsi::NapiJsiRuntime>(env);
 }
 
-}} // nampespace Microsoft::JSI
+} // namespace JSI
+} // namespace Microsoft
