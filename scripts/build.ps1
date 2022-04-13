@@ -13,9 +13,9 @@ param(
 $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 
-Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore
-New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory
-Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
+Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore | Out-Null
+New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
+Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force | Out-Null
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
@@ -81,10 +81,10 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
     $numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
 }
 
-$ninjaExtraTargets = ""
+$ninjaExtraTargets = @()
 
 if (($AppPlatform -ne "uwp") -and ($Configuration -notlike "*android")) {
-    $ninjaExtraTargets += "jsitests v8windbg"
+    $ninjaExtraTargets += @("jsitests", "v8windbg")
 }
 
 & ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"

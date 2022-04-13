@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#include "V8Windows.h"
 #include "tracing.h"
 
 // Define the GUID to use in TraceLoggingProviderRegister
