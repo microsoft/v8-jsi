@@ -14,17 +14,6 @@ target("shared_library", "v8jsi") {
     "jsi/jsilib-windows.cpp",
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
-    "napi/env-inl.h",
-    "napi/js_native_api_v8_internals.h",
-    "napi/js_native_api_v8.cc",
-    "napi/js_native_api_v8.h",
-    "napi/js_native_ext_api_v8.cpp",
-    "napi/util-inl.h",
-    "public/compat.h",
-    "public/js_native_api_types.h",
-    "public/js_native_api.h",
-    "public/js_native_ext_api.h",
-    "public/NapiJsiRuntime.cpp",
     "public/ScriptStore.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
@@ -33,6 +22,20 @@ target("shared_library", "v8jsi") {
   ]
 
   if (is_win) {
+    sources += [
+      "napi/env-inl.h",
+      "napi/js_native_api_v8_internals.h",
+      "napi/js_native_api_v8.cc",
+      "napi/js_native_api_v8.h",
+      "napi/js_native_ext_api_v8.cpp",
+      "napi/util-inl.h",
+      "public/compat.h",
+      "public/js_native_api_types.h",
+      "public/js_native_api.h",
+      "public/js_native_ext_api.h",
+      "public/NapiJsiRuntime.cpp",
+    ]
+
     sources += [
       "version_gen.rc",
       "etw/tracing.h",
@@ -63,16 +66,18 @@ target("shared_library", "v8jsi") {
     if (!is_clang) {
       ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
     }
+  } else {
+    ldflags = [ "-Wl,--allow-multiple-definition" ]
   }
 
   include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
-  configs -= [ "//build/config/compiler:cet_shadow_stack" ]
-  configs -= [ "//build/config/win:default_incremental_linking" ]
 
   if (is_win) {
+    configs -= [ "//build/config/compiler:cet_shadow_stack" ]
+    configs -= [ "//build/config/win:default_incremental_linking" ]
     configs += [ "//build/config/win:win_msvc_cfg" ]
   }
 
@@ -92,10 +97,10 @@ target("shared_library", "v8jsi") {
     if (target_os != "winuwp") {
       libs += [ "dbghelp.lib" ]
     }
-  }
 
-  if (v8jsi_enable_inspector) {
-    defines += [ "V8JSI_ENABLE_INSPECTOR" ]
+    if (v8jsi_enable_inspector) {
+      defines += [ "V8JSI_ENABLE_INSPECTOR" ]
+    }
   }
 }
 
@@ -178,43 +183,48 @@ target("executable", "jsitests") {
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
     "jsi/test/testlib.cpp",
-    "napi/test/napitest_v8.cpp",
-    "napi/test/napitest.cpp",
-    "napi/test/napitest.h",
-    "napi/test/test_2_function_arguments.cpp",
-    "napi/test/test_3_callbacks.cpp",
-    "napi/test/test_4_object_factory.cpp",
-    "napi/test/test_5_function_factory.cpp",
-    "napi/test/test_6_object_wrap.cpp",
-    "napi/test/test_7_factory_wrap.cpp",
-    "napi/test/test_8_passing_wrapped.cpp",
-    "napi/test/test_array.cpp",
-    "napi/test/test_assert.cpp",
-    "napi/test/test_bigint.cpp",
-    "napi/test/test_constructor.cpp",
-    "napi/test/test_conversions.cpp",
-    "napi/test/test_dataview.cpp",
-    "napi/test/test_date.cpp",
-    "napi/test/test_error.cpp",
-    "napi/test/test_exception.cpp",
-    "napi/test/test_ext.cpp",
-    "napi/test/test_function.cpp",
-    "napi/test/test_general.cpp",
-    "napi/test/test_handle_scope.cpp",
-    "napi/test/test_instance_data.cpp",
-    "napi/test/test_new_target.cpp",
-    "napi/test/test_number.cpp",
-    "napi/test/test_object.cpp",
-    "napi/test/test_promise.cpp",
-    "napi/test/test_properties.cpp",
-    "napi/test/test_reference_double_free.cpp",
-    "napi/test/test_reference.cpp",
-    "napi/test/test_string.cpp",
-    "napi/test/test_symbol.cpp",
-    "napi/test/test_typedarray.cpp",
-    "public/compat.h",
-    "public/NapiJsiRuntime.cpp",
-    "public/NapiJsiRuntime.h",
     "testmain.cpp"
   ]
+
+  if (is_win) {
+    sources += [
+      "napi/test/napitest_v8.cpp",
+      "napi/test/napitest.cpp",
+      "napi/test/napitest.h",
+      "napi/test/test_2_function_arguments.cpp",
+      "napi/test/test_3_callbacks.cpp",
+      "napi/test/test_4_object_factory.cpp",
+      "napi/test/test_5_function_factory.cpp",
+      "napi/test/test_6_object_wrap.cpp",
+      "napi/test/test_7_factory_wrap.cpp",
+      "napi/test/test_8_passing_wrapped.cpp",
+      "napi/test/test_array.cpp",
+      "napi/test/test_assert.cpp",
+      "napi/test/test_bigint.cpp",
+      "napi/test/test_constructor.cpp",
+      "napi/test/test_conversions.cpp",
+      "napi/test/test_dataview.cpp",
+      "napi/test/test_date.cpp",
+      "napi/test/test_error.cpp",
+      "napi/test/test_exception.cpp",
+      "napi/test/test_ext.cpp",
+      "napi/test/test_function.cpp",
+      "napi/test/test_general.cpp",
+      "napi/test/test_handle_scope.cpp",
+      "napi/test/test_instance_data.cpp",
+      "napi/test/test_new_target.cpp",
+      "napi/test/test_number.cpp",
+      "napi/test/test_object.cpp",
+      "napi/test/test_promise.cpp",
+      "napi/test/test_properties.cpp",
+      "napi/test/test_reference_double_free.cpp",
+      "napi/test/test_reference.cpp",
+      "napi/test/test_string.cpp",
+      "napi/test/test_symbol.cpp",
+      "napi/test/test_typedarray.cpp",
+      "public/compat.h",
+      "public/NapiJsiRuntime.cpp",
+      "public/NapiJsiRuntime.h",
+    ]
+  }
 }

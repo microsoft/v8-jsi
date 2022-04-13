@@ -27,6 +27,15 @@ Currently, the Android version builds an older release of V8 (7.0.276.32) and us
 * Install minimal dependencies on the Debian VM: `sudo apt install pkg-config python python3 curl unzip`
 * Build with `./localbuild.sh` (as above)
 
+##### [EXPERIMENTAL!] Building the main code with WSL2 on Windows 10/11
+* [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux
+* Install debian: `wsl --install -d Debian`
+* [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/install-debian?view=powershell-7.2) in the Debian VM
+* Install minimal dependencies on the Debian VM: `sudo apt install lsb-release`
+* Make sure you have at least 15Gb of disk space on the drive where the WSL image lives (usually C:)
+* Build with `pwsh ./localbuild.ps1 -Configuration Releaseandroid`
+* If setup is completed succesfully, build incrementally with `pwsh ./localbuild.ps1 -Configuration Releaseandroid -NoSetup`
+
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
 

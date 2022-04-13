@@ -14,7 +14,8 @@ $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 
 Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore
-Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
+New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory
+Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
@@ -23,12 +24,10 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-# commenting this out for now since Android build is at android/build.sh
-
-# if ($Configuration -like "*android") {
-#     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
-# }
-# else {
+if ($Configuration -like "*android") {
+    $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
+}
+else {
 if (-not ($UseLibCpp)) {
     $gnargs += ' use_custom_libcxx=false'
 }
@@ -40,12 +39,16 @@ if ($AppPlatform -eq "uwp") {
 
 $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
-if ($UseClang) {
-    #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
-    $gnargs += ' is_clang=true'
 }
-else {
-    $gnargs += ' is_clang=false'
+
+if ($Configuration -notlike "*android") {
+    if ($UseClang) {
+        #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
+        $gnargs += ' is_clang=true'
+    }
+    else {
+        $gnargs += ' is_clang=false'
+    }
 }
 
 if ($Platform -like "?64") {
@@ -70,16 +73,21 @@ if (!$?) {
     exit 1
 }
 
-# We'll use 2x the number of cores for parallel execution
-$numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
+$numberOfThreads = 2
+if ($PSVersionTable.Platform -and !$IsWindows) {
+    $numberOfThreads = [int](Invoke-Command -ScriptBlock { nproc }) * 2
+} else {
+    # We'll use 2x the number of cores for parallel execution
+    $numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
+}
 
 $ninjaExtraTargets = ""
 
-if ($AppPlatform -ne "uwp") {
-    $ninjaExtraTargets += "v8windbg"
+if (($AppPlatform -ne "uwp") -and ($Configuration -notlike "*android")) {
+    $ninjaExtraTargets += "jsitests v8windbg"
 }
 
-& ninja -v -j $numberOfThreads -C $buildoutput v8jsi jsitests $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
+& ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1
