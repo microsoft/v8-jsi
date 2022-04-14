@@ -124,6 +124,7 @@ struct UnhandledPromiseRejection {
   v8::Global<v8::Value> value;
 };
 
+#ifdef V8JSI_ENABLE_NAPI
 // We use unique strings for property names to allow their comparison by address.
 struct NapiUniqueString {
   NapiUniqueString(napi_env env, std::string value) noexcept;
@@ -142,6 +143,7 @@ struct NapiUniqueString {
   napi_ext_ref string_ref_{nullptr};
   const std::string value_;
 };
+#endif
 
 class V8Runtime : public facebook::jsi::Runtime {
  public:
@@ -163,13 +165,16 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   static V8Runtime *GetCurrent(v8::Local<v8::Context> context) noexcept;
 
+#ifdef V8JSI_ENABLE_NAPI
   bool IsEnvDeleted() noexcept;
   void SetIsEnvDeleted() noexcept;
+#endif
 
   bool HasUnhandledPromiseRejection() noexcept;
 
   std::unique_ptr<UnhandledPromiseRejection> GetAndClearLastUnhandledPromiseRejection() noexcept;
 
+#ifdef V8JSI_ENABLE_NAPI
   v8::Local<v8::Private> napi_type_tag() const noexcept {
     return isolate_data_->napi_type_tag();
   }
@@ -179,7 +184,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   }
 
   napi_status NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result);
-
+#endif
  private:  // Used by NAPI implementation
   static void PromiseRejectCallback(v8::PromiseRejectMessage data);
   void
@@ -679,13 +684,16 @@ class V8Runtime : public facebook::jsi::Runtime {
   V8PlatformHolder platform_holder_;
   v8::StartupData custom_snapshot_startup_data_;
 
-  std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
-
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
+
+#ifdef V8JSI_ENABLE_NAPI
+  std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
+
   std::unordered_map<std::string_view, std::unique_ptr<NapiUniqueString>> unique_strings_;
 
   bool is_env_deleted_{false};
+#endif
 
   static CounterMap *counter_map_;
 

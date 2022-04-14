@@ -25,10 +25,10 @@ Push-Location (Join-Path $workpath "v8build\v8")
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
 if ($Configuration -like "*android") {
-    $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
+    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
 elseif ($Configuration -like "*linux") {
-    $gnargs += ' use_goma=false target_os=\"linux\" target_cpu=\"' + $Platform + '\"'
+    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"linux\" target_cpu=\"' + $Platform + '\"'
 }
 else {
 if (-not ($UseLibCpp)) {
@@ -61,7 +61,11 @@ if ($Platform -like "?64") {
 # }
 
 if ($Configuration -like "*ebug*") {
-    $gnargs += ' enable_iterator_debugging=true is_debug=true'
+    $gnargs += ' is_debug=true'
+
+    if (($Configuration -notlike "*android") -and ($Configuration -notlike "*linux")) {
+        $gnargs += ' enable_iterator_debugging=true'
+    }
 }
 else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
@@ -165,6 +169,7 @@ Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\na
 
 # Miscellaneous
 Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination $OutputPath
 
 Copy-Item "$SourcesPath\config.json"    -Destination "$OutputPath\"
 Copy-Item "$SourcesPath\LICENSE"        -Destination "$OutputPath\license\"

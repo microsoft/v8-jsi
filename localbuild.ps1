@@ -8,10 +8,10 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')]
     [String[]]$Platform = @('x64'),
 
-    [ValidateSet('Debug', 'Release', 'ReleaseAndroid', 'ReleaseLinux')]
+    [ValidateSet('Debug', 'Release', 'ReleaseAndroid', 'ReleaseLinux', 'DebugLinux')]
     [String[]]$Configuration = @('Debug'),
 
-    [ValidateSet('win32', 'uwp')]
+    [ValidateSet('win32', 'uwp', 'linux')]
     [String[]]$AppPlatform = @('win32'),
 
     [switch]$NoSetup
@@ -27,7 +27,7 @@ if (! $NoSetup.IsPresent) {
     }
 
     Write-Host "Fetching code..."
-    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration[0]
+    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -Configuration $Configuration[0]
 
     if (!$?) {
         Write-Host "Failed to retrieve the v8 code"

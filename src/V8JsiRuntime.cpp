@@ -6,9 +6,12 @@
 #include "v8.h"
 
 #include "IsolateData.h"
-#include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
+
+#ifdef V8JSI_ENABLE_NAPI
+#include "napi/js_native_api_v8.h"
 #include "public/js_native_api.h"
+#endif
 
 #include "napi/util-inl.h"
 
@@ -1538,6 +1541,7 @@ void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
   }
 }
 
+#ifdef V8JSI_ENABLE_NAPI
 napi_status V8Runtime::NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
   if (length == NAPI_AUTO_LENGTH) {
     length = std::char_traits<char>::length(str);
@@ -1601,6 +1605,7 @@ napi_ext_ref NapiUniqueString::GetRef() const noexcept {
 void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
   string_ref_ = ref;
 }
+#endif
 
 //=============================================================================
 // Make V8 JSI runtime

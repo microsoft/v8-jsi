@@ -2,10 +2,7 @@
 # Licensed under the MIT license.
 param(
     [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
-    [System.IO.DirectoryInfo]$OutputPath = "$PSScriptRoot\out",
-    [string]$Configuration = "Release",
-    [string]$AppPlatform = "win32",
-    [string]$NugetDownloadLocation = 'https://dist.nuget.org/win-x86-commandline/latest/nuget.exe'
+    [string]$Configuration = "Release"
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -71,21 +68,13 @@ if ($Matches.Matches.Success) {
     $verString = $verString + "-v8_" + $v8Version.Replace('.', '_')
 }
 
-# Save the revision information in the NuGet description
-if (!(Test-Path -Path $OutputPath)) {
-    New-Item -ItemType "directory" -Path $OutputPath | Out-Null
-}
-
-$buildoutput = Join-Path $workpath "v8build\v8\out\$Platform\$Configuration"
-
+# Save the revision information in the version RC and env variable
 (Get-Content "$SourcesPath\src\version.rc") `
     -replace ('V8JSIVER_MAJOR', $version.Major) `
     -replace ('V8JSIVER_MINOR', $version.Minor) `
     -replace ('V8JSIVER_BUILD', $version.Build) `
     -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) |`
     Set-Content "$SourcesPath\src\version_gen.rc"
-
-Copy-Item $SourcesPath\ReactNative.V8Jsi.Windows.nuspec $OutputPath
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 

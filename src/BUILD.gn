@@ -1,6 +1,7 @@
 declare_args() {
   # Sets -DV8JSI_ENABLE_INSPECTOR
   v8jsi_enable_inspector = true
+  v8jsi_enable_napi = true
 }
 
 target("shared_library", "v8jsi") {
@@ -21,7 +22,7 @@ target("shared_library", "v8jsi") {
     "IsolateData.h",
   ]
 
-  if (is_win) {
+  if (v8jsi_enable_napi) {
     sources += [
       "napi/env-inl.h",
       "napi/js_native_api_v8_internals.h",
@@ -35,7 +36,9 @@ target("shared_library", "v8jsi") {
       "public/js_native_ext_api.h",
       "public/NapiJsiRuntime.cpp",
     ]
+  }
 
+  if (is_win) {
     sources += [
       "version_gen.rc",
       "etw/tracing.h",
@@ -88,8 +91,9 @@ target("shared_library", "v8jsi") {
     "//:v8_monolith"
   ]
 
+  defines = [ "BUILDING_V8_SHARED" ]
+
   if (is_win) {
-    defines = [ "BUILDING_V8_SHARED" ]
     libs = [
       "winmm.lib",
       "bcrypt.lib",
@@ -99,10 +103,14 @@ target("shared_library", "v8jsi") {
     if (target_os != "winuwp") {
       libs += [ "dbghelp.lib" ]
     }
+  }
 
-    if (v8jsi_enable_inspector) {
-      defines += [ "V8JSI_ENABLE_INSPECTOR" ]
-    }
+  if (v8jsi_enable_inspector) {
+    defines += [ "V8JSI_ENABLE_INSPECTOR" ]
+  }
+
+  if (v8jsi_enable_napi) {
+    defines += [ "V8JSI_ENABLE_NAPI" ]
   }
 }
 
@@ -160,10 +168,13 @@ target("executable", "jsitests") {
 
   deps = [
     ":v8jsi",
-    ":napi_test_js_files",
     "//build/win:default_exe_manifest",
     "//testing/gtest",
   ]
+
+  if (v8jsi_enable_napi) {
+    deps += [ ":napi_test_js_files" ]
+  }
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
@@ -188,7 +199,7 @@ target("executable", "jsitests") {
     "testmain.cpp"
   ]
 
-  if (is_win) {
+  if (v8jsi_enable_napi) {
     sources += [
       "napi/test/napitest_v8.cpp",
       "napi/test/napitest.cpp",
