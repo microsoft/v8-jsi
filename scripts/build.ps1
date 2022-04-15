@@ -24,32 +24,26 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-if ($AppPlatform -eq "android") {
-    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
-}
-elseif ($AppPlatform -eq "linux") {
-    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"linux\" target_cpu=\"' + $Platform + '\"'
-}
-else {
-if (-not ($UseLibCpp)) {
-    $gnargs += ' use_custom_libcxx=false'
-}
+if ("android linux mac".contains($AppPlatform)) {
+    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"' + $AppPlatform + '\"'
+} else {
+    if (-not ($UseLibCpp)) {
+        $gnargs += ' use_custom_libcxx=false'
+    }
 
-if ($AppPlatform -eq "uwp") {
-    # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
-    $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
+    if ($AppPlatform -eq "uwp") {
+        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
+        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
+    }
 }
 
 $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
-}
-
-if (($AppPlatform -ne "android") -and ($AppPlatform -ne "linux")) {
+if (!"android linux mac".contains($AppPlatform)) {
     if ($UseClang) {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
-    }
-    else {
+    } else {
         $gnargs += ' is_clang=false'
     }
 }
@@ -58,16 +52,13 @@ if ($Platform -like "?64") {
     # Pointer compression only makes sense on 64-bit builds
     $gnargs += ' v8_enable_pointer_compression=true'
 }
-# }
 
 if ($Configuration -like "*ebug*") {
     $gnargs += ' is_debug=true'
-
-    if (($AppPlatform -ne "android") -and ($AppPlatform -ne "linux")) {
+    if (!"android linux mac".contains($AppPlatform)) {
         $gnargs += ' enable_iterator_debugging=true'
     }
-}
-else {
+} else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
 }
 
@@ -80,20 +71,23 @@ if (!$?) {
     exit 1
 }
 
+# We'll use 2x the number of cores for parallel execution
 $numberOfThreads = 2
 if ($PSVersionTable.Platform -and !$IsWindows) {
-    $numberOfThreads = [int](Invoke-Command -ScriptBlock { nproc }) * 2
+    if ($IsMacOS) {
+        $numberOfThreads = [int](Invoke-Command -ScriptBlock { sysctl -n hw.physicalcpu }) * 2    
+    } else {
+        $numberOfThreads = [int](Invoke-Command -ScriptBlock { nproc }) * 2
+    }
 } else {
-    # We'll use 2x the number of cores for parallel execution
     $numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
 }
 
 $ninjaExtraTargets = @()
-
 if (($AppPlatform -ne "uwp") -and ($AppPlatform -ne "android")) {
     $ninjaExtraTargets += "jsitests"
 
-    if ($AppPlatform -ne "linux") {
+    if (($AppPlatform -ne "linux") -and ($AppPlatform -ne "mac")) {
         $ninjaExtraTargets += "v8windbg"
     }
 }
@@ -106,7 +100,7 @@ if (!$?) {
 
 Pop-Location
 
-if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so")) {
+if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so") -and !(Test-Path -Path "$buildoutput\libv8jsi.dylib")) {
     Write-Host "Build failure"
     exit 1
 }

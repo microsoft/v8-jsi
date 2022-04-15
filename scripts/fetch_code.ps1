@@ -12,19 +12,8 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 Push-Location (Join-Path $workpath "v8build")
 & fetch v8
 
-if ($AppPlatform -eq "android") {
-    $target_os = @'
-target_os= ['android']
-'@
-
-    Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
-}
-
-if ($AppPlatform -eq "linux") {
-    $target_os = @'
-target_os= ['linux']
-'@
-
+if ("android linux mac".contains($AppPlatform)) {
+    $target_os = "`ntarget_os= ['" + $AppPlatform + "']`n"
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 

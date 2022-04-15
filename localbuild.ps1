@@ -11,7 +11,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [String[]]$Configuration = @('Debug'),
 
-    [ValidateSet('win32', 'uwp', 'android', 'linux')]
+    [ValidateSet('win32', 'uwp', 'android', 'linux', 'mac')]
     [String[]]$AppPlatform = @('win32'),
 
     [switch]$NoSetup

@@ -69,9 +69,8 @@ target("shared_library", "v8jsi") {
     if (!is_clang) {
       ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
     }
-  } else {
+  } else if (!is_mac) {
     ldflags = [ "-Wl,--allow-multiple-definition" ]
-
     ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ] 
   }
 
