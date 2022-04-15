@@ -24,10 +24,10 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-if ($Configuration -like "*android") {
+if ($AppPlatform -eq "android") {
     $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
 }
-elseif ($Configuration -like "*linux") {
+elseif ($AppPlatform -eq "linux") {
     $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"linux\" target_cpu=\"' + $Platform + '\"'
 }
 else {
@@ -44,7 +44,7 @@ $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
 }
 
-if (($Configuration -notlike "*android") -and ($Configuration -notlike "*linux")) {
+if (($AppPlatform -ne "android") -and ($AppPlatform -ne "linux")) {
     if ($UseClang) {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
@@ -63,7 +63,7 @@ if ($Platform -like "?64") {
 if ($Configuration -like "*ebug*") {
     $gnargs += ' is_debug=true'
 
-    if (($Configuration -notlike "*android") -and ($Configuration -notlike "*linux")) {
+    if (($AppPlatform -ne "android") -and ($AppPlatform -ne "linux")) {
         $gnargs += ' enable_iterator_debugging=true'
     }
 }
@@ -90,10 +90,10 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 
 $ninjaExtraTargets = @()
 
-if (($AppPlatform -ne "uwp") -and ($Configuration -notlike "*android")) {
+if (($AppPlatform -ne "uwp") -and ($AppPlatform -ne "android")) {
     $ninjaExtraTargets += "jsitests"
 
-    if ($Configuration -notlike "*linux") {
+    if ($AppPlatform -ne "linux") {
         $ninjaExtraTargets += "v8windbg"
     }
 }

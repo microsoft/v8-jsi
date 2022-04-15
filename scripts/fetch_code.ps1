@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 param(
     [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
-    [string]$Configuration = "Release"
+    [string]$AppPlatform = "win32"
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -12,7 +12,7 @@ $env:GIT_REDIRECT_STDERR = '2>&1'
 Push-Location (Join-Path $workpath "v8build")
 & fetch v8
 
-if ($Configuration -like "*android") {
+if ($AppPlatform -eq "android") {
     $target_os = @'
 target_os= ['android']
 '@
@@ -20,7 +20,7 @@ target_os= ['android']
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 
-if ($Configuration -like "*linux") {
+if ($AppPlatform -eq "linux") {
     $target_os = @'
 target_os= ['linux']
 '@
@@ -78,29 +78,18 @@ if ($Matches.Matches.Success) {
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
-# Install build depndencies for Android
-if ($Configuration -like "*android") {
+# Install build dependencies for Android
+if ($AppPlatform -eq "android") {
     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
 
     & sudo bash $install_script_path
 }
 
-if ($Configuration -like "*linux") {
+if ($AppPlatform -eq "linux") {
     $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps.sh"
 
     & sudo bash $install_script_path
 }
-
-# Download dependencies (ASIO used by Inspector implementation)
-$asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-18-1.zip"
-$asioPath = Join-Path $workpath "v8build"
-$asioDownload = Join-Path $asioPath $(Split-Path -Path $asioUrl -Leaf)
-
-Invoke-WebRequest -Uri $asioUrl -OutFile $asioDownload
-$asioDownload | Expand-Archive -DestinationPath $asioPath -Force
-
-$env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
-Write-Host "##vso[task.setvariable variable=ASIO_ROOT;]$env:ASIO_ROOT"
 
 # Remove unused code
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\test\test262\data\tools")

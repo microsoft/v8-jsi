@@ -346,8 +346,8 @@ index bc82c635da..5e72348203 100644
  
 -  configs -= [ "//build/config/compiler:chromium_code" ]
 -  configs += [ "//build/config/compiler:no_chromium_code" ]
-+  configs -= [ "//build/config/compiler:chromium_code", "//build/config/compiler:no_rtti" ]
-+  configs += [ "//build/config/compiler:no_chromium_code", "//build/config/compiler:rtti" ]
++  configs -= [ "//build/config/compiler:chromium_code", "//build/config/compiler:no_rtti", "//build/config/compiler:no_exceptions" ]
++  configs += [ "//build/config/compiler:no_chromium_code", "//build/config/compiler:rtti", "//build/config/compiler:exceptions" ]
  
    # V8-only workaround for http://crbug.com/chromium/1191946. Ensures that
    # googletest is compiled with the same visibility such as the rest of V8, see

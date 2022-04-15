@@ -8,10 +8,10 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')]
     [String[]]$Platform = @('x64'),
 
-    [ValidateSet('Debug', 'Release', 'ReleaseAndroid', 'ReleaseLinux', 'DebugLinux')]
+    [ValidateSet('Debug', 'Release')]
     [String[]]$Configuration = @('Debug'),
 
-    [ValidateSet('win32', 'uwp', 'linux')]
+    [ValidateSet('win32', 'uwp', 'android', 'linux')]
     [String[]]$AppPlatform = @('win32'),
 
     [switch]$NoSetup
@@ -19,7 +19,7 @@ param(
 
 if (! $NoSetup.IsPresent) {
     Write-Host "Downloading environment..."
-    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath
+    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath -NoADO
 
     if (!$?) {
         Write-Host "Failed to download depot-tools"
@@ -27,37 +27,14 @@ if (! $NoSetup.IsPresent) {
     }
 
     Write-Host "Fetching code..."
-    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -Configuration $Configuration[0]
+    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -AppPlatform $AppPlatform[0]
 
     if (!$?) {
         Write-Host "Failed to retrieve the v8 code"
         exit 1
     }
 } else {
-    # TODO: duplicate from download_depottools.ps1
-    $depot_tools_path = Join-Path $SourcesPath "build\v8build\depot_tools"
-
-    if (!$PSVersionTable.Platform -or $IsWindows) {
-        $path = "$depot_tools_path;$Env:PATH"
-        $path = ($path.Split(';') | Where-Object { $_ -notlike '*Chocolatey*' }) -join ';'
-    }
-    else {
-        $path = "$depot_tools_path`:$Env:PATH"
-    }
-    
-    # This syntax is used for setting variables in an ADO environment; in a normal local build it would just print these strings out to the console
-    Write-Host "##vso[task.setvariable variable=PATH;]$path"
-    Write-Host "##vso[task.setvariable variable=DEPOT_TOOLS_WIN_TOOLCHAIN;]0"
-    Write-Host "##vso[task.setvariable variable=GCLIENT_PY3;]1"
-    
-    $env:PATH = $path
-    $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
-    $env:GCLIENT_PY3 = 1
-
-    # TODO: duplicate from fetch_code.ps1
-    $asioPath = Join-Path $SourcesPath "build\v8build"
-    $env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
-    Write-Host "##vso[task.setvariable variable=ASIO_ROOT;]$env:ASIO_ROOT"
+    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath -NoSetup -NoADO
 }
 
 foreach ($Plat in $Platform) {
