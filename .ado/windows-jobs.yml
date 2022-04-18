@@ -80,6 +80,7 @@ jobs:
           appPlatform: $(AppPlatform)
 
   - job: V8JsiPublishNuget
+    condition: not(eq(variables['Build.Reason'], 'PullRequest'))
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
@@ -111,7 +112,6 @@ jobs:
       # Make symbols available through http://symweb.
       - task: PublishSymbols@2
         displayName: Publish symbols
-        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
         inputs:
           SearchPattern: $(System.DefaultWorkingDirectory)/**/*.pdb
           SymbolServerType: TeamServices
