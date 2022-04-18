@@ -17,8 +17,6 @@ if ("android linux mac".contains($AppPlatform)) {
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 
-# & gclient sync --with_branch_heads
-
 Push-Location (Join-Path $workpath "v8build\v8")
 
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
@@ -48,8 +46,6 @@ $version = [version]$config.version
 $gitRevision = ""
 $v8Version = ""
 
-#TODO: Remove before merging
-Write-Warning "CheckoutVersion: [$CheckoutVersion]"
 $Matches = $CheckOutVersion | Select-String -Pattern 'HEAD is now at (.+) Version (.+)'
 if ($Matches.Matches.Success) {
     $gitRevision = $Matches.Matches.Groups[1].Value

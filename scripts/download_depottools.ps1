@@ -6,6 +6,8 @@ param(
     [switch]$NoADO
 )
 
+$ASIO_VERSION = "1-22-1"
+
 $workpath = Join-Path $SourcesPath "build"
 
 if (!(Test-Path -Path "$workpath\v8build")) {
@@ -35,7 +37,7 @@ if (! $NoSetup.IsPresent) {
     }
 
     # Download dependencies (ASIO used by Inspector implementation)
-    $asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-18-1.zip"
+    $asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-$ASIO_VERSION.zip"
     $asioDownload = Join-Path $asioPath $(Split-Path -Path $asioUrl -Leaf)
 
     Invoke-WebRequest -Uri $asioUrl -OutFile $asioDownload
@@ -57,7 +59,7 @@ else {
 $env:PATH = $path
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
 $env:GCLIENT_PY3 = 1
-$env:ASIO_ROOT = Join-Path $asioPath "asio-asio-1-18-1\asio\include"
+$env:ASIO_ROOT = Join-Path $asioPath "asio-asio-$ASIO_VERSION\asio\include"
 
 if (! $NoADO.IsPresent) {
     Write-Host "##vso[task.setvariable variable=PATH;]$path"
