@@ -10,14 +10,14 @@ $workpath = Join-Path $SourcesPath "build"
 $env:GIT_REDIRECT_STDERR = '2>&1'
 
 Push-Location (Join-Path $workpath "v8build")
-& fetch v8
+& fetch --no-history --nohooks v8
 
 if ("android linux mac".contains($AppPlatform)) {
     $target_os = "`ntarget_os= ['" + $AppPlatform + "']`n"
     Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
 }
 
-& gclient sync --with_branch_heads
+# & gclient sync --with_branch_heads
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
