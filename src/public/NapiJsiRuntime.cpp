@@ -430,7 +430,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   void SetProperty(napi_value object, napi_value propertyId, napi_value value, napi_property_attributes attrs) const;
   napi_value CreateArray(size_t length) const;
   void SetElement(napi_value array, uint32_t index, napi_value value) const;
-  static napi_value JsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept;
+  static napi_value __cdecl JsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept;
   napi_value CreateExternalFunction(napi_value name, int32_t paramCount, napi_callback callback, void *callbackData);
   napi_value CreateExternalObject(void *data, napi_finalize finalizeCallback) const;
   template <typename T>
@@ -1577,7 +1577,7 @@ void NapiJsiRuntime::SetElement(napi_value array, uint32_t index, napi_value val
 }
 
 // The NAPI external function callback used for the JSI host function implementation.
-/*static*/ napi_value NapiJsiRuntime::JsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept {
+/*static*/ napi_value __cdecl NapiJsiRuntime::JsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept {
   HostFunctionWrapper *hostFuncWraper{};
   size_t argc{};
   CHECK_NAPI_ELSE_CRASH(
@@ -1622,11 +1622,11 @@ napi_value NapiJsiRuntime::CreateExternalObject(void *data, napi_finalize finali
 // Wraps up std::unique_ptr as an external object.
 template <typename T>
 napi_value NapiJsiRuntime::CreateExternalObject(std::unique_ptr<T> &&data) const {
-  napi_value object =
-      CreateExternalObject(data.get(), [](napi_env /*env*/, void *dataToDestroy, void * /*finalizerHint*/) {
-        // We wrap dataToDestroy in a unique_ptr to avoid calling delete explicitly.
-        delete static_cast<T *>(dataToDestroy);
-      });
+  napi_finalize finalize = [](napi_env /*env*/, void *dataToDestroy, void * /*finalizerHint*/) {
+    // We wrap dataToDestroy in a unique_ptr to avoid calling delete explicitly.
+    delete static_cast<T *>(dataToDestroy);
+  };
+  napi_value object = CreateExternalObject(data.get(), finalize);
 
   // We only call data.release() after the CreateExternalObject succeeds.
   // Otherwise, when CreateExternalObject fails and an exception is thrown,
@@ -1670,7 +1670,7 @@ napi_value NapiJsiRuntime::GetHostObjectProxyHandler() {
 // Sets Proxy trap method as a pointer to NapiJsiRuntime instance method.
 template <napi_value (NapiJsiRuntime::*trapMethod)(span<napi_value>), size_t argCount>
 void NapiJsiRuntime::SetProxyTrap(napi_value handler, napi_value propertyName) {
-  auto proxyTrap = [](napi_env env, napi_callback_info info) noexcept {
+  napi_callback proxyTrap = [](napi_env env, napi_callback_info info) noexcept {
     NapiJsiRuntime *runtime{};
     napi_value args[argCount]{};
     size_t actualArgCount{argCount};
@@ -1836,11 +1836,9 @@ T NapiJsiRuntime::MakePointer(TValue value) const {
 }
 
 } // namespace
-
 } // namespace napijsi
 
-namespace Microsoft {
-namespace JSI {
+namespace Microsoft::JSI {
 
 //===========================================================================
 // NapiJsiRuntime factory function.
@@ -1849,5 +1847,4 @@ std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env)
   return std::make_unique<napijsi::NapiJsiRuntime>(env);
 }
 
-} // namespace JSI
-} // namespace Microsoft
+} // namespace Microsoft::JSI

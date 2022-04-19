@@ -100,8 +100,8 @@ typedef enum {
 //   * the definition of `napi_status` in doc/api/n-api.md to reflect the newly
 //     added value(s).
 
-typedef napi_value (*napi_callback)(napi_env env, napi_callback_info info);
-typedef void (*napi_finalize)(napi_env env, void *finalize_data, void *finalize_hint);
+typedef napi_value(__cdecl *napi_callback)(napi_env env, napi_callback_info info);
+typedef void(__cdecl *napi_finalize)(napi_env env, void *finalize_data, void *finalize_hint);
 
 typedef struct {
   // One of utf8name or name should be NULL.
