@@ -28,13 +28,13 @@ typedef struct napi_ext_env_scope__ *napi_ext_env_scope;
 typedef struct napi_ext_ref__ *napi_ext_ref;
 
 // A callback to return buffer synchronously
-typedef void (*napi_ext_buffer_callback)(napi_env env, uint8_t const *buffer, size_t buffer_length, void *buffer_hint);
+typedef void (__cdecl *napi_ext_buffer_callback)(napi_env env, uint8_t const *buffer, size_t buffer_length, void *buffer_hint);
 
 // A callback to run task
-typedef void (*napi_ext_task_callback)(napi_env env, void *task_data);
+typedef void (__cdecl *napi_ext_task_callback)(napi_env env, void *task_data);
 
 // A callback to schedule a task
-typedef void (*napi_ext_schedule_task_callback)(
+typedef void (__cdecl *napi_ext_schedule_task_callback)(
     napi_env env,
     napi_ext_task_callback task_cb,
     void *task_data,
