@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 #include <gtest/gtest.h>
 #include "jsi/test/testlib.h"
-#ifdef _WIN32
+#ifdef V8JSI_ENABLE_NAPI
 #include "public/NapiJsiRuntime.h"
 #endif
 #include "public/ScriptStore.h"
@@ -17,7 +17,7 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
         v8runtime::V8RuntimeArgs args;
         return v8runtime::makeV8Runtime(std::move(args));
       },
-#ifdef _WIN32
+#ifdef V8JSI_ENABLE_NAPI
       []() -> std::unique_ptr<facebook::jsi::Runtime> {
         napi_ext_env_settings settings{};
         settings.this_size = sizeof(napi_ext_env_settings);
