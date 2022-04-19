@@ -1,17 +1,17 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 7b19ee86d8..bd8b79a36e 100644
+index fb68d0ec4d..7a55c15ce7 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1220,7 +1220,7 @@ config("toolchain") {
+@@ -1214,7 +1214,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
-     defines += [ "V8_TARGET_OS_MACOS" ]
+     defines += [ "V8_TARGET_OS_MACOSX" ]
 -  } else if (target_os == "win") {
 +  } else if (target_os == "win" || target_os == "winuwp") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -1282,7 +1282,7 @@ config("toolchain") {
+@@ -1276,7 +1276,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index 7b19ee86d8..bd8b79a36e 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1386,14 +1386,14 @@ config("toolchain") {
+@@ -1380,14 +1380,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index 7b19ee86d8..bd8b79a36e 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1417,7 +1417,7 @@ config("toolchain") {
+@@ -1411,7 +1411,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index 7b19ee86d8..bd8b79a36e 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5302,7 +5302,6 @@ v8_component("v8_libbase") {
+@@ -5229,7 +5229,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,7 @@ index 7b19ee86d8..bd8b79a36e 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6014,26 +6013,6 @@ group("v8_python_base") {
+@@ -5929,26 +5928,6 @@ group("v8_python_base") {
    data = [ ".vpython" ]
  }
  
@@ -82,7 +82,7 @@ index 7b19ee86d8..bd8b79a36e 100644
  group("v8_archive") {
    testonly = true
  
-@@ -6245,7 +6224,7 @@ v8_executable("d8") {
+@@ -6160,7 +6139,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +91,7 @@ index 7b19ee86d8..bd8b79a36e 100644
    }
  
    defines = []
-@@ -6933,3 +6912,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -6848,3 +6827,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -102,7 +102,7 @@ index 7b19ee86d8..bd8b79a36e 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 61577d45ab..a3f55658be 100644
+index 0041a2ded2..d58e401327 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -595,4 +595,15 @@ hooks = [
@@ -170,7 +170,7 @@ index f981bec610..574602f10b 100644
 +    (*os) << "==== C stack trace not implemented for WINUWP ===============================\n";
 +}
 +
-+#else // WINUWP
++#else // dbghelp dependency unwanted
 +
  namespace {
  
@@ -185,10 +185,10 @@ index f981bec610..574602f10b 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index b696669142..ff307ce62f 100644
+index 1887ad639f..959c9848c1 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1308,8 +1308,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
+@@ -1307,8 +1307,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -235,7 +235,7 @@ index 70bc3de7b6..8ee5d81840 100644
    if (HasContextAllocatedFunctionName()) {
      DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index 7e0ec70ac4..e289d7ed55 100644
+index 447d2e9bac..d0df29e01c 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 @@ -139,7 +139,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
@@ -270,12 +270,12 @@ index fcccc78ee5..42d8d190ba 100644
  
  LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
 diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
-index 179eab0659..4e01a57010 100644
+index d59debe625..fc35a6e8f6 100644
 --- a/src/trap-handler/handler-outside-simulator.cc
 +++ b/src/trap-handler/handler-outside-simulator.cc
 @@ -11,6 +11,12 @@
  #define SYMBOL(name) #name
- #endif  // !V8_OS_DARWIN
+ #endif  // !V8_OS_MACOSX
  
 +#if V8_TARGET_ARCH_ARM64 && V8_OS_WIN
 +
@@ -294,20 +294,20 @@ index 179eab0659..4e01a57010 100644
 +#endif
 \ No newline at end of file
 diff --git a/src/trap-handler/trap-handler.h b/src/trap-handler/trap-handler.h
-index 84ffdbd056..1aa7a305c7 100644
+index 79ddf56653..d83f88ebb9 100644
 --- a/src/trap-handler/trap-handler.h
 +++ b/src/trap-handler/trap-handler.h
 @@ -27,7 +27,7 @@ namespace trap_handler {
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Arm64 simulator on x64 on Linux, Mac, or Windows.
  #elif V8_TARGET_ARCH_ARM64 && V8_HOST_ARCH_X64 && \
--    (V8_OS_LINUX || V8_OS_DARWIN || V8_OS_WIN)
-+    (V8_OS_LINUX || V8_OS_DARWIN)
+-    (V8_OS_LINUX || V8_OS_MACOSX || V8_OS_WIN)
++    (V8_OS_LINUX || V8_OS_MACOSX)
  #define V8_TRAP_HANDLER_VIA_SIMULATOR
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 41c0ac5dbe..b2e1ff2afb 100644
+index 950f0effe6..dedb06a425 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -82,8 +82,10 @@ const int kAllocationTries = 2;
@@ -323,8 +323,21 @@ index 41c0ac5dbe..b2e1ff2afb 100644
  }
  
  v8::VirtualAddressSpace* GetPlatformVirtualAddressSpace() {
+diff --git a/src/wasm/wasm-module-builder.h b/src/wasm/wasm-module-builder.h
+index dc8ccf5557..5e2c1546f6 100644
+--- a/src/wasm/wasm-module-builder.h
++++ b/src/wasm/wasm-module-builder.h
+@@ -424,7 +424,7 @@ class V8_EXPORT_PRIVATE WasmModuleBuilder : public ZoneObject {
+   };
+ 
+   struct WasmGlobal {
+-    MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
++    // MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(WasmGlobal);
+ 
+     ValueType type;
+     bool mutability;
 diff --git a/third_party/googletest/BUILD.gn b/third_party/googletest/BUILD.gn
-index bc82c635da..648972c77a 100644
+index bc82c635da..5e72348203 100644
 --- a/third_party/googletest/BUILD.gn
 +++ b/third_party/googletest/BUILD.gn
 @@ -88,8 +88,8 @@ source_set("gtest") {
