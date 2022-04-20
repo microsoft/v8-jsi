@@ -12,6 +12,7 @@ param(
 
 $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
+$buildingWindows = !"android linux mac".contains($AppPlatform)
 
 Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
 New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
@@ -24,8 +25,8 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-if ("android linux mac".contains($AppPlatform)) {
-    $gnargs += ' v8jsi_enable_napi=false use_goma=false target_os=\"' + $AppPlatform + '\"'
+if (!$buildingWindows) {
+    $gnargs += ' use_goma=false target_os=\"' + $AppPlatform + '\"'
 } else {
     if (-not ($UseLibCpp)) {
         $gnargs += ' use_custom_libcxx=false'
@@ -39,7 +40,7 @@ if ("android linux mac".contains($AppPlatform)) {
 
 $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
-if (!"android linux mac".contains($AppPlatform)) {
+if ($buildingWindows) {
     if ($UseClang) {
         #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
         $gnargs += ' is_clang=true'
@@ -55,7 +56,7 @@ if ($Platform -like "?64") {
 
 if ($Configuration -like "*ebug*") {
     $gnargs += ' is_debug=true'
-    if (!"android linux mac".contains($AppPlatform)) {
+    if ($buildingWindows) {
         $gnargs += ' enable_iterator_debugging=true'
     }
 } else {
@@ -75,7 +76,7 @@ if (!$?) {
 $numberOfThreads = 2
 if ($PSVersionTable.Platform -and !$IsWindows) {
     if ($IsMacOS) {
-        $numberOfThreads = [int](Invoke-Command -ScriptBlock { sysctl -n hw.physicalcpu }) * 2    
+        $numberOfThreads = [int](Invoke-Command -ScriptBlock { sysctl -n hw.physicalcpu }) * 2
     } else {
         $numberOfThreads = [int](Invoke-Command -ScriptBlock { nproc }) * 2
     }

@@ -1,7 +1,6 @@
 declare_args() {
   # Sets -DV8JSI_ENABLE_INSPECTOR
   v8jsi_enable_inspector = true
-  v8jsi_enable_napi = true
 }
 
 target("shared_library", "v8jsi") {
@@ -15,6 +14,17 @@ target("shared_library", "v8jsi") {
     "jsi/jsilib-windows.cpp",
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
+    "napi/env-inl.h",
+    "napi/js_native_api_v8_internals.h",
+    "napi/js_native_api_v8.cc",
+    "napi/js_native_api_v8.h",
+    "napi/js_native_ext_api_v8.cpp",
+    "napi/util-inl.h",
+    "public/compat.h",
+    "public/js_native_api_types.h",
+    "public/js_native_api.h",
+    "public/js_native_ext_api.h",
+    "public/NapiJsiRuntime.cpp",
     "public/ScriptStore.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
@@ -22,21 +32,6 @@ target("shared_library", "v8jsi") {
     "IsolateData.h",
   ]
 
-  if (v8jsi_enable_napi) {
-    sources += [
-      "napi/env-inl.h",
-      "napi/js_native_api_v8_internals.h",
-      "napi/js_native_api_v8.cc",
-      "napi/js_native_api_v8.h",
-      "napi/js_native_ext_api_v8.cpp",
-      "napi/util-inl.h",
-      "public/compat.h",
-      "public/js_native_api_types.h",
-      "public/js_native_api.h",
-      "public/js_native_ext_api.h",
-      "public/NapiJsiRuntime.cpp",
-    ]
-  }
 
   if (is_win) {
     sources += [
@@ -90,7 +85,7 @@ target("shared_library", "v8jsi") {
     "//:v8_monolith"
   ]
 
-  defines = [ "BUILDING_V8_SHARED" ]
+  defines = [ "BUILDING_V8JSI_SHARED" ]
 
   if (is_win) {
     libs = [
@@ -106,10 +101,6 @@ target("shared_library", "v8jsi") {
 
   if (v8jsi_enable_inspector) {
     defines += [ "V8JSI_ENABLE_INSPECTOR" ]
-  }
-
-  if (v8jsi_enable_napi) {
-    defines += [ "V8JSI_ENABLE_NAPI" ]
   }
 }
 
@@ -167,19 +158,18 @@ target("executable", "jsitests") {
 
   deps = [
     ":v8jsi",
+    ":napi_test_js_files",
     "//build/win:default_exe_manifest",
     "//testing/gtest",
   ]
 
-  if (v8jsi_enable_napi) {
-    deps += [ ":napi_test_js_files" ]
-  }
-
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
-  # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
-  cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+  if (is_win) {
+    # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
+    cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+  }
 
   include_dirs = [ ".", "jsi", "napi", "napi/test", "public" ]
 
@@ -195,48 +185,43 @@ target("executable", "jsitests") {
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
     "jsi/test/testlib.cpp",
+    "napi/test/napitest_v8.cpp",
+    "napi/test/napitest.cpp",
+    "napi/test/napitest.h",
+    "napi/test/test_2_function_arguments.cpp",
+    "napi/test/test_3_callbacks.cpp",
+    "napi/test/test_4_object_factory.cpp",
+    "napi/test/test_5_function_factory.cpp",
+    "napi/test/test_6_object_wrap.cpp",
+    "napi/test/test_7_factory_wrap.cpp",
+    "napi/test/test_8_passing_wrapped.cpp",
+    "napi/test/test_array.cpp",
+    "napi/test/test_assert.cpp",
+    "napi/test/test_bigint.cpp",
+    "napi/test/test_constructor.cpp",
+    "napi/test/test_conversions.cpp",
+    "napi/test/test_dataview.cpp",
+    "napi/test/test_date.cpp",
+    "napi/test/test_error.cpp",
+    "napi/test/test_exception.cpp",
+    "napi/test/test_ext.cpp",
+    "napi/test/test_function.cpp",
+    "napi/test/test_general.cpp",
+    "napi/test/test_handle_scope.cpp",
+    "napi/test/test_instance_data.cpp",
+    "napi/test/test_new_target.cpp",
+    "napi/test/test_number.cpp",
+    "napi/test/test_object.cpp",
+    "napi/test/test_promise.cpp",
+    "napi/test/test_properties.cpp",
+    "napi/test/test_reference_double_free.cpp",
+    "napi/test/test_reference.cpp",
+    "napi/test/test_string.cpp",
+    "napi/test/test_symbol.cpp",
+    "napi/test/test_typedarray.cpp",
+    "public/compat.h",
+    "public/NapiJsiRuntime.cpp",
+    "public/NapiJsiRuntime.h",
     "testmain.cpp"
   ]
-
-  if (v8jsi_enable_napi) {
-    sources += [
-      "napi/test/napitest_v8.cpp",
-      "napi/test/napitest.cpp",
-      "napi/test/napitest.h",
-      "napi/test/test_2_function_arguments.cpp",
-      "napi/test/test_3_callbacks.cpp",
-      "napi/test/test_4_object_factory.cpp",
-      "napi/test/test_5_function_factory.cpp",
-      "napi/test/test_6_object_wrap.cpp",
-      "napi/test/test_7_factory_wrap.cpp",
-      "napi/test/test_8_passing_wrapped.cpp",
-      "napi/test/test_array.cpp",
-      "napi/test/test_assert.cpp",
-      "napi/test/test_bigint.cpp",
-      "napi/test/test_constructor.cpp",
-      "napi/test/test_conversions.cpp",
-      "napi/test/test_dataview.cpp",
-      "napi/test/test_date.cpp",
-      "napi/test/test_error.cpp",
-      "napi/test/test_exception.cpp",
-      "napi/test/test_ext.cpp",
-      "napi/test/test_function.cpp",
-      "napi/test/test_general.cpp",
-      "napi/test/test_handle_scope.cpp",
-      "napi/test/test_instance_data.cpp",
-      "napi/test/test_new_target.cpp",
-      "napi/test/test_number.cpp",
-      "napi/test/test_object.cpp",
-      "napi/test/test_promise.cpp",
-      "napi/test/test_properties.cpp",
-      "napi/test/test_reference_double_free.cpp",
-      "napi/test/test_reference.cpp",
-      "napi/test/test_string.cpp",
-      "napi/test/test_symbol.cpp",
-      "napi/test/test_typedarray.cpp",
-      "public/compat.h",
-      "public/NapiJsiRuntime.cpp",
-      "public/NapiJsiRuntime.h",
-    ]
-  }
 }
