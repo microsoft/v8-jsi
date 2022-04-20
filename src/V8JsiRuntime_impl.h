@@ -179,6 +179,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   }
 
   napi_status NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result);
+
  private:  // Used by NAPI implementation
   static void PromiseRejectCallback(v8::PromiseRejectMessage data);
   void
@@ -680,11 +681,10 @@ class V8Runtime : public facebook::jsi::Runtime {
   V8PlatformHolder platform_holder_;
   v8::StartupData custom_snapshot_startup_data_;
 
-  bool ignore_unhandled_promises_{false};
-  std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
-
   std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
 
+  bool ignore_unhandled_promises_{false};
+  std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
   std::unordered_map<std::string_view, std::unique_ptr<NapiUniqueString>> unique_strings_;
 
   bool is_env_deleted_{false};

@@ -22,8 +22,7 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
         napi_env env{};
          napi_ext_create_env(&settings, &env);
         return Microsoft::JSI::MakeNapiJsiRuntime(env);
-      }
-    };
+      }};
 }
 
 } // namespace jsi

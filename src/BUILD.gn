@@ -32,7 +32,6 @@ target("shared_library", "v8jsi") {
     "IsolateData.h",
   ]
 
-
   if (is_win) {
     sources += [
       "version_gen.rc",
