@@ -2,8 +2,7 @@
 // Licensed under the MIT license.
 #pragma once
 
-#include "V8Windows.h"
-
+#ifdef _WIN32
 #include <TraceLoggingProvider.h>
 #include <evntrace.h>
 
@@ -52,4 +51,13 @@ void globalInitializeTracing();
 
 #ifdef __cplusplus
 } // extern "C"
+#endif
+
+#else // WIN32
+
+#define TRACEV8RUNTIME_VERBOSE(eventName, ...)
+#define TRACEV8RUNTIME_WARNING(eventName, ...)
+#define TRACEV8RUNTIME_CRITICAL(eventName, ...)
+#define TraceLoggingString(foo,bar)
+
 #endif

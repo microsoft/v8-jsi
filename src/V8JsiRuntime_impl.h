@@ -402,6 +402,8 @@ class V8Runtime : public facebook::jsi::Runtime {
     friend class HostObjectLifetimeTracker;
     void destroy() override {
       hostObject_.reset();
+
+      // TODO: remove this from host_object_lifetime_tracker_list_ (same for HostFunctionProxy)
     }
 
     V8Runtime &runtime_;

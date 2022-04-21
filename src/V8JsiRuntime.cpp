@@ -497,10 +497,12 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   initializeTracing();
   initializeV8();
 
+#ifdef _WIN32
   v8::V8::SetUnhandledExceptionCallback([](_EXCEPTION_POINTERS *exception_pointers) -> int {
     TRACEV8RUNTIME_CRITICAL("V8::SetUnhandledExceptionCallback");
     return 0;
   });
+#endif
 
   // Try to reuse the already existing isolate in this thread.
   if (tls_isolate_usage_counter_++ > 0) {
@@ -1604,12 +1606,8 @@ void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
 // Make V8 JSI runtime
 //=============================================================================
 
-std::unique_ptr<jsi::Runtime> makeV8Runtime(V8RuntimeArgs &&args) {
+V8JSI_EXPORT std::unique_ptr<jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args) {
   return std::make_unique<V8Runtime>(std::move(args));
-}
-
-std::unique_ptr<jsi::Runtime> makeV8Runtime() {
-  return std::make_unique<V8Runtime>(V8RuntimeArgs());
 }
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
