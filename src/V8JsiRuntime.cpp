@@ -1037,7 +1037,7 @@ jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
 
 jsi::PropNameID V8Runtime::createPropNameIDFromSymbol(const jsi::Symbol &sym) {
   _ISOLATE_CONTEXT_ENTER
-  throw std::logic_error("Not implemented");
+  return make<jsi::PropNameID>(V8SymbolValue::make(v8::Local<v8::Symbol>::Cast(symbolRef(sym))));
 }
 
 std::string V8Runtime::utf8(const jsi::PropNameID &sym) {

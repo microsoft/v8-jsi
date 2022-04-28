@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Facebook, Inc. and its affiliates.
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
  *
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
@@ -126,8 +126,8 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
       const std::shared_ptr<const PreparedJavaScript>& js) override {
     return plain().evaluatePreparedJavaScript(js);
   }
-  bool drainMicrotasks(int /*maxMicrotasksHint*/) {
-    return true;
+  bool drainMicrotasks(int maxMicrotasksHint) override {
+    return plain().drainMicrotasks(maxMicrotasksHint);
   }
   Object global() override {
     return plain().global();
@@ -337,16 +337,29 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
     return plain().instrumentation().getHeapInfo(includeExpensive);
   }
 
-  void collectGarbage() override {
-    plain().instrumentation().collectGarbage();
+  void collectGarbage(std::string cause) override {
+    plain().instrumentation().collectGarbage(std::move(cause));
   }
 
-  void startTrackingHeapObjectStackTraces() override {
-    plain().instrumentation().startTrackingHeapObjectStackTraces();
+  void startTrackingHeapObjectStackTraces(
+      std::function<void(
+          uint64_t,
+          std::chrono::microseconds,
+          std::vector<HeapStatsUpdate>)> callback) override {
+    plain().instrumentation().startTrackingHeapObjectStackTraces(
+        std::move(callback));
   }
 
   void stopTrackingHeapObjectStackTraces() override {
     plain().instrumentation().stopTrackingHeapObjectStackTraces();
+  }
+
+  void startHeapSampling(size_t samplingInterval) override {
+    plain().instrumentation().startHeapSampling(samplingInterval);
+  }
+
+  void stopHeapSampling(std::ostream& os) override {
+    plain().instrumentation().stopHeapSampling(os);
   }
 
   void createSnapshotToFile(const std::string& path) override {
@@ -483,6 +496,10 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
       const std::shared_ptr<const PreparedJavaScript>& js) override {
     Around around{with_};
     return RD::evaluatePreparedJavaScript(js);
+  }
+  bool drainMicrotasks(int maxMicrotasksHint) override {
+    Around around{with_};
+    return RD::drainMicrotasks(maxMicrotasksHint);
   }
   Object global() override {
     Around around{with_};
