@@ -63,16 +63,19 @@ target("shared_library", "v8jsi") {
     if (!is_clang) {
       ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
     }
+  } else if (!is_mac) {
+    ldflags = [ "-Wl,--allow-multiple-definition" ]
+    ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ] 
   }
 
   include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
 
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
-  configs -= [ "//build/config/compiler:cet_shadow_stack" ]
-  configs -= [ "//build/config/win:default_incremental_linking" ]
 
   if (is_win) {
+    configs -= [ "//build/config/compiler:cet_shadow_stack" ]
+    configs -= [ "//build/config/win:default_incremental_linking" ]
     configs += [ "//build/config/win:win_msvc_cfg" ]
   }
 
@@ -81,8 +84,9 @@ target("shared_library", "v8jsi") {
     "//:v8_monolith"
   ]
 
+  defines = [ "BUILDING_V8JSI_SHARED" ]
+
   if (is_win) {
-    defines = [ "BUILDING_V8_SHARED" ]
     libs = [
       "winmm.lib",
       "bcrypt.lib",
@@ -161,8 +165,10 @@ target("executable", "jsitests") {
   configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
-  # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
-  cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+  if (is_win) {
+    # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
+    cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+  }
 
   include_dirs = [ ".", "jsi", "napi", "napi/test", "public" ]
 

@@ -16,8 +16,9 @@
 #endif // WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
-#include "etw/tracing.h"
 
 #endif
+
+#include "etw/tracing.h"
 
 #endif // SRC_V8WINDOWS_H

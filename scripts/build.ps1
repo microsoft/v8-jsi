@@ -12,9 +12,11 @@ param(
 
 $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
+$buildingWindows = !"android linux mac".contains($AppPlatform)
 
-Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -ErrorAction Ignore
-Copy-Item $jsigitpath -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force
+Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
+New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
+Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force | Out-Null
 
 Push-Location (Join-Path $workpath "v8build\v8")
 
@@ -23,41 +25,41 @@ Push-Location (Join-Path $workpath "v8build\v8")
 # Generate the build system
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
-# commenting this out for now since Android build is at android/build.sh
+if (!$buildingWindows) {
+    $gnargs += ' use_goma=false target_os=\"' + $AppPlatform + '\"'
+} else {
+    if (-not ($UseLibCpp)) {
+        $gnargs += ' use_custom_libcxx=false'
+    }
 
-# if ($Configuration -like "*android") {
-#     $gnargs += ' use_goma=false target_os=\"android\" target_cpu=\"' + $Platform + '\"'
-# }
-# else {
-if (-not ($UseLibCpp)) {
-    $gnargs += ' use_custom_libcxx=false'
-}
-
-if ($AppPlatform -eq "uwp") {
-    # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
-    $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
+    if ($AppPlatform -eq "uwp") {
+        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
+        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
+    }
 }
 
 $gnargs += ' target_cpu=\"' + $Platform + '\"'
 
-if ($UseClang) {
-    #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
-    $gnargs += ' is_clang=true'
-}
-else {
-    $gnargs += ' is_clang=false'
+if ($buildingWindows) {
+    if ($UseClang) {
+        #TODO (#2): we need to figure out how to actually build DEBUG with clang-cl (won't work today due to STL iterator issues)
+        $gnargs += ' is_clang=true'
+    } else {
+        $gnargs += ' is_clang=false'
+    }
 }
 
 if ($Platform -like "?64") {
     # Pointer compression only makes sense on 64-bit builds
     $gnargs += ' v8_enable_pointer_compression=true'
 }
-# }
 
 if ($Configuration -like "*ebug*") {
-    $gnargs += ' enable_iterator_debugging=true is_debug=true'
-}
-else {
+    $gnargs += ' is_debug=true'
+    if ($buildingWindows) {
+        $gnargs += ' enable_iterator_debugging=true'
+    }
+} else {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
 }
 
@@ -71,15 +73,27 @@ if (!$?) {
 }
 
 # We'll use 2x the number of cores for parallel execution
-$numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
-
-$ninjaExtraTargets = ""
-
-if ($AppPlatform -ne "uwp") {
-    $ninjaExtraTargets += "v8windbg"
+$numberOfThreads = 2
+if ($PSVersionTable.Platform -and !$IsWindows) {
+    if ($IsMacOS) {
+        $numberOfThreads = [int](Invoke-Command -ScriptBlock { sysctl -n hw.physicalcpu }) * 2
+    } else {
+        $numberOfThreads = [int](Invoke-Command -ScriptBlock { nproc }) * 2
+    }
+} else {
+    $numberOfThreads = [int]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors) * 2
 }
 
-& ninja -v -j $numberOfThreads -C $buildoutput v8jsi jsitests $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
+$ninjaExtraTargets = @()
+if (($AppPlatform -ne "uwp") -and ($AppPlatform -ne "android")) {
+    $ninjaExtraTargets += "jsitests"
+
+    if (($AppPlatform -ne "linux") -and ($AppPlatform -ne "mac")) {
+        $ninjaExtraTargets += "v8windbg"
+    }
+}
+
+& ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
 if (!$?) {
     Write-Host "Build failure, check logs for details"
     exit 1
@@ -87,7 +101,7 @@ if (!$?) {
 
 Pop-Location
 
-if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so")) {
+if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so") -and !(Test-Path -Path "$buildoutput\libv8jsi.dylib")) {
     Write-Host "Build failure"
     exit 1
 }
@@ -150,6 +164,7 @@ Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\na
 
 # Miscellaneous
 Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination $OutputPath
 
 Copy-Item "$SourcesPath\config.json"    -Destination "$OutputPath\"
 Copy-Item "$SourcesPath\LICENSE"        -Destination "$OutputPath\license\"

@@ -483,6 +483,7 @@ bool v8_initialized = false;
 
 // From node_errors.cc
 [[noreturn]] void Assert(const AssertionInfo &info) {
+#ifdef _WIN32
   char *processName{};
   _get_pgmptr(&processName);
 
@@ -495,6 +496,7 @@ bool v8_initialized = false;
       *info.function ? ":" : "",
       info.message);
   fflush(stderr);
+#endif // _WIN32
 
   TRACEV8RUNTIME_CRITICAL("Assertion failed");
 

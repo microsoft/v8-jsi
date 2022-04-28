@@ -11,7 +11,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [String[]]$Configuration = @('Debug'),
 
-    [ValidateSet('win32', 'uwp')]
+    [ValidateSet('win32', 'uwp', 'android', 'linux', 'mac')]
     [String[]]$AppPlatform = @('win32'),
 
     [switch]$NoSetup
@@ -19,7 +19,7 @@ param(
 
 if (! $NoSetup.IsPresent) {
     Write-Host "Downloading environment..."
-    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath
+    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath -NoADO
 
     if (!$?) {
         Write-Host "Failed to download depot-tools"
@@ -27,12 +27,14 @@ if (! $NoSetup.IsPresent) {
     }
 
     Write-Host "Fetching code..."
-    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Configuration $Configuration[0]
+    & ".\scripts\fetch_code.ps1" -SourcesPath $SourcesPath -AppPlatform $AppPlatform[0]
 
     if (!$?) {
         Write-Host "Failed to retrieve the v8 code"
         exit 1
     }
+} else {
+    & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath -NoSetup -NoADO
 }
 
 foreach ($Plat in $Platform) {
