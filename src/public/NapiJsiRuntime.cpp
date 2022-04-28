@@ -92,6 +92,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromString(const facebook::jsi::String &str) override;
+  facebook::jsi::PropNameID createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) override;
   std::string utf8(const facebook::jsi::PropNameID &id) override;
   bool compare(const facebook::jsi::PropNameID &lhs, const facebook::jsi::PropNameID &rhs) override;
 
@@ -416,6 +417,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   napi_ext_ref GetPropertyIdFromName(string_view value) const;
   napi_ext_ref GetPropertyIdFromName(const uint8_t *data, size_t length) const;
   napi_ext_ref GetPropertyIdFromName(napi_value str) const;
+  napi_ext_ref GetPropertyIdFromSymbol(napi_value sym) const;
   std::string PropertyIdToStdString(napi_value propertyId);
   napi_value CreateSymbol(string_view symbolDescription) const;
   std::string SymbolToStdString(napi_value symbolValue);
@@ -624,6 +626,12 @@ facebook::jsi::PropNameID NapiJsiRuntime::createPropNameIDFromString(const faceb
   EnvScope envScope{m_env};
   napi_ext_ref uniqueStr = GetPropertyIdFromName(GetNapiValue(str));
   return MakePointer<facebook::jsi::PropNameID>(uniqueStr);
+}
+
+facebook::jsi::PropNameID NapiJsiRuntime::createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) {
+  EnvScope envScope{m_env};
+  napi_ext_ref propSym = GetPropertyIdFromSymbol(GetNapiValue(sym));
+  return MakePointer<facebook::jsi::PropNameID>(propSym);
 }
 
 std::string NapiJsiRuntime::utf8(const facebook::jsi::PropNameID &id) {
@@ -1467,6 +1475,13 @@ napi_ext_ref NapiJsiRuntime::GetPropertyIdFromName(const uint8_t *data, size_t l
 napi_ext_ref NapiJsiRuntime::GetPropertyIdFromName(napi_value str) const {
   napi_ext_ref ref{};
   CHECK_NAPI(napi_ext_get_unique_string_ref(m_env, str, &ref));
+  return ref;
+}
+
+// Gets or creates a unique string value from napi_value string.
+napi_ext_ref NapiJsiRuntime::GetPropertyIdFromSymbol(napi_value sym) const {
+  napi_ext_ref ref{};
+  CHECK_NAPI(napi_ext_create_reference(m_env, sym, &ref));
   return ref;
 }
 
