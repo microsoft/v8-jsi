@@ -606,24 +606,42 @@ jsi::Value V8Runtime::evaluateJavaScript(
 
   _ISOLATE_CONTEXT_ENTER
 
+  // Basic hashing of the buffer for cache versioning
+  constexpr std::uint64_t P1 {7};
+  constexpr std::uint64_t P2 {31};
+
+  std::uint64_t hash {P1};
+  bool isAscii {true};
+
+  const char* p = reinterpret_cast<const char *>(buffer->data());
+  for (size_t i=0; i < buffer->size(); p++, i++) {
+    hash = hash * P2 + *p;
+
+    if (static_cast<unsigned char>(*p) > 127)
+    {
+      isAscii = false;
+    }
+  }
+
   v8::Local<v8::String> sourceV8String;
-  // If we'd somehow know the buffer includes only ASCII characters, we could use External strings to avoid the copy
-  /* ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
-  if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
-    std::abort();
+  if (isAscii) {
+    // This pointer is cleaned up by the platform
+    ExternalOwningOneByteStringResource* external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+    if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
+      std::abort();
+    }
+  } else {
+    if (!v8::String::NewFromUtf8(
+            isolate,
+            reinterpret_cast<const char *>(buffer->data()),
+            v8::NewStringType::kNormal,
+            static_cast<int>(buffer->size()))
+            .ToLocal(&sourceV8String)) {
+      std::abort();
+    }
   }
-  delete external_string_resource; */
 
-  if (!v8::String::NewFromUtf8(
-           isolate,
-           reinterpret_cast<const char *>(buffer->data()),
-           v8::NewStringType::kNormal,
-           static_cast<int>(buffer->size()))
-           .ToLocal(&sourceV8String)) {
-    std::abort();
-  }
-
-  jsi::Value result = ExecuteString(sourceV8String, sourceURL);
+  jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
 
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
   DumpCounters("script evaluated");
@@ -696,7 +714,7 @@ class ByteArrayBuffer final : public jsi::Buffer {
   int length_;
 };
 
-jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL) {
+jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
@@ -714,7 +732,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
 
   std::shared_ptr<const jsi::Buffer> cache;
   if (args_.preparedScriptStore) {
-    jsi::ScriptSignature scriptSignature = {sourceURL, 1};
+    jsi::ScriptSignature scriptSignature = {sourceURL, hash};
     jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
     cache = args_.preparedScriptStore->tryGetPreparedScript(scriptSignature, runtimeSignature, "perf");
   }
@@ -750,7 +768,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
       if (args_.preparedScriptStore && options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
         v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
-        jsi::ScriptSignature scriptSignature = {sourceURL, 1};
+        jsi::ScriptSignature scriptSignature = {sourceURL, hash};
         jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
 
         args_.preparedScriptStore->persistPreparedScript(
