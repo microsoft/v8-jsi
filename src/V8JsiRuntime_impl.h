@@ -75,8 +75,6 @@ class CounterCollection {
 
 using CounterMap = std::unordered_map<std::string, Counter *>;
 
-enum class CacheType { NoCache, CodeCache, FullCodeCache };
-
 class V8PlatformHolder {
  public:
   V8PlatformHolder() {}
@@ -629,12 +627,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   static size_t NearHeapLimitCallback(void *raw_state, size_t current_heap_limit, size_t initial_heap_limit);
 
   static void GCPrologueCallback(v8::Isolate *isolate, v8::GCType type, v8::GCCallbackFlags flags);
-
   static void GCEpilogueCallback(v8::Isolate *isolate, v8::GCType type, v8::GCCallbackFlags flags);
-
-  V8RuntimeArgs &runtimeArgs() {
-    return args_;
-  }
 
  private:
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
@@ -687,10 +680,8 @@ class V8Runtime : public facebook::jsi::Runtime {
   v8::Global<v8::Context> context_;
   v8runtime::IsolateData *isolate_data_{nullptr};
 
-  v8::StartupData startup_data_;
   v8::Isolate::CreateParams create_params_;
 
-  v8::Persistent<v8::FunctionTemplate> host_function_template_;
   v8::Persistent<v8::Function> host_object_constructor_;
 
   std::list<std::shared_ptr<HostObjectLifetimeTracker>> host_object_lifetime_tracker_list_;
@@ -700,9 +691,6 @@ class V8Runtime : public facebook::jsi::Runtime {
   static thread_local uint16_t tls_isolate_usage_counter_;
 
   V8PlatformHolder platform_holder_;
-  v8::StartupData custom_snapshot_startup_data_;
-
-  std::vector<std::unique_ptr<ExternalOwningOneByteStringResource>> owned_external_string_resources_;
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;

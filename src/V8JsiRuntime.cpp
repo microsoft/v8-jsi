@@ -361,13 +361,6 @@ struct SameCodeObjects {
 v8::Isolate *V8Runtime::CreateNewIsolate() {
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("start", "op"));
 
-  /*if (args_.custom_snapshot_blob) {
-    custom_snapshot_startup_data_ = {
-        reinterpret_cast<const char *>(args_.custom_snapshot_blob->data()),
-        static_cast<int>(args_.custom_snapshot_blob->size())};
-    create_params_.snapshot_blob = &custom_snapshot_startup_data_;
-  }*/
-
   // One per each runtime.
   create_params_.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
 
