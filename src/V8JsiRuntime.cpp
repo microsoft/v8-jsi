@@ -6,6 +6,7 @@
 #include "v8.h"
 
 #include "IsolateData.h"
+#include "MurmurHash.h"
 #include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
 #include "public/js_native_api.h"
@@ -603,18 +604,8 @@ jsi::Value V8Runtime::evaluateJavaScript(
   constexpr std::uint64_t P1 {7};
   constexpr std::uint64_t P2 {31};
 
-  std::uint64_t hash {P1};
-  bool isAscii {true};
-
-  const char* p = reinterpret_cast<const char *>(buffer->data());
-  for (size_t i=0; i < buffer->size(); p++, i++) {
-    hash = hash * P2 + *p;
-
-    if (static_cast<unsigned char>(*p) > 127)
-    {
-      isAscii = false;
-    }
-  }
+  std::uint64_t hash {0};
+  bool isAscii = murmurhash(buffer->data(), buffer->size(), hash);
 
   v8::Local<v8::String> sourceV8String;
   if (isAscii) {
