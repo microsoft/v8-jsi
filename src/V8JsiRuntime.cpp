@@ -6,6 +6,7 @@
 #include "v8.h"
 
 #include "IsolateData.h"
+#include "MurmurHash.h"
 #include "napi/js_native_api_v8.h"
 #include "public/ScriptStore.h"
 #include "public/js_native_api.h"
@@ -361,13 +362,6 @@ struct SameCodeObjects {
 v8::Isolate *V8Runtime::CreateNewIsolate() {
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("start", "op"));
 
-  /*if (args_.custom_snapshot_blob) {
-    custom_snapshot_startup_data_ = {
-        reinterpret_cast<const char *>(args_.custom_snapshot_blob->data()),
-        static_cast<int>(args_.custom_snapshot_blob->size())};
-    create_params_.snapshot_blob = &custom_snapshot_startup_data_;
-  }*/
-
   // One per each runtime.
   create_params_.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
 
@@ -606,24 +600,32 @@ jsi::Value V8Runtime::evaluateJavaScript(
 
   _ISOLATE_CONTEXT_ENTER
 
+  // Basic hashing of the buffer for cache versioning
+  constexpr std::uint64_t P1 {7};
+  constexpr std::uint64_t P2 {31};
+
+  std::uint64_t hash {0};
+  bool isAscii = murmurhash(buffer->data(), buffer->size(), hash);
+
   v8::Local<v8::String> sourceV8String;
-  // If we'd somehow know the buffer includes only ASCII characters, we could use External strings to avoid the copy
-  /* ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
-  if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
-    std::abort();
+  if (isAscii) {
+    // This pointer is cleaned up by the platform
+    ExternalOwningOneByteStringResource* external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+    if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
+      std::abort();
+    }
+  } else {
+    if (!v8::String::NewFromUtf8(
+            isolate,
+            reinterpret_cast<const char *>(buffer->data()),
+            v8::NewStringType::kNormal,
+            static_cast<int>(buffer->size()))
+            .ToLocal(&sourceV8String)) {
+      std::abort();
+    }
   }
-  delete external_string_resource; */
 
-  if (!v8::String::NewFromUtf8(
-           isolate,
-           reinterpret_cast<const char *>(buffer->data()),
-           v8::NewStringType::kNormal,
-           static_cast<int>(buffer->size()))
-           .ToLocal(&sourceV8String)) {
-    std::abort();
-  }
-
-  jsi::Value result = ExecuteString(sourceV8String, sourceURL);
+  jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
 
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
   DumpCounters("script evaluated");
@@ -696,7 +698,7 @@ class ByteArrayBuffer final : public jsi::Buffer {
   int length_;
 };
 
-jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL) {
+jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
@@ -714,7 +716,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
 
   std::shared_ptr<const jsi::Buffer> cache;
   if (args_.preparedScriptStore) {
-    jsi::ScriptSignature scriptSignature = {sourceURL, 1};
+    jsi::ScriptSignature scriptSignature = {sourceURL, hash};
     jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
     cache = args_.preparedScriptStore->tryGetPreparedScript(scriptSignature, runtimeSignature, "perf");
   }
@@ -750,7 +752,7 @@ jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const s
       if (args_.preparedScriptStore && options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
         v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
-        jsi::ScriptSignature scriptSignature = {sourceURL, 1};
+        jsi::ScriptSignature scriptSignature = {sourceURL, hash};
         jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
 
         args_.preparedScriptStore->persistPreparedScript(

@@ -30,6 +30,8 @@ target("shared_library", "v8jsi") {
     "V8JsiRuntime_impl.h",
     "V8JsiRuntime.cpp",
     "IsolateData.h",
+    "MurmurHash.h",
+    "MurmurHash.cpp",
   ]
 
   if (is_win) {
