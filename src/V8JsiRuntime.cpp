@@ -863,6 +863,55 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
   }
 }
 
+// The private member access to jsi::JSError is based on this article:
+// http://bloglitb.blogspot.com/2010/07/access-to-private-members-thats-easy.html
+namespace PrivateMemberAccess {
+
+template <typename MemberPtrTag>
+struct MemberPointer {
+  MemberPointer(typename MemberPtrTag::MemberPtrType ptr) {
+    memberPtr = ptr;
+  }
+  static typename MemberPtrTag::MemberPtrType memberPtr;
+};
+template <typename TMemberPtrHolder>
+typename TMemberPtrHolder::MemberPtrType MemberPointer<TMemberPtrHolder>::memberPtr;
+
+template <typename MemberPtrTag, typename MemberPtrTag::MemberPtrType memberPtr>
+struct MemberPointerSetter : MemberPointer<MemberPtrTag> {
+  static MemberPointer<MemberPtrTag> memberPtrToSet;
+};
+template <typename MemberPtrTag, typename MemberPtrTag::MemberPtrType memberPtr>
+MemberPointer<MemberPtrTag> MemberPointerSetter<MemberPtrTag, memberPtr>::memberPtrToSet{memberPtr};
+
+// Accessor to jsi::JSError::stack_
+struct JSErrorStackAccessor {
+  using MemberPtrType = std::string jsi::JSError::*;
+};
+template struct MemberPointerSetter<JSErrorStackAccessor, &jsi::JSError::stack_>;
+
+// Accessor to jsi::JSError::message_
+struct JSErrorMessageAccessor {
+  using MemberPtrType = std::string jsi::JSError::*;
+};
+template struct MemberPointerSetter<JSErrorMessageAccessor, &jsi::JSError::message_>;
+
+// Accessor to jsi::JSIException::what_
+struct JSIExceptionWhatAccessor {
+  using MemberPtrType = std::string jsi::JSIException::*;
+};
+template struct MemberPointerSetter<JSIExceptionWhatAccessor, &jsi::JSIException::what_>;
+
+// In V8's case, creating an Error object in JS doesn't record the callstack
+// To preserve it, we need a way to manually add the stack here and on the JS side
+void setStack(jsi::JSError &error, std::string stack) {
+  error.*MemberPointer<JSErrorStackAccessor>::memberPtr = std::move(stack);
+  error.*MemberPointer<JSIExceptionWhatAccessor>::memberPtr = error.*MemberPointer<JSErrorMessageAccessor>::memberPtr +
+      "\n\n" + error.*MemberPointer<JSErrorStackAccessor>::memberPtr;
+}
+
+} // namespace PrivateMemberAccess
+
 void V8Runtime::ReportException(v8::TryCatch *try_catch) {
   _ISOLATE_CONTEXT_ENTER
   v8::Local<v8::Message> message = try_catch->Message();
@@ -927,7 +976,7 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
       auto err = jsi::JSError(*this, ex_messages);
       err.value().getObject(*this).setProperty(
           *this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
-      err.setStack(sstr.str());
+      PrivateMemberAccess::setStack(err, sstr.str());
       throw err;
     } else {
       // If we're already in stack overflow, calling the Error constructor pushes it overboard
