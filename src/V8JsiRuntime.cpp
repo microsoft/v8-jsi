@@ -20,8 +20,6 @@
 #include <mutex>
 #include <sstream>
 
-using namespace facebook;
-
 #ifndef _ISOLATE_CONTEXT_ENTER
 #define _ISOLATE_CONTEXT_ENTER                      \
   v8::Isolate *isolate = v8::Isolate::GetCurrent(); \
@@ -593,30 +591,21 @@ V8Runtime::~V8Runtime() {
   // Note :: We never dispose V8 here. Is it required ?
 }
 
-jsi::Value V8Runtime::evaluateJavaScript(
-    const std::shared_ptr<const jsi::Buffer> &buffer,
-    const std::string &sourceURL) {
-  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"));
+v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, std::uint64_t& hash) {
+  v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
 
-  _ISOLATE_CONTEXT_ENTER
-
-  // Basic hashing of the buffer for cache versioning
-  constexpr std::uint64_t P1 {7};
-  constexpr std::uint64_t P2 {31};
-
-  std::uint64_t hash {0};
   bool isAscii = murmurhash(buffer->data(), buffer->size(), hash);
 
   v8::Local<v8::String> sourceV8String;
   if (isAscii) {
     // This pointer is cleaned up by the platform
     ExternalOwningOneByteStringResource* external_string_resource = new ExternalOwningOneByteStringResource(buffer);
-    if (!v8::String::NewExternalOneByte(isolate, external_string_resource).ToLocal(&sourceV8String)) {
+    if (!v8::String::NewExternalOneByte(v8::Isolate::GetCurrent(), external_string_resource).ToLocal(&sourceV8String)) {
       std::abort();
     }
   } else {
     if (!v8::String::NewFromUtf8(
-            isolate,
+            v8::Isolate::GetCurrent(),
             reinterpret_cast<const char *>(buffer->data()),
             v8::NewStringType::kNormal,
             static_cast<int>(buffer->size()))
@@ -625,6 +614,18 @@ jsi::Value V8Runtime::evaluateJavaScript(
     }
   }
 
+  return handle_scope.Escape(sourceV8String);
+}
+
+jsi::Value V8Runtime::evaluateJavaScript(
+    const std::shared_ptr<const jsi::Buffer> &buffer,
+    const std::string &sourceURL) {
+  TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("start", "op"));
+
+  _ISOLATE_CONTEXT_ENTER
+
+  std::uint64_t hash {0};
+  v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
   jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
 
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
@@ -783,15 +784,9 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
     std::string sourceURL) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
-  v8::Local<v8::String> source;
-  if (!v8::String::NewFromUtf8(
-           isolate,
-           reinterpret_cast<const char *>(buffer->data()),
-           v8::NewStringType::kNormal,
-           static_cast<int>(buffer->size()))
-           .ToLocal(&source)) {
-    std::abort();
-  }
+
+  std::uint64_t hash {0};
+  v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
 
   v8::Local<v8::String> urlV8String =
       v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
@@ -801,7 +796,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
   v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
 
-  v8::ScriptCompiler::Source script_source(source, origin, cached_data);
+  v8::ScriptCompiler::Source script_source(sourceV8String, origin, cached_data);
 
   if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
     ReportException(&try_catch);
@@ -810,8 +805,8 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
     v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
     auto prepared = std::make_shared<V8PreparedJavaScript>();
-    prepared->scriptSignature = {sourceURL, 1};
-    prepared->runtimeSignature = {"V8", 76};
+    prepared->scriptSignature = {sourceURL, hash};
+    prepared->runtimeSignature = {"V8", /* runtimeVersion */ V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
     prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
     prepared->sourceBuffer = buffer;
     return prepared;
@@ -825,15 +820,20 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
   auto prepared = static_cast<const V8PreparedJavaScript *>(js.get());
 
   v8::TryCatch try_catch(isolate);
-  v8::Local<v8::String> source;
-  if (!v8::String::NewFromUtf8(
-           isolate,
-           reinterpret_cast<const char *>(prepared->sourceBuffer->data()),
-           v8::NewStringType::kNormal,
-           static_cast<int>(prepared->sourceBuffer->size()))
-           .ToLocal(&source)) {
-    std::abort();
+
+  std::uint64_t hash {0};
+  v8::Local<v8::String> sourceV8String = loadJavaScript(prepared->sourceBuffer, hash);
+
+  if (prepared->scriptSignature.version != hash) {
+    // hash mismatch, we need to recompile the source
+    throw jsi::JSINativeException("Prepared JavaScript cache is invalid (Hash mismatch)");
   }
+
+  if (prepared->runtimeSignature.version != V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER) {
+    // V8 version mismatch, we need to recompile the source
+    throw jsi::JSINativeException("Prepared JavaScript cache is invalid (V8 version mismatch)");
+  }
+
   v8::Local<v8::String> urlV8String =
       v8::String::NewFromUtf8(isolate, reinterpret_cast<const char *>(prepared->scriptSignature.url.c_str()))
           .ToLocalChecked();
@@ -845,7 +845,7 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
   v8::ScriptCompiler::CachedData *cached_data =
       new v8::ScriptCompiler::CachedData(prepared->buffer.data(), static_cast<int>(prepared->buffer.size()));
 
-  v8::ScriptCompiler::Source script_source(source, origin, cached_data);
+  v8::ScriptCompiler::Source script_source(sourceV8String, origin, cached_data);
 
   if (!v8::ScriptCompiler::Compile(context, &script_source, options).ToLocal(&script)) {
     ReportException(&try_catch);
