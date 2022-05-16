@@ -37,8 +37,7 @@ FORCE_INLINE uint64_t fmix64(uint64_t k) {
 }
 
 bool isAscii(uint64_t k) {
-  return ((unsigned char)(k & 0xff) <= 127) && ((unsigned char)((k >> 8) & 0xff) <= 127) &&
-      ((unsigned char)((k >> 16) & 0xff) <= 127) && ((unsigned char)(k >> 24) <= 127);
+  return (k & 0x8080808080808080) == 0ull;
 }
 
 bool MurmurHash3_x64_128(const void *key, const int len, const uint32_t seed, void *out) {
