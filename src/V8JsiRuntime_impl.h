@@ -22,8 +22,8 @@
 #include <list>
 #include <mutex>
 #include <sstream>
-#include <unordered_map>
 #include <string_view>
+#include <unordered_map>
 
 #include <cstdlib>
 
@@ -101,9 +101,8 @@ class V8PlatformHolder {
       // process-globals This cannot be worked around, the design of V8 is not currently embedder-friendly
       // v8::V8::Dispose();
 
-      // This used to work until 9.2, but afterwards shutting down the platform permanently breaks the code that creates page allocators (through global statics)
-      // v8::V8::ShutdownPlatform();
-      // platform_s_ = nullptr;
+      // This used to work until 9.2, but afterwards shutting down the platform permanently breaks the code that creates
+      // page allocators (through global statics) v8::V8::ShutdownPlatform(); platform_s_ = nullptr;
     }
   }
 
@@ -146,13 +145,12 @@ class V8Runtime : public facebook::jsi::Runtime {
   V8Runtime(V8RuntimeArgs &&args);
   ~V8Runtime();
 
-  public:  // Used by openInspector public API.
+ public: // Used by openInspector public API.
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   std::shared_ptr<inspector::Agent> getInspectorAgent() {
     return inspector_agent_;
   }
 #endif
-
 
  public: // Used by NAPI implementation
   v8::Global<v8::Context> &GetContext() {
@@ -178,7 +176,7 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   napi_status NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result);
 
- private:  // Used by NAPI implementation
+ private: // Used by NAPI implementation
   static void PromiseRejectCallback(v8::PromiseRejectMessage data);
   void
   SetUnhandledPromise(v8::Local<v8::Promise> promise, v8::Local<v8::Message> message, v8::Local<v8::Value> exception);
@@ -612,8 +610,9 @@ class V8Runtime : public facebook::jsi::Runtime {
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
 
   // Methods to compile and execute JS script
-  facebook::jsi::Value ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
-  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t& hash);
+  facebook::jsi::Value
+  ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
+  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t &hash);
 
   void ReportException(v8::TryCatch *try_catch);
 

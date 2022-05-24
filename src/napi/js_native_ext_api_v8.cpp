@@ -243,31 +243,27 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
   napi_ext_schedule_task_callback scheduler_;
 };
 
-napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env)
-{
+napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) {
   v8runtime::V8RuntimeArgs args;
 
-  args.flags.trackGCObjectStats           = settings->flags.track_gc_object_stats;
-  args.flags.enableJitTracing             = settings->flags.enable_jit_tracing;
-  args.flags.enableMessageTracing         = settings->flags.enable_message_tracing;
-  args.flags.enableGCTracing              = settings->flags.enable_gc_tracing;
-  args.flags.enableInspector              = settings->flags.enable_inspector;
-  args.flags.waitForDebugger              = settings->flags.wait_for_debugger;
-  args.flags.enableGCApi                  = settings->flags.enable_gc_api;
-  args.flags.ignoreUnhandledPromises      = settings->flags.ignore_unhandled_promises;
-  args.flags.enableSystemInstrumentation  = settings->flags.enable_system_instrumentation;
-  args.flags.sparkplug                    = settings->flags.sparkplug;
-  args.flags.predictable                  = settings->flags.predictable;
-  args.flags.optimize_for_size            = settings->flags.optimize_for_size;
-  args.flags.always_compact               = settings->flags.always_compact;
-  args.flags.jitless                      = settings->flags.jitless;
-  args.flags.lite_mode                    = settings->flags.lite_mode;
-  args.flags.thread_pool_size             = settings->flags.thread_pool_size;
+  args.flags.trackGCObjectStats = settings->flags.track_gc_object_stats;
+  args.flags.enableJitTracing = settings->flags.enable_jit_tracing;
+  args.flags.enableMessageTracing = settings->flags.enable_message_tracing;
+  args.flags.enableGCTracing = settings->flags.enable_gc_tracing;
+  args.flags.enableInspector = settings->flags.enable_inspector;
+  args.flags.waitForDebugger = settings->flags.wait_for_debugger;
+  args.flags.enableGCApi = settings->flags.enable_gc_api;
+  args.flags.ignoreUnhandledPromises = settings->flags.ignore_unhandled_promises;
+  args.flags.enableSystemInstrumentation = settings->flags.enable_system_instrumentation;
+  args.flags.sparkplug = settings->flags.sparkplug;
+  args.flags.predictable = settings->flags.predictable;
+  args.flags.optimize_for_size = settings->flags.optimize_for_size;
+  args.flags.always_compact = settings->flags.always_compact;
+  args.flags.jitless = settings->flags.jitless;
+  args.flags.lite_mode = settings->flags.lite_mode;
+  args.flags.thread_pool_size = settings->flags.thread_pool_size;
 
-  auto taskRunner = std::make_shared<NapiJSITaskRunner>(
-    *env,
-    settings->foreground_scheduler
-  );
+  auto taskRunner = std::make_shared<NapiJSITaskRunner>(*env, settings->foreground_scheduler);
   args.foreground_task_runner = taskRunner;
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
@@ -310,7 +306,7 @@ napi_status napi_ext_close_env_scope(napi_env env, napi_ext_env_scope scope) {
   CHECK_ENV(env);
   CHECK_ARG(env, scope);
 
-  delete reinterpret_cast<EnvScope*>(scope);
+  delete reinterpret_cast<EnvScope *>(scope);
   return napi_ok;
 }
 
@@ -455,8 +451,7 @@ napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length
   return GET_RETURN_STATUS(env);
 }
 
-NAPI_EXTERN napi_status
-napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
+NAPI_EXTERN napi_status napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, str_value);
   CHECK_ARG(env, result);

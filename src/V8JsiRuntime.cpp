@@ -32,7 +32,7 @@ using namespace facebook;
 
 namespace v8runtime {
 
-constexpr uint64_t c_V8BuildVersion {V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
+constexpr uint64_t c_V8BuildVersion{V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
 
 thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
 
@@ -446,7 +446,7 @@ std::once_flag g_tracingInitialized;
 
 void V8Runtime::initializeTracing() {
 #ifdef _WIN32
-  std::call_once(g_tracingInitialized, [](){ globalInitializeTracing(); });
+  std::call_once(g_tracingInitialized, []() { globalInitializeTracing(); });
 #endif
 
   TRACEV8RUNTIME_VERBOSE("Initializing");
@@ -521,16 +521,16 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   v8::Context::Scope context_scope(context);
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  void* inspector_agent = isolate_->GetData(ISOLATE_INSPECTOR_SLOT);
+  void *inspector_agent = isolate_->GetData(ISOLATE_INSPECTOR_SLOT);
   if (inspector_agent) {
-    inspector_agent_ = reinterpret_cast<inspector::Agent*>(inspector_agent)->getShared();
+    inspector_agent_ = reinterpret_cast<inspector::Agent *>(inspector_agent)->getShared();
   } else {
-    inspector_agent_ = std::make_shared<inspector::Agent>(
-        isolate_, args_.inspectorPort);
+    inspector_agent_ = std::make_shared<inspector::Agent>(isolate_, args_.inspectorPort);
     isolate_->SetData(ISOLATE_INSPECTOR_SLOT, inspector_agent_.get());
   }
 
-  const char* context_name = args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
+  const char *context_name =
+      args_.debuggerRuntimeName.empty() ? "JSIRuntime context" : args_.debuggerRuntimeName.c_str();
   inspector_agent_->addContext(context_.Get(GetIsolate()), context_name);
 
   if (args_.flags.enableInspector) {
@@ -570,7 +570,7 @@ V8Runtime::~V8Runtime() {
   host_object_lifetime_tracker_list_.clear();
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (inspector_agent_){
+  if (inspector_agent_) {
     inspector_agent_.reset();
   }
 #endif
@@ -593,7 +593,7 @@ V8Runtime::~V8Runtime() {
   // Note :: We never dispose V8 here. Is it required ?
 }
 
-v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, std::uint64_t& hash) {
+v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, std::uint64_t &hash) {
   v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
 
   bool isAscii = murmurhash(buffer->data(), buffer->size(), hash);
@@ -601,17 +601,17 @@ v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi:
   v8::Local<v8::String> sourceV8String;
   if (isAscii) {
     // This pointer is cleaned up by the platform
-    ExternalOwningOneByteStringResource* external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+    ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
     if (!v8::String::NewExternalOneByte(v8::Isolate::GetCurrent(), external_string_resource).ToLocal(&sourceV8String)) {
       std::abort();
     }
   } else {
     if (!v8::String::NewFromUtf8(
-            v8::Isolate::GetCurrent(),
-            reinterpret_cast<const char *>(buffer->data()),
-            v8::NewStringType::kNormal,
-            static_cast<int>(buffer->size()))
-            .ToLocal(&sourceV8String)) {
+             v8::Isolate::GetCurrent(),
+             reinterpret_cast<const char *>(buffer->data()),
+             v8::NewStringType::kNormal,
+             static_cast<int>(buffer->size()))
+             .ToLocal(&sourceV8String)) {
       std::abort();
     }
   }
@@ -626,7 +626,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
 
   _ISOLATE_CONTEXT_ENTER
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
   jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
 
@@ -701,7 +701,8 @@ class ByteArrayBuffer final : public jsi::Buffer {
   int length_;
 };
 
-jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
+jsi::Value
+V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
@@ -787,7 +788,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
 
   v8::Local<v8::String> urlV8String =
@@ -823,7 +824,7 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
 
   v8::TryCatch try_catch(isolate);
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(prepared->sourceBuffer, hash);
 
   if (prepared->scriptSignature.version != hash) {
@@ -997,8 +998,8 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerVa
 
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   _ISOLATE_CONTEXT_ENTER
-  return "Symbol(" + JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description(isolate))) +
-      ")";
+  return "Symbol(" +
+      JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(symbolRef(sym)->Description(isolate))) + ")";
 }
 
 jsi::PropNameID V8Runtime::createPropNameIDFromAscii(const char *str, size_t length) {
@@ -1615,16 +1616,17 @@ V8JSI_EXPORT std::unique_ptr<jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &
 }
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-void openInspector(jsi::Runtime& runtime) {
-  V8Runtime& v8Runtime = reinterpret_cast<V8Runtime&>(runtime);
-  std::shared_ptr<inspector::Agent> inspector_agent =
-      v8Runtime.getInspectorAgent();
+void openInspector(jsi::Runtime &runtime) {
+  V8Runtime &v8Runtime = reinterpret_cast<V8Runtime &>(runtime);
+  std::shared_ptr<inspector::Agent> inspector_agent = v8Runtime.getInspectorAgent();
   if (inspector_agent) {
     inspector_agent->start();
   }
 }
 
-void openInspectors_toberemoved() { inspector::Agent::startAll(); }
+void openInspectors_toberemoved() {
+  inspector::Agent::startAll();
+}
 #endif
 
 } // namespace v8runtime

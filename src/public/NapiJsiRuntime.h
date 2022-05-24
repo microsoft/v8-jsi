@@ -23,10 +23,10 @@
 #endif // _MSC_VER
 #endif // !defined(V8JSI_EXPORT)
 
-namespace Microsoft { namespace JSI {
+namespace Microsoft::JSI {
 
 V8JSI_EXPORT std::unique_ptr<facebook::jsi::Runtime> __cdecl MakeNapiJsiRuntime(napi_env env) noexcept;
 
-}} // namespace Microsoft::JSI
+} // namespace Microsoft::JSI
 
 #endif // SRC_PUBLIC_NAPIJSIRUNTIME_H_

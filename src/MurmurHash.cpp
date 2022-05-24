@@ -159,7 +159,7 @@ bool MurmurHash3_x64_128(const void *key, const int len, const uint32_t seed, vo
   return isAsciiString;
 }
 
-bool murmurhash(const uint8_t *key, size_t length, uint64_t& hash) {
+bool murmurhash(const uint8_t *key, size_t length, uint64_t &hash) {
   uint64_t hashes[2];
 
   bool isAscii = MurmurHash3_x64_128(key, length, 31, &hashes);
