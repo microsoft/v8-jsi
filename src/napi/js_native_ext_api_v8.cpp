@@ -29,7 +29,6 @@
 
 #include "env-inl.h"
 
-#include "MurmurHash.h"
 #include "V8JsiRuntime_impl.h"
 #include "js_native_api_v8.h"
 #include "js_native_ext_api.h"

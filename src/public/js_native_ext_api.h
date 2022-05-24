@@ -246,7 +246,6 @@ NAPI_EXTERN napi_status __cdecl napi_ext_reference_unref(napi_env env, napi_ext_
 NAPI_EXTERN napi_status __cdecl napi_ext_get_reference_value(napi_env env, napi_ext_ref ref, napi_value *result);
 
 // Run the script with the source map that can be used for the script debugging.
-// TODO: Add points for extension
 NAPI_EXTERN napi_status __cdecl napi_ext_run_script_buffer(
     napi_env env,
     napi_ext_buffer *script_buffer,
