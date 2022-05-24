@@ -72,42 +72,43 @@ struct V8RuntimeArgs {
   // Padded to allow adding boolean flags without breaking the ABI
   union {
     struct {
-      bool trackGCObjectStats:1;
-      bool enableJitTracing:1;
-      bool enableMessageTracing:1;
-      bool enableGCTracing:1;
-      bool enableInspector:1;
-      bool waitForDebugger:1;
-      bool enableGCApi:1;
-      bool ignoreUnhandledPromises:1;
-      bool enableSystemInstrumentation:1; // Provider GUID "57277741-3638-4A4B-BDBA-0AC6E45DA56C"
+      bool trackGCObjectStats : 1;
+      bool enableJitTracing : 1;
+      bool enableMessageTracing : 1;
+      bool enableGCTracing : 1;
+      bool enableInspector : 1;
+      bool waitForDebugger : 1;
+      bool enableGCApi : 1;
+      bool ignoreUnhandledPromises : 1;
+      bool enableSystemInstrumentation : 1; // Provider GUID "57277741-3638-4A4B-BDBA-0AC6E45DA56C"
 
       // Experimental flags (for memory-constrained optimization testing)
-      bool sparkplug:1; // https://v8.dev/blog/sparkplug
-      bool predictable:1; // take a big CPU hit to reduce the number of threads
-      bool optimize_for_size:1; // enables optimizations which favor memory size over execution speed
-      bool always_compact:1; // perform compaction on every full GC
-      bool jitless:1; // disable JIT entirely
-      bool lite_mode:1; // enables trade-off of performance for memory savings
+      bool sparkplug : 1; // https://v8.dev/blog/sparkplug
+      bool predictable : 1; // take a big CPU hit to reduce the number of threads
+      bool optimize_for_size : 1; // enables optimizations which favor memory size over execution speed
+      bool always_compact : 1; // perform compaction on every full GC
+      bool jitless : 1; // disable JIT entirely
+      bool lite_mode : 1; // enables trade-off of performance for memory savings
 
       // unused padding to get better alignment at byte boundary
-      bool padding:1;
+      bool padding : 1;
 
       // caps the number of worker threads (trade fewer threads for time)
       std::uint8_t thread_pool_size; // by default (0) V8 uses min(N-1,16) where N = number of cores
     } flags;
-    uint32_t _flagspad {0};
+    uint32_t _flagspad{0};
   };
 };
 
 V8JSI_EXPORT std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(V8RuntimeArgs &&args);
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  V8JSI_EXPORT void openInspector(facebook::jsi::Runtime& runtime);
+V8JSI_EXPORT void openInspector(facebook::jsi::Runtime &runtime);
 
-  // This API will be removed once we have a proper entry point for users to enable inspector on an active runtime.
-  // This function should be callable from any thread, including the synthetic WinDbg break thread.
-  // For example, break to the host app and issue this to open the inspector servers : .call v8jsi!v8runtime::openInspectors_toberemoved()
-  V8JSI_EXPORT void openInspectors_toberemoved();
+// This API will be removed once we have a proper entry point for users to enable inspector on an active runtime.
+// This function should be callable from any thread, including the synthetic WinDbg break thread.
+// For example, break to the host app and issue this to open the inspector servers : .call
+// v8jsi!v8runtime::openInspectors_toberemoved()
+V8JSI_EXPORT void openInspectors_toberemoved();
 #endif
 } // namespace v8runtime

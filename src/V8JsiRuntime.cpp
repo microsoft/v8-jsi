@@ -591,7 +591,7 @@ V8Runtime::~V8Runtime() {
   // Note :: We never dispose V8 here. Is it required ?
 }
 
-v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, std::uint64_t& hash) {
+v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, std::uint64_t &hash) {
   v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
 
   bool isAscii = murmurhash(buffer->data(), buffer->size(), hash);
@@ -599,17 +599,17 @@ v8::Local<v8::String> V8Runtime::loadJavaScript(const std::shared_ptr<const jsi:
   v8::Local<v8::String> sourceV8String;
   if (isAscii) {
     // This pointer is cleaned up by the platform
-    ExternalOwningOneByteStringResource* external_string_resource = new ExternalOwningOneByteStringResource(buffer);
+    ExternalOwningOneByteStringResource *external_string_resource = new ExternalOwningOneByteStringResource(buffer);
     if (!v8::String::NewExternalOneByte(v8::Isolate::GetCurrent(), external_string_resource).ToLocal(&sourceV8String)) {
       std::abort();
     }
   } else {
     if (!v8::String::NewFromUtf8(
-            v8::Isolate::GetCurrent(),
-            reinterpret_cast<const char *>(buffer->data()),
-            v8::NewStringType::kNormal,
-            static_cast<int>(buffer->size()))
-            .ToLocal(&sourceV8String)) {
+             v8::Isolate::GetCurrent(),
+             reinterpret_cast<const char *>(buffer->data()),
+             v8::NewStringType::kNormal,
+             static_cast<int>(buffer->size()))
+             .ToLocal(&sourceV8String)) {
       std::abort();
     }
   }
@@ -624,7 +624,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
 
   _ISOLATE_CONTEXT_ENTER
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
   jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
 
@@ -699,7 +699,8 @@ class ByteArrayBuffer final : public jsi::Buffer {
   int length_;
 };
 
-jsi::Value V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
+jsi::Value
+V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
@@ -785,7 +786,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
   _ISOLATE_CONTEXT_ENTER
   v8::TryCatch try_catch(isolate);
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
 
   v8::Local<v8::String> urlV8String =
@@ -806,7 +807,8 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
 
     auto prepared = std::make_shared<V8PreparedJavaScript>();
     prepared->scriptSignature = {sourceURL, hash};
-    prepared->runtimeSignature = {"V8", /* runtimeVersion */ V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
+    prepared->runtimeSignature = {
+        "V8", /* runtimeVersion */ V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
     prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
     prepared->sourceBuffer = buffer;
     return prepared;
@@ -821,7 +823,7 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
 
   v8::TryCatch try_catch(isolate);
 
-  std::uint64_t hash {0};
+  std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(prepared->sourceBuffer, hash);
 
   if (prepared->scriptSignature.version != hash) {
