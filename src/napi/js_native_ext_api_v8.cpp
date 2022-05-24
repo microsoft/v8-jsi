@@ -29,9 +29,11 @@
 
 #include "env-inl.h"
 
+#include "MurmurHash.h"
 #include "V8JsiRuntime_impl.h"
 #include "js_native_api_v8.h"
 #include "js_native_ext_api.h"
+#include "public/NapiJsiRuntime.h"
 #include "public/ScriptStore.h"
 
 namespace v8impl {
@@ -166,7 +168,7 @@ struct V8RuntimeHolder : protected v8impl::RefTracker {
 
 } // namespace v8impl
 
-static struct EnvScope {
+struct EnvScope {
   EnvScope(napi_env env)
       : env_{env},
         isolate_scope_{new v8::Isolate::Scope(env->isolate)},
@@ -243,6 +245,85 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
   napi_ext_schedule_task_callback scheduler_;
 };
 
+struct ExtJsiBuffer : facebook::jsi::Buffer {
+  ExtJsiBuffer(napi_ext_buffer *buffer)
+      : finalize_(buffer->buffer_object.finalize_cb),
+        bufferObject_(buffer->buffer_object.data),
+        finalizeHint_(buffer->buffer_object.finalize_hint),
+        data_(buffer->data),
+        byteSize_(buffer->byte_size) {}
+
+  ~ExtJsiBuffer() override {
+    if (finalize_) {
+      finalize_(nullptr, bufferObject_, finalizeHint_);
+    }
+  }
+
+  const uint8_t *data() const override {
+    return data_;
+  }
+
+  size_t size() const override {
+    return byteSize_;
+  }
+
+ private:
+  napi_finalize finalize_;
+  void *bufferObject_;
+  void *finalizeHint_;
+  const uint8_t *data_;
+  size_t byteSize_;
+};
+
+struct V8ApiPreparedScriptStore : facebook::jsi::PreparedScriptStore {
+  V8ApiPreparedScriptStore(napi_ext_script_cache *scriptCache) noexcept : scriptCache_(*scriptCache) {}
+
+  std::shared_ptr<const facebook::jsi::Buffer> tryGetPreparedScript(
+      const facebook::jsi::ScriptSignature &scriptSignature,
+      const facebook::jsi::JSRuntimeSignature &runtimeMetadata,
+      const char *prepareTag) noexcept override {
+    napi_ext_cached_script_metadata metadata = initScriptMetadata(scriptSignature, runtimeMetadata, prepareTag);
+    napi_ext_buffer buffer{};
+    scriptCache_.load_cached_script(nullptr, &scriptCache_, &metadata, &buffer);
+    if (buffer.data) {
+      return std::shared_ptr<const facebook::jsi::Buffer>(new ExtJsiBuffer(&buffer));
+    } else {
+      return {};
+    }
+  }
+
+  void persistPreparedScript(
+      std::shared_ptr<const facebook::jsi::Buffer> preparedScript,
+      const facebook::jsi::ScriptSignature &scriptSignature,
+      const facebook::jsi::JSRuntimeSignature &runtimeMetadata,
+      const char *prepareTag) noexcept override {
+    napi_ext_cached_script_metadata metadata = initScriptMetadata(scriptSignature, runtimeMetadata, prepareTag);
+    napi_ext_buffer buffer{};
+    buffer.data = preparedScript->data();
+    buffer.byte_size = preparedScript->size();
+    buffer.buffer_object = Microsoft::JSI::NativeObjectWrapper<std::shared_ptr<const facebook::jsi::Buffer>>::Wrap(
+        std::move(preparedScript));
+    scriptCache_.store_cached_script(nullptr, &scriptCache_, &metadata, &buffer);
+  }
+
+ private:
+  napi_ext_cached_script_metadata initScriptMetadata(
+      const facebook::jsi::ScriptSignature &scriptSignature,
+      const facebook::jsi::JSRuntimeSignature &runtimeMetadata,
+      const char *prepareTag) noexcept {
+    napi_ext_cached_script_metadata metadata{};
+    metadata.source_url = scriptSignature.url.c_str();
+    metadata.source_hash = scriptSignature.version;
+    metadata.runtime_name = runtimeMetadata.runtimeName.c_str();
+    metadata.runtime_version = runtimeMetadata.version;
+    metadata.tag = prepareTag;
+    return metadata;
+  }
+
+ private:
+  napi_ext_script_cache scriptCache_;
+};
+
 napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) {
   v8runtime::V8RuntimeArgs args;
 
@@ -265,6 +346,10 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
 
   auto taskRunner = std::make_shared<NapiJSITaskRunner>(*env, settings->foreground_scheduler);
   args.foreground_task_runner = taskRunner;
+
+  if (settings->script_cache) {
+    args.preparedScriptStore = std::make_unique<V8ApiPreparedScriptStore>(settings->script_cache);
+  }
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 
@@ -357,6 +442,26 @@ napi_status napi_ext_run_script(napi_env env, napi_value source, const char *sou
   CHECK_MAYBE_EMPTY(env, script_result, napi_generic_failure);
 
   *result = v8impl::JsValueFromV8LocalValue(script_result.ToLocalChecked());
+  return GET_RETURN_STATUS(env);
+}
+
+napi_status __cdecl napi_ext_run_script_buffer(
+    napi_env env,
+    napi_ext_buffer *script_buffer,
+    const char *source_url,
+    napi_value *result) {
+  NAPI_PREAMBLE(env);
+  CHECK_ARG(env, script_buffer);
+  CHECK_ARG(env, result);
+
+  std::shared_ptr<const facebook::jsi::Buffer> buffer{new ExtJsiBuffer(script_buffer)};
+  auto runtime = v8runtime::V8Runtime::GetCurrent(env->context());
+
+  std::uint64_t hash{0};
+  v8::Local<v8::String> sourceV8String = runtime->loadJavaScript(buffer, hash);
+  v8::Local<v8::Value> res = runtime->ExecuteString(sourceV8String, std::string(source_url ? source_url : ""), hash);
+
+  *result = v8impl::JsValueFromV8LocalValue(res);
   return GET_RETURN_STATUS(env);
 }
 
