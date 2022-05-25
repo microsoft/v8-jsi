@@ -633,8 +633,9 @@ class V8Runtime : public facebook::jsi::Runtime {
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
 
   // Methods to compile and execute JS script
-  facebook::jsi::Value ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
-  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t& hash);
+  facebook::jsi::Value
+  ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
+  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t &hash);
 
   void ReportException(v8::TryCatch *try_catch);
 
