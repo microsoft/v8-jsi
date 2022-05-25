@@ -628,7 +628,7 @@ jsi::Value V8Runtime::evaluateJavaScript(
 
   std::uint64_t hash{0};
   v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
-  jsi::Value result = ExecuteString(sourceV8String, sourceURL, hash);
+  jsi::Value result = createValue(ExecuteString(sourceV8String, sourceURL, hash));
 
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
   DumpCounters("script evaluated");
@@ -701,9 +701,13 @@ class ByteArrayBuffer final : public jsi::Buffer {
   int length_;
 };
 
-jsi::Value
+v8::Local<v8::Value>
 V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash) {
-  _ISOLATE_CONTEXT_ENTER
+  v8::Isolate *isolate = v8::Isolate::GetCurrent();
+  v8::Isolate::Scope isolate_scope(isolate);
+  v8::EscapableHandleScope handle_scope(isolate);
+  v8::Context::Scope context_scope(context_.Get(isolate));
+
   v8::TryCatch try_catch(isolate);
 
   v8::Local<v8::String> urlV8String =
@@ -740,7 +744,7 @@ V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string 
     // Print errors that happened during compilation.
     if (/*report_exceptions*/ true)
       ReportException(&try_catch);
-    return createValue(v8::Undefined(GetIsolate()));
+    return handle_scope.Escape(v8::Undefined(GetIsolate()));
   } else {
     v8::Local<v8::Value> result;
     if (!script->Run(context).ToLocal(&result)) {
@@ -749,7 +753,7 @@ V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string 
       if (/*report_exceptions*/ true) {
         ReportException(&try_catch);
       }
-      return createValue(v8::Undefined(GetIsolate()));
+      return handle_scope.Escape(v8::Undefined(GetIsolate()));
     } else {
       assert(!try_catch.HasCaught());
 
@@ -766,7 +770,7 @@ V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string 
             "perf");
       }
 
-      return createValue(result);
+      return handle_scope.Escape(result);
     }
   }
 }
