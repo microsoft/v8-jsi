@@ -6,7 +6,7 @@
 #include "js_native_api.h"
 
 //
-// N-API extensions required for JavaScript engine hosting.
+// Node API extensions required for JavaScript engine hosting.
 //
 // It is a very early version of the APIs which we consider to be experimental.
 // These APIs are not stable yet and are subject to change while we continue
@@ -42,7 +42,53 @@ typedef void(__cdecl *napi_ext_schedule_task_callback)(
     napi_finalize finalize_cb,
     void *finalize_hint);
 
-typedef struct _napi_ext_env_settings {
+// Wraps up native data and its finalizer method to be called when it is not needed anymore.
+// This struct is planned to be replaced by node_api_native_data defined in this PR:
+// https://github.com/nodejs/node/pull/42651
+typedef struct {
+  void *data;
+  napi_finalize finalize_cb; // Callback to be called when finished using data
+  void *finalize_hint;
+} napi_ext_native_data;
+
+// Wraps up native buffer.
+typedef struct {
+  napi_ext_native_data buffer_object;
+  const uint8_t *data;
+  size_t byte_size;
+} napi_ext_buffer;
+
+// Meta data associated with a cached script.
+typedef struct {
+  const char *source_url;
+  uint64_t source_hash;
+  const char *runtime_name;
+  uint64_t runtime_version;
+  const char *tag;
+} napi_ext_cached_script_metadata;
+
+// Forward declaration
+typedef struct napi_ext_script_cache napi_ext_script_cache;
+
+typedef napi_status(__cdecl *napi_ext_load_cached_script)(
+    napi_env env,
+    napi_ext_script_cache *script_cache,
+    napi_ext_cached_script_metadata *script_metadata,
+    napi_ext_buffer *result);
+
+typedef napi_status(__cdecl *napi_ext_store_cached_script)(
+    napi_env env,
+    napi_ext_script_cache *script_cache,
+    napi_ext_cached_script_metadata *script_metadata,
+    const napi_ext_buffer *result);
+
+typedef struct napi_ext_script_cache {
+  napi_ext_native_data cache_object;
+  napi_ext_load_cached_script load_cached_script;
+  napi_ext_store_cached_script store_cached_script;
+} napi_ext_script_cache;
+
+typedef struct napi_ext_env_settings {
   // Size of this struct to allow extending it in future.
   size_t this_size;
 
@@ -96,6 +142,8 @@ typedef struct _napi_ext_env_settings {
     } flags;
     uint32_t _flagspad{0};
   };
+
+  napi_ext_script_cache *script_cache;
 
 } napi_ext_env_settings;
 
@@ -196,5 +244,12 @@ NAPI_EXTERN napi_status __cdecl napi_ext_reference_unref(napi_env env, napi_ext_
 
 // Gets the referenced value.
 NAPI_EXTERN napi_status __cdecl napi_ext_get_reference_value(napi_env env, napi_ext_ref ref, napi_value *result);
+
+// Run the script with the source map that can be used for the script debugging.
+NAPI_EXTERN napi_status __cdecl napi_ext_run_script_buffer(
+    napi_env env,
+    napi_ext_buffer *script_buffer,
+    const char *source_url,
+    napi_value *result);
 
 EXTERN_C_END
