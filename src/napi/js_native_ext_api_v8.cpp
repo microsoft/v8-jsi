@@ -244,38 +244,37 @@ struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
   napi_ext_schedule_task_callback scheduler_;
 };
 
-struct ExtJsiBuffer : facebook::jsi::Buffer {
-  ExtJsiBuffer(napi_ext_buffer *buffer)
-      : finalize_(buffer->buffer_object.finalize_cb),
-        bufferObject_(buffer->buffer_object.data),
-        finalizeHint_(buffer->buffer_object.finalize_hint),
-        data_(buffer->data),
-        byteSize_(buffer->byte_size) {}
+struct NodeApiJsiBuffer : facebook::jsi::Buffer {
+  static std::shared_ptr<const facebook::jsi::Buffer> CreateJsiBuffer(napi_ext_buffer *buffer) {
+    if (buffer && buffer->data) {
+      return std::shared_ptr<const facebook::jsi::Buffer>(new NodeApiJsiBuffer(buffer));
+    } else {
+      return {};
+    }
+  }
 
-  ~ExtJsiBuffer() override {
-    if (finalize_) {
-      finalize_(nullptr, bufferObject_, finalizeHint_);
+  NodeApiJsiBuffer(napi_ext_buffer *buffer) noexcept : buffer_(*buffer) {}
+
+  ~NodeApiJsiBuffer() override {
+    if (buffer_.buffer_object.finalize_cb) {
+      buffer_.buffer_object.finalize_cb(nullptr, buffer_.buffer_object.data, buffer_.buffer_object.finalize_hint);
     }
   }
 
   const uint8_t *data() const override {
-    return data_;
+    return buffer_.data;
   }
 
   size_t size() const override {
-    return byteSize_;
+    return buffer_.byte_size;
   }
 
  private:
-  napi_finalize finalize_;
-  void *bufferObject_;
-  void *finalizeHint_;
-  const uint8_t *data_;
-  size_t byteSize_;
+  napi_ext_buffer buffer_;
 };
 
-struct V8ApiPreparedScriptStore : facebook::jsi::PreparedScriptStore {
-  V8ApiPreparedScriptStore(napi_ext_script_cache *scriptCache) noexcept : scriptCache_(*scriptCache) {}
+struct NodeApiPreparedScriptStore : facebook::jsi::PreparedScriptStore {
+  NodeApiPreparedScriptStore(napi_ext_script_cache *scriptCache) noexcept : scriptCache_(*scriptCache) {}
 
   std::shared_ptr<const facebook::jsi::Buffer> tryGetPreparedScript(
       const facebook::jsi::ScriptSignature &scriptSignature,
@@ -284,11 +283,7 @@ struct V8ApiPreparedScriptStore : facebook::jsi::PreparedScriptStore {
     napi_ext_cached_script_metadata metadata = initScriptMetadata(scriptSignature, runtimeMetadata, prepareTag);
     napi_ext_buffer buffer{};
     scriptCache_.load_cached_script(nullptr, &scriptCache_, &metadata, &buffer);
-    if (buffer.data) {
-      return std::shared_ptr<const facebook::jsi::Buffer>(new ExtJsiBuffer(&buffer));
-    } else {
-      return {};
-    }
+    return NodeApiJsiBuffer::CreateJsiBuffer(&buffer);
   }
 
   void persistPreparedScript(
@@ -347,7 +342,7 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   args.foreground_task_runner = taskRunner;
 
   if (settings->script_cache) {
-    args.preparedScriptStore = std::make_unique<V8ApiPreparedScriptStore>(settings->script_cache);
+    args.preparedScriptStore = std::make_unique<NodeApiPreparedScriptStore>(settings->script_cache);
   }
 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
@@ -453,7 +448,7 @@ napi_status __cdecl napi_ext_run_script_buffer(
   CHECK_ARG(env, script_buffer);
   CHECK_ARG(env, result);
 
-  std::shared_ptr<const facebook::jsi::Buffer> buffer{new ExtJsiBuffer(script_buffer)};
+  std::shared_ptr<const facebook::jsi::Buffer> buffer{NodeApiJsiBuffer::CreateJsiBuffer(script_buffer)};
   auto runtime = v8runtime::V8Runtime::GetCurrent(env->context());
 
   std::uint64_t hash{0};
