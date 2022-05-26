@@ -176,6 +176,11 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   napi_status NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result);
 
+  // Methods to compile and execute JS script
+  v8::Local<v8::Value>
+  ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
+  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t &hash);
+
  private: // Used by NAPI implementation
   static void PromiseRejectCallback(v8::PromiseRejectMessage data);
   void
@@ -631,11 +636,6 @@ class V8Runtime : public facebook::jsi::Runtime {
 
  private:
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
-
-  // Methods to compile and execute JS script
-  facebook::jsi::Value
-  ExecuteString(const v8::Local<v8::String> &source, const std::string &sourceURL, std::uint64_t hash);
-  v8::Local<v8::String> loadJavaScript(const std::shared_ptr<const facebook::jsi::Buffer> &buffer, std::uint64_t &hash);
 
   void ReportException(v8::TryCatch *try_catch);
 
