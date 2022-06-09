@@ -9,7 +9,9 @@ trigger:
   paths:
     include:
       - android/*
-      - .ado/android-*.yml
+      - .ado/android-ci.yml
+      - .ado/android-jobs.yml
+      - .ado/android-pr.yml
 
 pool: Azure-Pipelines-EO-Ubuntu18.04-Office
 
