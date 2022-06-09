@@ -13,6 +13,8 @@
 #define ROTL64(x, y) _rotl64(x, y)
 #define BIG_CONSTANT(x) (x)
 
+// Test 🧪
+
 #else // defined(_MSC_VER)
 
 #define FORCE_INLINE inline __attribute__((always_inline))
