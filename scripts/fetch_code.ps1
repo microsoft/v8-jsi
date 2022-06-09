@@ -67,7 +67,7 @@ if ($Matches.Matches.Success) {
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
-# Generate the sourcelink json
+# Generate the source link json
 (Get-Content "$SourcesPath\src\source_link.json") `
     -replace ('LOCAL_PATH', $SourcesPath) `
     -replace ('V8JSI_GIT_HASH', $ourGitHash) `
