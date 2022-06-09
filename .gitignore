@@ -2,6 +2,7 @@ build
 .vscode
 build.log
 src/version_gen.rc
+src/source_link_gen.json
 
 # outputs
 out
