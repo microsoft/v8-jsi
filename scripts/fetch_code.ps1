@@ -41,6 +41,10 @@ Pop-Location
 Pop-Location
 Pop-Location
 
+Push-Location $SourcesPath
+$ourGitHash = ((git rev-parse --verify HEAD) | Out-String).Trim()
+Pop-Location
+
 $version = [version]$config.version
 
 $gitRevision = ""
@@ -62,6 +66,13 @@ if ($Matches.Matches.Success) {
     Set-Content "$SourcesPath\src\version_gen.rc"
 
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
+
+# "Generate" the source link json
+(Get-Content "$SourcesPath\src\source_link.json") `
+    -replace ('LOCAL_PATH', $SourcesPath) `
+    -replace ('V8JSI_GIT_HASH', $ourGitHash) `
+    -replace ('V8JSIVER_V8REF', $v8Version) |`
+    Set-Content "$SourcesPath\src\source_link_gen.json"
 
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {

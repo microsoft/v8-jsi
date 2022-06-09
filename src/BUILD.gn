@@ -63,7 +63,7 @@ target("shared_library", "v8jsi") {
     ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
 
     if (!is_clang) {
-      ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb" ]
+      ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb", "/SOURCELINK:" + rebase_path("//jsi/source_link_gen.json") ]
     }
   } else if (!is_mac) {
     ldflags = [ "-Wl,--allow-multiple-definition" ]
