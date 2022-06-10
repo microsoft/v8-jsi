@@ -1492,8 +1492,13 @@ std::unique_ptr<UnhandledPromiseRejection> V8Runtime::GetAndClearLastUnhandledPr
 
   v8::Local<v8::Promise> promise = data.GetPromise();
   v8::Isolate *isolate = promise->GetIsolate();
-  v8::Local<v8::Context> context = promise->CreationContext();
-  V8Runtime *runtime = V8Runtime::GetCurrent(context);
+  v8::MaybeLocal<v8::Context> context = promise->GetCreationContext();
+
+  if (context.IsEmpty()) {
+    return;
+  }
+
+  V8Runtime *runtime = V8Runtime::GetCurrent(context.ToLocalChecked());
   if (!runtime) {
     return;
   }
