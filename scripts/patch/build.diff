@@ -1,8 +1,8 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index e49fc28c0..f9c12d11b 100644
+index c411ee37c..218b2477c 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1427,7 +1427,7 @@ config("default_warnings") {
+@@ -1433,7 +1433,7 @@ config("default_warnings") {
        # TODO(thakis): Remove this once
        # https://swiftshader-review.googlesource.com/c/SwiftShader/+/57968 has
        # rolled into angle.
@@ -11,7 +11,7 @@ index e49fc28c0..f9c12d11b 100644
      }
    } else {
      if (is_apple && !is_nacl) {
-@@ -1682,7 +1682,7 @@ config("no_chromium_code") {
+@@ -1696,7 +1696,7 @@ config("no_chromium_code") {
      }
      cflags += [
        "/wd4800",  # Disable warning when forcing value to bool.
@@ -21,10 +21,10 @@ index e49fc28c0..f9c12d11b 100644
    } else {
      # GCC may emit unsuppressible warnings so don't add -Werror for no chromium
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 1e76a54cc..be3f8e802 100644
+index 3a6dc1e54..74942f30b 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -481,16 +481,16 @@ config("default_crt") {
+@@ -454,16 +454,16 @@ config("default_crt") {
      # Component mode: dynamic CRT. Since the library is shared, it requires
      # exceptions or will give errors about things not matching, so keep
      # exceptions on.
@@ -44,7 +44,7 @@ index 1e76a54cc..be3f8e802 100644
      }
    }
  }
-@@ -619,3 +619,15 @@ config("lean_and_mean") {
+@@ -592,3 +592,15 @@ config("lean_and_mean") {
  config("nominmax") {
    defines = [ "NOMINMAX" ]
  }
@@ -61,13 +61,13 @@ index 1e76a54cc..be3f8e802 100644
 +  }
 +}
 diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
-index ec9e9eeda..69e44883f 100644
+index 831e36f74..6d9d295d4 100644
 --- a/toolchain/win/setup_toolchain.py
 +++ b/toolchain/win/setup_toolchain.py
 @@ -176,6 +176,8 @@ def _LoadToolchainEnv(cpu, toolchain_root, sdk_dir, target_store):
      # building with a new and untested SDK. This should stay in sync with the
      # packaged toolchain in build/vs_toolchain.py.
-     args.append('10.0.19041.0')
+     args.append('10.0.20348.0')
 +    # Use Spectre runtime libraries
 +    args.append('-vcvars_spectre_libs=spectre')
      variables = _LoadEnvFromBat(args)
