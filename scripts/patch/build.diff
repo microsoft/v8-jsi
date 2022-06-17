@@ -44,7 +44,7 @@ index 3a6dc1e54..74942f30b 100644
      }
    }
  }
-@@ -592,3 +592,15 @@ config("lean_and_mean") {
+@@ -592,3 +592,11 @@ config("lean_and_mean") {
  config("nominmax") {
    defines = [ "NOMINMAX" ]
  }
@@ -54,10 +54,6 @@ index 3a6dc1e54..74942f30b 100644
 +  if (!is_clang && !is_debug) {
 +    cflags = [ "/guard:cf", "/Qspectre", "/W3" ]
 +    ldflags = [ "/guard:cf" ]
-+
-+    if (current_cpu != "arm64") {
-+      ldflags += [ "/CETCOMPAT" ]
-+    }
 +  }
 +}
 diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
