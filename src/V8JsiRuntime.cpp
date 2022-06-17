@@ -881,33 +881,6 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
   } else {
     std::stringstream sstr;
 
-    // Print (filename):(line number): (message) - this would differ from what JSI expects (it wants the plain
-    // stacktrace)
-    /*v8::String::Utf8Value filename(
-        isolate, message->GetScriptOrigin().ResourceName());
-    v8::Local<v8::Context> context(isolate->GetCurrentContext());
-    const char *filename_string = ToCString(filename);
-    int linenum = message->GetLineNumber(context).FromJust();
-    sstr << filename_string << ":" << linenum << ": " << exception_string
-         << std::endl;
-
-    // Print line of source code
-    v8::String::Utf8Value sourceline(
-        isolate, message->GetSourceLine(context).ToLocalChecked());
-    const char *sourceline_string = ToCString(sourceline);
-    sstr << sourceline_string << std::endl;
-
-    // Print wavy underline (GetUnderline is deprecated).
-    int start = message->GetStartColumn(context).FromJust();
-    for (int i = 0; i < start; i++) {
-      sstr << " ";
-    }
-    int end = message->GetEndColumn(context).FromJust();
-    for (int i = start; i < end; i++) {
-      sstr << "^";
-    }
-    sstr << std::endl;*/
-
     v8::Local<v8::Value> stack_trace_string;
     if (try_catch->StackTrace(context_.Get(isolate)).ToLocal(&stack_trace_string) && stack_trace_string->IsString() &&
         v8::Local<v8::String>::Cast(stack_trace_string)->Length() > 0) {
@@ -930,15 +903,27 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
 
     // V8 doesn't actually capture the current callstack (as we're outside of scope when this gets called)
     // See also https://v8.dev/docs/stack-trace-api
-    if (ex_messages.find("Maximum call stack size exceeded") == std::string::npos) {
+    std::string stack = sstr.str();
+    if (stack.find("Maximum call stack size exceeded") == std::string::npos) {
       auto err = jsi::JSError(*this, ex_messages);
+
       err.value().getObject(*this).setProperty(
-          *this, "stack", facebook::jsi::String::createFromUtf8(*this, sstr.str()));
-      err.setStack(sstr.str());
+          *this, "stack", facebook::jsi::String::createFromUtf8(*this, stack));
+
+      // The "stack" includes the message in V8, but JSI tracks the message and the callstack as 2 separate properties so let's strip it out
+      // The format of stack is "%ErrorType%: %Message%\n%Callstack%" where %Message% can include newline characters as well.
+      auto numNewLines = std::count(ex_messages.cbegin(), ex_messages.cend(), '\n');
+      auto endOfMessage = stack.find("\n");
+      for (size_t j = 0; j < numNewLines; j++) {
+        endOfMessage = stack.find("\n", endOfMessage + 1);
+      }
+      stack.erase(0, endOfMessage + 1);
+
+      err.setStack(stack);
       throw err;
     } else {
       // If we're already in stack overflow, calling the Error constructor pushes it overboard
-      throw jsi::JSError(*this, ex_messages, sstr.str());
+      throw jsi::JSError(*this, ex_messages, stack);
     }
   }
 }
