@@ -15,7 +15,7 @@ steps:
 
   - task: ComponentGovernanceComponentDetection@0
     inputs:
-      ignoreDirectories: 'android/build/depot_tools'
+      ignoreDirectories: 'android/build/depot_tools,android/build/v8/third_party/depot_tools'
 
   - script: mkdir -p ${{parameters.outputPath}}/_manifest/$(BuildPlatform)/$(BuildFlavor)
     displayName: 📒 Prep Manifest
