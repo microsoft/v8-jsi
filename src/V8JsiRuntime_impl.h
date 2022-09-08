@@ -106,6 +106,11 @@ class V8PlatformHolder {
     }
   }
 
+  bool firstInit() {
+    std::lock_guard<std::mutex> guard(mutex_s_);
+    return (use_count_s_ == 0) && !platform_s_;
+  }
+
  private:
   V8PlatformHolder(const V8PlatformHolder &) = delete;
   V8PlatformHolder &operator=(const V8PlatformHolder &) = delete;

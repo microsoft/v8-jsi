@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 988c907d96..7838213975 100644
+index 686fac5385..e982bf5ff9 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1223,7 +1223,7 @@ config("toolchain") {
+@@ -1274,7 +1274,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOS" ]
@@ -11,7 +11,7 @@ index 988c907d96..7838213975 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -1285,7 +1285,7 @@ config("toolchain") {
+@@ -1336,7 +1336,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index 988c907d96..7838213975 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1389,14 +1389,14 @@ config("toolchain") {
+@@ -1440,14 +1440,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index 988c907d96..7838213975 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1420,7 +1420,7 @@ config("toolchain") {
+@@ -1471,7 +1471,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index 988c907d96..7838213975 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5312,7 +5312,6 @@ v8_component("v8_libbase") {
+@@ -5480,7 +5480,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,7 @@ index 988c907d96..7838213975 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6023,26 +6022,6 @@ group("v8_python_base") {
+@@ -6198,26 +6197,6 @@ group("v8_python_base") {
    data = [ ".vpython" ]
  }
  
@@ -79,10 +79,10 @@ index 988c907d96..7838213975 100644
 -  }
 -}
 -
- group("v8_archive") {
-   testonly = true
- 
-@@ -6254,7 +6233,7 @@ v8_executable("d8") {
+ # Targets we ensure work with gcc. The aim is to keep this list small to have
+ # a fast overall compile time.
+ group("v8_gcc_light") {
+@@ -6437,7 +6416,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +91,7 @@ index 988c907d96..7838213975 100644
    }
  
    defines = []
-@@ -6942,3 +6921,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -7147,3 +7126,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -102,12 +102,12 @@ index 988c907d96..7838213975 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 54ac85a4bd..dae75235d6 100644
+index 80b0e086c3..23b6614416 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -634,4 +634,15 @@ hooks = [
-       'tools/generate-header-include-checks.py',
-     ],
+@@ -649,4 +649,15 @@ hooks = [
+     'condition': 'host_os == "win"',
+     'action': ['python3', 'build/del_ninja_deps_cache.py'],
    },
 +  {
 +    'name': 'rc_win',
@@ -185,10 +185,10 @@ index f981bec610..753438fa4a 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index d495a30212..b7fdbd0f9d 100644
+index 4857a25027..ddf1f8680c 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1332,8 +1332,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
+@@ -1360,8 +1360,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -200,7 +200,7 @@ index d495a30212..b7fdbd0f9d 100644
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index d50767421a..3d296db7c6 100644
+index 4a70a28478..da7766f0bc 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
 @@ -536,7 +536,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
@@ -222,7 +222,7 @@ index d50767421a..3d296db7c6 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 70bc3de7b6..8ee5d81840 100644
+index c70ac7bb06..70a30743d1 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
 @@ -1016,6 +1016,8 @@ int ScopeInfo::ParametersStartIndex() const {
@@ -235,10 +235,10 @@ index 70bc3de7b6..8ee5d81840 100644
    if (HasContextAllocatedFunctionName()) {
      DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index 7e0ec70ac4..e289d7ed55 100644
+index e0602edc7e..4123b90e1b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-@@ -139,7 +139,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
+@@ -138,7 +138,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
      return EmbeddedTargetOs::kFuchsia;
    } else if (string == "ios" || string == "mac") {
      return EmbeddedTargetOs::kMac;
@@ -306,10 +306,10 @@ index 84ffdbd056..1aa7a305c7 100644
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 41c0ac5dbe..b2e1ff2afb 100644
+index 2ff261ba96..5706bba64a 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -82,8 +82,10 @@ const int kAllocationTries = 2;
+@@ -80,8 +80,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
