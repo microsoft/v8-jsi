@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 686fac5385..e982bf5ff9 100644
+index 83082271b8..4feb02e8a6 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1274,7 +1274,7 @@ config("toolchain") {
+@@ -1324,7 +1324,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOS" ]
@@ -11,7 +11,7 @@ index 686fac5385..e982bf5ff9 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    }
-@@ -1336,7 +1336,7 @@ config("toolchain") {
+@@ -1391,7 +1391,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index 686fac5385..e982bf5ff9 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1440,14 +1440,14 @@ config("toolchain") {
+@@ -1495,14 +1495,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index 686fac5385..e982bf5ff9 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1471,7 +1471,7 @@ config("toolchain") {
+@@ -1526,7 +1526,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index 686fac5385..e982bf5ff9 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5480,7 +5480,6 @@ v8_component("v8_libbase") {
+@@ -5645,7 +5645,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,7 @@ index 686fac5385..e982bf5ff9 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6198,26 +6197,6 @@ group("v8_python_base") {
+@@ -6363,26 +6362,6 @@ group("v8_python_base") {
    data = [ ".vpython" ]
  }
  
@@ -82,7 +82,7 @@ index 686fac5385..e982bf5ff9 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -6437,7 +6416,7 @@ v8_executable("d8") {
+@@ -6603,7 +6582,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +91,7 @@ index 686fac5385..e982bf5ff9 100644
    }
  
    defines = []
-@@ -7147,3 +7126,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -7313,3 +7292,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -102,7 +102,7 @@ index 686fac5385..e982bf5ff9 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 80b0e086c3..23b6614416 100644
+index e970b84365..8457c145a2 100644
 --- a/DEPS
 +++ b/DEPS
 @@ -649,4 +649,15 @@ hooks = [
@@ -122,7 +122,7 @@ index 80b0e086c3..23b6614416 100644
 +  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index 39b196521c..f8c8b339ab 100644
+index 637dcd39c4..80424bdc53 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
 @@ -74,6 +74,9 @@ if (v8_snapshot_toolchain == "") {
@@ -185,10 +185,10 @@ index f981bec610..753438fa4a 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 4857a25027..ddf1f8680c 100644
+index 89595dbed9..50c5793d42 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1360,8 +1360,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
+@@ -1369,8 +1369,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -234,6 +234,19 @@ index c70ac7bb06..70a30743d1 100644
    DCHECK(name.IsInternalizedString());
    if (HasContextAllocatedFunctionName()) {
      DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
+diff --git a/src/objects/simd.cc b/src/objects/simd.cc
+index 22467cace0..6930650819 100644
+--- a/src/objects/simd.cc
++++ b/src/objects/simd.cc
+@@ -23,7 +23,7 @@
+ #include <immintrin.h>
+ #endif
+ 
+-#ifdef V8_HOST_ARCH_ARM64
++#if defined(V8_HOST_ARCH_ARM64) && !defined(_WIN32)
+ // We use Neon only on 64-bit ARM (because on 32-bit, some instructions and some
+ // types are not available). Note that ARM64 is guaranteed to have Neon.
+ #define NEON64
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index e0602edc7e..4123b90e1b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
@@ -306,7 +319,7 @@ index 84ffdbd056..1aa7a305c7 100644
  #define V8_TRAP_HANDLER_SUPPORTED true
  // Everything else is unsupported.
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index 2ff261ba96..5706bba64a 100644
+index 34a87ca0e8..3f1ee174e9 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -80,8 +80,10 @@ const int kAllocationTries = 2;
