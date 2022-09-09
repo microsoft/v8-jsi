@@ -459,8 +459,9 @@ void V8Runtime::initializeV8() {
   if (args_.flags.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
-  if (args_.flags.enableGCApi)
-    argv.push_back("--expose_gc");
+  //if (args_.flags.enableGCApi)
+  // Needs to be always on for the N-API wrapper (napi_ext_collect_garbage)
+  argv.push_back("--expose_gc");
 
   if (args_.flags.enableSystemInstrumentation)
     argv.push_back("--enable-system-instrumentation");
@@ -489,7 +490,11 @@ void V8Runtime::initializeV8() {
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   initializeTracing();
-  initializeV8();
+
+  if (platform_holder_.firstInit()) {
+    // We are only allowed to set the flags the first time V8 is being initialized
+    initializeV8();
+  }
 
 #ifdef _WIN32
   v8::V8::SetUnhandledExceptionCallback([](_EXCEPTION_POINTERS *exception_pointers) -> int {
