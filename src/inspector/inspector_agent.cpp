@@ -256,7 +256,7 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
 
   void connectFrontend() {
     session_ = inspector_->connect(
-        1, new ChannelImpl(agent_), v8_inspector::StringView());
+        1, new ChannelImpl(agent_), v8_inspector::StringView(), v8_inspector::V8Inspector::ClientTrustLevel::kFullyTrusted);
   }
 
   void disconnectFrontend() {
