@@ -574,6 +574,8 @@ V8Runtime::~V8Runtime() {
 
   host_object_lifetime_tracker_list_.clear();
 
+  GetAndClearLastUnhandledPromiseRejection();
+
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   if (inspector_agent_) {
     inspector_agent_.reset();
