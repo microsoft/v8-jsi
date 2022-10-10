@@ -337,6 +337,7 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   args.flags.jitless = settings->flags.jitless;
   args.flags.lite_mode = settings->flags.lite_mode;
   args.flags.thread_pool_size = settings->flags.thread_pool_size;
+  args.flags.enableMultiThread = settings->flags.enable_multi_thread;
 
   auto taskRunner = std::make_shared<NapiJSITaskRunner>(*env, settings->foreground_scheduler);
   args.foreground_task_runner = taskRunner;
