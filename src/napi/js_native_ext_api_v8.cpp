@@ -168,10 +168,13 @@ struct V8RuntimeHolder : protected v8impl::RefTracker {
 } // namespace v8impl
 
 struct EnvScope {
-  EnvScope(napi_env env)
-      : env_{env},
-        isolate_scope_{new v8::Isolate::Scope(env->isolate)},
-        context_scope_{new v8::Context::Scope(env->context())} {
+  EnvScope(napi_env env) : env_{env}
+  {
+    if (napi_env_use_lockers(env)) {
+      locker_ = std::make_unique<v8::Locker>(env->isolate);
+    }
+    isolate_scope_ = std::make_unique<v8::Isolate::Scope>(env->isolate);
+    context_scope_ = std::make_unique<v8::Context::Scope>(env->context());
     napi_open_handle_scope(env, &handle_scope_);
   }
 
@@ -186,6 +189,7 @@ struct EnvScope {
   // This type is movable
   EnvScope(EnvScope &&other)
       : env_{std::exchange(other.env_, nullptr)},
+        locker_{std::exchange(other.locker_, nullptr)},
         isolate_scope_{std::exchange(other.isolate_scope_, nullptr)},
         context_scope_{std::exchange(other.context_scope_, nullptr)},
         handle_scope_{std::exchange(other.handle_scope_, nullptr)} {}
@@ -201,6 +205,7 @@ struct EnvScope {
   void Swap(EnvScope &other) {
     using std::swap;
     swap(env_, other.env_);
+    swap(locker_, other.locker_);
     swap(isolate_scope_, other.isolate_scope_);
     swap(context_scope_, other.context_scope_);
     swap(handle_scope_, other.handle_scope_);
@@ -208,6 +213,7 @@ struct EnvScope {
 
  private:
   napi_env env_;
+  std::unique_ptr<v8::Locker> locker_ {};
   std::unique_ptr<v8::Isolate::Scope> isolate_scope_{};
   std::unique_ptr<v8::Context::Scope> context_scope_{};
   napi_handle_scope handle_scope_{};
@@ -337,6 +343,7 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   args.flags.jitless = settings->flags.jitless;
   args.flags.lite_mode = settings->flags.lite_mode;
   args.flags.thread_pool_size = settings->flags.thread_pool_size;
+  args.flags.enableMultiThread = settings->flags.enable_multi_thread;
 
   auto taskRunner = std::make_shared<NapiJSITaskRunner>(*env, settings->foreground_scheduler);
   args.foreground_task_runner = taskRunner;
@@ -348,7 +355,7 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   auto runtime = std::make_unique<v8runtime::V8Runtime>(std::move(args));
 
   auto context = v8impl::PersistentToLocal::Strong(runtime->GetContext());
-  *env = new napi_env__(context);
+  *env = new napi_env__(context, settings->flags.enable_multi_thread);
   taskRunner->setEnv(*env);
 
   // Let the runtime exists. It can be accessed from the Context.
@@ -365,7 +372,11 @@ napi_status napi_ext_env_ref(napi_env env) {
 
 napi_status napi_ext_env_unref(napi_env env) {
   CHECK_ENV(env);
-  auto runtime = v8runtime::V8Runtime::GetCurrent(env->context());
+  v8runtime::V8Runtime* runtime;
+  {
+    EnvScope scope(env);
+    runtime = v8runtime::V8Runtime::GetCurrent(env->context());
+  }
   env->Unref();
   if (runtime->IsEnvDeleted()) {
     delete runtime;

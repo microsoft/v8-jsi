@@ -21,6 +21,7 @@
 #include <iostream>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -158,8 +159,12 @@ class V8Runtime : public facebook::jsi::Runtime {
 #endif
 
  public: // Used by NAPI implementation
-  v8::Global<v8::Context> &GetContext() {
+  inline v8::Global<v8::Context> &GetContext() {
     return context_;
+  }
+
+  inline v8::Local<v8::Context> GetContextLocal() const {
+    return context_.Get(isolate_);
   }
 
   static V8Runtime *GetCurrent(v8::Local<v8::Context> context) noexcept;
@@ -272,7 +277,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         info.GetReturnValue().Set(v8::Undefined(info.GetIsolate()));
 
         // Schedule to throw the exception back to JS.
-        info.GetIsolate()->ThrowException(runtime.valueRef(error.value()));
+        info.GetIsolate()->ThrowException(runtime.valueReference(error.value()));
         return;
       } catch (const std::exception &ex) {
         info.GetReturnValue().Set(v8::Undefined(info.GetIsolate()));
@@ -296,7 +301,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         return;
       }
 
-      info.GetReturnValue().Set(runtime.valueRef(result));
+      info.GetReturnValue().Set(runtime.valueReference(result));
     }
 
     static void SetInternal(
@@ -311,7 +316,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         hostObject->set(runtime, propId, runtime.createValue(value));
       } catch (const facebook::jsi::JSError &error) {
         // Schedule to throw the exception back to JS.
-        info.GetIsolate()->ThrowException(runtime.valueRef(error.value()));
+        info.GetIsolate()->ThrowException(runtime.valueReference(error.value()));
       } catch (const std::exception &ex) {
         // Schedule to throw the exception back to JS.
         v8::Local<v8::String> message =
@@ -352,10 +357,10 @@ class V8Runtime : public facebook::jsi::Runtime {
       V8Runtime &runtime = GetHostObjectProxy(info)->runtime_;
       if (v8PropName->IsString()) {
         GetInternal(
-            make<facebook::jsi::PropNameID>(V8StringValue::make(v8::Local<v8::String>::Cast(v8PropName))), info);
+            make<facebook::jsi::PropNameID>(V8StringValue::make(runtime.GetIsolate(), v8::Local<v8::String>::Cast(v8PropName))), info);
       } else if (v8PropName->IsSymbol()) {
         GetInternal(
-            make<facebook::jsi::PropNameID>(V8SymbolValue::make(v8::Local<v8::Symbol>::Cast(v8PropName))), info);
+            make<facebook::jsi::PropNameID>(V8SymbolValue::make(runtime.GetIsolate(), v8::Local<v8::Symbol>::Cast(v8PropName))), info);
       } else {
         std::abort();
       }
@@ -374,10 +379,10 @@ class V8Runtime : public facebook::jsi::Runtime {
       V8Runtime &runtime = GetHostObjectProxy(info)->runtime_;
       if (v8PropName->IsString()) {
         SetInternal(
-            make<facebook::jsi::PropNameID>(V8StringValue::make(v8::Local<v8::String>::Cast(v8PropName))), value, info);
+            make<facebook::jsi::PropNameID>(V8StringValue::make(runtime.GetIsolate(), v8::Local<v8::String>::Cast(v8PropName))), value, info);
       } else if (v8PropName->IsSymbol()) {
         SetInternal(
-            make<facebook::jsi::PropNameID>(V8SymbolValue::make(v8::Local<v8::Symbol>::Cast(v8PropName))), value, info);
+            make<facebook::jsi::PropNameID>(V8SymbolValue::make(runtime.GetIsolate(), v8::Local<v8::Symbol>::Cast(v8PropName))), value, info);
       } else {
         std::abort();
       }
@@ -457,7 +462,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         callbackInfo.GetReturnValue().Set(v8::Undefined(isolate));
 
         // Schedule to throw the exception back to JS
-        isolate->ThrowException(runtime.valueRef(error.value()));
+        isolate->ThrowException(runtime.valueReference(error.value()));
         return;
       } catch (const std::exception &ex) {
         callbackInfo.GetReturnValue().Set(v8::Undefined(isolate));
@@ -481,7 +486,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         return;
       }
 
-      callbackInfo.GetReturnValue().Set(runtime.valueRef(result));
+      callbackInfo.GetReturnValue().Set(runtime.valueReference(result));
     }
 
    public:
@@ -513,11 +518,11 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   template <typename T>
   class V8PointerValue final : public PointerValue {
-    static V8PointerValue<T> *make(v8::Local<T> objectRef) {
-      return new V8PointerValue<T>(objectRef);
+    static V8PointerValue<T> *make(v8::Isolate* isolate, v8::Local<T> objectRef) {
+      return new V8PointerValue<T>(isolate, objectRef);
     }
 
-    V8PointerValue(v8::Local<T> obj) : v8Object_(v8::Isolate::GetCurrent(), obj) {}
+    V8PointerValue(v8::Isolate* isolate, v8::Local<T> obj) : v8Object_(isolate, obj) {}
 
     ~V8PointerValue() {
       v8Object_.Reset();
@@ -640,11 +645,35 @@ class V8Runtime : public facebook::jsi::Runtime {
   static void GCEpilogueCallback(v8::Isolate *isolate, v8::GCType type, v8::GCCallbackFlags flags);
 
  private:
+ // RAII wrapper for multi threaded support - order of the various scopes matters
+  struct IsolateLocker {
+    IsolateLocker(const V8Runtime *runtime) :
+      _locker(makeOptionalLocker(runtime->GetIsolate(), runtime->args_.flags.enableMultiThread)),
+      _isolate_scope(runtime->GetIsolate()),
+      _handle_scope(runtime->GetIsolate()),
+      _context_scope(runtime->GetContextLocal())
+    {}
+
+  protected:
+    static std::optional<v8::Locker> makeOptionalLocker(v8::Isolate* isolate, bool enabled) {
+      if (enabled) {
+        return std::make_optional<v8::Locker>(isolate);
+      }
+
+      return std::nullopt;
+    }
+
+    std::optional<v8::Locker> _locker;
+    v8::Isolate::Scope _isolate_scope;
+    v8::HandleScope _handle_scope;
+    v8::Context::Scope _context_scope;
+  };
+
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
 
   void ReportException(v8::TryCatch *try_catch);
 
-  v8::Isolate *GetIsolate() const {
+  inline v8::Isolate *GetIsolate() const {
     return isolate_;
   }
 
@@ -655,26 +684,26 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   // Basically convenience casts
   template <typename T>
-  static v8::Local<T> pvRef(const PointerValue *pv) {
-    v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
+  v8::Local<T> pvRef(const PointerValue *pv) const {
+    v8::EscapableHandleScope handle_scope(isolate_);
     const V8PointerValue<T> *v8PValue = static_cast<const V8PointerValue<T> *>(pv);
-    return handle_scope.Escape(v8PValue->get(v8::Isolate::GetCurrent()));
+    return handle_scope.Escape(v8PValue->get(isolate_));
   }
 
-  static v8::Local<v8::String> stringRef(const facebook::jsi::String &str) {
+  v8::Local<v8::String> stringRef(const facebook::jsi::String &str) const {
     return pvRef<v8::String>(getPointerValue(str));
   }
-  static v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym) {
+  v8::Local<v8::Value> valueRef(const facebook::jsi::PropNameID &sym) const {
     return pvRef<v8::Value>(getPointerValue(sym));
   }
-  static v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj) {
+  v8::Local<v8::Object> objectRef(const facebook::jsi::Object &obj) const {
     return pvRef<v8::Object>(getPointerValue(obj));
   }
-  static v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) {
+  v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) const {
     return pvRef<v8::Symbol>(getPointerValue(sym));
   }
 
-  v8::Local<v8::Value> valueRef(const facebook::jsi::Value &value);
+  v8::Local<v8::Value> valueReference(const facebook::jsi::Value &value);
   facebook::jsi::Value createValue(v8::Local<v8::Value> value) const;
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
