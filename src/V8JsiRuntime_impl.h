@@ -21,6 +21,7 @@
 #include <iostream>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -644,31 +645,28 @@ class V8Runtime : public facebook::jsi::Runtime {
   static void GCEpilogueCallback(v8::Isolate *isolate, v8::GCType type, v8::GCCallbackFlags flags);
 
  private:
- // RAII wrappers for multi threaded support - order of the various scopes matters
-  struct IsolateScope {
-    IsolateScope(const V8Runtime *runtime) : 
+ // RAII wrapper for multi threaded support - order of the various scopes matters
+  struct IsolateLocker {
+    IsolateLocker(const V8Runtime *runtime) :
+      _locker(makeOptionalLocker(runtime->GetIsolate(), runtime->args_.flags.enableMultiThread)),
       _isolate_scope(runtime->GetIsolate()),
       _handle_scope(runtime->GetIsolate()),
       _context_scope(runtime->GetContextLocal())
     {}
 
   protected:
+    static std::optional<v8::Locker> makeOptionalLocker(v8::Isolate* isolate, bool enabled) {
+      if (enabled) {
+        return std::make_optional<v8::Locker>(isolate);
+      }
+
+      return std::nullopt;
+    }
+
+    std::optional<v8::Locker> _locker;
     v8::Isolate::Scope _isolate_scope;
     v8::HandleScope _handle_scope;
     v8::Context::Scope _context_scope;
-  };
-
-  struct IsolateLocker {
-    IsolateLocker(const V8Runtime *runtime) {
-      if (runtime->args_.flags.enableMultiThread) {
-        _locker = std::make_unique<v8::Locker>(runtime->GetIsolate());
-      }
-
-      _isolateScope = std::make_unique<IsolateScope>(runtime);
-    }
-  
-    std::unique_ptr<v8::Locker> _locker {nullptr};
-    std::unique_ptr<IsolateScope> _isolateScope {nullptr};
   };
 
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
