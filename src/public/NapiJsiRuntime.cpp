@@ -88,6 +88,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   PointerValue *cloneString(const PointerValue *pointerValue) override;
   PointerValue *cloneObject(const PointerValue *pointerValue) override;
   PointerValue *clonePropNameID(const PointerValue *pointerValue) override;
+  PointerValue *cloneBigInt(const PointerValue *pointerValue) override;
 
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
@@ -161,6 +162,7 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
   bool strictEquals(const facebook::jsi::Symbol &a, const facebook::jsi::Symbol &b) const override;
   bool strictEquals(const facebook::jsi::String &a, const facebook::jsi::String &b) const override;
   bool strictEquals(const facebook::jsi::Object &a, const facebook::jsi::Object &b) const override;
+  bool strictEquals(const facebook::jsi::BigInt &a, const facebook::jsi::BigInt &b) const override;
 
   bool instanceOf(const facebook::jsi::Object &obj, const facebook::jsi::Function &func) override;
 
@@ -609,6 +611,12 @@ facebook::jsi::Runtime::PointerValue *NapiJsiRuntime::clonePropNameID(
   return CloneNapiPointerValue(pointerValue);
 }
 
+facebook::jsi::Runtime::PointerValue *NapiJsiRuntime::cloneBigInt(
+    const facebook::jsi::Runtime::PointerValue *pointerValue) {
+  EnvScope envScope{m_env};
+  return CloneNapiPointerValue(pointerValue);
+}
+
 facebook::jsi::PropNameID NapiJsiRuntime::createPropNameIDFromAscii(const char *str, size_t length) {
   EnvScope envScope{m_env};
   napi_value napiStr = CreateStringLatin1({str, length});
@@ -909,6 +917,11 @@ bool NapiJsiRuntime::strictEquals(const facebook::jsi::String &a, const facebook
 }
 
 bool NapiJsiRuntime::strictEquals(const facebook::jsi::Object &a, const facebook::jsi::Object &b) const {
+  EnvScope envScope{m_env};
+  return StrictEquals(GetNapiValue(a), GetNapiValue(b));
+}
+
+bool NapiJsiRuntime::strictEquals(const facebook::jsi::BigInt &a, const facebook::jsi::BigInt &b) const {
   EnvScope envScope{m_env};
   return StrictEquals(GetNapiValue(a), GetNapiValue(b));
 }
