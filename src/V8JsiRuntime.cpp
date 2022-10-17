@@ -954,6 +954,16 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerVa
   return V8PointerValue<v8::Symbol>::make(GetIsolate(), symbol->get(GetIsolate()));
 }
 
+jsi::Runtime::PointerValue *V8Runtime::cloneBigInt(const jsi::Runtime::PointerValue *pv) {
+  if (!pv) {
+    return nullptr;
+  }
+
+  IsolateLocker isolate_locker(this);
+  const V8PointerValue<v8::BigInt> *bigInt = static_cast<const V8PointerValue<v8::BigInt> *>(pv);
+  return V8PointerValue<v8::BigInt>::make(GetIsolate(), bigInt->get(GetIsolate()));
+}
+
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   IsolateLocker isolate_locker(this);
   return "Symbol(" +
@@ -1361,6 +1371,11 @@ bool V8Runtime::strictEquals(const jsi::Object &a, const jsi::Object &b) const {
 bool V8Runtime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
   IsolateLocker isolate_locker(this);
   return symbolRef(a)->StrictEquals(symbolRef(b));
+}
+
+bool V8Runtime::strictEquals(const jsi::BigInt &a, const jsi::BigInt &b) const {
+  IsolateLocker isolate_locker(this);
+  return bigIntlRef(a)->StrictEquals(bigIntlRef(b));
 }
 
 bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {

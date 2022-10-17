@@ -574,6 +574,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   PointerValue *cloneObject(const PointerValue *pv) override;
   PointerValue *clonePropNameID(const PointerValue *pv) override;
   PointerValue *cloneSymbol(const PointerValue *pv) override;
+  PointerValue* cloneBigInt(const PointerValue *pv) override;
 
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
@@ -633,6 +634,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   bool strictEquals(const facebook::jsi::String &a, const facebook::jsi::String &b) const override;
   bool strictEquals(const facebook::jsi::Object &a, const facebook::jsi::Object &b) const override;
   bool strictEquals(const facebook::jsi::Symbol &a, const facebook::jsi::Symbol &b) const override;
+  bool strictEquals(const facebook::jsi::BigInt &a, const facebook::jsi::BigInt &b) const override;
 
   bool instanceOf(const facebook::jsi::Object &o, const facebook::jsi::Function &f) override;
 
@@ -701,6 +703,9 @@ class V8Runtime : public facebook::jsi::Runtime {
   }
   v8::Local<v8::Symbol> symbolRef(const facebook::jsi::Symbol &sym) const {
     return pvRef<v8::Symbol>(getPointerValue(sym));
+  }
+  v8::Local<v8::BigInt> bigIntlRef(const facebook::jsi::BigInt &bigInt) const {
+    return pvRef<v8::BigInt>(getPointerValue(bigInt));
   }
 
   v8::Local<v8::Value> valueReference(const facebook::jsi::Value &value);
