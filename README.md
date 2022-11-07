@@ -6,9 +6,52 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
 ## Building
 
 #### Windows
-Run `./localbuild.ps1` in a PowerShell terminal; by default, this will only build the win32 x64 debug version of the binary. Edit the file to specify other platforms, architectures or flavors.
+
+##### Initial Windows Build Setup
+
+1. Download and Install  
+   **Windows 10 Windows SDK**:  
+   <https://developer.microsoft.com/en-us/windows/downloads/sdk-archive>  
+   Note: Windows SDK has to be **Windows 10** version, NOT **Windows 11**
+1. Download and Install  
+   **Microsoft Visual C++ Redistributable x64**  
+   **Microsoft Visual C++ Redistributable x86**  
+   <https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist>
+1. Download and Install  
+   **Visual Studio 2022**  
+   <https://visualstudio.microsoft.com/vs>  
+   In Visual Studio Setup, Select the following **Individual Components**:
+   * MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs (Latest)
+   * C++ ATL for latest v143 build tools with Spectre Mitigations (x86 & x64)
+1. Enable PowerShell script execution  
+   Launch Cmd as **Administrator**
+   ```Cmd
+   powershell Set-ExecutionPolicy RemoteSigned
+   ```
+1. Perform Initial Build  
+   Launch Cmd as **Standard** user, NOT **Administrator**  
+   From V8-Jsi Repo directory:
+   ```
+   powershell ./localbuild.ps1
+   ```
+
+##### Windows Build
+
+To build Win32 X64 Debug:
+
+Launch Cmd as **Standard** user, NOT **Administrator**  
+From V8-Jsi Repo Directory:
+```Cmd
+powershell ./localbuild.ps1 -NoSetup
+```
+
+To build the specific platform and flavor, use appropriate build flags: 
+```Cmd
+powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release 
+```
 
 #### Android
+
 From the `android` directory, run `./localbuild.sh` in a bash terminal; by default, this will build the x64 debug version of the binary for Android. To build for other platforms and flavors, supply the `--platform` (or `-p`) and the `--flavor` (or `-f`) flags, like so:
 
 `./localbuild.sh --platform <platform-name> --flavor <flavor-name>`
