@@ -166,6 +166,51 @@ struct NapiJsiRuntime : facebook::jsi::Runtime {
 
   bool instanceOf(const facebook::jsi::Object &obj, const facebook::jsi::Function &func) override;
 
+  // TODO: 0.71 API additions are not yet implemented
+  facebook::jsi::BigInt createBigIntFromInt64(int64_t) override {
+    std::abort();
+  }
+
+  facebook::jsi::BigInt createBigIntFromUint64(uint64_t) override {
+    std::abort();
+  }
+
+  bool bigintIsInt64(const facebook::jsi::BigInt&) override {
+    std::abort();
+  }
+
+  bool bigintIsUint64(const facebook::jsi::BigInt&) override {
+    std::abort();
+  }
+
+  uint64_t truncate(const facebook::jsi::BigInt&) override {
+    std::abort();
+  }
+
+  facebook::jsi::String bigintToString(const facebook::jsi::BigInt&, int) override {
+    std::abort();
+  }
+
+  bool hasNativeState(const facebook::jsi::Object&) override {
+    std::abort();
+  }
+
+  std::shared_ptr<facebook::jsi::NativeState> getNativeState(const facebook::jsi::Object&) override {
+    std::abort();
+  }
+
+  void setNativeState(
+      const facebook::jsi::Object&,
+      std::shared_ptr<facebook::jsi::NativeState>) override {
+    std::abort();
+  }
+
+  facebook::jsi::ArrayBuffer createArrayBuffer(
+      std::shared_ptr<facebook::jsi::MutableBuffer>) override {
+    std::abort();
+  }
+  // end TODO: 0.71 unimplemented functions
+
  private: // Helper types
   // A smart pointer to napi_env
   struct EnvHolder {

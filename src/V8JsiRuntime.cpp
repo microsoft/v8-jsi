@@ -1375,7 +1375,7 @@ bool V8Runtime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
 
 bool V8Runtime::strictEquals(const jsi::BigInt &a, const jsi::BigInt &b) const {
   IsolateLocker isolate_locker(this);
-  return bigIntlRef(a)->StrictEquals(bigIntlRef(b));
+  return bigIntRef(a)->StrictEquals(bigIntRef(b));
 }
 
 bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
@@ -1403,6 +1403,8 @@ jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), v8::Local<v8::Object>::Cast(value)));
   } else if (value->IsSymbol()) {
     return make<jsi::Symbol>(V8PointerValue<v8::Symbol>::make(GetIsolate(), v8::Local<v8::Symbol>::Cast(value)));
+  } else if (value->IsBigInt()) {
+    return make<jsi::BigInt>(V8PointerValue<v8::BigInt>::make(GetIsolate(), v8::Local<v8::BigInt>::Cast(value)));
   } else {
     // What are you?
     std::abort();
@@ -1426,6 +1428,8 @@ v8::Local<v8::Value> V8Runtime::valueReference(const jsi::Value &value) {
     return handle_scope.Escape(objectRef(value.getObject(*this)));
   } else if (value.isSymbol()) {
     return handle_scope.Escape(symbolRef(value.getSymbol(*this)));
+  } else if (value.isBigInt()) {
+    return handle_scope.Escape(bigIntRef(value.getBigInt(*this)));
   } else {
     // What are you?
     std::abort();
