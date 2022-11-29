@@ -93,5 +93,4 @@ Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\depot_t
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\google_benchmark")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\perfetto")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\protobuf")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\clusterfuzz")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\turbolizer")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools")

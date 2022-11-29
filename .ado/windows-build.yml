@@ -59,10 +59,6 @@ steps:
       vsTestVersion: latest
     condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq(variables.RunUnitTests, true))
 
-  - task: ComponentGovernanceComponentDetection@0
-    inputs:
-      ignoreDirectories: 'build\v8build\depot_tools'
-
   - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
     displayName: 📒 Prep Manifest
 
