@@ -22,6 +22,10 @@ Push-Location (Join-Path $workpath "v8build\v8")
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
 & git fetch origin $config.v8ref
+
+Write-Host "LOGGING GIT PROVENANCE OF V8 Ref: $config.v8ref"
+& git log -1
+
 $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 
 # Apply patches
@@ -65,14 +69,18 @@ if ($Matches.Matches.Success) {
     -replace ('V8JSIVER_V8REF', $v8Version.Replace('.', '_')) |`
     Set-Content "$SourcesPath\src\version_gen.rc"
 
+Write-Host "Setting V8JSI_VERSION to $verString"
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Generate the source_link.json file
-(Get-Content "$SourcesPath\src\source_link.json") `
+$sourceLinkJson = (Get-Content "$SourcesPath\src\source_link.json") `
     -replace ('LOCAL_PATH', $SourcesPath) `
     -replace ('V8JSI_GIT_HASH', $ourGitHash) `
-    -replace ('V8JSIVER_V8REF', $v8Version) |`
-    Set-Content "$SourcesPath\src\source_link_gen.json"
+    -replace ('V8JSIVER_V8REF', $v8Version)
+
+$sourceLinkJson | Set-Content "$SourcesPath\src\source_link_gen.json"
+Write-Host "Wrote source_link_gen.json file with content $sourceLinkJson"
+
 
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {
