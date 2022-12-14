@@ -24,6 +24,9 @@ $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | Conv
 & git fetch origin $config.v8ref
 $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 
+Write-Host "LOGGING GIT PROVENANCE OF V8 Ref: $config.v8ref"
+$ git log -1
+
 # Apply patches
 & git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\src.diff")
 
@@ -68,11 +71,13 @@ if ($Matches.Matches.Success) {
 Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Generate the source_link.json file
-(Get-Content "$SourcesPath\src\source_link.json") `
+$sourceLinkJson = (Get-Content "$SourcesPath\src\source_link.json") `
     -replace ('LOCAL_PATH', $SourcesPath) `
     -replace ('V8JSI_GIT_HASH', $ourGitHash) `
-    -replace ('V8JSIVER_V8REF', $v8Version) |`
-    Set-Content "$SourcesPath\src\source_link_gen.json"
+    -replace ('V8JSIVER_V8REF', $v8Version)
+
+$sourceLinkJson | Set-Content "$SourcesPath\src\source_link_gen.json"
+Write-Host "Wrote source_link_gen.json file with content $sourceLinkJson"
 
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {
