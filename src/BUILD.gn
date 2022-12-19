@@ -72,7 +72,7 @@ target("shared_library", "v8jsi") {
 
   include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
 
-  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions" ]
+  configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
 
   if (is_win) {
@@ -164,7 +164,7 @@ target("executable", "jsitests") {
     "//testing/gtest",
   ]
 
-  configs += [ "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
+  configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
   if (is_win) {
