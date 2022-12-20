@@ -69,7 +69,7 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Generate the source_link.json file
 (Get-Content "$SourcesPath\src\source_link.json") `
-    -replace ('LOCAL_PATH', $SourcesPath) `
+    -replace ('LOCAL_PATH', "$SourcesPath".Replace('\', '\\')) `
     -replace ('V8JSI_GIT_HASH', $ourGitHash) `
     -replace ('V8JSIVER_V8REF', $v8Version) |`
     Set-Content "$SourcesPath\src\source_link_gen.json"
