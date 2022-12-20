@@ -54,9 +54,13 @@ if ($Platform -like "?64") {
     $gnargs += ' v8_enable_pointer_compression=true'
 }
 
+# TODO: N-API implementation of external ArrayBuffer doesn't comply with the Sandbox requirements for all memory allocations to be owned by the VM
+$gnargs += ' v8_enable_sandbox=false'
+
 if ($Configuration -like "*ebug*") {
     $gnargs += ' is_debug=true'
-    if ($buildingWindows) {
+    # Building with iterator debugging turned on for ARM64 causes an error with mksnapshot (this MSVC option is no longer supported in upstream)
+    if ($buildingWindows -and ($Platform -ne "arm64")) {
         $gnargs += ' enable_iterator_debugging=true'
     }
 } else {
