@@ -152,6 +152,12 @@ echo "Running build for $BUILD_PLATFORM $BUILD_FLAVOR"
 
 NUM_THREADS=$((`nproc` * 2))
 ninja -j $NUM_THREADS -C $BUILD_OUTPUT_PATH v8jsi
+ninjaExit=$?
+if [ $ninjaExit -ne 0 ]
+then
+  echo "Ninja build failed, terminating build.sh"
+  exit $ninjaExit
+fi
 
 # packaging
 
