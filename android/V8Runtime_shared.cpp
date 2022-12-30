@@ -417,6 +417,10 @@ namespace facebook { namespace v8runtime {
     return createPropNameID(stringRef(str));
   }
 
+  jsi::PropNameID V8Runtime::createPropNameIDFromSymbol(const jsi::Symbol& sym) {
+    throw jsi::JSINativeException("V8Runtime::createPropNameIDFromSymbol is not implemented!");
+  }
+
   std::string V8Runtime::utf8(const jsi::PropNameID& sym) {
     _ISOLATE_CONTEXT_ENTER
     return JSStringToSTLString(GetIsolate(), v8::Local<v8::String>::Cast(valueRef(sym)));

@@ -309,6 +309,7 @@ namespace facebook { namespace v8runtime {
     jsi::PropNameID createPropNameIDFromUtf8(const uint8_t* utf8, size_t length)
       override;
     jsi::PropNameID createPropNameIDFromString(const jsi::String& str) override;
+    jsi::PropNameID createPropNameIDFromSymbol(const jsi::Symbol& sym) override;
     std::string utf8(const jsi::PropNameID&) override;
     bool compare(const jsi::PropNameID&, const jsi::PropNameID&) override;
 
