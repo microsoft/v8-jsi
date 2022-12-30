@@ -13,7 +13,7 @@ trigger:
       - .ado/android-jobs.yml
       - .ado/android-pr.yml
 
-pool: Azure-Pipelines-EO-Ubuntu18.04-Office
+pool: Azure-Pipelines-EO-Ubuntu20.04-Office
 
 variables:
   - group: InfoSec-SecurityResults
