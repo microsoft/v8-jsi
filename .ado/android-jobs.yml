@@ -29,6 +29,10 @@ jobs:
           BuildFlavor: ship
           BuildPlatform: arm64
     steps:
+      # Hardcode python version to 2.* since ninja builds fail with python3
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: 'pypy2'
       - template: android-build.yml
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
