@@ -347,6 +347,17 @@ namespace facebook { namespace v8runtime {
     v8Object_.Reset();
   }
 
+  V8Runtime::V8BigIntValue::V8BigIntValue(v8::Local<v8::BigInt> bigInt)
+  : v8BigInt_(v8::Isolate::GetCurrent(), bigInt) {}
+
+  void V8Runtime::V8BigIntValue::invalidate() {
+      delete this;
+  }
+
+  V8Runtime::V8BigIntValue::~V8BigIntValue() {
+    v8BigInt_.Reset();
+  }
+
   // Shallow clone
   jsi::Runtime::PointerValue* V8Runtime::cloneString(const jsi::Runtime::PointerValue* pv) {
     if (!pv) {
@@ -380,6 +391,16 @@ namespace facebook { namespace v8runtime {
 
   jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerValue*) {
     throw jsi::JSINativeException("V8Runtime::cloneSymbol is not implemented!");
+  }
+
+  jsi::Runtime::PointerValue* V8Runtime::cloneBigInt(const jsi::Runtime::PointerValue* pv) {
+    if (!pv) {
+      return nullptr;
+    }
+
+    _ISOLATE_CONTEXT_ENTER
+    const V8BigIntValue* bigInt = static_cast<const V8BigIntValue*>(pv);
+    return makeBigIntValue(bigInt->v8BigInt_.Get(GetIsolate()));
   }
 
   std::string V8Runtime::symbolToString(const jsi::Symbol &) {
@@ -661,6 +682,11 @@ namespace facebook { namespace v8runtime {
     throw jsi::JSINativeException("Not implemented!");
   }
 
+  bool V8Runtime::strictEquals(const jsi::BigInt& a, const jsi::BigInt& b) const {
+    _ISOLATE_CONTEXT_ENTER
+    return bigIntRef(a)->StrictEquals(bigIntRef(b));
+  }
+
   bool V8Runtime::instanceOf(const jsi::Object& o, const jsi::Function& f) {
     _ISOLATE_CONTEXT_ENTER
     return objectRef(o)->InstanceOf(GetIsolate()->GetCurrentContext(), objectRef(f)).ToChecked();
@@ -689,6 +715,16 @@ namespace facebook { namespace v8runtime {
     return make<jsi::Object>(makeObjectValue(obj));
   }
 
+  jsi::Runtime::PointerValue* V8Runtime::makeBigIntValue(v8::Local<v8::BigInt> bigIntRef) const {
+    _ISOLATE_CONTEXT_ENTER
+    return new V8BigIntValue(bigIntRef);
+  }
+
+  jsi::BigInt V8Runtime::createBigInt(v8::Local<v8::BigInt> bigInt) const {
+    _ISOLATE_CONTEXT_ENTER
+    return make<jsi::BigInt>(makeBigIntValue(bigInt));
+  }
+
   jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     _ISOLATE_CONTEXT_ENTER
     if (value->IsInt32()) {
@@ -711,6 +747,9 @@ namespace facebook { namespace v8runtime {
     }
     else if (value->IsObject()) {
       return createObject(v8::Local<v8::Object>::Cast(value));
+    }
+    else if (value->IsBigInt()) {
+      return createBigInt(v8::Local<v8::BigInt>::Cast(value));
     }
     else {
       // WHAT ARE YOU
@@ -740,6 +779,9 @@ namespace facebook { namespace v8runtime {
     else if (value.isObject()) {
       return handle_scope.Escape(objectRef(value.getObject(*this)));
     }
+    else if (value.isBigInt()) {
+      return handle_scope.Escape(bigIntRef(value.getBigInt(*this)));
+    }
     else {
       // What are you?
       std::abort();
@@ -762,6 +804,12 @@ namespace facebook { namespace v8runtime {
     v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
     const V8ObjectValue* v8ObjectValue = static_cast<const V8ObjectValue*>(getPointerValue(obj));
     return handle_scope.Escape(v8ObjectValue->v8Object_.Get(v8::Isolate::GetCurrent()));
+  }
+
+  v8::Local<v8::BigInt> V8Runtime::bigIntRef(const jsi::BigInt& bigInt) {
+    v8::EscapableHandleScope handle_scope(v8::Isolate::GetCurrent());
+    const V8BigIntValue* v8BigIntValue = static_cast<const V8BigIntValue*>(getPointerValue(bigInt));
+    return handle_scope.Escape(v8BigIntValue->v8BigInt_.Get(v8::Isolate::GetCurrent()));
   }
 
   /*
