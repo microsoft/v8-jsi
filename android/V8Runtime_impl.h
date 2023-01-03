@@ -282,6 +282,19 @@ namespace facebook { namespace v8runtime {
       friend class V8Runtime;
     };
 
+    class V8BigIntValue final : public PointerValue {
+      V8BigIntValue(v8::Local<v8::BigInt> obj);
+
+      ~V8BigIntValue();
+
+      void invalidate() override;
+
+      v8::Persistent<v8::BigInt> v8BigInt_;
+
+    protected:
+      friend class V8Runtime;
+    };
+
     class ExternalOwningOneByteStringResource
       : public v8::String::ExternalOneByteStringResource {
     public:
@@ -303,6 +316,7 @@ namespace facebook { namespace v8runtime {
     PointerValue *cloneSymbol(const PointerValue *) override;
     PointerValue* cloneObject(const Runtime::PointerValue* pv) override;
     PointerValue* clonePropNameID(const Runtime::PointerValue* pv) override;
+    PointerValue* cloneBigInt(const PointerValue* pv) override;
 
     jsi::PropNameID createPropNameIDFromAscii(const char* str, size_t length)
       override;
@@ -369,6 +383,7 @@ namespace facebook { namespace v8runtime {
       size_t count) override;
 
     bool strictEquals(const jsi::String& a, const jsi::String& b) const override;
+    bool strictEquals(const jsi::BigInt& a, const jsi::BigInt& b) const override;
     bool strictEquals(const jsi::Object& a, const jsi::Object& b) const override;
     bool strictEquals(const jsi::Symbol& a, const jsi::Symbol& b) const override;
 
@@ -405,6 +420,7 @@ namespace facebook { namespace v8runtime {
     static v8::Local<v8::String> stringRef(const jsi::String& str);
     static v8::Local<v8::Value> valueRef(const jsi::PropNameID& sym);
     static v8::Local<v8::Object> objectRef(const jsi::Object& obj);
+    static v8::Local<v8::BigInt> bigIntRef(const jsi::BigInt& bigInt);
 
     v8::Local<v8::Value> valueRef(const jsi::Value& value);
     jsi::Value createValue(v8::Local<v8::Value> value) const;
@@ -413,10 +429,12 @@ namespace facebook { namespace v8runtime {
     jsi::String createString(v8::Local<v8::String> stringRef) const;
     jsi::PropNameID createPropNameID(v8::Local<v8::Value> propValRef);
     jsi::Object createObject(v8::Local<v8::Object> objectRef) const;
+    jsi::BigInt createBigInt(v8::Local<v8::BigInt> bigIntRef) const;
 
     // Used by factory methods and clone methods
     jsi::Runtime::PointerValue* makeStringValue(v8::Local<v8::String> str) const;
     jsi::Runtime::PointerValue* makeObjectValue(v8::Local<v8::Object> obj) const;
+    jsi::Runtime::PointerValue* makeBigIntValue(v8::Local<v8::BigInt> bigInt) const;
 
     v8::Isolate* isolate_;
     std::unique_ptr<IsolateData> isolate_data_;
