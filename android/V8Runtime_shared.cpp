@@ -843,8 +843,10 @@ namespace facebook { namespace v8runtime {
     return objectRef(obj)->InternalFieldCount() == 1;
   }
 
+  constexpr auto c_nativeStateIndex = 0;
+
   std::shared_ptr<jsi::NativeState> V8Runtime::getNativeState(const jsi::Object& obj) {
-    std::shared_ptr<jsi::NativeState>* holder = static_cast<std::shared_ptr<jsi::NativeState>*>(objectRef(obj)->GetAlignedPointerFromInternalField(0));
+    std::shared_ptr<jsi::NativeState>* holder = static_cast<std::shared_ptr<jsi::NativeState>*>(objectRef(obj)->GetAlignedPointerFromInternalField(c_nativeStateIndex));
 
     return *holder;
   }
@@ -852,8 +854,8 @@ namespace facebook { namespace v8runtime {
   void V8Runtime::setNativeState(
       const jsi::Object& obj,
       std::shared_ptr<jsi::NativeState> nativeState) {
-    std::unique_ptr<std::shared_ptr<jsi::NativeState>> holder = std::make_unique<std::shared_ptr<jsi::NativeState>>(nativeState);
-    objectRef(obj)->SetAlignedPointerInInternalField(0, holder.get());
+    auto holder = std::make_unique<std::shared_ptr<jsi::NativeState>>(nativeState);
+    objectRef(obj)->SetAlignedPointerInInternalField(c_nativeStateIndex, holder.get());
   }
 
   jsi::ArrayBuffer V8Runtime::createArrayBuffer(std::shared_ptr<jsi::MutableBuffer>) {
