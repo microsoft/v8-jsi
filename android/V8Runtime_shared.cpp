@@ -812,6 +812,54 @@ namespace facebook { namespace v8runtime {
     return handle_scope.Escape(v8BigIntValue->v8BigInt_.Get(v8::Isolate::GetCurrent()));
   }
 
+  jsi::BigInt V8Runtime::createBigIntFromInt64(int64_t val) {
+    return make<jsi::BigInt>(makeBigIntValue(v8::BigInt::New(GetIsolate(), val)));
+  }
+
+  jsi::BigInt V8Runtime::createBigIntFromUint64(uint64_t val) {
+    return make<jsi::BigInt>(makeBigIntValue(v8::BigInt::NewFromUnsigned(GetIsolate(), val)));
+  }
+
+  bool V8Runtime::bigintIsInt64(const jsi::BigInt&) {
+    // V8 doesn't internally track it
+    return true;
+  }
+
+  bool V8Runtime::bigintIsUint64(const jsi::BigInt& val) {
+    bool lossless {true};
+    bigIntRef(val)->Uint64Value(&lossless);
+    return lossless;
+  }
+
+  uint64_t V8Runtime::truncate(const jsi::BigInt& val) {
+    return bigIntRef(val)->Uint64Value(nullptr);
+  }
+
+  jsi::String V8Runtime::bigintToString(const jsi::BigInt&, int) {
+    throw jsi::JSINativeException("V8Runtime::bigintToString is not implemented!");
+  }
+
+  bool V8Runtime::hasNativeState(const jsi::Object& obj) {
+    return objectRef(obj)->InternalFieldCount() == 1;
+  }
+
+  std::shared_ptr<jsi::NativeState> V8Runtime::getNativeState(const jsi::Object& obj) {
+    std::shared_ptr<jsi::NativeState>* holder = static_cast<std::shared_ptr<jsi::NativeState>*>(objectRef(obj)->GetAlignedPointerFromInternalField(0));
+
+    return *holder;
+  }
+
+  void V8Runtime::setNativeState(
+      const jsi::Object& obj,
+      std::shared_ptr<jsi::NativeState> nativeState) {
+    std::unique_ptr<std::shared_ptr<jsi::NativeState>> holder = std::make_unique<std::shared_ptr<jsi::NativeState>>(nativeState);
+    objectRef(obj)->SetAlignedPointerInInternalField(0, holder.get());
+  }
+
+  jsi::ArrayBuffer V8Runtime::createArrayBuffer(std::shared_ptr<jsi::MutableBuffer>) {
+      throw jsi::JSINativeException("V8Runtime::createArrayBuffer is not implemented!");
+  }
+
   /*
 
   std::unique_ptr<jsi::Runtime> makeV8Runtime(const v8::Platform* platform, std::shared_ptr<Logger>&& logger,

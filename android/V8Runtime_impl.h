@@ -311,6 +311,13 @@ namespace facebook { namespace v8runtime {
     facebook::jsi::Value evaluatePreparedJavaScript(const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &) override;
 
     std::string symbolToString(const facebook::jsi::Symbol &) override;
+
+    jsi::BigInt createBigIntFromInt64(int64_t val) override;
+    jsi::BigInt createBigIntFromUint64(uint64_t val) override;
+    bool bigintIsInt64(const jsi::BigInt&) override;
+    bool bigintIsUint64(const jsi::BigInt& val) override;
+    uint64_t truncate(const jsi::BigInt& val) override;
+    jsi::String bigintToString(const jsi::BigInt&, int) override;
     
     PointerValue* cloneString(const Runtime::PointerValue* pv) override;
     PointerValue *cloneSymbol(const PointerValue *) override;
@@ -337,6 +344,10 @@ namespace facebook { namespace v8runtime {
       const jsi::Object&) override;
     jsi::HostFunctionType& getHostFunction(const jsi::Function&) override;
 
+    bool hasNativeState(const jsi::Object& obj) override;
+    std::shared_ptr<jsi::NativeState> getNativeState(const jsi::Object& obj) override;
+    void setNativeState(const jsi::Object& obj, std::shared_ptr<jsi::NativeState> nativeState) override;
+
     jsi::Value getProperty(const jsi::Object&, const jsi::String& name) override;
     jsi::Value getProperty(const jsi::Object&, const jsi::PropNameID& name)
       override;
@@ -361,6 +372,7 @@ namespace facebook { namespace v8runtime {
     jsi::Value lockWeakObject(jsi::WeakObject&) override;
 
     jsi::Array createArray(size_t length) override;
+    jsi::ArrayBuffer createArrayBuffer(std::shared_ptr<jsi::MutableBuffer>) override;
     size_t size(const jsi::Array&) override;
     size_t size(const jsi::ArrayBuffer&) override;
     uint8_t* data(const jsi::ArrayBuffer&) override;
