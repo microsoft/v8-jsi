@@ -95,3 +95,5 @@ Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\perfett
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\protobuf")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\clusterfuzz")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\turbolizer")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\package.json")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\package-lock.json")
