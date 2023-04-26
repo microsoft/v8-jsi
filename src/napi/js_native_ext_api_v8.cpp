@@ -168,8 +168,7 @@ struct V8RuntimeHolder : protected v8impl::RefTracker {
 } // namespace v8impl
 
 struct EnvScope {
-  EnvScope(napi_env env) : env_{env}
-  {
+  EnvScope(napi_env env) : env_{env} {
     if (napi_env_use_lockers(env)) {
       locker_ = std::make_unique<v8::Locker>(env->isolate);
     }
@@ -213,41 +212,37 @@ struct EnvScope {
 
  private:
   napi_env env_;
-  std::unique_ptr<v8::Locker> locker_ {};
+  std::unique_ptr<v8::Locker> locker_{};
   std::unique_ptr<v8::Isolate::Scope> isolate_scope_{};
   std::unique_ptr<v8::Context::Scope> context_scope_{};
   napi_handle_scope handle_scope_{};
 };
 
-struct NapiJSITaskRunner : v8runtime::JSITaskRunner {
-  NapiJSITaskRunner(napi_env env, napi_ext_schedule_task_callback scheduler) : env_{env}, scheduler_{scheduler} {}
+struct V8TaskRunner : v8runtime::JSITaskRunner {
+  V8TaskRunner(
+      void *task_runner_data,
+      v8_task_runner_post_task_cb task_runner_post_task_cb,
+      v8_task_runner_release_cb task_runner_release_cb)
+      : task_runner_data_(task_runner_data),
+        task_runner_post_task_cb_(task_runner_post_task_cb),
+        task_runner_release_cb_(task_runner_release_cb) {}
+
+  ~V8TaskRunner() override {
+    task_runner_release_cb_(task_runner_data_);
+  }
 
   void postTask(std::unique_ptr<v8runtime::JSITask> task) override {
-    postDelayedTask(std::move(task), 0);
-  }
-
-  void postDelayedTask(std::unique_ptr<v8runtime::JSITask> task, double delay_in_seconds) /*override*/ {
-    scheduler_(
-        env_,
-        [](napi_env env, void *task_data) {
-          auto task = static_cast<v8runtime::JSITask *>(task_data);
-          task->run();
-        },
+    task_runner_post_task_cb_(
+        task_runner_data_,
         static_cast<void *>(task.release()),
-        delay_in_seconds * 1000,
-        [](napi_env env, void *finalize_data, void *finalize_hint) {
-          std::unique_ptr<v8runtime::JSITask> task{static_cast<v8runtime::JSITask *>(finalize_data)};
-        },
-        nullptr);
-  }
-
-  void setEnv(napi_env env) {
-    env_ = env;
+        [](void *task_data) { static_cast<v8runtime::JSITask *>(task_data)->run(); },
+        [](void *task_data) { delete static_cast<v8runtime::JSITask *>(task_data); });
   }
 
  private:
-  napi_env env_;
-  napi_ext_schedule_task_callback scheduler_;
+  void *task_runner_data_;
+  v8_task_runner_post_task_cb task_runner_post_task_cb_;
+  v8_task_runner_release_cb task_runner_release_cb_;
 };
 
 struct NodeApiJsiBuffer : facebook::jsi::Buffer {
@@ -324,6 +319,14 @@ struct NodeApiPreparedScriptStore : facebook::jsi::PreparedScriptStore {
   napi_ext_script_cache scriptCache_;
 };
 
+v8_task_runner_t __cdecl v8_create_task_runner(
+    void *task_runner_data,
+    v8_task_runner_post_task_cb task_runner_post_task_cb,
+    v8_task_runner_release_cb task_runner_release_cb) {
+  return reinterpret_cast<v8_task_runner_t>(
+      new V8TaskRunner(task_runner_data, task_runner_post_task_cb, task_runner_release_cb));
+}
+
 napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) {
   v8runtime::V8RuntimeArgs args;
 
@@ -345,8 +348,8 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
   args.flags.thread_pool_size = settings->flags.thread_pool_size;
   args.flags.enableMultiThread = settings->flags.enable_multi_thread;
 
-  auto taskRunner = std::make_shared<NapiJSITaskRunner>(*env, settings->foreground_scheduler);
-  args.foreground_task_runner = taskRunner;
+  args.foreground_task_runner =
+      std::shared_ptr<V8TaskRunner>(reinterpret_cast<V8TaskRunner *>(settings->foreground_task_runner));
 
   if (settings->script_cache) {
     args.preparedScriptStore = std::make_unique<NodeApiPreparedScriptStore>(settings->script_cache);
@@ -356,7 +359,6 @@ napi_status napi_ext_create_env(napi_ext_env_settings *settings, napi_env *env) 
 
   auto context = v8impl::PersistentToLocal::Strong(runtime->GetContext());
   *env = new napi_env__(context, settings->flags.enable_multi_thread);
-  taskRunner->setEnv(*env);
 
   // Let the runtime exists. It can be accessed from the Context.
   new v8impl::V8RuntimeHolder(*env, runtime.release());
@@ -372,7 +374,7 @@ napi_status napi_ext_env_ref(napi_env env) {
 
 napi_status napi_ext_env_unref(napi_env env) {
   CHECK_ENV(env);
-  v8runtime::V8Runtime* runtime;
+  v8runtime::V8Runtime *runtime;
   {
     EnvScope scope(env);
     runtime = v8runtime::V8Runtime::GetCurrent(env->context());
