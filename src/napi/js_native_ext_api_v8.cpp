@@ -550,8 +550,7 @@ napi_status napi_ext_collect_garbage(napi_env env) {
   return napi_status::napi_ok;
 }
 
-NAPI_EXTERN napi_status
-napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
+napi_status napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, str);
   CHECK_ARG(env, result);
@@ -563,7 +562,7 @@ napi_ext_get_unique_string_utf8_ref(napi_env env, const char *str, size_t length
   return GET_RETURN_STATUS(env);
 }
 
-NAPI_EXTERN napi_status napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
+napi_status napi_ext_get_unique_string_ref(napi_env env, napi_value str_value, napi_ext_ref *result) {
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, str_value);
   CHECK_ARG(env, result);
@@ -655,7 +654,7 @@ napi_status napi_create_external_buffer(
 }
 
 // Creates new napi_ext_ref with ref counter set to 1.
-NAPI_EXTERN napi_status napi_ext_create_reference(napi_env env, napi_value value, napi_ext_ref *result) {
+napi_status napi_ext_create_reference(napi_env env, napi_value value, napi_ext_ref *result) {
   // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, value);
@@ -671,7 +670,7 @@ NAPI_EXTERN napi_status napi_ext_create_reference(napi_env env, napi_value value
 
 // Creates new napi_ext_ref and associates native data with the reference.
 // The ref counter is set to 1.
-NAPI_EXTERN napi_status napi_ext_create_reference_with_data(
+napi_status napi_ext_create_reference_with_data(
     napi_env env,
     napi_value value,
     void *native_object,
@@ -693,7 +692,7 @@ NAPI_EXTERN napi_status napi_ext_create_reference_with_data(
   return napi_clear_last_error(env);
 }
 
-NAPI_EXTERN napi_status napi_ext_create_weak_reference(napi_env env, napi_value value, napi_ext_ref *result) {
+napi_status napi_ext_create_weak_reference(napi_env env, napi_value value, napi_ext_ref *result) {
   // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, value);
@@ -708,7 +707,7 @@ NAPI_EXTERN napi_status napi_ext_create_weak_reference(napi_env env, napi_value 
 }
 
 // Increments the reference count.
-NAPI_EXTERN napi_status napi_ext_reference_ref(napi_env env, napi_ext_ref ref) {
+napi_status napi_ext_reference_ref(napi_env env, napi_ext_ref ref) {
   // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
@@ -722,7 +721,7 @@ NAPI_EXTERN napi_status napi_ext_reference_ref(napi_env env, napi_ext_ref ref) {
 // Decrements the reference count.
 // The provided ref must not be used after this call because it could be deleted
 // if the internal ref counter became zero.
-NAPI_EXTERN napi_status napi_ext_reference_unref(napi_env env, napi_ext_ref ref) {
+napi_status napi_ext_reference_unref(napi_env env, napi_ext_ref ref) {
   // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
@@ -735,7 +734,7 @@ NAPI_EXTERN napi_status napi_ext_reference_unref(napi_env env, napi_ext_ref ref)
 }
 
 // Gets the referenced value.
-NAPI_EXTERN napi_status napi_ext_get_reference_value(napi_env env, napi_ext_ref ref, napi_value *result) {
+napi_status napi_ext_get_reference_value(napi_env env, napi_ext_ref ref, napi_value *result) {
   // Omit NAPI_PREAMBLE and GET_RETURN_STATUS because V8 calls here cannot throw JS exceptions.
   CHECK_ENV(env);
   CHECK_ARG(env, ref);
