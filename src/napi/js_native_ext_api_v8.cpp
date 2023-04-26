@@ -168,8 +168,7 @@ struct V8RuntimeHolder : protected v8impl::RefTracker {
 } // namespace v8impl
 
 struct EnvScope {
-  EnvScope(napi_env env) : env_{env}
-  {
+  EnvScope(napi_env env) : env_{env} {
     if (napi_env_use_lockers(env)) {
       locker_ = std::make_unique<v8::Locker>(env->isolate);
     }
@@ -213,7 +212,7 @@ struct EnvScope {
 
  private:
   napi_env env_;
-  std::unique_ptr<v8::Locker> locker_ {};
+  std::unique_ptr<v8::Locker> locker_{};
   std::unique_ptr<v8::Isolate::Scope> isolate_scope_{};
   std::unique_ptr<v8::Context::Scope> context_scope_{};
   napi_handle_scope handle_scope_{};
@@ -375,7 +374,7 @@ napi_status napi_ext_env_ref(napi_env env) {
 
 napi_status napi_ext_env_unref(napi_env env) {
   CHECK_ENV(env);
-  v8runtime::V8Runtime* runtime;
+  v8runtime::V8Runtime *runtime;
   {
     EnvScope scope(env);
     runtime = v8runtime::V8Runtime::GetCurrent(env->context());
