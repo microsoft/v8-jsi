@@ -27,7 +27,7 @@ steps:
         -AppPlatform:${{parameters.appPlatform}}
 
   - task: PowerShell@2
-    displayName: Actually run the build
+    displayName: Build code
     inputs:
       targetType: filePath
       filePath: $(Build.SourcesDirectory)\scripts\build.ps1
@@ -40,12 +40,10 @@ steps:
 
   - powershell: |
       $vsExtensionPath="${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\Extensions\";
+      Write-Host "Searching for Google Test Adapter Path in '$vsExtensionPath'"
       $GoogleTestAdapterPath=(Get-ChildItem $vsExtensionPath -Directory | Where-Object -FilterScript {Test-Path  (Join-Path -Path $_.FullName -ChildPath "GoogleTestAdapter.Core.dll")}).FullName
-
-      # Test the path to the google test adapter
-      Test-Path -Path $GoogleTestAdapterPath
-
-      Write-Debug "Setting Google Test Adapter Path to '$GoogleTestAdapterPath' found in '$vsExtensionPath'"
+      Write-Host "Found:" (Test-Path -Path $GoogleTestAdapterPath)
+      Write-Host "Setting Google Test Adapter Path to '$GoogleTestAdapterPath'"
       Write-Host "##vso[task.setvariable variable=GoogleTestAdapterPath]$GoogleTestAdapterPath"
     displayName: Set GoogleTestAdapterPath
 
