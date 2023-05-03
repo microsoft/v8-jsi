@@ -14,7 +14,7 @@ pr:
       - docs/*
 
 pool:
-  vmImage: 'windows-2019'
+  vmImage: 'windows-2022'
 
 jobs:
   - template: windows-jobs.yml
