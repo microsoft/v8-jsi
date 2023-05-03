@@ -1,6 +1,6 @@
 jobs:
   - job: V8JsiBuild
-    timeoutInMinutes: 210
+    timeoutInMinutes: 300
     displayName: Build v8jsi.dll
     strategy:
       matrix:
