@@ -11,6 +11,14 @@
 typedef uint16_t char16_t;
 #endif
 
+#ifndef NAPI_CDECL
+#ifdef _WIN32
+#define NAPI_CDECL __cdecl
+#else
+#define NAPI_CDECL
+#endif
+#endif
+
 // JSVM API types are all opaque pointers for ABI stability
 // typedef undefined structs instead of void* for compile time type safety
 typedef struct napi_env__ *napi_env;
@@ -90,7 +98,8 @@ typedef enum {
   napi_date_expected,
   napi_arraybuffer_expected,
   napi_detachable_arraybuffer_expected,
-  napi_would_deadlock // unused
+  napi_would_deadlock, // unused
+  napi_no_external_buffers_allowed
 } napi_status;
 // Note: when adding a new enum value to `napi_status`, please also update
 //   * `const int last_status` in the definition of `napi_get_last_error_info()'
@@ -100,8 +109,12 @@ typedef enum {
 //   * the definition of `napi_status` in doc/api/n-api.md to reflect the newly
 //     added value(s).
 
-typedef napi_value(__cdecl *napi_callback)(napi_env env, napi_callback_info info);
-typedef void(__cdecl *napi_finalize)(napi_env env, void *finalize_data, void *finalize_hint);
+typedef napi_value(
+    NAPI_CDECL *napi_callback)(napi_env env, napi_callback_info info);
+typedef void(NAPI_CDECL *napi_finalize)(
+    napi_env env,
+    void *finalize_data,
+    void *finalize_hint);
 
 typedef struct {
   // One of utf8name or name should be NULL.
@@ -125,7 +138,10 @@ typedef struct {
 } napi_extended_error_info;
 
 #if NAPI_VERSION >= 6
-typedef enum { napi_key_include_prototypes, napi_key_own_only } napi_key_collection_mode;
+typedef enum {
+  napi_key_include_prototypes,
+  napi_key_own_only
+} napi_key_collection_mode;
 
 typedef enum {
   napi_key_all_properties = 0,
@@ -136,7 +152,10 @@ typedef enum {
   napi_key_skip_symbols = 1 << 4
 } napi_key_filter;
 
-typedef enum { napi_key_keep_numbers, napi_key_numbers_to_strings } napi_key_conversion;
+typedef enum {
+  napi_key_keep_numbers,
+  napi_key_numbers_to_strings
+} napi_key_conversion;
 #endif // NAPI_VERSION >= 6
 
 #if NAPI_VERSION >= 8

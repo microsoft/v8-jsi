@@ -8,8 +8,8 @@
 #include "IsolateData.h"
 #include "MurmurHash.h"
 #include "napi/js_native_api_v8.h"
+#include "node-api/js_native_api.h"
 #include "public/ScriptStore.h"
-#include "public/js_native_api.h"
 
 #include "napi/util-inl.h"
 
@@ -38,7 +38,6 @@ struct ContextEmbedderIndex {
 /*static */ std::mutex V8PlatformHolder::mutex_s_;
 
 // String utilities
-namespace {
 std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::String> string) {
   int utfLen = string->Utf8Length(isolate);
   std::string result;
@@ -46,6 +45,8 @@ std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::String> stri
   string->WriteUtf8(isolate, &result[0], utfLen);
   return result;
 }
+
+namespace {
 
 // Extracts a C string from a V8 Utf8Value.
 const char *ToCString(const v8::String::Utf8Value &value) {
@@ -451,9 +452,8 @@ void V8Runtime::initializeV8() {
   if (args_.flags.trackGCObjectStats)
     argv.push_back("--track_gc_object_stats");
 
-  //if (args_.flags.enableGCApi)
-  // Needs to be always on for the N-API wrapper (napi_ext_collect_garbage)
-  argv.push_back("--expose_gc");
+  if (args_.flags.enableGCApi)
+    argv.push_back("--expose_gc");
 
   if (args_.flags.enableSystemInstrumentation)
     argv.push_back("--enable-system-instrumentation");
@@ -635,9 +635,11 @@ jsi::Value V8Runtime::evaluateJavaScript(
   return result;
 }
 
+#if JSI_VERSION >= 4
 bool V8Runtime::drainMicrotasks(int /*maxMicrotasksHint*/) {
   return true;
 }
+#endif
 
 v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
   // Create a template for the global object.
@@ -755,6 +757,7 @@ class V8PreparedJavaScript : public facebook::jsi::PreparedJavaScript {
   // What's the point of bytecode if we need to preserve the full source too?
   // TODO: Figure out if there's a way to use the bytecode only with V8
   std::shared_ptr<const facebook::jsi::Buffer> sourceBuffer;
+  v8::Persistent<v8::Script> script;
 };
 
 std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaScript(
@@ -788,6 +791,99 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
     prepared->sourceBuffer = buffer;
     return prepared;
   }
+}
+
+std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaScript2(
+    const std::shared_ptr<const facebook::jsi::Buffer> &buffer,
+    std::string sourceURL) {
+  std::shared_ptr<V8PreparedJavaScript> prepared;
+
+  v8::TryCatch try_catch(GetIsolate());
+
+  std::uint64_t hash{0};
+  v8::Local<v8::String> sourceV8String = loadJavaScript(buffer, hash);
+
+  v8::Local<v8::String> urlV8String =
+      v8::String::NewFromUtf8(GetIsolate(), reinterpret_cast<const char *>(sourceURL.c_str())).ToLocalChecked();
+  v8::ScriptOrigin origin(GetIsolate(), urlV8String);
+
+  v8::Local<v8::Script> script;
+
+  v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
+  v8::ScriptCompiler::CachedData *cached_data = nullptr;
+
+  jsi::JSRuntimeVersion_t runtimeVersion = c_V8BuildVersion;
+  jsi::ScriptSignature scriptSignature = {sourceURL, hash};
+  jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
+
+  std::shared_ptr<const jsi::Buffer> cache;
+  if (args_.preparedScriptStore) {
+    cache = args_.preparedScriptStore->tryGetPreparedScript(scriptSignature, runtimeSignature, "perf");
+  }
+
+  if (cache) {
+    cached_data = new v8::ScriptCompiler::CachedData(cache->data(), static_cast<int>(cache->size()));
+    options = v8::ScriptCompiler::CompileOptions::kConsumeCodeCache;
+  } else if (args_.preparedScriptStore) {
+    // Eager compile so that we will write it to disk.
+    options = v8::ScriptCompiler::CompileOptions::kEagerCompile;
+  } else {
+    options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
+  }
+
+  v8::ScriptCompiler::Source script_source(sourceV8String, origin, cached_data);
+
+  if (!v8::ScriptCompiler::Compile(GetContextLocal(), &script_source, options).ToLocal(&script)) {
+    // Print errors that happened during compilation.
+    ReportException(&try_catch);
+    if (options == v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
+      // Try to rebuild cache if it is in a bad state.
+      options = v8::ScriptCompiler::CompileOptions::kEagerCompile;
+      if (!v8::ScriptCompiler::Compile(GetContextLocal(), &script_source, options).ToLocal(&script)) {
+        ReportException(&try_catch);
+        return prepared;
+      }
+    }
+  }
+
+  v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
+
+  if (args_.preparedScriptStore && options == v8::ScriptCompiler::CompileOptions::kEagerCompile) {
+    args_.preparedScriptStore->persistPreparedScript(
+        std::make_shared<ByteArrayBuffer>(codeCache->data, codeCache->length),
+        scriptSignature,
+        runtimeSignature,
+        "perf");
+  }
+
+  prepared = std::make_shared<V8PreparedJavaScript>();
+  prepared->scriptSignature = scriptSignature;
+  prepared->runtimeSignature = runtimeSignature;
+  prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
+  prepared->sourceBuffer = buffer;
+  prepared->script.Reset(isolate_, script);
+  return prepared;
+}
+
+v8::Local<v8::Value> V8Runtime::evaluatePreparedJavaScript2(
+    const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &js) {
+  const V8PreparedJavaScript *prepared = static_cast<const V8PreparedJavaScript *>(js.get());
+  v8::EscapableHandleScope handle_scope(GetIsolate());
+
+  v8::TryCatch try_catch(GetIsolate());
+
+  v8::Local<v8::Script> script = prepared->script.Get(GetIsolate());
+
+  v8::Local<v8::Value> result;
+  if (!script->Run(GetContextLocal()).ToLocal(&result)) {
+    assert(try_catch.HasCaught());
+    ReportException(&try_catch);
+    result = v8::Undefined(GetIsolate());
+  } else {
+    assert(!try_catch.HasCaught());
+  }
+
+  return handle_scope.Escape(result);
 }
 
 facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
@@ -876,11 +972,11 @@ void V8Runtime::ReportException(v8::TryCatch *try_catch) {
     if (stack.find("Maximum call stack size exceeded") == std::string::npos) {
       auto err = jsi::JSError(*this, ex_messages);
 
-      err.value().getObject(*this).setProperty(
-          *this, "stack", facebook::jsi::String::createFromUtf8(*this, stack));
+      err.value().getObject(*this).setProperty(*this, "stack", facebook::jsi::String::createFromUtf8(*this, stack));
 
-      // The "stack" includes the message in V8, but JSI tracks the message and the callstack as 2 separate properties so let's strip it out
-      // The format of stack is "%ErrorType%: %Message%\n%Callstack%" where %Message% can include newline characters as well.
+      // The "stack" includes the message in V8, but JSI tracks the message and the callstack as 2 separate properties
+      // so let's strip it out The format of stack is "%ErrorType%: %Message%\n%Callstack%" where %Message% can
+      // include newline characters as well.
       auto numNewLines = std::count(ex_messages.cbegin(), ex_messages.cend(), '\n');
       auto endOfMessage = stack.find("\n");
       for (size_t j = 0; j < numNewLines; j++) {
@@ -954,6 +1050,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneSymbol(const jsi::Runtime::PointerVa
   return V8PointerValue<v8::Symbol>::make(GetIsolate(), symbol->get(GetIsolate()));
 }
 
+#if JSI_VERSION >= 6
 jsi::Runtime::PointerValue *V8Runtime::cloneBigInt(const jsi::Runtime::PointerValue *pv) {
   if (!pv) {
     return nullptr;
@@ -963,6 +1060,7 @@ jsi::Runtime::PointerValue *V8Runtime::cloneBigInt(const jsi::Runtime::PointerVa
   const V8PointerValue<v8::BigInt> *bigInt = static_cast<const V8PointerValue<v8::BigInt> *>(pv);
   return V8PointerValue<v8::BigInt>::make(GetIsolate(), bigInt->get(GetIsolate()));
 }
+#endif
 
 std::string V8Runtime::symbolToString(const jsi::Symbol &sym) {
   IsolateLocker isolate_locker(this);
@@ -1008,10 +1106,12 @@ jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
   return make<jsi::PropNameID>(V8StringValue::make(GetIsolate(), v8::Local<v8::String>::Cast(stringRef(str))));
 }
 
+#if JSI_VERSION >= 5
 jsi::PropNameID V8Runtime::createPropNameIDFromSymbol(const jsi::Symbol &sym) {
   IsolateLocker isolate_locker(this);
   return make<jsi::PropNameID>(V8SymbolValue::make(GetIsolate(), v8::Local<v8::Symbol>::Cast(symbolRef(sym))));
 }
+#endif
 
 std::string V8Runtime::utf8(const jsi::PropNameID &sym) {
   IsolateLocker isolate_locker(this);
@@ -1031,10 +1131,7 @@ jsi::String V8Runtime::createStringFromUtf8(const uint8_t *str, size_t length) {
   IsolateLocker isolate_locker(this);
   v8::Local<v8::String> v8string;
   if (!v8::String::NewFromUtf8(
-           GetIsolate(),
-           reinterpret_cast<const char *>(str),
-           v8::NewStringType::kNormal,
-           static_cast<int>(length))
+           GetIsolate(), reinterpret_cast<const char *>(str), v8::NewStringType::kNormal, static_cast<int>(length))
            .ToLocal(&v8string)) {
     throw jsi::JSError(*this, "V8 string creation failed.");
   }
@@ -1105,14 +1202,17 @@ bool V8Runtime::hasProperty(const jsi::Object &obj, const jsi::PropNameID &name)
   return result.FromJust();
 }
 
-void V8Runtime::setPropertyValue(jsi::Object &object, const jsi::PropNameID &name, const jsi::Value &value) {
+void V8Runtime::setPropertyValue(
+    JSI_CONST_10 jsi::Object &object,
+    const jsi::PropNameID &name,
+    const jsi::Value &value) {
   IsolateLocker isolate_locker(this);
   v8::Maybe<bool> result = objectRef(object)->Set(GetContextLocal(), valueRef(name), valueReference(value));
   if (!result.FromMaybe(false))
     throw jsi::JSError(*this, "V8Runtime::setPropertyValue failed.");
 }
 
-void V8Runtime::setPropertyValue(jsi::Object &object, const jsi::String &name, const jsi::Value &value) {
+void V8Runtime::setPropertyValue(JSI_CONST_10 jsi::Object &object, const jsi::String &name, const jsi::Value &value) {
   IsolateLocker isolate_locker(this);
   v8::Maybe<bool> result = objectRef(object)->Set(GetContextLocal(), stringRef(name), valueReference(value));
   if (!result.FromMaybe(false))
@@ -1190,13 +1290,14 @@ jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &) {
   throw std::logic_error("Not implemented");
 }
 
-jsi::Value V8Runtime::lockWeakObject(jsi::WeakObject &) {
+jsi::Value V8Runtime::lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &) {
   throw std::logic_error("Not implemented");
 }
 
 jsi::Array V8Runtime::createArray(size_t length) {
   IsolateLocker isolate_locker(this);
-  return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), v8::Array::New(GetIsolate(), static_cast<int>(length)))).getArray(*this);
+  return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), v8::Array::New(GetIsolate(), static_cast<int>(length))))
+      .getArray(*this);
 }
 
 size_t V8Runtime::size(const jsi::Array &arr) {
@@ -1211,7 +1312,7 @@ jsi::Value V8Runtime::getValueAtIndex(const jsi::Array &arr, size_t i) {
   return createValue(array->Get(GetContextLocal(), static_cast<uint32_t>(i)).ToLocalChecked());
 }
 
-void V8Runtime::setValueAtIndexImpl(jsi::Array &arr, size_t i, const jsi::Value &value) {
+void V8Runtime::setValueAtIndexImpl(JSI_CONST_10 jsi::Array &arr, size_t i, const jsi::Value &value) {
   IsolateLocker isolate_locker(this);
   v8::Local<v8::Array> array = v8::Local<v8::Array>::Cast(objectRef(arr));
   array->Set(GetContextLocal(), static_cast<uint32_t>(i), valueReference(value));
@@ -1373,10 +1474,12 @@ bool V8Runtime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
   return symbolRef(a)->StrictEquals(symbolRef(b));
 }
 
+#if JSI_VERSION >= 6
 bool V8Runtime::strictEquals(const jsi::BigInt &a, const jsi::BigInt &b) const {
   IsolateLocker isolate_locker(this);
   return bigIntRef(a)->StrictEquals(bigIntRef(b));
 }
+#endif
 
 bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
   IsolateLocker isolate_locker(this);
@@ -1403,8 +1506,10 @@ jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
     return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), v8::Local<v8::Object>::Cast(value)));
   } else if (value->IsSymbol()) {
     return make<jsi::Symbol>(V8PointerValue<v8::Symbol>::make(GetIsolate(), v8::Local<v8::Symbol>::Cast(value)));
+#if JSI_VERSION >= 6
   } else if (value->IsBigInt()) {
     return make<jsi::BigInt>(V8PointerValue<v8::BigInt>::make(GetIsolate(), v8::Local<v8::BigInt>::Cast(value)));
+#endif
   } else {
     // What are you?
     std::abort();
@@ -1428,8 +1533,10 @@ v8::Local<v8::Value> V8Runtime::valueReference(const jsi::Value &value) {
     return handle_scope.Escape(objectRef(value.getObject(*this)));
   } else if (value.isSymbol()) {
     return handle_scope.Escape(symbolRef(value.getSymbol(*this)));
+#if JSI_VERSION >= 6
   } else if (value.isBigInt()) {
     return handle_scope.Escape(bigIntRef(value.getBigInt(*this)));
+#endif
   } else {
     // What are you?
     std::abort();
@@ -1528,70 +1635,6 @@ void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
   if (last_unhandled_promise_ && last_unhandled_promise_->promise.Get(GetIsolate()) == promise) {
     last_unhandled_promise_.reset();
   }
-}
-
-napi_status V8Runtime::NapiGetUniqueUtf8StringRef(napi_env env, const char *str, size_t length, napi_ext_ref *result) {
-  if (length == NAPI_AUTO_LENGTH) {
-    length = std::char_traits<char>::length(str);
-  }
-
-  napi_ext_ref ref{};
-  auto it = unique_strings_.find({str, length});
-  if (it != unique_strings_.end()) {
-    ref = it->second->GetRef();
-    STATUS_CALL(napi_ext_reference_ref(env, ref));
-  }
-
-  if (!ref) {
-    auto uniqueString = std::make_unique<NapiUniqueString>(env, std::string(str, length));
-    auto isolate = env->isolate;
-    auto str_maybe = v8::String::NewFromUtf8(isolate, str, v8::NewStringType::kInternalized, static_cast<int>(length));
-    CHECK_MAYBE_EMPTY(env, str_maybe, napi_generic_failure);
-
-    napi_value nstr = v8impl::JsValueFromV8LocalValue(str_maybe.ToLocalChecked());
-    auto finalize = [](napi_env env, void *finalize_data, void *finalize_hint) {
-      NapiUniqueString *uniqueString = static_cast<NapiUniqueString *>(finalize_data);
-      V8Runtime *runtime = static_cast<V8Runtime *>(finalize_hint);
-      auto it = runtime->unique_strings_.find(uniqueString->GetView());
-      if (it != runtime->unique_strings_.end()) {
-        runtime->unique_strings_.erase(it);
-      }
-    };
-    STATUS_CALL(napi_ext_create_reference_with_data(env, nstr, uniqueString.get(), finalize, this, &ref));
-    uniqueString->SetRef(ref);
-    unique_strings_[uniqueString->GetView()] = std::move(uniqueString);
-  }
-
-  *result = ref;
-  return napi_clear_last_error(env);
-}
-
-bool V8Runtime::IsEnvDeleted() noexcept {
-  return is_env_deleted_;
-}
-
-void V8Runtime::SetIsEnvDeleted() noexcept {
-  is_env_deleted_ = true;
-}
-
-//=============================================================================
-// NapiUniqueString implementation
-//=============================================================================
-
-NapiUniqueString::NapiUniqueString(napi_env env, std::string value) noexcept : env_{env}, value_{std::move(value)} {}
-
-NapiUniqueString::~NapiUniqueString() noexcept {}
-
-std::string_view NapiUniqueString::GetView() const noexcept {
-  return std::string_view{value_};
-}
-
-napi_ext_ref NapiUniqueString::GetRef() const noexcept {
-  return string_ref_;
-}
-
-void NapiUniqueString::SetRef(napi_ext_ref ref) noexcept {
-  string_ref_ = ref;
 }
 
 //=============================================================================

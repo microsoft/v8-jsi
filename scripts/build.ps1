@@ -111,6 +111,15 @@ if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildou
 }
 
 # Build is complete, prepare for NuGet packaging
+if (!(Test-Path -Path "$OutputPath\build\native\include\node-api")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\node-api" | Out-Null
+}
+if (!(Test-Path -Path "$OutputPath\build\native\include\node-api-jsi")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\node-api-jsi" | Out-Null
+}
+if (!(Test-Path -Path "$OutputPath\build\native\include\node-api-jsi\ApiLoaders")) {
+    New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\node-api-jsi\ApiLoaders" | Out-Null
+}
 if (!(Test-Path -Path "$OutputPath\build\native\include\jsi")) {
     New-Item -ItemType "directory" -Path "$OutputPath\build\native\include\jsi" | Out-Null
 }
@@ -149,14 +158,26 @@ else {
 Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
 
 # Headers
+Copy-Item "$jsigitpath\node-api\js_native_api_types.h" -Destination "$OutputPath\build\native\include\node-api\"
+Copy-Item "$jsigitpath\node-api\js_native_api.h" -Destination "$OutputPath\build\native\include\node-api\"
+Copy-Item "$jsigitpath\node-api\js_runtime_api.h" -Destination "$OutputPath\build\native\include\node-api\"
+
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\JSRuntimeApi.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\JSRuntimeApi.h" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\JSRuntimeApi.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi_win.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.h" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.h" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\"
+Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.h" -Destination "$OutputPath\build\native\include\node-api-jsi\"
+
 Copy-Item "$jsigitpath\public\compat.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\public\js_native_api.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\public\js_native_api_types.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\public\js_native_ext_api.h" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\public\NapiJsiRuntime.cpp" -Destination "$OutputPath\build\native\include\"
-Copy-Item "$jsigitpath\public\NapiJsiRuntime.h" -Destination "$OutputPath\build\native\include\"
 Copy-Item "$jsigitpath\public\Readme.md" -Destination "$OutputPath\build\native\include\"
 Copy-Item "$jsigitpath\public\ScriptStore.h" -Destination "$OutputPath\build\native\include\"
+Copy-Item "$jsigitpath\public\v8_api.h" -Destination "$OutputPath\build\native\include\"
 Copy-Item "$jsigitpath\public\V8JsiRuntime.h" -Destination "$OutputPath\build\native\include\"
 
 Copy-Item "$jsigitpath\jsi\jsi.h" -Destination "$OutputPath\build\native\jsi\jsi\"

@@ -24,7 +24,7 @@ unit tests.
   conventions. It is taken from Node.js without changes.
 - js_native_api_types.h - types used by the js_native_api.h. It is taken from
   Node.js without changes.
-- js_native_ext_api.h - extensions to the N-API to host JavaScript engine. It
+- js_runtime_api.h - extensions to the N-API to host JavaScript engine. It
   is not part of Node.js code.
 
 ## NAPI implementation files
@@ -41,7 +41,7 @@ unit tests.
 - util-inl.h - the file referenced by the N-API implementation. We only keep a
   subset of utilities from the util.h and util-inl.h files needed for the N-API
   implementation.
-- js_native_ext_api_v8.cpp - mostly implementation of the js_native_ext_api.h
+- v8_api.cpp - mostly implementation of the js_runtime_api.h and v8_api.h
   and some other functions that we want to have in a .cpp file. Some code is
   borrowed from Node.js project.
 

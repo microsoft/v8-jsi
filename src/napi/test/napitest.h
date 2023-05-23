@@ -15,7 +15,7 @@
 #include <gtest/gtest.h>
 
 #define NAPI_EXPERIMENTAL
-#include "js_native_ext_api.h"
+#include "js_runtime_api.h"
 
 extern "C" {
 #include "js-native-api/common.h"
@@ -67,10 +67,15 @@ struct NapiTestContext;
 struct NapiTestErrorHandler;
 struct NapiTestException;
 
+struct IEnvHolder {
+  virtual ~IEnvHolder() {}
+  virtual napi_env getEnv() = 0;
+};
+
 // Use for test parameterization.
 struct NapiTestData {
   std::string TestJSPath;
-  std::function<napi_env()> EnvFactory;
+  std::function<std::unique_ptr<IEnvHolder>()> EnvHolderFactory;
 };
 
 std::vector<NapiTestData> NapiEnvFactories();
@@ -183,16 +188,19 @@ struct NapiHandleScope {
 
 struct NapiEnvScope {
   NapiEnvScope(napi_env env) noexcept : m_env{env} {
-    CRASH_IF_FALSE(napi_ext_open_env_scope(env, &m_scope) == napi_ok);
+    CRASH_IF_FALSE(jsr_open_napi_env_scope(env, &m_scope) == napi_ok);
   }
 
   ~NapiEnvScope() noexcept {
-    CRASH_IF_FALSE(napi_ext_close_env_scope(m_env, m_scope) == napi_ok);
+    CRASH_IF_FALSE(jsr_close_napi_env_scope(m_env, m_scope) == napi_ok);
   }
+
+  NapiEnvScope(const NapiEnvScope &) = delete;
+  NapiEnvScope &operator=(const NapiEnvScope &) = delete;
 
  private:
   napi_env m_env{};
-  napi_ext_env_scope m_scope{};
+  jsr_napi_env_scope m_scope{};
 };
 
 // The context to run a NAPI test.

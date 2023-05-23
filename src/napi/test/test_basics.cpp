@@ -71,7 +71,7 @@ TEST_P(NapiTest, test_basics_RunScript) {
     ASSERT_EQ(napi_ok, napi_create_string_utf8(env, "myVar = \"Hello\"", NAPI_AUTO_LENGTH, &script));
 
     napi_value scriptResult;
-    ASSERT_EQ(napi_ok, napi_ext_run_script(env, script, nullptr, &scriptResult));
+    ASSERT_EQ(napi_ok, jsr_run_script(env, script, nullptr, &scriptResult));
 
     napi_value global;
     ASSERT_EQ(napi_ok, napi_get_global(env, &global));
@@ -204,7 +204,7 @@ TEST_P(NapiTest, test_basics_CreateSymbolByScript) {
     ASSERT_EQ(napi_ok, napi_create_string_utf8(env, "sym1 = Symbol('Hello')", NAPI_AUTO_LENGTH, &script));
 
     napi_value scriptResult;
-    ASSERT_EQ(napi_ok, napi_ext_run_script(env, script, nullptr, &scriptResult));
+    ASSERT_EQ(napi_ok, jsr_run_script(env, script, nullptr, &scriptResult));
 
     napi_value global;
     ASSERT_EQ(napi_ok, napi_get_global(env, &global));
@@ -352,7 +352,7 @@ TEST_P(NapiTest, test_basics_ExternalValue4Test) {
 
     ASSERT_FALSE(finalizeRan);
     ASSERT_EQ(napi_ok, napi_close_handle_scope(env, scope));
-    ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+    ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_TRUE(finalizeRan);
   });
 }
@@ -382,7 +382,7 @@ TEST_P(NapiTest, test_basics_ExternalValue5Test) {
       ASSERT_FALSE(finalizeRan);
       ASSERT_EQ(napi_ok, napi_close_handle_scope(env, scope));
     }
-    ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+    ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_FALSE(finalizeRan);
   });
 }
@@ -438,7 +438,7 @@ TEST_P(NapiTest, test_basics_NewInstanceTest) {
     ASSERT_EQ(napi_ok, napi_create_string_utf8(env, "function MyClass() { this.x = 42; }", NAPI_AUTO_LENGTH, &script));
 
     napi_value scriptResult;
-    ASSERT_EQ(napi_ok, napi_ext_run_script(env, script, nullptr, &scriptResult));
+    ASSERT_EQ(napi_ok, jsr_run_script(env, script, nullptr, &scriptResult));
 
     napi_value global;
     ASSERT_EQ(napi_ok, napi_get_global(env, &global));
@@ -541,7 +541,7 @@ TEST_P(NapiTest, test_basics_Finalizer) {
       ASSERT_FALSE(finalizeRan);
       ASSERT_EQ(napi_ok, napi_close_handle_scope(env, scope));
     }
-    ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+    ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_TRUE(finalizeRan);
   });
 }
@@ -569,7 +569,7 @@ TEST_P(NapiTest, test_basics_Wrap) {
       ASSERT_FALSE(finalizeRan);
       ASSERT_EQ(napi_ok, napi_close_handle_scope(env, scope));
     }
-    ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+    ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_TRUE(finalizeRan);
   });
 }
@@ -611,12 +611,12 @@ TEST_P(NapiTest, test_basics_Wrap2) {
       ASSERT_FALSE(finalizeRan);
 
       // The object is kept alive by the active handle scope.
-      ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+      ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
       ASSERT_FALSE(finalizeRan);
 
       ASSERT_EQ(napi_ok, napi_close_handle_scope(env, scope));
     }
-    ASSERT_EQ(napi_ok, napi_ext_collect_garbage(env));
+    ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_TRUE(finalizeRan);
   });
 }
