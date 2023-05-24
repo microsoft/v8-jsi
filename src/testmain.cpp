@@ -102,7 +102,7 @@ TEST(Basic, MultiThreadIsolateNApi) {
   napi_env env{};
   v8Api->jsr_create_config(&config);
   v8Api->jsr_config_enable_gc_api(config, true);
-  v8Api->jsr_config_enable_multithreading(config, true);
+  v8Api->v8_config_enable_multithreading(config, true);
   v8Api->jsr_create_runtime(config, &runtime);
   v8Api->jsr_delete_config(config);
   v8Api->jsr_runtime_get_node_api_env(runtime, &env);

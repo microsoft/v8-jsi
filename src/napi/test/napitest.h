@@ -192,7 +192,21 @@ struct NapiEnvScope {
   }
 
   ~NapiEnvScope() noexcept {
-    CRASH_IF_FALSE(jsr_close_napi_env_scope(m_env, m_scope) == napi_ok);
+    if (m_env != nullptr) {
+      CRASH_IF_FALSE(jsr_close_napi_env_scope(m_env, m_scope) == napi_ok);
+    }
+  }
+
+  NapiEnvScope(NapiEnvScope &&other)
+      : m_env(std::exchange(other.m_env, nullptr)), m_scope(std::exchange(other.m_scope, nullptr)) {}
+
+  NapiEnvScope &operator=(NapiEnvScope &&other) {
+    if (this != &other) {
+      NapiEnvScope temp(std::move(*this));
+      m_env = std::exchange(other.m_env, nullptr);
+      m_scope = std::exchange(other.m_scope, nullptr);
+    }
+    return *this;
   }
 
   NapiEnvScope(const NapiEnvScope &) = delete;

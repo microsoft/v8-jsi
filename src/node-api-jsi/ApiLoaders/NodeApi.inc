@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #ifndef NODE_API_FUNC
-#define NODE_API_FUNC(func) 
+#define NODE_API_FUNC(func)
 #endif
 
 // The Node-API functions sorted alphabetically.

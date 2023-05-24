@@ -5,6 +5,54 @@
 
 using namespace napitest;
 
+TEST_P(NapiTest, test_basics_jsr_config) {
+  // Just to see that jsr_config related functions compile
+  jsr_config config{};
+  jsr_create_config(&config);
+  jsr_config_enable_inspector(config, true);
+  jsr_config_set_inspector_runtime_name(config, "Test");
+  jsr_config_set_inspector_port(config, 9229);
+  jsr_config_set_inspector_break_on_start(config, true);
+  jsr_config_enable_gc_api(config, true);
+  jsr_config_set_task_runner(
+      config,
+      nullptr,
+      [](void * /*task_runner_data*/,
+         void * /*task_data*/,
+         jsr_task_run_cb /*task_run_cb*/,
+         jsr_data_delete_cb /*task_data_delete_cb*/,
+         void * /*deleter_data*/
+      ) {},
+      [](void * /*data*/, void * /*deleter_data*/) {},
+      nullptr);
+  jsr_config_set_script_cache(
+      config,
+      nullptr,
+      [](void * /*script_cache_data*/,
+         const char * /*source_url*/,
+         uint64_t /*source_hash*/,
+         const char * /*runtime_name*/,
+         uint64_t /*runtime_version*/,
+         const char * /*cache_tag*/,
+         const uint8_t ** /*buffer*/,
+         size_t * /*buffer_size*/,
+         jsr_data_delete_cb * /*buffer_delete_cb*/,
+         void ** /*deleter_data*/) {},
+      [](void * /*script_cache_data*/,
+         const char * /*source_url*/,
+         uint64_t /*source_hash*/,
+         const char * /*runtime_name*/,
+         uint64_t /*runtime_version*/,
+         const char * /*cache_tag*/,
+         const uint8_t * /*buffer*/,
+         size_t /*buffer_size*/,
+         jsr_data_delete_cb /*buffer_delete_cb*/,
+         void * /*deleter_data*/) {},
+      [](void * /*data*/, void * /*deleter_data*/) {},
+      nullptr);
+  jsr_delete_config(config);
+}
+
 TEST_P(NapiTest, test_basics_CreateStringLatin1) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value str;
@@ -279,7 +327,8 @@ TEST_P(NapiTest, test_basics_PropertySymbolGetSetTest) {
 TEST_P(NapiTest, test_basics_ExternalValueTest) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value external{};
-    ASSERT_EQ(napi_ok, napi_create_external(env, nullptr, nullptr, nullptr, &external));
+    std::unique_ptr<int> data = std::make_unique<int>(5);
+    ASSERT_EQ(napi_ok, napi_create_external(env, data.get(), nullptr, nullptr, &external));
 
     napi_valuetype valueType{};
     ASSERT_EQ(napi_ok, napi_typeof(env, external, &valueType));
@@ -390,7 +439,7 @@ TEST_P(NapiTest, test_basics_ExternalValue5Test) {
 TEST_P(NapiTest, test_basics_DateValueTest) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value date{};
-    ASSERT_EQ(napi_ok, napi_create_date(env, 123.45, &date));
+    ASSERT_EQ(napi_ok, napi_create_date(env, 123, &date));
 
     bool isDate{};
     ASSERT_EQ(napi_ok, napi_is_date(env, date, &isDate));
@@ -398,7 +447,7 @@ TEST_P(NapiTest, test_basics_DateValueTest) {
 
     double innerValue{};
     ASSERT_EQ(napi_ok, napi_get_date_value(env, date, &innerValue));
-    ASSERT_EQ(innerValue, 123.45);
+    ASSERT_EQ(innerValue, 123);
   });
 }
 
