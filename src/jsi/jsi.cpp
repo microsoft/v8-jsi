@@ -32,8 +32,10 @@ std::string kindToString(const Value& v, Runtime* rt = nullptr) {
     return "a string";
   } else if (v.isSymbol()) {
     return "a symbol";
+#if JSI_VERSION >= 6
   } else if (v.isBigInt()) {
     return "a bigint";
+#endif
   } else {
     assert(v.isObject() && "Expecting object.");
     return rt != nullptr && v.getObject(*rt).isFunction(*rt) ? "a function"
@@ -66,7 +68,9 @@ Value callGlobalFunction(Runtime& runtime, const char* name, const Value& arg) {
 
 Buffer::~Buffer() = default;
 
+#if JSI_VERSION >= 9
 MutableBuffer::~MutableBuffer() = default;
+#endif
 
 PreparedJavaScript::~PreparedJavaScript() = default;
 
@@ -83,7 +87,9 @@ void HostObject::set(Runtime& rt, const PropNameID& name, const Value&) {
 
 HostObject::~HostObject() {}
 
+#if JSI_VERSION >= 7
 NativeState::~NativeState() {}
+#endif
 
 Runtime::~Runtime() {}
 
@@ -136,12 +142,24 @@ Instrumentation& Runtime::instrumentation() {
   return sharedInstance;
 }
 
+#if JSI_VERSION >= 2
 Value Runtime::createValueFromJsonUtf8(const uint8_t* json, size_t length) {
   Function parseJson = global()
                            .getPropertyAsObject(*this, "JSON")
                            .getPropertyAsFunction(*this, "parse");
   return parseJson.call(*this, String::createFromUtf8(*this, json, length));
 }
+#else
+Value Value::createFromJsonUtf8(
+    Runtime& runtime,
+    const uint8_t* json,
+    size_t length) {
+  Function parseJson = runtime.global()
+                           .getPropertyAsObject(runtime, "JSON")
+                           .getPropertyAsFunction(runtime, "parse");
+  return parseJson.call(runtime, String::createFromUtf8(runtime, json, length));
+}
+#endif
 
 Pointer& Pointer::operator=(Pointer&& other) {
   if (ptr_) {
@@ -240,8 +258,10 @@ Value::Value(Runtime& runtime, const Value& other) : Value(other.kind_) {
     data_.number = other.data_.number;
   } else if (kind_ == SymbolKind) {
     new (&data_.pointer) Pointer(runtime.cloneSymbol(other.data_.pointer.ptr_));
+#if JSI_VERSION >= 6
   } else if (kind_ == BigIntKind) {
     new (&data_.pointer) Pointer(runtime.cloneBigInt(other.data_.pointer.ptr_));
+#endif
   } else if (kind_ == StringKind) {
     new (&data_.pointer) Pointer(runtime.cloneString(other.data_.pointer.ptr_));
   } else if (kind_ >= ObjectKind) {
@@ -271,10 +291,12 @@ bool Value::strictEquals(Runtime& runtime, const Value& a, const Value& b) {
       return runtime.strictEquals(
           static_cast<const Symbol&>(a.data_.pointer),
           static_cast<const Symbol&>(b.data_.pointer));
+#if JSI_VERSION >= 6
     case BigIntKind:
       return runtime.strictEquals(
           static_cast<const BigInt&>(a.data_.pointer),
           static_cast<const BigInt&>(b.data_.pointer));
+#endif
     case StringKind:
       return runtime.strictEquals(
           static_cast<const String&>(a.data_.pointer),
@@ -342,6 +364,7 @@ Symbol Value::asSymbol(Runtime& rt) && {
   return std::move(*this).getSymbol(rt);
 }
 
+#if JSI_VERSION >= 6
 BigInt Value::asBigInt(Runtime& rt) const& {
   if (!isBigInt()) {
     throw JSError(
@@ -359,6 +382,7 @@ BigInt Value::asBigInt(Runtime& rt) && {
 
   return std::move(*this).getBigInt(rt);
 }
+#endif
 
 String Value::asString(Runtime& rt) const& {
   if (!isString()) {
@@ -383,6 +407,7 @@ String Value::toString(Runtime& runtime) const {
   return toString.call(runtime, *this).getString(runtime);
 }
 
+#if JSI_VERSION >= 8
 uint64_t BigInt::asUint64(Runtime& runtime) const {
   if (!isUint64(runtime)) {
     throw JSError(runtime, "Lossy truncation in BigInt64::asUint64");
@@ -396,6 +421,7 @@ int64_t BigInt::asInt64(Runtime& runtime) const {
   }
   return getInt64(runtime);
 }
+#endif
 
 Array Array::createWithElements(
     Runtime& rt,
@@ -427,11 +453,9 @@ JSError::JSError(Runtime& rt, std::string msg) : message_(std::move(msg)) {
     setValue(
         rt,
         callGlobalFunction(rt, "Error", String::createFromUtf8(rt, message_)));
-  } catch (const std::exception& ex) {
+  } catch (const JSIException& ex) {
     message_ = std::string(ex.what()) + " (while raising " + message_ + ")";
     setValue(rt, String::createFromUtf8(rt, message_));
-  } catch (...) {
-    setValue(rt, Value());
   }
 }
 
@@ -442,10 +466,8 @@ JSError::JSError(Runtime& rt, std::string msg, std::string stack)
     e.setProperty(rt, "message", String::createFromUtf8(rt, message_));
     e.setProperty(rt, "stack", String::createFromUtf8(rt, stack_));
     setValue(rt, std::move(e));
-  } catch (const std::exception& ex) {
+  } catch (const JSIException& ex) {
     setValue(rt, String::createFromUtf8(rt, ex.what()));
-  } catch (...) {
-    setValue(rt, Value());
   }
 }
 
@@ -457,74 +479,68 @@ JSError::JSError(std::string what, Runtime& rt, Value&& value)
 void JSError::setValue(Runtime& rt, Value&& value) {
   value_ = std::make_shared<Value>(std::move(value));
 
-  try {
-    if ((message_.empty() || stack_.empty()) && value_->isObject()) {
-      auto obj = value_->getObject(rt);
-
-      if (message_.empty()) {
-        try {
-          Value message = obj.getProperty(rt, "message");
-          if (!message.isUndefined() && !message.isString()) {
-            message = callGlobalFunction(rt, "String", message);
-          }
-          if (message.isString()) {
-            message_ = message.getString(rt).utf8(rt);
-          } else if (!message.isUndefined()) {
-            message_ = "String(e.message) is a " + kindToString(message, &rt);
-          }
-        } catch (const std::exception& ex) {
-          message_ = std::string("[Exception while creating message string: ") +
-              ex.what() + "]";
-        }
-      }
-
-      if (stack_.empty()) {
-        try {
-          Value stack = obj.getProperty(rt, "stack");
-          if (!stack.isUndefined() && !stack.isString()) {
-            stack = callGlobalFunction(rt, "String", stack);
-          }
-          if (stack.isString()) {
-            stack_ = stack.getString(rt).utf8(rt);
-          } else if (!stack.isUndefined()) {
-            stack_ = "String(e.stack) is a " + kindToString(stack, &rt);
-          }
-        } catch (const std::exception& ex) {
-          message_ = std::string("[Exception while creating stack string: ") +
-              ex.what() + "]";
-        }
-      }
-    }
+  if ((message_.empty() || stack_.empty()) && value_->isObject()) {
+    auto obj = value_->getObject(rt);
 
     if (message_.empty()) {
       try {
-        if (value_->isString()) {
-          message_ = value_->getString(rt).utf8(rt);
-        } else {
-          Value message = callGlobalFunction(rt, "String", *value_);
-          if (message.isString()) {
-            message_ = message.getString(rt).utf8(rt);
-          } else {
-            message_ = "String(e) is a " + kindToString(message, &rt);
-          }
+        Value message = obj.getProperty(rt, "message");
+        if (!message.isUndefined() && !message.isString()) {
+          message = callGlobalFunction(rt, "String", message);
         }
-      } catch (const std::exception& ex) {
+        if (message.isString()) {
+          message_ = message.getString(rt).utf8(rt);
+        } else if (!message.isUndefined()) {
+          message_ = "String(e.message) is a " + kindToString(message, &rt);
+        }
+      } catch (const JSIException& ex) {
         message_ = std::string("[Exception while creating message string: ") +
             ex.what() + "]";
       }
     }
 
     if (stack_.empty()) {
-      stack_ = "no stack";
+      try {
+        Value stack = obj.getProperty(rt, "stack");
+        if (!stack.isUndefined() && !stack.isString()) {
+          stack = callGlobalFunction(rt, "String", stack);
+        }
+        if (stack.isString()) {
+          stack_ = stack.getString(rt).utf8(rt);
+        } else if (!stack.isUndefined()) {
+          stack_ = "String(e.stack) is a " + kindToString(stack, &rt);
+        }
+      } catch (const JSIException& ex) {
+        message_ = std::string("[Exception while creating stack string: ") +
+            ex.what() + "]";
+      }
     }
+  }
 
-    if (what_.empty()) {
-      what_ = message_ + "\n\n" + stack_;
+  if (message_.empty()) {
+    try {
+      if (value_->isString()) {
+        message_ = value_->getString(rt).utf8(rt);
+      } else {
+        Value message = callGlobalFunction(rt, "String", *value_);
+        if (message.isString()) {
+          message_ = message.getString(rt).utf8(rt);
+        } else {
+          message_ = "String(e) is a " + kindToString(message, &rt);
+        }
+      }
+    } catch (const JSIException& ex) {
+      message_ = std::string("[Exception while creating message string: ") +
+          ex.what() + "]";
     }
-  } catch (...) {
-    message_ = "[Exception caught creating message string]";
-    stack_ = "[Exception caught creating stack string]";
-    what_ = "[Exception caught getting value fields]";
+  }
+
+  if (stack_.empty()) {
+    stack_ = "no stack";
+  }
+
+  if (what_.empty()) {
+    what_ = message_ + "\n\n" + stack_;
   }
 }
 

@@ -139,8 +139,10 @@ void dynamicFromValueShallow(
       output = folly::dynamic::object();
     }
     stack.emplace_back(&output, std::move(obj));
+#if JSI_VERSION >= 8
   } else if (value.isBigInt()) {
     throw JSError(runtime, "JS BigInts are not convertible to dynamic");
+#endif
   } else if (value.isSymbol()) {
     throw JSError(runtime, "JS Symbols are not convertible to dynamic");
   } else {

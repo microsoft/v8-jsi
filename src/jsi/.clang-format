@@ -1,0 +1,5 @@
+---
+BasedOnStyle: InheritParentConfig
+PointerAlignment: Left
+ColumnLimit:      80
+...

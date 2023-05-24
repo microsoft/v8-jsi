@@ -18,14 +18,14 @@ target("shared_library", "v8jsi") {
     "napi/js_native_api_v8_internals.h",
     "napi/js_native_api_v8.cc",
     "napi/js_native_api_v8.h",
-    "napi/js_native_ext_api_v8.cpp",
     "napi/util-inl.h",
+    "napi/v8_api.cpp",
+    "node-api/js_native_api_types.h",
+    "node-api/js_native_api.h",
+    "node-api/js_runtime_api.h",
     "public/compat.h",
-    "public/js_native_api_types.h",
-    "public/js_native_api.h",
-    "public/js_native_ext_api.h",
-    "public/NapiJsiRuntime.cpp",
     "public/ScriptStore.h",
+    "public/v8_api.h",
     "public/V8JsiRuntime.h",
     "V8JsiRuntime_impl.h",
     "V8JsiRuntime.cpp",
@@ -70,7 +70,7 @@ target("shared_library", "v8jsi") {
     ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ] 
   }
 
-  include_dirs = [ ".", "../include", "jsi", "public", getenv("ASIO_ROOT") ]
+  include_dirs = [ ".", "../include", "jsi", "node-api", "public", getenv("ASIO_ROOT") ]
 
   configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions" ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
@@ -169,10 +169,10 @@ target("executable", "jsitests") {
 
   if (is_win) {
     # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
-    cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+    cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC", "-DJSI_V8_IMPL" ]
   }
 
-  include_dirs = [ ".", "jsi", "napi", "napi/test", "public" ]
+  include_dirs = [ ".", "jsi", "napi", "napi/test", "node-api", "public" ]
 
   sources = [
     "jsi/decorator.h",
@@ -185,6 +185,7 @@ target("executable", "jsitests") {
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
+    "jsi/test/testlib_ext.cpp",
     "jsi/test/testlib.cpp",
     "napi/test/napitest_v8.cpp",
     "napi/test/napitest.cpp",
@@ -220,9 +221,20 @@ target("executable", "jsitests") {
     "napi/test/test_string.cpp",
     "napi/test/test_symbol.cpp",
     "napi/test/test_typedarray.cpp",
+    "node-api/js_native_api_types.h",
+    "node-api/js_native_api.h",
+    "node-api/js_runtime_api.h",
+    "node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
+    "node-api-jsi/ApiLoaders/JSRuntimeApi.h",
+    "node-api-jsi/ApiLoaders/NodeApi_win.cpp",
+    "node-api-jsi/ApiLoaders/NodeApi.cpp",
+    "node-api-jsi/ApiLoaders/NodeApi.h",
+    "node-api-jsi/ApiLoaders/V8Api.cpp",
+    "node-api-jsi/ApiLoaders/V8Api.h",
+    "node-api-jsi/NodeApiJsiRuntime.cpp",
+    "node-api-jsi/NodeApiJsiRuntime.h",
     "public/compat.h",
-    "public/NapiJsiRuntime.cpp",
-    "public/NapiJsiRuntime.h",
+    "public/v8_api.h",
     "testmain.cpp"
   ]
 }

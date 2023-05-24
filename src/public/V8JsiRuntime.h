@@ -41,7 +41,7 @@ struct V8RuntimeArgs {
   // This is only used by the debugger: inspector needs to wake up the js thread for message dispatching
   // It cannot be done in an asynchronous lambda because V8Inspector internally uses "main thread" handles
   std::shared_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
-  std::unique_ptr<facebook::jsi::PreparedScriptStore> preparedScriptStore;
+  std::shared_ptr<facebook::jsi::PreparedScriptStore> preparedScriptStore;
 
   // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to
   // the runtime.
