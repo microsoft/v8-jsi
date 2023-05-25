@@ -27,8 +27,6 @@ variables:
     value: $(pat-symbols-publish-microsoft)
   - name: tags
     value: production,externalfacing
-  - name: Packaging.EnableSBOMSigning
-    value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
 
 jobs:
   - template: windows-jobs.yml
