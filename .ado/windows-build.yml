@@ -7,10 +7,6 @@ parameters:
 - name: outputPath
   type: string
 
-variables:
-  # SBOM signing only works on microsoft ADO
-  Packaging.EnableSBOMSigning: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
-
 steps:
   - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
