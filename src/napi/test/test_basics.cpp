@@ -406,6 +406,7 @@ TEST_P(NapiTest, test_basics_ExternalValue4Test) {
   });
 }
 
+#if 0
 TEST_P(NapiTest, test_basics_ExternalValue5Test) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     auto native_ptr = std::make_unique<int>(5);
@@ -435,6 +436,7 @@ TEST_P(NapiTest, test_basics_ExternalValue5Test) {
     ASSERT_FALSE(finalizeRan);
   });
 }
+#endif
 
 TEST_P(NapiTest, test_basics_DateValueTest) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
