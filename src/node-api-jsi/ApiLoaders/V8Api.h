@@ -41,6 +41,10 @@ class V8Api : public JSRuntimeApi {
     V8Api *prevV8Api_;
   };
 
+ public:
+#define V8_FUNC(func) decltype(::func) *const func;
+#include "V8Api.inc"
+
  private:
   static thread_local V8Api *current_;
 };

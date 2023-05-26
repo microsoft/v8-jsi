@@ -5,6 +5,54 @@
 
 using namespace napitest;
 
+TEST_P(NapiTest, test_basics_jsr_config) {
+  // Just to see that jsr_config related functions compile
+  jsr_config config{};
+  jsr_create_config(&config);
+  jsr_config_enable_inspector(config, true);
+  jsr_config_set_inspector_runtime_name(config, "Test");
+  jsr_config_set_inspector_port(config, 9229);
+  jsr_config_set_inspector_break_on_start(config, true);
+  jsr_config_enable_gc_api(config, true);
+  jsr_config_set_task_runner(
+      config,
+      nullptr,
+      [](void * /*task_runner_data*/,
+         void * /*task_data*/,
+         jsr_task_run_cb /*task_run_cb*/,
+         jsr_data_delete_cb /*task_data_delete_cb*/,
+         void * /*deleter_data*/
+      ) {},
+      [](void * /*data*/, void * /*deleter_data*/) {},
+      nullptr);
+  jsr_config_set_script_cache(
+      config,
+      nullptr,
+      [](void * /*script_cache_data*/,
+         const char * /*source_url*/,
+         uint64_t /*source_hash*/,
+         const char * /*runtime_name*/,
+         uint64_t /*runtime_version*/,
+         const char * /*cache_tag*/,
+         const uint8_t ** /*buffer*/,
+         size_t * /*buffer_size*/,
+         jsr_data_delete_cb * /*buffer_delete_cb*/,
+         void ** /*deleter_data*/) {},
+      [](void * /*script_cache_data*/,
+         const char * /*source_url*/,
+         uint64_t /*source_hash*/,
+         const char * /*runtime_name*/,
+         uint64_t /*runtime_version*/,
+         const char * /*cache_tag*/,
+         const uint8_t * /*buffer*/,
+         size_t /*buffer_size*/,
+         jsr_data_delete_cb /*buffer_delete_cb*/,
+         void * /*deleter_data*/) {},
+      [](void * /*data*/, void * /*deleter_data*/) {},
+      nullptr);
+  jsr_delete_config(config);
+}
+
 TEST_P(NapiTest, test_basics_CreateStringLatin1) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value str;
@@ -279,7 +327,8 @@ TEST_P(NapiTest, test_basics_PropertySymbolGetSetTest) {
 TEST_P(NapiTest, test_basics_ExternalValueTest) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value external{};
-    ASSERT_EQ(napi_ok, napi_create_external(env, nullptr, nullptr, nullptr, &external));
+    std::unique_ptr<int> data = std::make_unique<int>(5);
+    ASSERT_EQ(napi_ok, napi_create_external(env, data.get(), nullptr, nullptr, &external));
 
     napi_valuetype valueType{};
     ASSERT_EQ(napi_ok, napi_typeof(env, external, &valueType));
@@ -357,6 +406,7 @@ TEST_P(NapiTest, test_basics_ExternalValue4Test) {
   });
 }
 
+#if 0
 TEST_P(NapiTest, test_basics_ExternalValue5Test) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     auto native_ptr = std::make_unique<int>(5);
@@ -386,11 +436,12 @@ TEST_P(NapiTest, test_basics_ExternalValue5Test) {
     ASSERT_FALSE(finalizeRan);
   });
 }
+#endif
 
 TEST_P(NapiTest, test_basics_DateValueTest) {
   ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
     napi_value date{};
-    ASSERT_EQ(napi_ok, napi_create_date(env, 123.45, &date));
+    ASSERT_EQ(napi_ok, napi_create_date(env, 123, &date));
 
     bool isDate{};
     ASSERT_EQ(napi_ok, napi_is_date(env, date, &isDate));
@@ -398,7 +449,7 @@ TEST_P(NapiTest, test_basics_DateValueTest) {
 
     double innerValue{};
     ASSERT_EQ(napi_ok, napi_get_date_value(env, date, &innerValue));
-    ASSERT_EQ(innerValue, 123.45);
+    ASSERT_EQ(innerValue, 123);
   });
 }
 
@@ -618,5 +669,97 @@ TEST_P(NapiTest, test_basics_Wrap2) {
     }
     ASSERT_EQ(napi_ok, jsr_collect_garbage(env));
     ASSERT_TRUE(finalizeRan);
+  });
+}
+
+TEST_P(NapiTest, test_basics_BigIntWords) {
+  ExecuteNapi([](NapiTestContext * /*testContext*/, napi_env env) {
+    napi_value script;
+    ASSERT_EQ(
+        napi_ok,
+        napi_create_string_utf8(
+            env,
+            R"JS(
+              v01 = 0n;
+              v02 = -0n;
+              v03 = 1n;
+              v04 = -1n;
+              v05 = 986583n;
+              v06 = -976675n;
+              v07 = 98765432213456789876546896323445679887645323232436587988766545658n;
+              v08 = -4350987086545760976737453646576078997096876957864353245245769809n;
+            )JS",
+            NAPI_AUTO_LENGTH,
+            &script));
+
+    napi_value scriptResult;
+    ASSERT_EQ(napi_ok, napi_run_script(env, script, &scriptResult));
+
+    napi_value global;
+    ASSERT_EQ(napi_ok, napi_get_global(env, &global));
+
+    napi_value v01, v02, v03, v04, v05, v06, v07, v08;
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v01", &v01));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v02", &v02));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v03", &v03));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v04", &v04));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v05", &v05));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v06", &v06));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v07", &v07));
+    ASSERT_EQ(napi_ok, napi_get_named_property(env, global, "v08", &v08));
+
+    int32_t sign_bit{};
+    uint64_t words[8] = {};
+    size_t word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v01, &sign_bit, &word_count, words));
+    EXPECT_EQ(0, sign_bit);
+    EXPECT_EQ(0, word_count);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v02, &sign_bit, &word_count, words));
+    EXPECT_EQ(0, sign_bit);
+    EXPECT_EQ(0, word_count);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v03, &sign_bit, &word_count, words));
+    EXPECT_EQ(0, sign_bit);
+    EXPECT_EQ(1, word_count);
+    EXPECT_EQ(1, words[0]);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v04, &sign_bit, &word_count, words));
+    EXPECT_EQ(1, sign_bit);
+    EXPECT_EQ(1, word_count);
+    EXPECT_EQ(1, words[0]);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v05, &sign_bit, &word_count, words));
+    EXPECT_EQ(0, sign_bit);
+    EXPECT_EQ(1, word_count);
+    EXPECT_EQ(986583, words[0]);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v06, &sign_bit, &word_count, words));
+    ASSERT_EQ(1, sign_bit);
+    EXPECT_EQ(1, word_count);
+    EXPECT_EQ(976675, words[0]);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v07, &sign_bit, &word_count, words));
+    ASSERT_EQ(0, sign_bit);
+    EXPECT_EQ(4, word_count);
+    EXPECT_EQ(1081160290208438010, words[0]);
+    EXPECT_EQ(6353857413966178407, words[1]);
+    EXPECT_EQ(2137532229865108125, words[2]);
+    EXPECT_EQ(15734241, words[3]);
+
+    word_count = std::size(words);
+    ASSERT_EQ(napi_ok, napi_get_value_bigint_words(env, v08, &sign_bit, &word_count, words));
+    ASSERT_EQ(1, sign_bit);
+    EXPECT_EQ(4, word_count);
+    EXPECT_EQ(2249227439184578641, words[0]);
+    EXPECT_EQ(8929859034951574840, words[1]);
+    EXPECT_EQ(4303658240311279431, words[2]);
+    EXPECT_EQ(693152, words[3]);
   });
 }

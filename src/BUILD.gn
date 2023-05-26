@@ -199,6 +199,7 @@ target("executable", "jsitests") {
     "napi/test/test_8_passing_wrapped.cpp",
     "napi/test/test_array.cpp",
     "napi/test/test_assert.cpp",
+    "napi/test/test_basics.cpp",
     "napi/test/test_bigint.cpp",
     "napi/test/test_constructor.cpp",
     "napi/test/test_conversions.cpp",

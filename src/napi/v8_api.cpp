@@ -44,7 +44,7 @@
   ((config) == nullptr) ? napi_generic_failure : reinterpret_cast<v8impl::ConfigWrapper *>(config)
 
 #define V8_CHECK_ARG(arg)        \
-  if ((arg) == nullptr) {          \
+  if ((arg) == nullptr) {        \
     return napi_generic_failure; \
   }
 
@@ -185,7 +185,6 @@ class V8RuntimeEnv : public v8runtime::V8Runtime, public napi_env__ {
   napi_status runScript(napi_value source, const char *source_url, napi_value *result) {
     NAPI_PREAMBLE(env);
     CHECK_ARG(env, source);
-    CHECK_ARG(env, source_url);
     CHECK_ARG(env, result);
 
     v8::Local<v8::Value> v8_source = v8impl::V8LocalValueFromJsValue(source);
@@ -196,7 +195,9 @@ class V8RuntimeEnv : public v8runtime::V8Runtime, public napi_env__ {
 
     v8::Local<v8::Context> context = env->context();
 
-    v8::Local<v8::String> urlV8String = v8::String::NewFromUtf8(context->GetIsolate(), source_url).ToLocalChecked();
+    const char *checked_source_url = source_url ? source_url : "";
+    v8::Local<v8::String> urlV8String =
+        v8::String::NewFromUtf8(context->GetIsolate(), checked_source_url).ToLocalChecked();
     v8::ScriptOrigin origin(context->GetIsolate(), urlV8String);
 
     auto maybe_script = v8::Script::Compile(context, v8::Local<v8::String>::Cast(v8_source), &origin);
@@ -385,8 +386,8 @@ class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
 
 class ConfigWrapper {
  public:
-  napi_status enableDebugger(bool value) {
-    enableDebugger_ = value;
+  napi_status enableInspector(bool value) {
+    enableInspector_ = value;
     return napi_ok;
   }
 
@@ -400,18 +401,18 @@ class ConfigWrapper {
     return napi_ok;
   }
 
-  napi_status setDebuggerRuntimeName(std::string name) {
-    debuggerRuntimeName_ = std::move(name);
+  napi_status setInspectorRuntimeName(std::string name) {
+    inspectorRuntimeName_ = std::move(name);
     return napi_ok;
   }
 
-  napi_status setDebuggerPort(uint16_t port) {
-    debuggerPort_ = port;
+  napi_status setInspectorPort(uint16_t port) {
+    inspectorPort_ = port;
     return napi_ok;
   }
 
-  napi_status setDebuggerBreakOnStart(bool value) {
-    debuggerBreakOnStart_ = value;
+  napi_status setInspectorBreakOnStart(bool value) {
+    inspectorBreakOnStart_ = value;
     return napi_ok;
   }
 
@@ -431,8 +432,8 @@ class ConfigWrapper {
     args.flags.enableJitTracing = false;
     args.flags.enableMessageTracing = false;
     args.flags.enableGCTracing = false;
-    args.flags.enableInspector = enableDebugger_;
-    args.flags.waitForDebugger = debuggerBreakOnStart_;
+    args.flags.enableInspector = enableInspector_;
+    args.flags.waitForDebugger = inspectorBreakOnStart_;
     args.flags.enableGCApi = enableGCApi_;
     args.flags.ignoreUnhandledPromises = false;
     args.flags.enableSystemInstrumentation = false;
@@ -445,8 +446,8 @@ class ConfigWrapper {
     args.flags.thread_pool_size = 0;
     args.flags.enableMultiThread = enableMultithreading_;
 
-    args.inspectorPort = debuggerPort_;
-    args.debuggerRuntimeName = debuggerRuntimeName_;
+    args.inspectorPort = inspectorPort_;
+    args.debuggerRuntimeName = inspectorRuntimeName_;
 
     args.foreground_task_runner = taskRunner_;
 
@@ -458,12 +459,12 @@ class ConfigWrapper {
   }
 
  private:
-  bool enableDebugger_{};
+  bool enableInspector_{};
   bool enableMultithreading_{};
   bool enableGCApi_{};
-  std::string debuggerRuntimeName_;
-  uint16_t debuggerPort_{};
-  bool debuggerBreakOnStart_{};
+  std::string inspectorRuntimeName_;
+  uint16_t inspectorPort_{};
+  bool inspectorBreakOnStart_{};
   std::shared_ptr<V8TaskRunner> taskRunner_;
   std::shared_ptr<V8ScriptCache> scriptCache_;
 };
@@ -587,28 +588,28 @@ JSR_API jsr_delete_config(jsr_config config) {
   return napi_ok;
 }
 
-JSR_API jsr_config_enable_debugger(jsr_config config, bool value) {
-  return CHECKED_CONFIG(config)->enableDebugger(value);
+JSR_API jsr_config_enable_inspector(jsr_config config, bool value) {
+  return CHECKED_CONFIG(config)->enableInspector(value);
 }
 
 JSR_API jsr_config_enable_gc_api(jsr_config config, bool value) {
   return CHECKED_CONFIG(config)->enableGCApi(value);
 }
 
-JSR_API jsr_config_enable_multithreading(jsr_config config, bool value) {
+JSR_API v8_config_enable_multithreading(jsr_config config, bool value) {
   return CHECKED_CONFIG(config)->enableMultithreading(value);
 }
 
-JSR_API jsr_config_set_debugger_runtime_name(jsr_config config, const char *name) {
-  return CHECKED_CONFIG(config)->setDebuggerRuntimeName(name);
+JSR_API jsr_config_set_inspector_runtime_name(jsr_config config, const char *name) {
+  return CHECKED_CONFIG(config)->setInspectorRuntimeName(name);
 }
 
-JSR_API jsr_config_set_debugger_port(jsr_config config, uint16_t port) {
-  return CHECKED_CONFIG(config)->setDebuggerPort(port);
+JSR_API jsr_config_set_inspector_port(jsr_config config, uint16_t port) {
+  return CHECKED_CONFIG(config)->setInspectorPort(port);
 }
 
-JSR_API jsr_config_set_debugger_break_on_start(jsr_config config, bool value) {
-  return CHECKED_CONFIG(config)->setDebuggerBreakOnStart(value);
+JSR_API jsr_config_set_inspector_break_on_start(jsr_config config, bool value) {
+  return CHECKED_CONFIG(config)->setInspectorBreakOnStart(value);
 }
 
 JSR_API jsr_config_set_task_runner(

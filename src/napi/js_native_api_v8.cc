@@ -2291,6 +2291,7 @@ napi_status napi_create_external(napi_env env,
                                  void* finalize_hint,
                                  napi_value* result) {
   NAPI_PREAMBLE(env);
+  CHECK_ARG(env, data);
   CHECK_ARG(env, result);
 
   v8::Isolate* isolate = env->isolate;
