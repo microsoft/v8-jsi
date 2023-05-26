@@ -1,6 +1,9 @@
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 300
+    variables:
+      - name: Packaging.EnableSBOMSigning
+        value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
     displayName: Build v8jsi.dll
     strategy:
       matrix:
