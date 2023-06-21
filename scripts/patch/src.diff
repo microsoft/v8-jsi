@@ -234,19 +234,6 @@ index 1b6083f527..d123ad801b 100644
    DCHECK(name.IsInternalizedString());
    if (HasContextAllocatedFunctionName()) {
      DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
-diff --git a/src/objects/simd.cc b/src/objects/simd.cc
-index d64b441168..0f57421e80 100644
---- a/src/objects/simd.cc
-+++ b/src/objects/simd.cc
-@@ -24,7 +24,7 @@
- #include <immintrin.h>
- #endif
- 
--#ifdef V8_HOST_ARCH_ARM64
-+#if defined(V8_HOST_ARCH_ARM64) && !defined(_WIN32)
- // We use Neon only on 64-bit ARM (because on 32-bit, some instructions and some
- // types are not available). Note that ARM64 is guaranteed to have Neon.
- #define NEON64
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index e0602edc7e..4123b90e1b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
@@ -260,51 +247,22 @@ index e0602edc7e..4123b90e1b 100644
      return EmbeddedTargetOs::kWin;
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
-diff --git a/src/trap-handler/handler-inside-win.cc b/src/trap-handler/handler-inside-win.cc
-index 4956437aa6..2b7939aa40 100644
---- a/src/trap-handler/handler-inside-win.cc
-+++ b/src/trap-handler/handler-inside-win.cc
-@@ -63,6 +63,7 @@ extern char probe_memory_continuation[] asm(
- #endif  // V8_TRAP_HANDLER_VIA_SIMULATOR
- 
- bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
-+#if V8_TRAP_HANDLER_SUPPORTED
-   // VectoredExceptionHandlers need extreme caution. Do as little as possible
-   // to determine if the exception should be handled or not. Exceptions can be
-   // thrown very early in a threads life, before the thread has even completed
-@@ -123,6 +124,9 @@ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
-   // We will return to wasm code, so restore the g_thread_in_wasm_code flag.
-   g_thread_in_wasm_code = true;
-   return true;
-+#else // V8_TRAP_HANDLER_SUPPORTED
-+  return true;
-+#endif
- }
- 
- LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
-diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
-index 955b3c0b7c..2a98ee220b 100644
---- a/src/trap-handler/handler-outside-simulator.cc
-+++ b/src/trap-handler/handler-outside-simulator.cc
-@@ -14,6 +14,12 @@
- #define SYMBOL(name) #name
- #endif  // !V8_OS_DARWIN
- 
-+#if V8_TARGET_ARCH_ARM64 && V8_OS_WIN
-+
-+// ARM64 Windows can't compile this
-+
-+#else // V8_TARGET_ARCH_ARM64 && V8_OS_WIN
-+
- // Define the v8::internal::trap_handler::ProbeMemory function declared in
- // trap-handler-simulators.h.
- asm(".globl " SYMBOL(v8_internal_simulator_ProbeMemory) "       \n"
-@@ -40,3 +46,5 @@ asm(".globl " SYMBOL(v8_internal_simulator_ProbeMemory) "       \n"
-     "  ret                                                      \n");
- 
+diff --git a/src/trap-handler/trap-handler-simulator.h b/src/trap-handler/trap-handler-simulator.h
+index 0ab80d202e..627f8e8dad 100644
+--- a/src/trap-handler/trap-handler-simulator.h
++++ b/src/trap-handler/trap-handler-simulator.h
+@@ -34,8 +34,10 @@ uintptr_t ProbeMemory(uintptr_t address, uintptr_t pc)
+ // "ProbeMemory", but we want something more expressive on stack traces.
+ #if V8_OS_DARWIN
+     asm("_v8_internal_simulator_ProbeMemory");
+-#else
++#elif !defined(_MSC_VER)
+     asm("v8_internal_simulator_ProbeMemory");
++#else // MSVC
++    ;
  #endif
-+
-+#endif // V8_TARGET_ARCH_ARM64 && V8_OS_WIN
+ 
+ }  // namespace v8::internal::trap_handler
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
 index dc8a3696fa..50bcba0a3b 100644
 --- a/src/utils/allocation.cc
