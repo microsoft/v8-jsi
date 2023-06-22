@@ -6,7 +6,8 @@ pr:
   - "*-stable"
 
 pool:
-  vmImage: 'windows-2022'
+  name: rnw-pool-4
+  demands: ImageOverride -equals rnw-img-vs2022
 
 jobs:
   - template: windows-jobs.yml
