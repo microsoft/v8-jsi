@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index 78fd8cd2d38..949c3e6e5a9 100644
+index a69e7b2edb..2c2c4ac6bf 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1239,7 +1239,7 @@ config("toolchain") {
+@@ -1350,7 +1350,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOS" ]
@@ -10,8 +10,8 @@ index 78fd8cd2d38..949c3e6e5a9 100644
 +  } else if (target_os == "win" || target_os == "winuwp") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
-   }
-@@ -1302,7 +1302,7 @@ config("toolchain") {
+   } else if (target_os == "chromeos") {
+@@ -1426,7 +1426,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1406,14 +1406,14 @@ config("toolchain") {
+@@ -1530,14 +1530,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1437,7 +1437,7 @@ config("toolchain") {
+@@ -1561,7 +1561,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5574,7 +5574,6 @@ v8_component("v8_libbase") {
+@@ -5950,7 +5950,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6291,26 +6290,6 @@ group("v8_python_base") {
+@@ -6697,26 +6696,6 @@ group("v8_python_base") {
    data = [ ".vpython3" ]
  }
  
@@ -82,7 +82,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -6538,7 +6517,7 @@ v8_executable("d8") {
+@@ -6951,7 +6930,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +91,7 @@ index 78fd8cd2d38..949c3e6e5a9 100644
    }
  
    defines = []
-@@ -7248,3 +7227,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -7642,3 +7621,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -102,10 +102,10 @@ index 78fd8cd2d38..949c3e6e5a9 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index ab0a9bf5431..73c6caac972 100644
+index 860c61eba5..247d08a5df 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -616,4 +616,15 @@ hooks = [
+@@ -644,4 +644,15 @@ hooks = [
      'condition': 'host_os == "win"',
      'action': ['python3', 'build/del_ninja_deps_cache.py'],
    },
@@ -122,7 +122,7 @@ index ab0a9bf5431..73c6caac972 100644
 +  }
  ]
 diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index 99de816372b..02dd1355a9e 100644
+index c7faa8ca58..e041f7455f 100644
 --- a/gni/snapshot_toolchain.gni
 +++ b/gni/snapshot_toolchain.gni
 @@ -74,6 +74,9 @@ if (v8_snapshot_toolchain == "") {
@@ -136,7 +136,7 @@ index 99de816372b..02dd1355a9e 100644
      # This is a cross-compile from an x64 host to either a non-Intel target
      # cpu or to 32-bit x86 on a different target OS.
 diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec6101..753438fa4a4 100644
+index f981bec610..753438fa4a 100644
 --- a/src/base/debug/stack_trace_win.cc
 +++ b/src/base/debug/stack_trace_win.cc
 @@ -29,6 +29,35 @@ namespace v8 {
@@ -185,10 +185,10 @@ index f981bec6101..753438fa4a4 100644
  }  // namespace base
  }  // namespace v8
 diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index ac44c70e2c5..9533cb0435e 100644
+index 152fbbf3c2..51ba9b9cae 100644
 --- a/src/base/platform/platform-win32.cc
 +++ b/src/base/platform/platform-win32.cc
-@@ -1370,8 +1370,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
+@@ -1422,8 +1422,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
  #define VOID void
  #endif
  
@@ -200,7 +200,7 @@ index ac44c70e2c5..9533cb0435e 100644
  using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
                                                        IN PSTR UserSearchPath,
 diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index 767eb015ab1..47f05a1b946 100644
+index a71b866135..3731d04aa0 100644
 --- a/src/diagnostics/unwinding-info-win64.cc
 +++ b/src/diagnostics/unwinding-info-win64.cc
 @@ -535,7 +535,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
@@ -222,10 +222,10 @@ index 767eb015ab1..47f05a1b946 100644
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index c0117d27c9f..d4ccf386451 100644
+index 1b6083f527..d123ad801b 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -1028,6 +1028,8 @@ int ScopeInfo::ParametersStartIndex() const {
+@@ -1040,6 +1040,8 @@ int ScopeInfo::ParametersStartIndex() const {
  }
  
  int ScopeInfo::FunctionContextSlotIndex(String name) const {
@@ -234,21 +234,8 @@ index c0117d27c9f..d4ccf386451 100644
    DCHECK(name.IsInternalizedString());
    if (HasContextAllocatedFunctionName()) {
      DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
-diff --git a/src/objects/simd.cc b/src/objects/simd.cc
-index 4fa55e4cc76..6a6d7ab414c 100644
---- a/src/objects/simd.cc
-+++ b/src/objects/simd.cc
-@@ -23,7 +23,7 @@
- #include <immintrin.h>
- #endif
- 
--#ifdef V8_HOST_ARCH_ARM64
-+#if defined(V8_HOST_ARCH_ARM64) && !defined(_WIN32)
- // We use Neon only on 64-bit ARM (because on 32-bit, some instructions and some
- // types are not available). Note that ARM64 is guaranteed to have Neon.
- #define NEON64
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index e0602edc7e1..4123b90e1b7 100644
+index e0602edc7e..4123b90e1b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 +++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 @@ -138,7 +138,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
@@ -260,54 +247,24 @@ index e0602edc7e1..4123b90e1b7 100644
      return EmbeddedTargetOs::kWin;
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
-diff --git a/src/trap-handler/handler-inside-win.cc b/src/trap-handler/handler-inside-win.cc
-index 3d7a2c416aa..9a48c27d66e 100644
---- a/src/trap-handler/handler-inside-win.cc
-+++ b/src/trap-handler/handler-inside-win.cc
-@@ -62,6 +62,7 @@ extern "C" char v8_probe_memory_continuation[];
- #endif  // V8_TRAP_HANDLER_VIA_SIMULATOR
- 
- bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
-+#if V8_TRAP_HANDLER_SUPPORTED
-   // VectoredExceptionHandlers need extreme caution. Do as little as possible
-   // to determine if the exception should be handled or not. Exceptions can be
-   // thrown very early in a threads life, before the thread has even completed
-@@ -122,6 +123,9 @@ bool TryHandleWasmTrap(EXCEPTION_POINTERS* exception) {
-   // We will return to wasm code, so restore the g_thread_in_wasm_code flag.
-   g_thread_in_wasm_code = true;
-   return true;
-+#else // V8_TRAP_HANDLER_SUPPORTED
-+  return true;
-+#endif
- }
- 
- LONG HandleWasmTrap(EXCEPTION_POINTERS* exception) {
-diff --git a/src/trap-handler/handler-outside-simulator.cc b/src/trap-handler/handler-outside-simulator.cc
-index 5e58719e7fc..301bd942de6 100644
---- a/src/trap-handler/handler-outside-simulator.cc
-+++ b/src/trap-handler/handler-outside-simulator.cc
-@@ -14,6 +14,12 @@
- #define SYMBOL(name) #name
- #endif  // !V8_OS_DARWIN
- 
-+#if V8_TARGET_ARCH_ARM64 && V8_OS_WIN
-+
-+// ARM64 Windows can't compile this
-+
-+#else
-+
- // Define the ProbeMemory function declared in trap-handler-simulators.h.
- asm(
-     ".globl " SYMBOL(ProbeMemory) "                 \n"
-@@ -40,3 +46,5 @@ asm(
-     "  ret                                          \n");
- 
+diff --git a/src/trap-handler/trap-handler-simulator.h b/src/trap-handler/trap-handler-simulator.h
+index 0ab80d202e..627f8e8dad 100644
+--- a/src/trap-handler/trap-handler-simulator.h
++++ b/src/trap-handler/trap-handler-simulator.h
+@@ -34,8 +34,10 @@ uintptr_t ProbeMemory(uintptr_t address, uintptr_t pc)
+ // "ProbeMemory", but we want something more expressive on stack traces.
+ #if V8_OS_DARWIN
+     asm("_v8_internal_simulator_ProbeMemory");
+-#else
++#elif !defined(_MSC_VER)
+     asm("v8_internal_simulator_ProbeMemory");
++#else // MSVC
++    ;
  #endif
-+
-+#endif
-\ No newline at end of file
+ 
+ }  // namespace v8::internal::trap_handler
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index a585bfed680..cfdb0424773 100644
+index dc8a3696fa..50bcba0a3b 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
 @@ -64,8 +64,10 @@ const int kAllocationTries = 2;
@@ -324,7 +281,7 @@ index a585bfed680..cfdb0424773 100644
  
  v8::VirtualAddressSpace* GetPlatformVirtualAddressSpace() {
 diff --git a/third_party/googletest/BUILD.gn b/third_party/googletest/BUILD.gn
-index bc82c635da3..648972c77a2 100644
+index bc82c635da..648972c77a 100644
 --- a/third_party/googletest/BUILD.gn
 +++ b/third_party/googletest/BUILD.gn
 @@ -88,8 +88,8 @@ source_set("gtest") {
@@ -339,7 +296,7 @@ index bc82c635da3..648972c77a2 100644
    # V8-only workaround for http://crbug.com/chromium/1191946. Ensures that
    # googletest is compiled with the same visibility such as the rest of V8, see
 diff --git a/tools/v8windbg/BUILD.gn b/tools/v8windbg/BUILD.gn
-index 5516a6109f2..d6cde0082c6 100644
+index 5516a6109f..d6cde0082c 100644
 --- a/tools/v8windbg/BUILD.gn
 +++ b/tools/v8windbg/BUILD.gn
 @@ -26,7 +26,7 @@ source_set("v8windbg_base") {
