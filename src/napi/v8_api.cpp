@@ -107,8 +107,11 @@ class V8RuntimeEnv : public v8runtime::V8Runtime, public napi_env__ {
     return napi_ok;
   }
 
-  napi_status drainMicrotasks(int32_t /*maxCountHint*/, bool * /*result*/) {
+  napi_status drainMicrotasks(int32_t /*maxCountHint*/, bool *result) {
     // V8 drains microtasks automatically after each call.
+    if (result) {
+      *result = true;
+    }
     return napi_ok;
   }
 
@@ -353,7 +356,9 @@ class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
         &bufferSize,
         &bufferDeleteCallback,
         &bufferDeleterData);
-    return std::make_shared<V8JsiBuffer>(buffer, bufferSize, bufferDeleteCallback, bufferDeleterData);
+    return (buffer && bufferSize)
+        ? std::make_shared<V8JsiBuffer>(buffer, bufferSize, bufferDeleteCallback, bufferDeleterData)
+        : nullptr;
   }
 
   void persistPreparedScript(
