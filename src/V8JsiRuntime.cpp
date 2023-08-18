@@ -825,9 +825,6 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
     cached_data = new v8::ScriptCompiler::CachedData(cache->data(), static_cast<int>(cache->size()));
     options = v8::ScriptCompiler::CompileOptions::kConsumeCodeCache;
   } else if (args_.preparedScriptStore) {
-    // Eager compile so that we will write it to disk.
-    options = v8::ScriptCompiler::CompileOptions::kEagerCompile;
-  } else {
     options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   }
 
