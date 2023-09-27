@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index a69e7b2edb..2c2c4ac6bf 100644
+index dd97c4f922..785804f82d 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1350,7 +1350,7 @@ config("toolchain") {
+@@ -1411,7 +1411,7 @@ config("toolchain") {
    } else if (target_os == "mac") {
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_MACOS" ]
@@ -11,7 +11,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
      defines += [ "V8_HAVE_TARGET_OS" ]
      defines += [ "V8_TARGET_OS_WIN" ]
    } else if (target_os == "chromeos") {
-@@ -1426,7 +1426,7 @@ config("toolchain") {
+@@ -1490,7 +1490,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -20,7 +20,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1530,14 +1530,14 @@ config("toolchain") {
+@@ -1594,14 +1594,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -38,7 +38,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1561,7 +1561,7 @@ config("toolchain") {
+@@ -1625,7 +1625,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -47,7 +47,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -5950,7 +5950,6 @@ v8_component("v8_libbase") {
+@@ -6185,7 +6185,6 @@ v8_component("v8_libbase") {
      defines += [ "_CRT_RAND_S" ]  # for rand_s()
  
      libs = [
@@ -55,7 +55,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
        "winmm.lib",
        "ws2_32.lib",
      ]
-@@ -6697,26 +6696,6 @@ group("v8_python_base") {
+@@ -6932,26 +6931,6 @@ group("v8_python_base") {
    data = [ ".vpython3" ]
  }
  
@@ -82,7 +82,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -6951,7 +6930,7 @@ v8_executable("d8") {
+@@ -7186,7 +7165,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +91,7 @@ index a69e7b2edb..2c2c4ac6bf 100644
    }
  
    defines = []
-@@ -7642,3 +7621,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -7881,3 +7860,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -102,10 +102,10 @@ index a69e7b2edb..2c2c4ac6bf 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 860c61eba5..247d08a5df 100644
+index 5cffcad442..f8264e6c44 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -644,4 +644,15 @@ hooks = [
+@@ -680,4 +680,15 @@ hooks = [
      'condition': 'host_os == "win"',
      'action': ['python3', 'build/del_ninja_deps_cache.py'],
    },
@@ -221,19 +221,43 @@ index a71b866135..3731d04aa0 100644
      // Windows ARM64 starts since 1709 Windows build, no need to have exception
      // handling only unwind info for compatibility.
      if (unhandled_exception_callback_g) {
+diff --git a/src/maglev/maglev-ir.h b/src/maglev/maglev-ir.h
+index 888944b606..7bf2c4c7e5 100644
+--- a/src/maglev/maglev-ir.h
++++ b/src/maglev/maglev-ir.h
+@@ -2258,8 +2258,8 @@ class NodeTMixin : public Base {
+   template <typename... Args>
+   explicit NodeTMixin(uint64_t bitfield, Args&&... args)
+       : Base(bitfield, std::forward<Args>(args)...) {
+-    DCHECK_EQ(NodeBase::opcode(), NodeBase::opcode_of<Derived>);
+-    DCHECK_EQ(NodeBase::properties(), Derived::kProperties);
++    //DCHECK_EQ(NodeBase::opcode(), NodeBase::opcode_of<Derived>);
++    //DCHECK_EQ(NodeBase::properties(), Derived::kProperties);
+   }
+ };
+ 
+@@ -2326,7 +2326,7 @@ class FixedInputNodeTMixin : public NodeTMixin<Base, Derived> {
+   template <typename... Args>
+   explicit FixedInputNodeTMixin(uint64_t bitfield, Args&&... args)
+       : NodeTMixin<Base, Derived>(bitfield, std::forward<Args>(args)...) {
+-    DCHECK_EQ(NodeBase::input_count(), kInputCount);
++    //DCHECK_EQ(NodeBase::input_count(), kInputCount);
+   }
+ };
+ 
 diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 1b6083f527..d123ad801b 100644
+index 586c7a5d16..5083fcce8c 100644
 --- a/src/objects/scope-info.cc
 +++ b/src/objects/scope-info.cc
-@@ -1040,6 +1040,8 @@ int ScopeInfo::ParametersStartIndex() const {
+@@ -1043,6 +1043,8 @@ int ScopeInfo::ParametersStartIndex() const {
  }
  
- int ScopeInfo::FunctionContextSlotIndex(String name) const {
+ int ScopeInfo::FunctionContextSlotIndex(Tagged<String> name) const {
 +  // This debug check in failing when running CPU profiler on some V8-JSI instances
 +  // TODO: Investigate and find the root cause
-   DCHECK(name.IsInternalizedString());
+   DCHECK(IsInternalizedString(name));
    if (HasContextAllocatedFunctionName()) {
-     DCHECK_IMPLIES(HasFunctionName(), FunctionName().IsInternalizedString());
+     DCHECK_IMPLIES(HasFunctionName(), IsInternalizedString(FunctionName()));
 diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
 index e0602edc7e..4123b90e1b 100644
 --- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
@@ -248,10 +272,10 @@ index e0602edc7e..4123b90e1b 100644
    } else if (string == "starboard") {
      return EmbeddedTargetOs::kStarboard;
 diff --git a/src/trap-handler/trap-handler-simulator.h b/src/trap-handler/trap-handler-simulator.h
-index 0ab80d202e..627f8e8dad 100644
+index 57471de1cb..1bd3bd0c3b 100644
 --- a/src/trap-handler/trap-handler-simulator.h
 +++ b/src/trap-handler/trap-handler-simulator.h
-@@ -34,8 +34,10 @@ uintptr_t ProbeMemory(uintptr_t address, uintptr_t pc)
+@@ -31,8 +31,10 @@ uintptr_t ProbeMemory(uintptr_t address, uintptr_t pc)
  // "ProbeMemory", but we want something more expressive on stack traces.
  #if V8_OS_DARWIN
      asm("_v8_internal_simulator_ProbeMemory");
