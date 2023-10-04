@@ -31,11 +31,6 @@ if (!$buildingWindows) {
     if (-not ($UseLibCpp)) {
         $gnargs += ' use_custom_libcxx=false'
     }
-
-    if ($AppPlatform -eq "uwp") {
-        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
-        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
-    }
 }
 
 $gnargs += ' target_cpu=\"' + $Platform + '\"'
@@ -89,7 +84,7 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 }
 
 $ninjaExtraTargets = @()
-if (($AppPlatform -ne "uwp") -and ($AppPlatform -ne "android")) {
+if ($AppPlatform -ne "android") {
     $ninjaExtraTargets += "jsitests"
 
     if (($AppPlatform -ne "linux") -and ($AppPlatform -ne "mac")) {
@@ -146,10 +141,8 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
     }
 
     # Debugging extension
-    if ($AppPlatform -ne "uwp") {
-        Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-        Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-    }
+    Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+    Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
 }
 else {
     #TODO (#2): .so

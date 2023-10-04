@@ -31,46 +31,8 @@ jobs:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: win32
-        Universal|x64|Debug:
-          BuildConfiguration: Debug
-          BuildPlatform: x64
-          AppPlatform: uwp
-        Universal|x86|Debug:
-          BuildConfiguration: Debug
-          BuildPlatform: x86
-          AppPlatform: uwp
-        Universal|ARM64|Debug:
-          BuildConfiguration: Debug
-          BuildPlatform: arm64
-          AppPlatform: uwp
-        Universal|x64|Release:
-          BuildConfiguration: Release
-          BuildPlatform: x64
-          AppPlatform: uwp
-        Universal|x86|Release:
-          BuildConfiguration: Release
-          BuildPlatform: x86
-          AppPlatform: uwp
-        Universal|ARM64|Release:
-          BuildConfiguration: Release
-          BuildPlatform: arm64
-          AppPlatform: uwp
 
     steps:
-      - pwsh: |
-          $vars = @{
-            'win32' = @{
-              'RunUnitTests' = $true
-            };
-            'uwp' = @{
-              'RunUnitTests' = $false
-            }
-          }
-          Write-Host "Setting variables for app platform ${env:AppPlatform}"
-          Write-Host "##vso[task.setvariable variable=RunUnitTests]$($vars[$env:AppPlatform]['RunUnitTests'])"
-        name: setvarStep
-        displayName: Set AppPlatform-dependent variables
-
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '3.x'
@@ -87,18 +49,6 @@ jobs:
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
-    strategy:
-      matrix:
-        Desktop:
-          NuGetId: ReactNative.V8Jsi.Windows
-          NuGetExcludeExtensions: ipdb
-          NuGetIncludeSymbols: false
-          NuGetFolderExport: win32
-        Universal:
-          NuGetId: ReactNative.V8Jsi.Windows.UWP
-          NuGetExcludeExtensions: pdb
-          NuGetIncludeSymbols: true
-          NuGetFolderExport: uwp
     steps:
       - checkout: none
 
@@ -120,7 +70,7 @@ jobs:
           SymbolServerType: TeamServices
 
       - task: PowerShell@2
-        displayName: Set AppPlatform-dependent variables
+        displayName: Set version variables
         inputs:
           targetType: 'inline'
           script: |
@@ -135,10 +85,10 @@ jobs:
           command: pack
           packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
           packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: Id=$(NuGetId);CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails);NuGetExcludeExtensions=$(NuGetExcludeExtensions);NuGetFolderExport=$(NuGetFolderExport)
+          buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
           versioningScheme: byEnvVar
           versionEnvVar: Version
-          includeSymbols: $(NuGetIncludeSymbols)
+          includeSymbols: false
 
       - pwsh: |
           if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {

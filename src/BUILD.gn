@@ -90,14 +90,11 @@ target("shared_library", "v8jsi") {
 
   if (is_win) {
     libs = [
-      "winmm.lib",
+      "dbghelp.lib",
       "bcrypt.lib",
       "shlwapi.lib",
+      "winmm.lib",
     ]
-
-    if (target_os != "winuwp") {
-      libs += [ "dbghelp.lib" ]
-    }
   }
 
   if (v8jsi_enable_inspector) {

@@ -50,27 +50,7 @@ To build the specific platform and flavor, use appropriate build flags:
 powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release 
 ```
 
-#### Android
-
-From the `android` directory, run `./localbuild.sh` in a bash terminal; by default, this will build the x64 debug version of the binary for Android. To build for other platforms and flavors, supply the `--platform` (or `-p`) and the `--flavor` (or `-f`) flags, like so:
-
-`./localbuild.sh --platform <platform-name> --flavor <flavor-name>`
-
-The following platforms and flavors are supported:
-*   `<platform-name>`: x64 (default), x86, arm, arm64
-*   `<flavor-name>` debug (default), ship
-
-This build requires **Ubuntu 18.04** or below, or **Debian 8** or later.
-
-Currently, the Android version builds an older release of V8 (7.0.276.32) and uses Android NDK r21b and the JSI headers from React Native 0.66 (see [build.config](android/build.config)). The Windows version builds V8 9.5 and uses the JSI headers from React Native 0.65.5. Android also currently uses a different V8Runtime ([V8Runtime.h](android/V8Runtime.h)) than Windows ([V8JsiRuntime.h](src/public/V8JsiRuntime.h)). Future Android releases will sync the Android dependencies with Windows and support newer Linux versions.
-
-##### Building with WSL2 on Windows 10/11
-* [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux
-* Install debian: `wsl --install -d Debian`
-* Install minimal dependencies on the Debian VM: `sudo apt install pkg-config python python3 curl unzip`
-* Build with `./localbuild.sh` (as above)
-
-##### [EXPERIMENTAL!] Building the main code with WSL2 on Windows 10/11
+##### [EXPERIMENTAL!] Building with WSL2 on Windows 10/11
 * [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux
 * Install debian: `wsl --install -d Debian`
 * [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/install-debian?view=powershell-7.2) in the Debian VM

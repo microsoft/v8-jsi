@@ -1,6 +1,3 @@
-# Expected variables:
-#   RunUnitTests
-
 parameters:
 - name: appPlatform
   type: string
@@ -61,7 +58,7 @@ steps:
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')), eq(variables.RunUnitTests, true))
+    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')))
 
   - task: ComponentGovernanceComponentDetection@0
     inputs:
