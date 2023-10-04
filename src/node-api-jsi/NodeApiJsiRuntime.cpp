@@ -63,7 +63,7 @@ using namespace std::string_view_literals;
     }                                               \
   } while (false)
 
-#ifdef __cpp_lib_span
+#if 0
 #include <span>
 #endif // __cpp_lib_span
 
@@ -71,7 +71,7 @@ namespace Microsoft::NodeApiJsi {
 
 namespace {
 
-#ifdef __cpp_lib_span
+#if 0 // TODO: additional changes required to switch to std::span
 using std::span;
 #else
 /**
