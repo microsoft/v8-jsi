@@ -9,15 +9,15 @@ $workpath = Join-Path $SourcesPath "build"
 
 $env:GIT_REDIRECT_STDERR = '2>&1'
 
-Push-Location (Join-Path $workpath "v8build")
+Push-Location $workpath
 & fetch --no-history --nohooks v8
 
 if ("android linux mac".contains($AppPlatform)) {
     $target_os = "`ntarget_os= ['" + $AppPlatform + "']`n"
-    Add-Content -Path (Join-Path $workpath "v8build\.gclient") $target_os
+    Add-Content -Path (Join-Path $workpath ".gclient") $target_os
 }
 
-Push-Location (Join-Path $workpath "v8build\v8")
+Push-Location (Join-Path $workpath "v8")
 
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 
@@ -30,10 +30,10 @@ $CheckOutVersion = (git checkout FETCH_HEAD) | Out-String
 & gclient runhooks
 & gclient sync
 
-Push-Location (Join-Path $workpath "v8build\v8\build")
+Push-Location (Join-Path $workpath "v8\build")
 & git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\build.diff")
 
-Push-Location (Join-Path $workpath "v8build\v8\third_party\zlib")
+Push-Location (Join-Path $workpath "v8\third_party\zlib")
 & git apply --ignore-whitespace (Join-Path $SourcesPath "scripts\patch\zlib.diff")
 
 Pop-Location
@@ -76,24 +76,24 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {
-    $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps-android.sh"
+    $install_script_path = Join-Path $workpath "v8/build/install-build-deps-android.sh"
 
     & sudo bash $install_script_path
 }
 
 if ($AppPlatform -eq "linux") {
-    $install_script_path = Join-Path $workpath "v8build/v8/build/install-build-deps.sh"
+    $install_script_path = Join-Path $workpath "v8/build/install-build-deps.sh"
 
     & sudo bash $install_script_path
 }
 
 # Remove unused code
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\test\test262\data\tools")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\depot_tools\external_bin\gsutil")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\google_benchmark")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\perfetto")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\third_party\protobuf")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\clusterfuzz")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\turbolizer")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\package.json")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8build\v8\tools\package-lock.json")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\test\test262\data\tools")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\depot_tools\external_bin\gsutil")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\google_benchmark")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\perfetto")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\clusterfuzz")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\turbolizer")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package.json")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package-lock.json")

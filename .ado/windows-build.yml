@@ -51,7 +51,7 @@ steps:
       testSelector: testAssemblies
       testAssemblyVer2: jsitests.exe
       pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
-      searchFolder: $(Build.SourcesDirectory)/build/v8build/v8/out/${{parameters.appPlatform}}/$(BuildPlatform)/$(BuildConfiguration)
+      searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/$(BuildPlatform)/$(BuildConfiguration)
       runTestsInIsolation: true
       platform: $(BuildPlatform)
       configuration: $(BuildConfiguration)
@@ -62,7 +62,7 @@ steps:
 
   - task: ComponentGovernanceComponentDetection@0
     inputs:
-      ignoreDirectories: 'build\v8build\depot_tools'
+      ignoreDirectories: 'build\depot_tools'
 
   - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
     displayName: 📒 Prep Manifest

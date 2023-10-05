@@ -10,11 +10,9 @@ $ASIO_VERSION = "1-22-1"
 
 $workpath = Join-Path $SourcesPath "build"
 
-if (!(Test-Path -Path "$workpath\v8build")) {
-    New-Item -ItemType "directory" -Path "$workpath\v8build" | Out-Null
+if (!(Test-Path -Path $workpath)) {
+    New-Item -ItemType "directory" -Path $workpath | Out-Null
 }
-
-$asioPath = Join-Path $workpath "v8build"
 
 if (! $NoSetup.IsPresent) {
     Write-Host "Downloading depot-tools.zip..."
@@ -26,27 +24,27 @@ if (! $NoSetup.IsPresent) {
         $output = [System.IO.Path]::GetTempFileName()
         Invoke-WebRequest -Uri "https://storage.googleapis.com/chrome-infra/depot_tools.zip" -OutFile "$output.zip"
         Write-Host "Unzipping depot-tools.zip..."
-        Expand-Archive -path "$output.zip" -DestinationPath "$workpath\v8build\depot_tools"
+        Expand-Archive -path "$output.zip" -DestinationPath "$workpath\depot_tools"
         Remove-Item "$output.zip"
     }
     else {
         $env:GIT_REDIRECT_STDERR = '2>&1'
-        Push-Location "$workpath\v8build"
+        Push-Location $workpath
         git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
         Pop-Location
     }
 
     # Download dependencies (ASIO used by Inspector implementation)
     $asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-$ASIO_VERSION.zip"
-    $asioDownload = Join-Path $asioPath $(Split-Path -Path $asioUrl -Leaf)
+    $asioDownload = Join-Path $workpath $(Split-Path -Path $asioUrl -Leaf)
 
     Invoke-WebRequest -Uri $asioUrl -OutFile $asioDownload
-    $asioDownload | Expand-Archive -DestinationPath $asioPath -Force
+    $asioDownload | Expand-Archive -DestinationPath $workpath -Force
 }
 
 Write-Host "Modifying PATH..."
 
-$depot_tools_path = Join-Path $workpath "v8build\depot_tools"
+$depot_tools_path = Join-Path $workpath "depot_tools"
 
 if (!$PSVersionTable.Platform -or $IsWindows) {
     $path = "$depot_tools_path;$Env:PATH"
@@ -59,7 +57,7 @@ else {
 $env:PATH = $path
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
 $env:GCLIENT_PY3 = 1
-$env:ASIO_ROOT = Join-Path $asioPath "asio-asio-$ASIO_VERSION\asio\include"
+$env:ASIO_ROOT = Join-Path $workpath "asio-asio-$ASIO_VERSION\asio\include"
 
 if (! $NoADO.IsPresent) {
     Write-Host "##vso[task.setvariable variable=PATH;]$path"

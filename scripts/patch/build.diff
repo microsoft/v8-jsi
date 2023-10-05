@@ -1,8 +1,8 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index 23a8da453..9cb087427 100644
+index 06812fb9c..76ac198d3 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1638,7 +1638,7 @@ config("default_warnings") {
+@@ -1671,7 +1671,7 @@ config("default_warnings") {
        # TODO(thakis): Remove this once
        # https://swiftshader-review.googlesource.com/c/SwiftShader/+/57968 has
        # rolled into angle.
@@ -11,7 +11,7 @@ index 23a8da453..9cb087427 100644
      }
    } else {
      if (is_apple && !is_nacl) {
-@@ -1900,7 +1900,7 @@ config("no_chromium_code") {
+@@ -1965,7 +1965,7 @@ config("no_chromium_code") {
      }
      cflags += [
        "/wd4800",  # Disable warning when forcing value to bool.
@@ -21,10 +21,10 @@ index 23a8da453..9cb087427 100644
    } else {
      # GCC may emit unsuppressible warnings so don't add -Werror for no chromium
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index c51ad032a..15afb44c3 100644
+index 497d47989..fcdf1e9b0 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -463,16 +463,16 @@ config("default_crt") {
+@@ -479,16 +479,16 @@ config("default_crt") {
      # Component mode: dynamic CRT. Since the library is shared, it requires
      # exceptions or will give errors about things not matching, so keep
      # exceptions on.
@@ -40,11 +40,11 @@ index c51ad032a..15afb44c3 100644
      } else {
        # Desktop Windows: static CRT.
 -      configs = [ ":static_crt" ]
-+      configs = [ ":dynamic_crt", ":win_msvc_cfg" ]
++      configs = [ ":static_crt", ":win_msvc_cfg" ]
      }
    }
  }
-@@ -662,3 +662,11 @@ config("lean_and_mean") {
+@@ -682,3 +682,11 @@ config("lean_and_mean") {
  config("nominmax") {
    defines = [ "NOMINMAX" ]
  }

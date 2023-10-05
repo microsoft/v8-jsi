@@ -14,11 +14,11 @@ $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 $buildingWindows = !"android linux mac".contains($AppPlatform)
 
-Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
-New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
-Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force | Out-Null
+Remove-Item (Join-Path $workpath "v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
+New-Item -Path (Join-Path $workpath "v8\jsi") -ItemType Directory | Out-Null
+Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8\jsi") -Recurse -Force | Out-Null
 
-Push-Location (Join-Path $workpath "v8build\v8")
+Push-Location (Join-Path $workpath "v8")
 
 # TODO: v8_enable_webassembly=false will reduce the binary size by > 20%, but it causes crashes on x86; needs deeper investigation
 
@@ -62,7 +62,7 @@ if ($Configuration -like "*ebug*") {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
 }
 
-$buildoutput = Join-Path $workpath "v8build\v8\out\$AppPlatform\$Platform\$Configuration"
+$buildoutput = Join-Path $workpath "v8\out\$AppPlatform\$Platform\$Configuration"
 
 Write-Host "gn command line: gn gen $buildoutput --args='$gnargs'"
 & gn gen $buildoutput --args="$gnargs"
