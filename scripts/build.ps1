@@ -26,14 +26,14 @@ Push-Location (Join-Path $workpath "v8")
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
 if (!$buildingWindows) {
-    $gnargs += ' use_goma=false target_os=\"' + $AppPlatform + '\"'
+    $gnargs += " use_goma=false target_os=""$AppPlatform"""
 } else {
     if (-not ($UseLibCpp)) {
         $gnargs += ' use_custom_libcxx=false'
     }
 }
 
-$gnargs += ' target_cpu=\"' + $Platform + '\"'
+$gnargs += " target_cpu=""$Platform"""
 
 if ($buildingWindows) {
     if ($UseClang) {

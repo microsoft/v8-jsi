@@ -59,6 +59,12 @@ powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release
 * Build with `pwsh ./localbuild.ps1 -AppPlatform android`
 * If setup is completed succesfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform android -NoSetup`
 
+##### [EXPERIMENTAL!] Building on macOS
+* [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-macos?view=powershell-7.3) by running `brew install --cask powershell`
+* Build with `pwsh ./localbuild.ps1 -AppPlatform mac`
+* If setup is completed succesfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform mac -NoSetup`
+* **Note**: there are several test failures on macOS currently
+
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
 

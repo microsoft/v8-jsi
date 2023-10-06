@@ -164,9 +164,11 @@ target("executable", "jsitests") {
   configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
   configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
 
+  cflags = [ "-DJSI_V8_IMPL" ]
+
   if (is_win) {
     # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
-    cflags = [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC", "-DJSI_V8_IMPL" ]
+    cflags += [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
   }
 
   include_dirs = [ ".", "jsi", "napi", "napi/test", "node-api", "public" ]
@@ -178,7 +180,6 @@ target("executable", "jsitests") {
     "jsi/jsi.cpp",
     "jsi/jsi.h",
     "jsi/JSIDynamic.h",
-    "jsi/jsilib-windows.cpp",
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
     "jsi/test/testlib.h",
@@ -224,7 +225,6 @@ target("executable", "jsitests") {
     "node-api/js_runtime_api.h",
     "node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
     "node-api-jsi/ApiLoaders/JSRuntimeApi.h",
-    "node-api-jsi/ApiLoaders/NodeApi_win.cpp",
     "node-api-jsi/ApiLoaders/NodeApi.cpp",
     "node-api-jsi/ApiLoaders/NodeApi.h",
     "node-api-jsi/ApiLoaders/V8Api.cpp",
@@ -235,4 +235,16 @@ target("executable", "jsitests") {
     "public/v8_api.h",
     "testmain.cpp"
   ]
+
+  if (is_win) {
+    sources += [
+      "jsi/jsilib-windows.cpp",
+      "node-api-jsi/ApiLoaders/NodeApi_win.cpp"
+    ]
+  } else {
+    sources += [
+      "jsi/jsilib-posix.cpp",
+      "node-api-jsi/ApiLoaders/NodeApi_posix.cpp"
+    ]
+  }
 }

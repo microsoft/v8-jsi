@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#include <thread>
 #include <gtest/gtest.h>
 #include <jsi/jsi.h>
 #include "jsi/test/testlib.h"
@@ -21,6 +22,7 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
       return v8runtime::makeV8Runtime(std::move(args));
     },
 #endif
+#ifdef _WIN32 // NApi not supported on POSIX (LibLoader not implemented)
         []() -> std::unique_ptr<facebook::jsi::Runtime> {
           V8Api *v8Api = V8Api::fromLib();
           V8Api::setCurrent(v8Api);
@@ -38,6 +40,7 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
 
           return makeNodeApiJsiRuntime(env, v8Api, [runtime]() { V8Api::current()->jsr_delete_runtime(runtime); });
         }
+#endif
   };
 };
 
@@ -93,6 +96,7 @@ TEST(Basic, MultiThreadIsolate) {
   }
 }
 
+#ifdef _WIN32 // NApi not supported on POSIX (LibLoader not implemented)
 TEST(Basic, MultiThreadIsolateNApi) {
   V8Api *v8Api = V8Api::fromLib();
   V8Api::setCurrent(v8Api);
@@ -135,6 +139,7 @@ TEST(Basic, MultiThreadIsolateNApi) {
     vec_thr.at(i).join();
   }
 }
+#endif
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

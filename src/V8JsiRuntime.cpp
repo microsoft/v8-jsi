@@ -13,6 +13,7 @@
 
 #include "napi/util-inl.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <list>

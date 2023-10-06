@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <optional>
 #include <sstream>
 #include <string_view>
