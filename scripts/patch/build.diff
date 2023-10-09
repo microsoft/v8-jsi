@@ -40,7 +40,7 @@ index 497d47989..fcdf1e9b0 100644
      } else {
        # Desktop Windows: static CRT.
 -      configs = [ ":static_crt" ]
-+      configs = [ ":static_crt", ":win_msvc_cfg" ]
++      configs = [ ":dynamic_crt", ":win_msvc_cfg" ]
      }
    }
  }

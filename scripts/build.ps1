@@ -33,7 +33,7 @@ if (!$buildingWindows) {
     }
 }
 
-$gnargs += " target_cpu=""$Platform"""
+$gnargs += ' target_cpu=\"' + $Platform + '\"'
 
 if ($buildingWindows) {
     if ($UseClang) {
