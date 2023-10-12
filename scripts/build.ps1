@@ -164,6 +164,7 @@ Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.h" -Destination "$OutputP
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.h" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\"
 Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.h" -Destination "$OutputPath\build\native\include\node-api-jsi\"
 
