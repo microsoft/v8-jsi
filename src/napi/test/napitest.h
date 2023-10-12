@@ -5,11 +5,14 @@
 
 #pragma once
 
+#include <algorithm>
+#include <exception>
 #include <functional>
 #include <list>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>

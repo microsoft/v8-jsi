@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
   <metadata>
-    <id>$Id$</id>
+    <id>ReactNative.V8Jsi.Windows</id>
     <version>$Version$</version>
-    <!-- VERSION_DETAILS => [UWP,] V8 version: $v8Version; Git revision: $gitRevision -->
+    <!-- VERSION_DETAILS => V8 version: $v8Version; Git revision: $gitRevision -->
     <description>Contains a Windows implementation of the V8 JSI wrapper for ReactNative ($VersionDetails$)</description>
     <authors>Facebook, Google, Microsoft</authors>
     <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
@@ -11,11 +11,9 @@
     <repository type="git" url="$RepoUri$" commit="$CommitId$" />
   </metadata>
   <files>
-    <!-- NuGetExcludeExtensions: win32 => ipdb, uwp => pdb -->
-    <!-- NuGetFolderExport: win32 or uwp -->
-    <file src="$nugetroot$\lib\$NuGetFolderExport$\**\*.*" target="lib\$NuGetFolderExport$" exclude="**\*.iobj;**\*.$NuGetExcludeExtensions$;**\*.exp;**\*.ilk" />
+    <file src="$nugetroot$\lib\win32\**\*.*" target="lib\win32" exclude="**\*.iobj;**\*.ipdb;**\*.exp;**\*.ilk" />
     <file src="$nugetroot$\build\**\*.*" target="build" exclude="**\*.targets" />
-    <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\native\$Id$.targets" />
+    <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\nativeReactNative.V8Jsi.Windows.targets" />
     <file src="$nugetroot$\license\*.*" target="license"/>
   </files>
 </package>

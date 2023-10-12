@@ -1,6 +1,6 @@
 {
     "documents": {
-        "LOCAL_PATH\\build\\v8build\\v8\\*" : "https://raw.githubusercontent.com/v8/v8/V8JSIVER_V8REF/*",
-        "LOCAL_PATH\\build\\v8build\\v8\\jsi\\*" : "https://raw.githubusercontent.com/microsoft/v8-jsi/V8JSI_GIT_HASH/src/*"
+        "LOCAL_PATH\\build\\v8\\*" : "https://raw.githubusercontent.com/v8/v8/V8JSIVER_V8REF/*",
+        "LOCAL_PATH\\build\\v8\\jsi\\*" : "https://raw.githubusercontent.com/microsoft/v8-jsi/V8JSI_GIT_HASH/src/*"
     }
 }

@@ -1,7 +1,0 @@
-{ 
-  global: 
-    _ZN8facebook9v8runtime13makeV8RuntimeEv;
-    _ZN8facebook9v8runtime13makeV8RuntimeERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEERKNS1_10shared_ptrINS1_8functionIFvS9_jEEEEE;
-  local: 
-    *; 
-}; 

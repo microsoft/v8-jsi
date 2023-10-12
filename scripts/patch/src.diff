@@ -1,16 +1,7 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index dd97c4f922..785804f82d 100644
+index dd97c4f922..53948090e1 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1411,7 +1411,7 @@ config("toolchain") {
-   } else if (target_os == "mac") {
-     defines += [ "V8_HAVE_TARGET_OS" ]
-     defines += [ "V8_TARGET_OS_MACOS" ]
--  } else if (target_os == "win") {
-+  } else if (target_os == "win" || target_os == "winuwp") {
-     defines += [ "V8_HAVE_TARGET_OS" ]
-     defines += [ "V8_TARGET_OS_WIN" ]
-   } else if (target_os == "chromeos") {
 @@ -1490,7 +1490,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
@@ -47,15 +38,7 @@ index dd97c4f922..785804f82d 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -6185,7 +6185,6 @@ v8_component("v8_libbase") {
-     defines += [ "_CRT_RAND_S" ]  # for rand_s()
- 
-     libs = [
--      "dbghelp.lib",
-       "winmm.lib",
-       "ws2_32.lib",
-     ]
-@@ -6932,26 +6931,6 @@ group("v8_python_base") {
+@@ -6932,26 +6932,6 @@ group("v8_python_base") {
    data = [ ".vpython3" ]
  }
  
@@ -82,7 +65,7 @@ index dd97c4f922..785804f82d 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -7186,7 +7165,7 @@ v8_executable("d8") {
+@@ -7186,7 +7166,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -91,7 +74,7 @@ index dd97c4f922..785804f82d 100644
    }
  
    defines = []
-@@ -7881,3 +7860,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -7881,3 +7861,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -121,106 +104,6 @@ index 5cffcad442..f8264e6c44 100644
 +    ],
 +  }
  ]
-diff --git a/gni/snapshot_toolchain.gni b/gni/snapshot_toolchain.gni
-index c7faa8ca58..e041f7455f 100644
---- a/gni/snapshot_toolchain.gni
-+++ b/gni/snapshot_toolchain.gni
-@@ -74,6 +74,9 @@ if (v8_snapshot_toolchain == "") {
-     # Cross-build from arm64 to intel (likely on an Apple Silicon mac).
-     v8_snapshot_toolchain =
-         "//build/toolchain/${host_os}:clang_arm64_v8_$v8_current_cpu"
-+  } else if (target_os == "winuwp") {
-+    # cross compile UWP Windows with host toolchain (for x64 and x86)
-+    v8_snapshot_toolchain = host_toolchain
-   } else if (host_cpu == "x64") {
-     # This is a cross-compile from an x64 host to either a non-Intel target
-     # cpu or to 32-bit x86 on a different target OS.
-diff --git a/src/base/debug/stack_trace_win.cc b/src/base/debug/stack_trace_win.cc
-index f981bec610..753438fa4a 100644
---- a/src/base/debug/stack_trace_win.cc
-+++ b/src/base/debug/stack_trace_win.cc
-@@ -29,6 +29,35 @@ namespace v8 {
- namespace base {
- namespace debug {
- 
-+#if 1 // dbghelp dependency unwanted
-+
-+bool EnableInProcessStackDumping() {
-+  return false;
-+}
-+
-+void DisableSignalStackDump() {
-+}
-+
-+StackTrace::StackTrace() {
-+}
-+
-+StackTrace::StackTrace(EXCEPTION_POINTERS* exception_pointers) {
-+  InitTrace(exception_pointers->ContextRecord);
-+}
-+
-+StackTrace::StackTrace(const CONTEXT* context) { InitTrace(context); }
-+
-+void StackTrace::InitTrace(const CONTEXT*) {
-+}
-+
-+void StackTrace::Print() const { OutputToStream(&std::cerr); }
-+
-+void StackTrace::OutputToStream(std::ostream* os) const {
-+    (*os) << "==== C stack trace not implemented for WINUWP ===============================\n";
-+}
-+
-+#else // dbghelp dependency unwanted
-+
- namespace {
- 
- // Previous unhandled filter. Will be called if not nullptr when we intercept an
-@@ -244,6 +273,8 @@ void StackTrace::OutputToStream(std::ostream* os) const {
-   }
- }
- 
-+#endif // dbghelp
-+
- }  // namespace debug
- }  // namespace base
- }  // namespace v8
-diff --git a/src/base/platform/platform-win32.cc b/src/base/platform/platform-win32.cc
-index 152fbbf3c2..51ba9b9cae 100644
---- a/src/base/platform/platform-win32.cc
-+++ b/src/base/platform/platform-win32.cc
-@@ -1422,8 +1422,8 @@ bool AddressSpaceReservation::DecommitPages(void* address, size_t size) {
- #define VOID void
- #endif
- 
--// DbgHelp isn't supported on MinGW yet
--#ifndef __MINGW32__
-+// DbgHelp isn't supported on Windows
-+#if 0
- // DbgHelp.h functions.
- using DLL_FUNC_TYPE(SymInitialize) = BOOL(__stdcall*)(IN HANDLE hProcess,
-                                                       IN PSTR UserSearchPath,
-diff --git a/src/diagnostics/unwinding-info-win64.cc b/src/diagnostics/unwinding-info-win64.cc
-index a71b866135..3731d04aa0 100644
---- a/src/diagnostics/unwinding-info-win64.cc
-+++ b/src/diagnostics/unwinding-info-win64.cc
-@@ -535,7 +535,7 @@ void RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
-   // by the embedder (like Crashpad).
- 
-   if (RegisterUnwindInfoForExceptionHandlingOnly()) {
--#if defined(V8_OS_WIN_X64)
-+#if 0
-     // Windows ARM64 starts since 1709 Windows build, no need to have exception
-     // handling only unwind info for compatibility.
-     if (unhandled_exception_callback_g) {
-@@ -574,7 +574,7 @@ void UnregisterNonABICompliantCodeRange(void* start) {
-   DCHECK(CanRegisterUnwindInfoForNonABICompliantCodeRange());
- 
-   if (RegisterUnwindInfoForExceptionHandlingOnly()) {
--#if defined(V8_OS_WIN_X64)
-+#if 0
-     // Windows ARM64 starts since 1709 Windows build, no need to have exception
-     // handling only unwind info for compatibility.
-     if (unhandled_exception_callback_g) {
 diff --git a/src/maglev/maglev-ir.h b/src/maglev/maglev-ir.h
 index 888944b606..7bf2c4c7e5 100644
 --- a/src/maglev/maglev-ir.h
@@ -245,48 +128,6 @@ index 888944b606..7bf2c4c7e5 100644
    }
  };
  
-diff --git a/src/objects/scope-info.cc b/src/objects/scope-info.cc
-index 586c7a5d16..5083fcce8c 100644
---- a/src/objects/scope-info.cc
-+++ b/src/objects/scope-info.cc
-@@ -1043,6 +1043,8 @@ int ScopeInfo::ParametersStartIndex() const {
- }
- 
- int ScopeInfo::FunctionContextSlotIndex(Tagged<String> name) const {
-+  // This debug check in failing when running CPU profiler on some V8-JSI instances
-+  // TODO: Investigate and find the root cause
-   DCHECK(IsInternalizedString(name));
-   if (HasContextAllocatedFunctionName()) {
-     DCHECK_IMPLIES(HasFunctionName(), IsInternalizedString(FunctionName()));
-diff --git a/src/snapshot/embedded/platform-embedded-file-writer-base.cc b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-index e0602edc7e..4123b90e1b 100644
---- a/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-+++ b/src/snapshot/embedded/platform-embedded-file-writer-base.cc
-@@ -138,7 +138,7 @@ EmbeddedTargetOs ToEmbeddedTargetOs(const char* s) {
-     return EmbeddedTargetOs::kFuchsia;
-   } else if (string == "ios" || string == "mac") {
-     return EmbeddedTargetOs::kMac;
--  } else if (string == "win") {
-+  } else if (string == "win" || string == "winuwp") {
-     return EmbeddedTargetOs::kWin;
-   } else if (string == "starboard") {
-     return EmbeddedTargetOs::kStarboard;
-diff --git a/src/trap-handler/trap-handler-simulator.h b/src/trap-handler/trap-handler-simulator.h
-index 57471de1cb..1bd3bd0c3b 100644
---- a/src/trap-handler/trap-handler-simulator.h
-+++ b/src/trap-handler/trap-handler-simulator.h
-@@ -31,8 +31,10 @@ uintptr_t ProbeMemory(uintptr_t address, uintptr_t pc)
- // "ProbeMemory", but we want something more expressive on stack traces.
- #if V8_OS_DARWIN
-     asm("_v8_internal_simulator_ProbeMemory");
--#else
-+#elif !defined(_MSC_VER)
-     asm("v8_internal_simulator_ProbeMemory");
-+#else // MSVC
-+    ;
- #endif
- 
- }  // namespace v8::internal::trap_handler
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
 index dc8a3696fa..50bcba0a3b 100644
 --- a/src/utils/allocation.cc

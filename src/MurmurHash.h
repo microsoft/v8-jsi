@@ -3,6 +3,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 
 // Computes the hash of key using MurmurHash3 algorithm, the value is planced in the "hash" output parameter
 // The function returns whether or not key is comprised of only ASCII characters (<=127)

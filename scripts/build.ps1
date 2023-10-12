@@ -14,11 +14,11 @@ $workpath = Join-Path $SourcesPath "build"
 $jsigitpath = Join-Path $SourcesPath "src"
 $buildingWindows = !"android linux mac".contains($AppPlatform)
 
-Remove-Item (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
-New-Item -Path (Join-Path $workpath "v8build\v8\jsi") -ItemType Directory | Out-Null
-Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8build\v8\jsi") -Recurse -Force | Out-Null
+Remove-Item (Join-Path $workpath "v8\jsi") -Recurse -Force -ErrorAction Ignore | Out-Null
+New-Item -Path (Join-Path $workpath "v8\jsi") -ItemType Directory | Out-Null
+Copy-Item -Path (Join-Path $jsigitpath "*") -Destination (Join-Path $workpath "v8\jsi") -Recurse -Force | Out-Null
 
-Push-Location (Join-Path $workpath "v8build\v8")
+Push-Location (Join-Path $workpath "v8")
 
 # TODO: v8_enable_webassembly=false will reduce the binary size by > 20%, but it causes crashes on x86; needs deeper investigation
 
@@ -26,15 +26,10 @@ Push-Location (Join-Path $workpath "v8build\v8")
 $gnargs = 'v8_enable_i18n_support=false is_component_build=false v8_monolithic=true v8_use_external_startup_data=false treat_warnings_as_errors=false'
 
 if (!$buildingWindows) {
-    $gnargs += ' use_goma=false target_os=\"' + $AppPlatform + '\"'
+    $gnargs += " use_goma=false target_os=""$AppPlatform"""
 } else {
     if (-not ($UseLibCpp)) {
         $gnargs += ' use_custom_libcxx=false'
-    }
-
-    if ($AppPlatform -eq "uwp") {
-        # the default target_winuwp_family="app" (which translates to WINAPI_FAMILY=WINAPI_FAMILY_PC_APP) blows up with too many errors
-        $gnargs += ' target_os=\"winuwp\" target_winuwp_family=\"desktop\"'
     }
 }
 
@@ -67,7 +62,7 @@ if ($Configuration -like "*ebug*") {
     $gnargs += ' enable_iterator_debugging=false is_debug=false'
 }
 
-$buildoutput = Join-Path $workpath "v8build\v8\out\$AppPlatform\$Platform\$Configuration"
+$buildoutput = Join-Path $workpath "v8\out\$AppPlatform\$Platform\$Configuration"
 
 Write-Host "gn command line: gn gen $buildoutput --args='$gnargs'"
 & gn gen $buildoutput --args="$gnargs"
@@ -89,7 +84,7 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 }
 
 $ninjaExtraTargets = @()
-if (($AppPlatform -ne "uwp") -and ($AppPlatform -ne "android")) {
+if ($AppPlatform -ne "android") {
     $ninjaExtraTargets += "jsitests"
 
     if (($AppPlatform -ne "linux") -and ($AppPlatform -ne "mac")) {
@@ -146,10 +141,8 @@ if (!$PSVersionTable.Platform -or $IsWindows) {
     }
 
     # Debugging extension
-    if ($AppPlatform -ne "uwp") {
-        Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-        Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-    }
+    Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+    Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
 }
 else {
     #TODO (#2): .so
@@ -171,6 +164,7 @@ Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.h" -Destination "$OutputP
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\NodeApi.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.h" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
+Copy-Item "$jsigitpath\node-api-jsi\ApiLoaders\V8Api.inc" -Destination "$OutputPath\build\native\include\node-api-jsi\ApiLoaders\"
 Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.cpp" -Destination "$OutputPath\build\native\include\node-api-jsi\"
 Copy-Item "$jsigitpath\node-api-jsi\NodeApiJsiRuntime.h" -Destination "$OutputPath\build\native\include\node-api-jsi\"
 
