@@ -17,14 +17,14 @@ makeNodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> 
 
 struct NodeApiEnvScope {
   NodeApiEnvScope(napi_env env) : env_(env) {
-    jsr_open_napi_env_scope(env, &scope_);
+    JSRuntimeApi::current()->jsr_open_napi_env_scope(env, &scope_);
   }
 
   NodeApiEnvScope(const NodeApiEnvScope &) = delete;
   NodeApiEnvScope &operator=(const NodeApiEnvScope &) = delete;
 
   ~NodeApiEnvScope() {
-    jsr_close_napi_env_scope(env_, scope_);
+    JSRuntimeApi::current()->jsr_close_napi_env_scope(env_, scope_);
   }
 
  private:
