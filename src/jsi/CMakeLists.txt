@@ -20,10 +20,14 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC")
   # Turn on Error Handling in MSVC, otherwise objects are not destructed
   # when they go out of scope due to exceptions.
   list(APPEND jsi_compile_flags "/EHsc")
+  list(APPEND jsi_compile_flags "/Zi")
+  list(APPEND jsi_compile_flags "/Qspectre")
+  list(APPEND jsi_compile_flags "/sdl")
 endif()
 if (HERMES_ENABLE_BITCODE)
   list(APPEND jsi_compile_flags "-fembed-bitcode")
 endif ()
+
 target_compile_options(jsi PRIVATE ${jsi_compile_flags})
 
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/API/jsi/" DESTINATION include

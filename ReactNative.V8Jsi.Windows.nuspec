@@ -13,7 +13,7 @@
   <files>
     <file src="$nugetroot$\lib\win32\**\*.*" target="lib\win32" exclude="**\*.iobj;**\*.ipdb;**\*.exp;**\*.ilk" />
     <file src="$nugetroot$\build\**\*.*" target="build" exclude="**\*.targets" />
-    <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\nativeReactNative.V8Jsi.Windows.targets" />
+    <file src="$nugetroot$\build\native\ReactNative.V8Jsi.Windows.targets" target="build\native\ReactNative.V8Jsi.Windows.targets" />
     <file src="$nugetroot$\license\*.*" target="license"/>
   </files>
 </package>

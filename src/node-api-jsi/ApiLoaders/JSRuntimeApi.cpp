@@ -37,7 +37,7 @@ struct JSRuntimeApiNames {
 #include "JSRuntimeApi.inc"
 };
 
-// Prepared script function either should be all loaded or we use all default functions.
+// Prepared script functions either should be all loaded or we use all default functions.
 void loadPreparedScriptFuncs() {
   JSRuntimeApi *current = JSRuntimeApi::current();
   bool useDefault = false;

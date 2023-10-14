@@ -149,7 +149,7 @@ JSR_API jsr_run_script(napi_env env,
 
 // Prepare the script for running.
 JSR_API jsr_create_prepared_script(napi_env env,
-                                   const uint8_t* script_utf8,
+                                   const uint8_t* script_data,
                                    size_t script_length,
                                    jsr_data_delete_cb script_delete_cb,
                                    void* deleter_data,
