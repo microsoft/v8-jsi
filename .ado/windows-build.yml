@@ -7,14 +7,6 @@ parameters:
   type: boolean
   default : false
 
-
-${{ if parameters.isPublish }}:
-  templateContext:
-    outputs:
-      - output: pipelineArtifact
-        targetPath: ${{parameters.outputPath}}
-        artifactName: V8Jsi
-
 steps:
   - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
