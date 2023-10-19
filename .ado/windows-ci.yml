@@ -38,4 +38,4 @@ extends:
     stages:
     - stage: main
       jobs:
-    - template: windows-jobs.yml@self
+      - template: windows-jobs.yml@self
