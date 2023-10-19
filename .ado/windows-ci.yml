@@ -39,3 +39,5 @@ extends:
     - stage: main
       jobs:
       - template: .ado/windows-jobs.yml@self
+        parameters:
+          isPublish: true
