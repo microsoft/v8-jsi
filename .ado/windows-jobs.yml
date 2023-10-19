@@ -48,6 +48,7 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
+          isPublish: ${{ parameters.isPublish }}
 
   - job: V8JsiPublishNuget
     condition: not(eq(variables['Build.Reason'], 'PullRequest'))
