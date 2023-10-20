@@ -95,7 +95,7 @@ namespace {
   const char* MatchPathSegment(const char* path, const char* expected) {
     size_t len = strlen(expected);
     if (utils::StringEqualNoCaseN(path, expected, len)) {
-      if (path[len] == '/') return path + len + 1;
+      if (path[len] == '/' || path[len] == '?') return path + len + 1;
       if (path[len] == '\0') return path + len;
     }
     return nullptr;
