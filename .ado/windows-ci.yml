@@ -35,6 +35,11 @@ extends:
       name: Azure-Pipelines-1ESPT-ExDShared
       image: windows-latest
       os: windows
+    sdl:
+      eslint:
+        enableExclusions: true
+        exclusionPatterns: |
+          '**/*.[jt]s'
     stages:
     - stage: main
       jobs:
