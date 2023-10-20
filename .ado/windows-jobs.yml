@@ -40,7 +40,7 @@ jobs:
       templateContext:
         outputs:
           - output: buildArtifacts
-            pathtoPublish: $(Build.ArtifactStagingDirectory)
+            PathtoPublish: $(Build.ArtifactStagingDirectory)
             artifactName: V8Jsi
     steps:
       - task: UsePythonVersion@0
