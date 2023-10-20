@@ -20,7 +20,6 @@ resources:
 
 variables:
   - group: V8-Jsi Secrets
-  - group: InfoSec-SecurityResults
   - name: ArtifactServices.Symbol.AccountName
     value: microsoft
   - name: ArtifactServices.Symbol.PAT
