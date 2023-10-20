@@ -39,8 +39,8 @@ jobs:
     ${{ if parameters.isPublish }}:
       templateContext:
         outputs:
-          - output: pipelineArtifact
-            targetPath: $(Build.ArtifactStagingDirectory)
+          - output: buildArtifact
+            pathtoPublish: $(Build.ArtifactStagingDirectory)
             artifactName: V8Jsi
     steps:
       - task: UsePythonVersion@0
