@@ -39,7 +39,7 @@ jobs:
     ${{ if parameters.isPublish }}:
       templateContext:
         outputs:
-          - output: buildArtifact
+          - output: buildArtifacts
             pathtoPublish: $(Build.ArtifactStagingDirectory)
             artifactName: V8Jsi
     steps:
