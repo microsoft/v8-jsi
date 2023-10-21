@@ -41,7 +41,7 @@ jobs:
         outputs:
           - output: buildArtifacts
             PathtoPublish: $(Build.ArtifactStagingDirectory)
-            artifactName: V8Jsi
+            ArtifactName: V8Jsi
     steps:
       - task: UsePythonVersion@0
         inputs:
