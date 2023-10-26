@@ -1,0 +1,77 @@
+{
+  "hydrated": false,
+  "properties": {
+    "helpUri": "https://eng.ms/docs/microsoft-security/security/azure-security/cloudai-security-fundamentals-engineering/security-integration/guardian-wiki/microsoft-guardian/general/baselines",
+    "hydrationStatus": "This file does not contain identifying data. It is safe to check into your repo. To hydrate this file with identifying data, run `guardian hydrate --help` and follow the guidance."
+  },
+  "version": "1.0.0",
+  "baselines": {
+    "guardian-baseline": {
+      "name": "guardian-baseline",
+      "createdDate": "2023-10-21 02:08:05Z",
+      "lastUpdatedDate": "2023-10-21 02:08:05Z"
+    }
+  },
+  "results": {
+    "0c9bea3e0ba4ec1f9f412df1d9116cda3781b5f120c9c268bb38c53a60873a6b": {
+      "signature": "0c9bea3e0ba4ec1f9f412df1d9116cda3781b5f120c9c268bb38c53a60873a6b",
+      "alternativeSignatures": [
+        "d388e5517024dc10e219f9ca342f0884e28b46aae2e92b5537e52fe93e7440c4"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    },
+    "844ac8bd279863c0714bef8a8d5458a853e1d7d0afcd6f8fb042c895af9b9c99": {
+      "signature": "844ac8bd279863c0714bef8a8d5458a853e1d7d0afcd6f8fb042c895af9b9c99",
+      "alternativeSignatures": [
+        "de276c1956f6cad7acc9765c7a1127a126d525b45cf9f6a7ce277a47997a7fdc"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    },
+    "2133282a9767561d4a3199f40d102d50c276a40c713ff51873b15b4ccc2528e2": {
+      "signature": "2133282a9767561d4a3199f40d102d50c276a40c713ff51873b15b4ccc2528e2",
+      "alternativeSignatures": [
+        "ceb49633d687c3be368840b3302478e053bb885169e33ae4584c212ef0ca96ae"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    },
+    "a635e094fa0297b9c8c002484e334ecce0e66ec494a15ccf740ff74c74820e9b": {
+      "signature": "a635e094fa0297b9c8c002484e334ecce0e66ec494a15ccf740ff74c74820e9b",
+      "alternativeSignatures": [
+        "b83062005ae1d65bfaa76c66029ecb5b21395b435db7e98f0a50f2bb9ad8725a"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    },
+    "ed3f0398be556ba4a84a6b2e4d664c79f345adfb13f6a6a284ed7cd341b28dc5": {
+      "signature": "ed3f0398be556ba4a84a6b2e4d664c79f345adfb13f6a6a284ed7cd341b28dc5",
+      "alternativeSignatures": [
+        "920e5ba1bfb73b3cdd3865260c2aa6d1d541b45f2811d8e7a83ef65f9346dc68"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    },
+    "8601ac212ffa5688ac5bd7c90c88c6821801db1c12aaa238bf8f0b5ddb997cb8": {
+      "signature": "8601ac212ffa5688ac5bd7c90c88c6821801db1c12aaa238bf8f0b5ddb997cb8",
+      "alternativeSignatures": [
+        "e2056c1150375f38dc46635a15a0ed40c3c626ff43e433d5c16f03b72d22934e"
+      ],
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "createdDate": "2023-10-21 02:08:05Z"
+    }
+  }
+}

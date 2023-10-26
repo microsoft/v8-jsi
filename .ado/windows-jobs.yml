@@ -1,3 +1,8 @@
+parameters:
+  - name: isPublish
+    type: boolean
+    default : false
+
 jobs:
   - job: V8JsiBuild
     timeoutInMinutes: 300
@@ -31,7 +36,12 @@ jobs:
           BuildConfiguration: Release
           BuildPlatform: arm64
           AppPlatform: win32
-
+    ${{ if parameters.isPublish }}:
+      templateContext:
+        outputs:
+          - output: buildArtifacts
+            PathtoPublish: $(Build.ArtifactStagingDirectory)
+            ArtifactName: V8Jsi
     steps:
       - task: UsePythonVersion@0
         inputs:
@@ -43,12 +53,20 @@ jobs:
         parameters:
           outputPath: $(Build.ArtifactStagingDirectory)
           appPlatform: $(AppPlatform)
+          isPublish: ${{ parameters.isPublish }}
 
   - job: V8JsiPublishNuget
     condition: not(eq(variables['Build.Reason'], 'PullRequest'))
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
+    ${{ if not(parameters.isPublish) }}:
+      templateContext:
+        outputs:
+          - output: pipelineArtifact
+            targetPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
+            artifactName: "V8Jsi-final-nuget"
+
     steps:
       - checkout: none
 
@@ -96,14 +114,15 @@ jobs:
           }
         displayName: Verify NuGet packages creation
 
-      - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
-        displayName: 📒 Generate Manifest NuGet
-        condition: not(eq(variables['Build.Reason'], 'PullRequest'))
-        inputs:
-          BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
+      - ${{ if not(parameters.isPublish) }}:
+        - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+          displayName: 📒 Generate Manifest NuGet
+          condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+          inputs:
+            BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
 
-      - task: PublishBuildArtifacts@1
-        displayName: "Publish final nuget artifacts"
-        inputs:
-          PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          ArtifactName: "V8Jsi-final-nuget"
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish final nuget artifacts"
+          inputs:
+            PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
+            ArtifactName: "V8Jsi-final-nuget"
