@@ -11,11 +11,15 @@ trigger:
       - README.md
       - docs/*
 
-pool: OE-OfficePublic
+resources:
+  repositories:
+  - repository: OfficePipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/OfficePipelineTemplates
+    ref: refs/tags/release
 
 variables:
   - group: V8-Jsi Secrets
-  - group: InfoSec-SecurityResults
   - name: ArtifactServices.Symbol.AccountName
     value: microsoft
   - name: ArtifactServices.Symbol.PAT
@@ -23,5 +27,24 @@ variables:
   - name: tags
     value: production,externalfacing
 
-jobs:
-  - template: windows-jobs.yml
+extends:
+  template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
+  parameters:
+    pool:
+      name: Azure-Pipelines-1ESPT-ExDShared
+      image: windows-latest
+      os: windows
+    sdl:
+      baseline:
+        baselineFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnbaselines
+      eslint:
+        enableExclusions: true
+        # This repo does not ship any javascript code. But has many test cases for the js engine that fail parsing, have code considered insecure and crash eslint.
+        exclusionPatterns: |
+          '**/*.[jt]s'
+    stages:
+    - stage: main
+      jobs:
+      - template: .ado/windows-jobs.yml@self
+        parameters:
+          isPublish: true

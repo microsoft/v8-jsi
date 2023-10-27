@@ -3,6 +3,9 @@ parameters:
   type: string
 - name: outputPath
   type: string
+- name: isPublish
+  type: boolean
+  default : false
 
 steps:
   - task: PowerShell@2
@@ -35,6 +38,13 @@ steps:
         -Configuration:$(BuildConfiguration)
         -AppPlatform:${{parameters.appPlatform}}
 
+  - script: |
+      dir build\v8\buildtools\reclient\scandeps_server.exe
+      taskkill -f -im scandeps_server.exe
+      attrib -r build\v8\buildtools\reclient\scandeps_server.exe
+      del build\v8\buildtools\reclient\scandeps_server.exe
+    displayName: Delete build infrastructure file, for compliant tooling
+
   - powershell: |
       $vsExtensionPath="${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\Extensions\";
       Write-Host "Searching for Google Test Adapter Path in '$vsExtensionPath'"
@@ -60,35 +70,36 @@ steps:
       vsTestVersion: latest
     condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')))
 
-  - task: ComponentGovernanceComponentDetection@0
-    inputs:
-      ignoreDirectories: 'build\depot_tools'
-
-  - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
-    displayName: 📒 Prep Manifest
-
-  - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
-    displayName: 📒 Generate Manifest
-    inputs:
-      BuildDropPath: ${{parameters.outputPath}}
-      ManifestDirPath: ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
-
-  # Guardian does not handle custom builds, so manually running Binskim
-  - task: BinSkim@3
-    displayName: Run Binskim Analysis
-    inputs:
-        InputType: 'Basic'
-        Function: 'analyze'
-        AnalyzeTarget: $(Build.ArtifactStagingDirectory)/**/*.dll
-        AnalyzeVerbose: true
-        toolVersion: 'LatestPreRelease'
-    continueOnError: true
-    condition: and(eq(variables.BuildConfiguration, 'Release'), not(eq(variables.BuildPlatform, 'arm64')))
-
-  - task: PublishBuildArtifacts@1
-    displayName: "Publish artifacts"
-    inputs:
-      artifactName: V8Jsi
-      pathtoPublish: ${{parameters.outputPath}}
-
-  - task: ComponentGovernanceComponentDetection@0
+  - ${{ if not(parameters.isPublish) }}:
+    - task: ComponentGovernanceComponentDetection@0
+      inputs:
+        ignoreDirectories: 'build\depot_tools'
+  
+    - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+      displayName: 📒 Prep Manifest
+  
+    - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
+      displayName: 📒 Generate Manifest
+      inputs:
+        BuildDropPath: ${{parameters.outputPath}}
+        ManifestDirPath: ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+  
+    # Guardian does not handle custom builds, so manually running Binskim
+    - task: BinSkim@3
+      displayName: Run Binskim Analysis
+      inputs:
+          InputType: 'Basic'
+          Function: 'analyze'
+          AnalyzeTarget: $(Build.ArtifactStagingDirectory)/**/*.dll
+          AnalyzeVerbose: true
+          toolVersion: 'LatestPreRelease'
+      continueOnError: true
+      condition: and(eq(variables.BuildConfiguration, 'Release'), not(eq(variables.BuildPlatform, 'arm64')))
+  
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish artifacts"
+      inputs:
+        artifactName: V8Jsi
+        pathtoPublish: ${{parameters.outputPath}}
+  
+    - task: ComponentGovernanceComponentDetection@0
