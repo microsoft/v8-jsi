@@ -329,7 +329,7 @@ class V8Runtime : public facebook::jsi::Runtime {
         v8::Local<v8::Value> proto = obj->GetPrototype();
         obj = v8::Local<v8::Object>::Cast(proto);
       }
-      v8::Local<v8::Value> externalValue = obj->GetInternalField(0);
+      v8::Local<v8::Value> externalValue = obj->GetInternalField(0).As<v8::Value>();
 
       v8::Local<v8::External> data = v8::Local<v8::External>::Cast(externalValue);
       HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(data->Value());
@@ -397,7 +397,7 @@ class V8Runtime : public facebook::jsi::Runtime {
     }
 
     static void Enumerator(const v8::PropertyCallbackInfo<v8::Array> &info) {
-      v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.This()->GetInternalField(0));
+      v8::Local<v8::External> data = v8::Local<v8::External>::Cast(info.This()->GetInternalField(0).As<v8::Value>());
       HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(data->Value());
 
       if (hostObjectProxy != nullptr) {

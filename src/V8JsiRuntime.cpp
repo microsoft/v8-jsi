@@ -1166,7 +1166,7 @@ jsi::Object V8Runtime::createObject(std::shared_ptr<jsi::HostObject> hostobject)
 
 std::shared_ptr<jsi::HostObject> V8Runtime::getHostObject(const jsi::Object &obj) {
   IsolateLocker isolate_locker(this);
-  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0));
+  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0).As<v8::Value>());
   HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
   return hostObjectProxy->getHostObject();
 }
@@ -1248,7 +1248,7 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
     return false;
   }
 
-  auto internalFieldRef = objectRef(obj)->GetInternalField(0);
+  auto internalFieldRef = objectRef(obj)->GetInternalField(0).As<v8::Value>();
   if (internalFieldRef.IsEmpty()) {
     return false;
   }

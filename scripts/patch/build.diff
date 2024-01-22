@@ -1,8 +1,8 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index 06812fb9c..76ac198d3 100644
+index de1cd6efc..ed87ccb75 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1671,7 +1671,7 @@ config("default_warnings") {
+@@ -1758,7 +1758,7 @@ config("default_warnings") {
        # TODO(thakis): Remove this once
        # https://swiftshader-review.googlesource.com/c/SwiftShader/+/57968 has
        # rolled into angle.
@@ -11,7 +11,7 @@ index 06812fb9c..76ac198d3 100644
      }
    } else {
      if (is_apple && !is_nacl) {
-@@ -1965,7 +1965,7 @@ config("no_chromium_code") {
+@@ -2045,7 +2045,7 @@ config("no_chromium_code") {
      }
      cflags += [
        "/wd4800",  # Disable warning when forcing value to bool.
@@ -19,12 +19,12 @@ index 06812fb9c..76ac198d3 100644
 +      # "/wd4267",  # TODO(jschuh): size_t to int.
      ]
    } else {
-     # GCC may emit unsuppressible warnings so don't add -Werror for no chromium
+     if (is_clang && !is_nacl) {
 diff --git a/config/win/BUILD.gn b/config/win/BUILD.gn
-index 497d47989..fcdf1e9b0 100644
+index 6e1417aa4..4079a06c8 100644
 --- a/config/win/BUILD.gn
 +++ b/config/win/BUILD.gn
-@@ -479,16 +479,16 @@ config("default_crt") {
+@@ -486,16 +486,16 @@ config("default_crt") {
      # Component mode: dynamic CRT. Since the library is shared, it requires
      # exceptions or will give errors about things not matching, so keep
      # exceptions on.
@@ -44,7 +44,7 @@ index 497d47989..fcdf1e9b0 100644
      }
    }
  }
-@@ -682,3 +682,11 @@ config("lean_and_mean") {
+@@ -689,3 +689,11 @@ config("lean_and_mean") {
  config("nominmax") {
    defines = [ "NOMINMAX" ]
  }
@@ -58,7 +58,7 @@ index 497d47989..fcdf1e9b0 100644
 +}
 \ No newline at end of file
 diff --git a/toolchain/win/setup_toolchain.py b/toolchain/win/setup_toolchain.py
-index d2f5798ce..3a7ffccc1 100644
+index 521c24398..3677b5a2f 100644
 --- a/toolchain/win/setup_toolchain.py
 +++ b/toolchain/win/setup_toolchain.py
 @@ -186,6 +186,8 @@ def _LoadToolchainEnv(cpu, toolchain_root, sdk_dir, target_store):
