@@ -25,8 +25,6 @@ using namespace facebook;
 
 namespace v8runtime {
 
-constexpr uint64_t c_V8BuildVersion{V8_MAJOR_VERSION * 10000 + V8_MINOR_VERSION * 1000 + V8_BUILD_NUMBER};
-
 thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
 
 struct ContextEmbedderIndex {
@@ -694,7 +692,7 @@ V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string 
   v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
 
-  jsi::JSRuntimeVersion_t runtimeVersion = c_V8BuildVersion;
+  jsi::JSRuntimeVersion_t runtimeVersion = v8::ScriptCompiler::CachedDataVersionTag();
 
   std::shared_ptr<const jsi::Buffer> cache;
   if (args_.preparedScriptStore) {
@@ -787,7 +785,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
 
     auto prepared = std::make_shared<V8PreparedJavaScript>();
     prepared->scriptSignature = {sourceURL, hash};
-    prepared->runtimeSignature = {"V8", c_V8BuildVersion};
+    prepared->runtimeSignature = {"V8", v8::ScriptCompiler::CachedDataVersionTag()};
     prepared->buffer.assign(codeCache->data, codeCache->data + codeCache->length);
     prepared->sourceBuffer = buffer;
     return prepared;
@@ -813,7 +811,7 @@ std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaS
   v8::ScriptCompiler::CompileOptions options = v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
 
-  jsi::JSRuntimeVersion_t runtimeVersion = c_V8BuildVersion;
+  jsi::JSRuntimeVersion_t runtimeVersion = v8::ScriptCompiler::CachedDataVersionTag();
   jsi::ScriptSignature scriptSignature = {sourceURL, hash};
   jsi::JSRuntimeSignature runtimeSignature = {"V8", runtimeVersion};
 
@@ -900,7 +898,7 @@ facebook::jsi::Value V8Runtime::evaluatePreparedJavaScript(
     throw jsi::JSINativeException("Prepared JavaScript cache is invalid (Hash mismatch)");
   }
 
-  if (prepared->runtimeSignature.version != c_V8BuildVersion) {
+  if (prepared->runtimeSignature.version != v8::ScriptCompiler::CachedDataVersionTag()) {
     // V8 version mismatch, we need to recompile the source
     throw jsi::JSINativeException("Prepared JavaScript cache is invalid (V8 version mismatch)");
   }
@@ -1166,7 +1164,7 @@ jsi::Object V8Runtime::createObject(std::shared_ptr<jsi::HostObject> hostobject)
 
 std::shared_ptr<jsi::HostObject> V8Runtime::getHostObject(const jsi::Object &obj) {
   IsolateLocker isolate_locker(this);
-  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0));
+  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0).As<v8::Value>());
   HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
   return hostObjectProxy->getHostObject();
 }
@@ -1248,7 +1246,7 @@ bool V8Runtime::isHostObject(const jsi::Object &obj) const {
     return false;
   }
 
-  auto internalFieldRef = objectRef(obj)->GetInternalField(0);
+  auto internalFieldRef = objectRef(obj)->GetInternalField(0).As<v8::Value>();
   if (internalFieldRef.IsEmpty()) {
     return false;
   }
