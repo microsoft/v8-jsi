@@ -60,7 +60,7 @@ jobs:
     dependsOn:
       - V8JsiBuild
     displayName: Publish Nuget
-    ${{ if (parameters.isPublish) }}:
+    ${{ if parameters.isPublish }}:
       templateContext:
         outputs:
           - output: pipelineArtifact
