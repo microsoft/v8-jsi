@@ -31,9 +31,7 @@ extends:
   template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
   parameters:
     pool:
-      name: Azure-Pipelines-1ESPT-ExDShared
-      image: windows-latest
-      os: windows
+      name: OE-OfficePublic
     sdl:
       baseline:
         baselineFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnbaselines
