@@ -1528,7 +1528,6 @@ jsi::Value NodeApiJsiRuntime::callAsConstructor(const jsi::Function &func, const
 }
 
 jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
-  NodeApiEnvScope scope{getEnv()};
   napi_handle_scope result{};
   CHECK_NAPI(jsrApi_->napi_open_handle_scope(env_, &result));
   pushPointerValueScope();
@@ -1536,7 +1535,6 @@ jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
 }
 
 void NodeApiJsiRuntime::popScope(jsi::Runtime::ScopeState *state) {
-  NodeApiEnvScope scope{getEnv()};
   popPointerValueScope();
   CHECK_NAPI(jsrApi_->napi_close_handle_scope(env_, reinterpret_cast<napi_handle_scope>(state)));
 }
