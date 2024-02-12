@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index f0976f97e5..c4f6a026cf 100644
+index bc087fd6fe..2755140ab5 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1511,7 +1511,7 @@ config("toolchain") {
+@@ -1517,7 +1517,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -11,7 +11,7 @@ index f0976f97e5..c4f6a026cf 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1615,14 +1615,14 @@ config("toolchain") {
+@@ -1621,14 +1621,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -29,7 +29,7 @@ index f0976f97e5..c4f6a026cf 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1646,7 +1646,7 @@ config("toolchain") {
+@@ -1652,7 +1652,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -38,7 +38,7 @@ index f0976f97e5..c4f6a026cf 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -7147,26 +7147,6 @@ group("v8_python_base") {
+@@ -7184,26 +7184,6 @@ group("v8_python_base") {
    data = [ ".vpython3" ]
  }
  
@@ -65,7 +65,7 @@ index f0976f97e5..c4f6a026cf 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -7401,7 +7381,7 @@ v8_executable("d8") {
+@@ -7431,7 +7411,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -74,7 +74,7 @@ index f0976f97e5..c4f6a026cf 100644
    }
  
    defines = []
-@@ -8096,3 +8076,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -8126,3 +8106,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -85,11 +85,11 @@ index f0976f97e5..c4f6a026cf 100644
 +  ]
 +}
 diff --git a/DEPS b/DEPS
-index 529f54b59f..f0ecac5c0c 100644
+index badda7719a..c2648d8076 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -708,4 +708,15 @@ hooks = [
-                '--quiet',
+@@ -729,4 +729,15 @@ hooks = [
+                '--skip_remoteexec_cfg_fetch',
                 ],
    },
 +  {
@@ -105,10 +105,10 @@ index 529f54b59f..f0ecac5c0c 100644
 +  },
  ]
 diff --git a/src/maglev/maglev-ir.h b/src/maglev/maglev-ir.h
-index 68a751b775..75277e0f7e 100644
+index c6f7245d49..5f924ce243 100644
 --- a/src/maglev/maglev-ir.h
 +++ b/src/maglev/maglev-ir.h
-@@ -2335,8 +2335,8 @@ class NodeTMixin : public Base {
+@@ -2386,8 +2386,8 @@ class NodeTMixin : public Base {
    template <typename... Args>
    explicit NodeTMixin(uint64_t bitfield, Args&&... args)
        : Base(bitfield, std::forward<Args>(args)...) {
@@ -119,7 +119,7 @@ index 68a751b775..75277e0f7e 100644
    }
  };
  
-@@ -2403,7 +2403,7 @@ class FixedInputNodeTMixin : public NodeTMixin<Base, Derived> {
+@@ -2454,7 +2454,7 @@ class FixedInputNodeTMixin : public NodeTMixin<Base, Derived> {
    template <typename... Args>
    explicit FixedInputNodeTMixin(uint64_t bitfield, Args&&... args)
        : NodeTMixin<Base, Derived>(bitfield, std::forward<Args>(args)...) {
