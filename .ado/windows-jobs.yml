@@ -84,6 +84,7 @@ jobs:
       - task: PublishSymbols@2
         displayName: Publish symbols
         inputs:
+          UseNetCoreClientTool: true
           SearchPattern: $(System.DefaultWorkingDirectory)/**/*.pdb
           SymbolServerType: TeamServices
 
