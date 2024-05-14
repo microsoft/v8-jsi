@@ -166,8 +166,11 @@ target("executable", "jsitests") {
 
   cflags = [ "-DJSI_V8_IMPL" ]
 
+  # Run microtasks explicitly for JSI
+  cflags += [ "-DJSI_SUPPORT_MICROTASKS" ]
+
   if (is_win) {
-    # Import NAPI functions and (-FC) use full path of source code files in diagnostics.
+    # Import Node-API functions and (-FC) use full path of source code files in diagnostics.
     cflags += [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
   }
 

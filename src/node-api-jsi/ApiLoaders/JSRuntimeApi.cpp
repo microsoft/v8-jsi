@@ -9,6 +9,7 @@ EXTERN_C_START
 extern napi_status NAPI_CDECL default_jsr_open_napi_env_scope(napi_env env, jsr_napi_env_scope *scope);
 extern napi_status NAPI_CDECL default_jsr_close_napi_env_scope(napi_env env, jsr_napi_env_scope scope);
 extern napi_status NAPI_CDECL default_jsr_get_description(napi_env env, const char **result);
+extern napi_status NAPI_CDECL default_jsr_queue_microtask(napi_env env, napi_value callback);
 extern napi_status NAPI_CDECL default_jsr_drain_microtasks(napi_env env, int32_t max_count_hint, bool *result);
 extern napi_status NAPI_CDECL default_jsr_is_inspectable(napi_env env, bool *result);
 

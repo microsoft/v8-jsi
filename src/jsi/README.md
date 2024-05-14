@@ -9,8 +9,11 @@ It is being used by React Native project to work with JS engines.
 JSI has versions associated with the following commit hashes in the 
 https://github.com/facebook/hermes repo. 
 
-| Version | Commit Hash                              | Commit Description
-|--------:|:-----------------------------------------|------------------------------------------------------
+| Version | Commit Hash                                | Commit Description
+|--------:|:-------------------------------------------|------------------------------------------------------
+|      12 | `de9dfe408bc3f8715aef161c5fcec291fc6dacb2` | Add queueMicrotask method to JSI
+|         | `a699e87f995bc2f7193990ff36a57ec9cad940e5` | Make queueMicrotask pure virtual
+|      11 | `a1c168705f609c8f1ae800c60d88eb199154264b` | Add JSI method for setting external memory size
 |      10 | `b81666598672cb5f8b365fe6548d3273f216322e` | Clarify const-ness of JSI references
 |       9 | `e6d887ae96bef5c71032f11ed1a9fb9fecec7b46` | Add external ArrayBuffers to JSI
 |       8 | `4d64e61a1f9926eca0afd4eb38d17cea30bdc34c` | Add BigInt JSI API support
