@@ -26,11 +26,16 @@ struct IsolateData {
     return napi_wrapper_.Get(isolate_);
   }
 
+  v8::Local<v8::Private> nativeStateKey() const {
+    return nativeStateKey_.Get(isolate_);
+  }
+
   // Creates property names often used by the NAPI implementation.
   void CreateProperties() {
     v8::HandleScope handle_scope(isolate_);
     CreateProperty(napi_type_tag_, "node:napi:type_tag");
     CreateProperty(napi_wrapper_, "node:napi:wrapper");
+    CreateProperty(nativeStateKey_, "v8:jsi:nativeStateKey");
   }
 
  private:
@@ -49,6 +54,7 @@ struct IsolateData {
   v8::Isolate *isolate_;
   v8::Eternal<v8::Private> napi_type_tag_;
   v8::Eternal<v8::Private> napi_wrapper_;
+  v8::Eternal<v8::Private> nativeStateKey_;
 };
 
 } // namespace v8runtime
