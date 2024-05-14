@@ -503,6 +503,10 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     CreateNewIsolate();
   }
 
+  if (args_.flags.explicitMicrotaskPolicy) {
+    isolate_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
+  }
+
   v8::Isolate::Scope isolate_scope(isolate_);
   v8::HandleScope handleScope(isolate_);
 
@@ -634,8 +638,21 @@ jsi::Value V8Runtime::evaluateJavaScript(
   return result;
 }
 
+#if JSI_VERSION >= 12
+void V8Runtime::queueMicrotask(const jsi::Function &callback) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::Function> v8Function = v8::Local<v8::Function>::Cast(objectRef(callback));
+  GetIsolate()->EnqueueMicrotask(v8Function);
+}
+#endif
+
 #if JSI_VERSION >= 4
 bool V8Runtime::drainMicrotasks(int /*maxMicrotasksHint*/) {
+  IsolateLocker isolate_locker(this);
+  v8::Isolate *isolate = GetIsolate();
+  if (isolate->GetMicrotasksPolicy() == v8::MicrotasksPolicy::kExplicit) {
+    isolate->PerformMicrotaskCheckpoint();
+  }
   return true;
 }
 #endif
@@ -756,7 +773,7 @@ class V8PreparedJavaScript : public facebook::jsi::PreparedJavaScript {
   // What's the point of bytecode if we need to preserve the full source too?
   // TODO: Figure out if there's a way to use the bytecode only with V8
   std::shared_ptr<const facebook::jsi::Buffer> sourceBuffer;
-  v8::Persistent<v8::Script> script;
+  v8::Global<v8::Script> script;
 };
 
 std::shared_ptr<const facebook::jsi::PreparedJavaScript> V8Runtime::prepareJavaScript(
@@ -1164,7 +1181,8 @@ jsi::Object V8Runtime::createObject(std::shared_ptr<jsi::HostObject> hostobject)
 
 std::shared_ptr<jsi::HostObject> V8Runtime::getHostObject(const jsi::Object &obj) {
   IsolateLocker isolate_locker(this);
-  v8::Local<v8::External> internalField = v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0).As<v8::Value>());
+  v8::Local<v8::External> internalField =
+      v8::Local<v8::External>::Cast(objectRef(obj)->GetInternalField(0).As<v8::Value>());
   HostObjectProxy *hostObjectProxy = reinterpret_cast<HostObjectProxy *>(internalField->Value());
   return hostObjectProxy->getHostObject();
 }
@@ -1282,12 +1300,21 @@ jsi::Array V8Runtime::getPropertyNames(const jsi::Object &obj) {
   return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), propNames)).getArray(*this);
 }
 
-jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &) {
-  throw std::logic_error("Not implemented");
+jsi::WeakObject V8Runtime::createWeakObject(const jsi::Object &obj) {
+  IsolateLocker isolate_locker(this);
+  return make<jsi::WeakObject>(V8WeakObjectValue::make(GetIsolate(), objectRef(obj)));
 }
 
-jsi::Value V8Runtime::lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &) {
-  throw std::logic_error("Not implemented");
+jsi::Value V8Runtime::lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObj) {
+  IsolateLocker isolate_locker(this);
+
+  const V8WeakObjectValue *v8WeakObject = static_cast<const V8WeakObjectValue *>(getPointerValue(weakObj));
+  v8::Local<v8::Object> obj = v8WeakObject->get(GetIsolate());
+
+  if (!obj.IsEmpty())
+    return createValue(obj);
+
+  return jsi::Value();
 }
 
 jsi::Array V8Runtime::createArray(size_t length) {
@@ -1482,6 +1509,263 @@ bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
   return objectRef(o)->InstanceOf(GetContextLocal(), objectRef(f)).ToChecked();
 }
 
+#if JSI_VERSION >= 11
+void V8Runtime::setExternalMemoryPressure(const jsi::Object &obj, size_t amount) {
+  //    IsolateLocker isolate_locker(this);
+}
+#endif
+
+#if JSI_VERSION >= 8
+facebook::jsi::BigInt V8Runtime::createBigIntFromInt64(int64_t val) {
+  IsolateLocker isolate_locker(this);
+  return make<facebook::jsi::BigInt>(
+      V8PointerValue<v8::BigInt>::make(GetIsolate(), v8::BigInt::New(GetIsolate(), val)));
+}
+
+facebook::jsi::BigInt V8Runtime::createBigIntFromUint64(uint64_t val) {
+  IsolateLocker isolate_locker(this);
+  return make<facebook::jsi::BigInt>(
+      V8PointerValue<v8::BigInt>::make(GetIsolate(), v8::BigInt::NewFromUnsigned(GetIsolate(), val)));
+}
+
+bool V8Runtime::bigintIsInt64(const facebook::jsi::BigInt &val) {
+  IsolateLocker isolate_locker(this);
+  bool lossless{true};
+  uint64_t value = bigIntRef(val)->Int64Value(&lossless);
+  return lossless;
+}
+
+bool V8Runtime::bigintIsUint64(const facebook::jsi::BigInt &val) {
+  IsolateLocker isolate_locker(this);
+  bool lossless{true};
+  uint64_t value = bigIntRef(val)->Uint64Value(&lossless);
+  return lossless;
+}
+
+uint64_t V8Runtime::truncate(const facebook::jsi::BigInt &val) {
+  IsolateLocker isolate_locker(this);
+  return bigIntRef(val)->Uint64Value(nullptr);
+}
+
+constexpr inline uint32_t maxCharsPerDigitInRadix(int32_t radix) {
+  // To compute the lower bound of bits in a BigIntDigitType "covered" by a
+  // char. For power of 2 radixes, it is known (exactly) that each character
+  // covers log2(radix) bits. For non-power of 2 radixes, a lower bound is
+  // log2(greatest power of 2 that is less than radix).
+  uint32_t minNumBitsPerChar = radix < 4 ? 1 : radix < 8 ? 2 : radix < 16 ? 3 : radix < 32 ? 4 : 5;
+
+  // With minNumBitsPerChar being the lower bound estimate of how many bits each
+  // char can represent, the upper bound of how many chars "fit" in a bigint
+  // digit is ceil(sizeofInBits(bigint digit) / minNumBitsPerChar).
+  uint32_t numCharsPerDigits = static_cast<uint32_t>(sizeof(uint64_t)) / (1 << minNumBitsPerChar);
+
+  return numCharsPerDigits;
+}
+
+// Return the high 32 bits of a 64 bit value.
+constexpr inline uint32_t Hi_32(uint64_t Value) {
+  return static_cast<uint32_t>(Value >> 32);
+}
+
+// Return the low 32 bits of a 64 bit value.
+constexpr inline uint32_t Lo_32(uint64_t Value) {
+  return static_cast<uint32_t>(Value);
+}
+
+// Make a 64-bit integer from a high / low pair of 32-bit integers.
+constexpr inline uint64_t Make_64(uint32_t High, uint32_t Low) {
+  return ((uint64_t)High << 32) | (uint64_t)Low;
+}
+
+facebook::jsi::String V8Runtime::bigintToString(const facebook::jsi::BigInt &val, int radix) {
+  IsolateLocker isolate_locker(this);
+  if (radix < 2 || radix > 36) {
+    throw makeJSINativeException("Invalid radix ", radix, " to BigInt.toString");
+  }
+
+  v8::Local<v8::BigInt> bigint = bigIntRef(val);
+  int wordCount = bigint->WordCount();
+  uint64_t stackWords[8]{};
+  std::unique_ptr<uint64_t[]> heapWords;
+  uint64_t *words = stackWords;
+  if (wordCount > static_cast<int>(std::size(stackWords))) {
+    heapWords = std::unique_ptr<uint64_t[]>(new uint64_t[wordCount]);
+    words = heapWords.get();
+  }
+  int32_t signBit{};
+  bigint->ToWordsArray(&signBit, &wordCount, words);
+
+  if (wordCount == 0) {
+    return createStringFromAscii("0", 1);
+  }
+
+  // avoid trashing the heap by pre-allocating the largest possible string
+  // returned by this function. The "1" below is to account for a possible "-"
+  // sign.
+  std::string digits;
+  digits.reserve(1 + wordCount * maxCharsPerDigitInRadix(radix));
+
+  // Use 32-bit values for calculations to get 64-bit results.
+  // For the little-endian machines we just cast the words array.
+  // TODO: Add support for big-endian.
+  uint32_t *halfWords = reinterpret_cast<uint32_t *>(words);
+  size_t count = wordCount * 2;
+  for (size_t i = count; i > 0 && halfWords[i - 1] == 0; --i) {
+    --count;
+  }
+
+  uint32_t divisor = static_cast<uint32_t>(radix);
+  uint32_t remainder = 0;
+  uint64_t word0 = words[0];
+
+  do {
+    // We rewrite the halfWords array as we divide it by radix.
+    if (count <= 2) {
+      remainder = word0 % divisor;
+      word0 = word0 / divisor;
+    } else {
+      for (size_t i = count; i > 0; --i) {
+        uint64_t partialDividend = Make_64(remainder, halfWords[i - 1]);
+        if (partialDividend == 0) {
+          halfWords[i] = 0;
+          remainder = 0;
+          if (i == count) {
+            if (--count == 2) {
+              word0 = words[0];
+            }
+          }
+        } else if (partialDividend < divisor) {
+          halfWords[i] = 0;
+          remainder = Lo_32(partialDividend);
+          if (i == count) {
+            if (--count == 2) {
+              word0 = words[0];
+            }
+          }
+        } else if (partialDividend == divisor) {
+          halfWords[i] = 1;
+          remainder = 0;
+        } else {
+          halfWords[i] = Lo_32(partialDividend / divisor);
+          remainder = Lo_32(partialDividend % divisor);
+        }
+      }
+    }
+
+    if (remainder < 10) {
+      digits.push_back(static_cast<char>('0' + remainder));
+    } else {
+      digits.push_back(static_cast<char>('a' + remainder - 10));
+    }
+  } while (count > 2 || word0 != 0);
+
+  if (signBit) {
+    digits.push_back('-');
+  }
+
+  std::reverse(digits.begin(), digits.end());
+  return createStringFromAscii(digits.data(), digits.size());
+}
+#endif
+
+class NativeStateHolder final {
+ public:
+  NativeStateHolder(
+      v8::Isolate *isolate,
+      v8::Local<v8::Object> v8Object,
+      std::shared_ptr<facebook::jsi::NativeState> nativeState) noexcept
+      : v8WeakObject_(isolate, v8Object), nativeState_(std::move(nativeState)) {
+    v8WeakObject_.SetWeak(
+        this,
+        [](const v8::WeakCallbackInfo<NativeStateHolder> &data) { delete data.GetParameter(); },
+        v8::WeakCallbackType::kParameter);
+  }
+
+  const std::shared_ptr<facebook::jsi::NativeState> &getNativeState() const noexcept {
+    return nativeState_;
+  }
+
+  void setNativeState(std::shared_ptr<facebook::jsi::NativeState> nativeState) noexcept {
+    nativeState_ = std::move(nativeState);
+  }
+
+ private:
+  v8::Global<v8::Object> v8WeakObject_;
+  std::shared_ptr<facebook::jsi::NativeState> nativeState_;
+};
+
+#if JSI_VERSION >= 7
+bool V8Runtime::hasNativeState(const facebook::jsi::Object &obj) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::Object> v8Object = objectRef(obj);
+  v8::Maybe<bool> result = v8Object->HasPrivate(GetContextLocal(), nativeStateKey());
+  return result.FromMaybe(false);
+}
+
+std::shared_ptr<facebook::jsi::NativeState> V8Runtime::getNativeState(const facebook::jsi::Object &obj) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::Object> v8Object = objectRef(obj);
+  NativeStateHolder *holder = getNativeStateHolder(v8Object);
+  return holder ? holder->getNativeState() : nullptr;
+}
+
+void V8Runtime::setNativeState(
+    const facebook::jsi::Object &obj,
+    std::shared_ptr<facebook::jsi::NativeState> nativeState) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::Object> v8Object = objectRef(obj);
+  NativeStateHolder *holder = getNativeStateHolder(v8Object);
+  if (holder) {
+    holder->setNativeState(std::move(nativeState));
+  } else {
+    holder = new NativeStateHolder(GetIsolate(), v8Object, std::move(nativeState));
+    v8::Local<v8::External> external = v8::External::New(GetIsolate(), holder);
+    v8Object->SetPrivate(GetContextLocal(), nativeStateKey(), external).Check();
+  }
+}
+
+NativeStateHolder *V8Runtime::getNativeStateHolder(v8::Local<v8::Object> v8Object) {
+  v8::MaybeLocal<v8::Value> maybeValue = v8Object->GetPrivate(GetContextLocal(), nativeStateKey());
+  if (maybeValue.IsEmpty()) {
+    return nullptr;
+  }
+  v8::Local<v8::Value> val = maybeValue.ToLocalChecked();
+  if (!val->IsExternal()) {
+    return nullptr;
+  }
+  v8::Local<v8::External> external = val.As<v8::External>();
+  return static_cast<NativeStateHolder *>(external->Value());
+}
+
+#endif
+
+#if JSI_VERSION >= 9
+facebook::jsi::ArrayBuffer V8Runtime::createArrayBuffer(std::shared_ptr<facebook::jsi::MutableBuffer> buffer) {
+  IsolateLocker isolate_locker(this);
+
+  void *data = buffer->data();
+  size_t length = buffer->size();
+  auto bufferPtr =
+      data != nullptr ? std::make_unique<std::shared_ptr<facebook::jsi::MutableBuffer>>(std::move(buffer)) : nullptr;
+  std::unique_ptr<v8::BackingStore> backingStore = v8::ArrayBuffer::NewBackingStore(
+      data,
+      length,
+      [](void * /*data*/, size_t /*length*/, void *deleterData) {
+        if (deleterData != nullptr) {
+          delete static_cast<std::shared_ptr<facebook::jsi::MutableBuffer> *>(deleterData);
+        }
+      },
+      bufferPtr.release());
+
+  v8::Local<v8::ArrayBuffer> arrayBuffer = v8::ArrayBuffer::New(GetIsolate(), std::move(backingStore));
+  if (data == nullptr) {
+    arrayBuffer->Detach(v8::Local<v8::Value>()).Check();
+  }
+
+  return make<jsi::Object>(V8ObjectValue::make(GetIsolate(), arrayBuffer)).getArrayBuffer(*this);
+}
+#endif
+
 jsi::Value V8Runtime::createValue(v8::Local<v8::Value> value) const {
   IsolateLocker isolate_locker(this);
   if (value->IsInt32()) {
@@ -1539,7 +1823,7 @@ v8::Local<v8::Value> V8Runtime::valueReference(const jsi::Value &value) {
   }
 }
 
-// Adoped from Node.js code
+// Adopted from Node.js code
 /*static*/ V8Runtime *V8Runtime::GetCurrent(v8::Local<v8::Context> context) noexcept {
   if (/*UNLIKELY*/ context.IsEmpty()) {
     return nullptr;
@@ -1564,7 +1848,7 @@ std::unique_ptr<UnhandledPromiseRejection> V8Runtime::GetAndClearLastUnhandledPr
   return std::exchange(last_unhandled_promise_, nullptr);
 }
 
-// Adoped from V8 d8 utility code
+// Adopted from V8 d8 utility code
 /*static*/ void V8Runtime::PromiseRejectCallback(v8::PromiseRejectMessage data) {
   if (data.GetEvent() == v8::kPromiseRejectAfterResolved || data.GetEvent() == v8::kPromiseResolveAfterResolved) {
     // Ignore reject/resolve after resolved.
@@ -1608,7 +1892,7 @@ std::unique_ptr<UnhandledPromiseRejection> V8Runtime::GetAndClearLastUnhandledPr
   runtime->SetUnhandledPromise(promise, message, exception);
 }
 
-// Adoped from V8 d8 utility code
+// Adopted from V8 d8 utility code
 void V8Runtime::SetUnhandledPromise(
     v8::Local<v8::Promise> promise,
     v8::Local<v8::Message> message,
@@ -1622,7 +1906,7 @@ void V8Runtime::SetUnhandledPromise(
       v8::Global<v8::Value>(GetIsolate(), exception)});
 }
 
-// Adoped from V8 d8 utility code
+// Adopted from V8 d8 utility code
 void V8Runtime::RemoveUnhandledPromise(v8::Local<v8::Promise> promise) {
   if (ignore_unhandled_promises_)
     return;

@@ -33,6 +33,7 @@ JSR_FUNC(jsr_runtime_get_node_api_env)
 
 // The JS runtime functions needed for JSI.
 JSR_JSI_FUNC(jsr_close_napi_env_scope)
+JSR_JSI_FUNC(jsr_queue_microtask)
 JSR_JSI_FUNC(jsr_drain_microtasks)
 JSR_JSI_FUNC(jsr_get_description)
 JSR_JSI_FUNC(jsr_is_inspectable)

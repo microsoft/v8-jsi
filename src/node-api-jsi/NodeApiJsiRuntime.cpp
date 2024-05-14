@@ -188,6 +188,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
       const std::shared_ptr<const jsi::Buffer> &buffer,
       std::string sourceURL) override;
   jsi::Value evaluatePreparedJavaScript(const std::shared_ptr<const jsi::PreparedJavaScript> &js) override;
+#if JSI_VERSION >= 12
+  void queueMicrotask(const jsi::Function& callback) override;
+#endif
 #if JSI_VERSION >= 4
   bool drainMicrotasks(int maxMicrotasksHint = -1) override;
 #endif
@@ -284,6 +287,10 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   bool strictEquals(const jsi::Object &a, const jsi::Object &b) const override;
 
   bool instanceOf(const jsi::Object &obj, const jsi::Function &func) override;
+
+#if JSI_VERSION >= 11
+  void setExternalMemoryPressure(const jsi::Object &obj, size_t amount) override;
+#endif
 
  private:
   // RAII class to open and close the environment scope.
@@ -936,6 +943,14 @@ jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(const std::shared_ptr<c
   return toJsiValue(result);
 }
 
+#if JSI_VERSION >= 12
+void NodeApiJsiRuntime::queueMicrotask(const jsi::Function& callback) {
+  NodeApiScope scope{*this};
+  napi_value callbackValue = getNodeApiValue(callback);
+  CHECK_NAPI(jsrApi_->jsr_queue_microtask(env_, callbackValue));
+}
+#endif
+
 #if JSI_VERSION >= 4
 bool NodeApiJsiRuntime::drainMicrotasks(int maxMicrotasksHint) {
   bool result{};
@@ -1567,6 +1582,12 @@ bool NodeApiJsiRuntime::instanceOf(const jsi::Object &obj, const jsi::Function &
   NodeApiScope scope{*this};
   return instanceOf(getNodeApiValue(obj), getNodeApiValue(func));
 }
+
+#if JSI_VERSION >= 11
+void NodeApiJsiRuntime::setExternalMemoryPressure(const jsi::Object & /*obj*/, size_t /*amount*/) {
+  // TODO: implement
+}
+#endif
 
 //=====================================================================================================================
 // NodeApiJsiRuntime::NodeApiScope implementation
@@ -2793,8 +2814,14 @@ napi_status NAPI_CDECL default_jsr_get_description(napi_env /*env*/, const char 
   return napi_ok;
 }
 
+// Default implementation of jsr_queue_microtask if it is not provided by JS engine.
+// It does nothing.
+napi_status NAPI_CDECL default_jsr_queue_microtask(napi_env /*env*/, napi_value /*callback*/) {
+  return napi_generic_failure;
+}
+
 // Default implementation of jsr_drain_microtasks if it is not provided by JS engine.
-// It does nothing
+// It does nothing.
 napi_status NAPI_CDECL default_jsr_drain_microtasks(napi_env /*env*/, int32_t /*max_count_hint*/, bool *result) {
   if (result != nullptr) {
     *result = true; // All tasks are drained
