@@ -9,23 +9,23 @@ parameters:
         BuildConfiguration: Debug
         BuildPlatform: x64
         AppPlatform: win32
-      - Name: Desktop|x86|Debug:
+      - Name: Desktop|x86|Debug
         BuildConfiguration: Debug
         BuildPlatform: x86
         AppPlatform: win32
-      - Name: Desktop|ARM64|Debug:
+      - Name: Desktop|ARM64|Debug
         BuildConfiguration: Debug
         BuildPlatform: arm64
         AppPlatform: win32
-      - Name: Desktop|x64|Release:
+      - Name: Desktop|x64|Release
         BuildConfiguration: Release
         BuildPlatform: x64
         AppPlatform: win32
-      - Name: Desktop|x86|Release:
+      - Name: Desktop|x86|Release
         BuildConfiguration: Release
         BuildPlatform: x86
         AppPlatform: win32
-      - Name: Desktop|ARM64|Release:
+      - Name: Desktop|ARM64|Release
         BuildConfiguration: Release
         BuildPlatform: arm64
         AppPlatform: win32
