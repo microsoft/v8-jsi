@@ -6,6 +6,11 @@ parameters:
 - name: isPublish
   type: boolean
   default : false
+- name: buildConfiguration
+  type: string
+- name: buildPlatform
+  type: string
+
 
 steps:
   - task: PowerShell@2
@@ -23,7 +28,7 @@ steps:
       filePath: $(Build.SourcesDirectory)\scripts\fetch_code.ps1
       arguments:
         -SourcesPath:$(Build.SourcesDirectory)
-        -Configuration:$(BuildConfiguration)
+        -Configuration:${{parameters.buildConfiguration}}
         -AppPlatform:${{parameters.appPlatform}}
 
   - task: PowerShell@2
@@ -34,8 +39,8 @@ steps:
       arguments:
         -OutputPath:${{parameters.outputPath}}
         -SourcesPath:$(Build.SourcesDirectory)
-        -Platform:$(BuildPlatform)
-        -Configuration:$(BuildConfiguration)
+        -Platform:${{parameters.buildPlatform}}
+        -Configuration:${{parameters.buildConfiguration}}
         -AppPlatform:${{parameters.appPlatform}}
 
   - script: |
@@ -61,28 +66,28 @@ steps:
       testSelector: testAssemblies
       testAssemblyVer2: jsitests.exe
       pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
-      searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/$(BuildPlatform)/$(BuildConfiguration)
+      searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/${{parameters.buildPlatform}}/${{parameters.buildConfiguration}}
       runTestsInIsolation: true
-      platform: $(BuildPlatform)
-      configuration: $(BuildConfiguration)
+      platform: ${{parameters.buildPlatform}}
+      configuration: ${{parameters.buildConfiguration}}
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(variables.BuildPlatform, 'arm')))
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
 
   - ${{ if not(parameters.isPublish) }}:
     - task: ComponentGovernanceComponentDetection@0
       inputs:
         ignoreDirectories: 'build\depot_tools'
   
-    - script: mkdir ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+    - script: mkdir ${{parameters.outputPath}}\_manifest\${{parameters.buildPlatform}}\${{parameters.buildConfiguration}}
       displayName: 📒 Prep Manifest
   
     - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
       displayName: 📒 Generate Manifest
       inputs:
         BuildDropPath: ${{parameters.outputPath}}
-        ManifestDirPath: ${{parameters.outputPath}}\_manifest\$(BuildPlatform)\$(BuildConfiguration)
+        ManifestDirPath: ${{parameters.outputPath}}\_manifest\${{parameters.buildPlatform}}\${{parameters.buildConfiguration}}
   
     # Guardian does not handle custom builds, so manually running Binskim
     - task: BinSkim@3
@@ -94,7 +99,7 @@ steps:
           AnalyzeVerbose: true
           toolVersion: 'LatestPreRelease'
       continueOnError: true
-      condition: and(eq(variables.BuildConfiguration, 'Release'), not(eq(variables.BuildPlatform, 'arm64')))
+      condition: and(succeeded(), and(eq('${{parameters.buildConfiguration}}', 'Release'), not(eq('${{parameters.buildPlatform}}', 'arm64'))))
   
     - task: PublishBuildArtifacts@1
       displayName: "Publish artifacts"
