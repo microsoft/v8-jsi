@@ -73,7 +73,7 @@ steps:
       publishRunAttachments: true
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith(${{parameters.buildPlatform}}, 'arm')))
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
 
   - ${{ if not(parameters.isPublish) }}:
     - task: ComponentGovernanceComponentDetection@0
