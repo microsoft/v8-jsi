@@ -55,7 +55,9 @@ jobs:
         - template: windows-build.yml
           parameters:
             outputPath: $(Build.ArtifactStagingDirectory)
-            appPlatform: $(AppPlatform)
+            appPlatform: ${{ matrix.AppPlatform }}
+            buildConfiguration: ${{ matrix.BuildConfiguration }}
+            buildPlatform: ${{ matrix.BuildPlatform }}
             isPublish: ${{ parameters.isPublish }}
 
   - job: V8JsiPublishNuget
