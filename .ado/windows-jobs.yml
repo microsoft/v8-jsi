@@ -5,27 +5,27 @@ parameters:
   - name: BuildMatrix
     type: object
     default : 
-      - Name: Desktop|x64|Debug
+      - Name: Desktop_x64_Debug
         BuildConfiguration: Debug
         BuildPlatform: x64
         AppPlatform: win32
-      - Name: Desktop|x86|Debug
+      - Name: Desktop_x86_Debug
         BuildConfiguration: Debug
         BuildPlatform: x86
         AppPlatform: win32
-      - Name: Desktop|ARM64|Debug
+      - Name: Desktop_ARM64_Debug
         BuildConfiguration: Debug
         BuildPlatform: arm64
         AppPlatform: win32
-      - Name: Desktop|x64|Release
+      - Name: Desktop_x64_Release
         BuildConfiguration: Release
         BuildPlatform: x64
         AppPlatform: win32
-      - Name: Desktop|x86|Release
+      - Name: Desktop_x86_Release
         BuildConfiguration: Release
         BuildPlatform: x86
         AppPlatform: win32
-      - Name: Desktop|ARM64|Release
+      - Name: Desktop_ARM64_Release
         BuildConfiguration: Release
         BuildPlatform: arm64
         AppPlatform: win32
@@ -62,7 +62,7 @@ jobs:
     condition: not(eq(variables['Build.Reason'], 'PullRequest'))
     dependsOn:
       - ${{ each matrix in parameters.BuildMatrix }}:
-        - V8JsiBuild$ {{ matrix.Name }}
+        - V8JsiBuild_${{ matrix.Name }}
     displayName: Publish Nuget
     ${{ if parameters.isPublish }}:
       templateContext:
