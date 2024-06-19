@@ -61,7 +61,7 @@ jobs:
             isPublish: ${{ parameters.isPublish }}
 
   - job: V8JsiPublishNuget
-    condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+    condition: and(succeeded(), not(eq(variables['Build.Reason'], 'PullRequest')))
     dependsOn:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - V8JsiBuild_${{ matrix.Name }}
@@ -124,7 +124,7 @@ jobs:
       - ${{ if not(parameters.isPublish) }}:
         - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
           displayName: 📒 Generate Manifest NuGet
-          condition: not(eq(variables['Build.Reason'], 'PullRequest'))
+          condition: and(succeeded(), not(eq(variables['Build.Reason'], 'PullRequest')))
           inputs:
             BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
 

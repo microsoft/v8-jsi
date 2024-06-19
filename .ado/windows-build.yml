@@ -99,7 +99,7 @@ steps:
           AnalyzeVerbose: true
           toolVersion: 'LatestPreRelease'
       continueOnError: true
-      condition: and(eq('${{parameters.buildConfiguration}}', 'Release'), not(eq('${{parameters.buildPlatform}}', 'arm64')))
+      condition: and(succeeded(), and(eq('${{parameters.buildConfiguration}}', 'Release'), not(eq('${{parameters.buildPlatform}}', 'arm64'))))
   
     - task: PublishBuildArtifacts@1
       displayName: "Publish artifacts"
