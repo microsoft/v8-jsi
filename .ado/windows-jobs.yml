@@ -33,7 +33,7 @@ parameters:
 jobs:
 
   - ${{ each matrix in parameters.BuildMatrix }}:
-    - job: V8JsiBuild ${{ matrix.Name }}
+    - job: V8JsiBuild_${{ matrix.Name }}
       timeoutInMinutes: 300
       variables:
         - name: Packaging.EnableSBOMSigning
