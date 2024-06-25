@@ -32,6 +32,9 @@ extends:
   parameters:
     pool:
       name: OE-OfficePublic
+      demands:
+        - ImageVersionOverride -equals 69.0.0
+
     sdl:
       baseline:
         baselineFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnbaselines
