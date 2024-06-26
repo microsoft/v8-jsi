@@ -90,9 +90,7 @@ if ($AppPlatform -eq "linux") {
 # Remove unused code
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\test\test262\data\tools")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\depot_tools\external_bin\gsutil")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\google_benchmark")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\perfetto")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\clusterfuzz")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\turbolizer")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package.json")
