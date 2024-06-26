@@ -38,7 +38,7 @@ jobs:
       variables:
         - name: Packaging.EnableSBOMSigning
           value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
-      displayName: Build v8jsi.dll
+      displayName: 'Build v8jsi.dll ${{ matrix.BuildPlatform }} ${{ matrix.BuildConfiguration }}'
       ${{ if parameters.isPublish }}:
         templateContext:
           outputs:
