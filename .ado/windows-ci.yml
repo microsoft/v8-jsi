@@ -31,9 +31,7 @@ extends:
   template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
   parameters:
     pool:
-      name: OE-OfficePublic
-      demands:
-        - ImageVersionOverride -equals 69.0.0
+      name: OEDevJeff-OfficePublic
 
     sdl:
       baseline:

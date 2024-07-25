@@ -34,7 +34,7 @@ jobs:
 
   - ${{ each matrix in parameters.BuildMatrix }}:
     - job: V8JsiBuild_${{ matrix.Name }}
-      timeoutInMinutes: 300
+      timeoutInMinutes: 1200
       variables:
         - name: Packaging.EnableSBOMSigning
           value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
