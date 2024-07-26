@@ -13,10 +13,6 @@ parameters:
         BuildConfiguration: Debug
         BuildPlatform: x86
         AppPlatform: win32
-      - Name: Desktop_ARM64_Debug
-        BuildConfiguration: Debug
-        BuildPlatform: arm64
-        AppPlatform: win32
       - Name: Desktop_x64_Release
         BuildConfiguration: Release
         BuildPlatform: x64
@@ -24,10 +20,6 @@ parameters:
       - Name: Desktop_x86_Release
         BuildConfiguration: Release
         BuildPlatform: x86
-        AppPlatform: win32
-      - Name: Desktop_ARM64_Release
-        BuildConfiguration: Release
-        BuildPlatform: arm64
         AppPlatform: win32
 
 jobs:
