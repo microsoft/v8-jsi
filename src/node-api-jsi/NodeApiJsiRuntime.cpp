@@ -2073,11 +2073,14 @@ jsi::JSError NodeApiJsiRuntime::makeJSError(Args &&...args) {
 [[noreturn]] void NodeApiJsiRuntime::throwJSException(napi_status status) const {
   napi_value jsError{};
   CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_get_and_clear_last_exception(env_, &jsError));
+  napi_valuetype jsErrorType;
+  CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_typeof(env_, jsError, &jsErrorType));
 
-  if (!hasPendingJSError_ &&
-      (status == napi_pending_exception || instanceOf(jsError, getNodeApiValue(cachedValue_.Error)))) {
+  if (!hasPendingJSError_ && (status == napi_pending_exception || jsErrorType != napi_undefined)) {
     AutoRestore<bool> setValue(const_cast<NodeApiJsiRuntime *>(this)->hasPendingJSError_, true);
-    rewriteErrorMessage(jsError);
+    if (jsErrorType == napi_object && instanceOf(jsError, getNodeApiValue(cachedValue_.Error))) {
+      rewriteErrorMessage(jsError);
+    }
     throw jsi::JSError(*const_cast<NodeApiJsiRuntime *>(this), toJsiValue(jsError));
   } else {
     std::ostringstream errorStream;
