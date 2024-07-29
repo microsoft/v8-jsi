@@ -24,8 +24,7 @@ std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
         return v8runtime::makeV8Runtime(std::move(args));
       },
 #endif
-// TODO: (vmoroz) Restore JSI for Node-API tests.
-#if false && defined(_WIN32) // Node-API not supported on POSIX (LibLoader not implemented)
+#if defined(_WIN32) // Node-API not supported on POSIX (LibLoader not implemented)
       []() -> std::unique_ptr<facebook::jsi::Runtime> {
         V8Api *v8Api = V8Api::fromLib();
         V8Api::setCurrent(v8Api);
@@ -99,8 +98,8 @@ TEST(Basic, MultiThreadIsolate) {
   }
 }
 
-#ifdef _WIN32 // NApi not supported on POSIX (LibLoader not implemented)
-TEST(Basic, MultiThreadIsolateNApi) {
+#ifdef _WIN32 // Node-API not supported on POSIX (LibLoader not implemented)
+TEST(Basic, MultiThreadIsolateNodeApi) {
   V8Api *v8Api = V8Api::fromLib();
   V8Api::setCurrent(v8Api);
 
