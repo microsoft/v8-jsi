@@ -557,9 +557,6 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     NodeApiPointerValueKind pointerKind_{NodeApiPointerValueKind::Object};
   };
 
-  // TODO: Use the stack scope for each function.
-  // TODO: Add a list of NodeApiRefCountedPointerValue to be deleted when the ref count is zero.
-  // TODO: as a part of the scope closure delete all NodeApiRefCountedPointerValue that are not used by jsi::Pointer.
   // TODO: Use arena allocator for NodeApiRefCountedPointerValue.
 
   // NodeApiRefCountedPointerValue is a ref counted implementation of PointerValue that is allocated in the heap.
