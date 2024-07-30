@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#include <child_process.h>
+#include "child_process.h"
 
 #include <strsafe.h>
 #include <windows.h>

@@ -1,4 +1,4 @@
-# copy test JS files
+# Test JS files
 copy("node_api_test_js_files") {
   sources = [
     "js-native-api/2_function_arguments/test.js",
@@ -59,18 +59,12 @@ copy("node_api_test_js_files") {
 
 config("test_module") {
   include_dirs = [
-    "../../node-api",
+    "..",
     "js-native-api",
   ]
-  if (is_win) {
-    # Import Node-API functions and (-FC) use full path of source code files in diagnostics.
-    cflags = [
-      "-DNAPI_EXTERN=__declspec(dllimport)",
-      "-FC",
-    ]
-  }
 }
 
+# Test modules
 loadable_module("2_function_arguments") {
   configs += [ ":test_module" ]
   deps = [ "//jsi:v8jsi" ]
@@ -302,10 +296,59 @@ loadable_module("test_typedarray") {
   sources = [ "js-native-api/test_typedarray/test_typedarray.c" ]
 }
 
+executable("node_lite") {
+  testonly = true
+
+  deps = [
+    "//build/win:default_exe_manifest",
+    "//jsi:v8jsi",
+    "//testing/gtest",
+  ]
+
+  configs += [
+    "//:toolchain",
+    "//:internal_config_base",
+    "//build/config/compiler:exceptions",
+    "//build/config/compiler:rtti",
+  ]
+  configs -= [
+    "//build/config/compiler:no_exceptions",
+    "//build/config/compiler:no_rtti",
+  ]
+
+  include_dirs = [
+    "..",
+    "../../public",
+  ]
+
+  sources = [
+    "../../public/compat.h",
+    "../../public/v8_api.h",
+    "../js_native_api.h",
+    "../js_native_api_types.h",
+    "../js_runtime_api.h",
+    "child_process.cpp",
+    "child_process.h",
+    "node_api_test.cpp",
+    "node_api_test.h",
+    "node_api_test_v8.cpp",
+  ]
+}
+
 executable("node_api_tests") {
   testonly = true
 
   deps = [
+    ":node_lite",
+    "//build/win:default_exe_manifest",
+    "//testing/gtest",
+  ]
+
+  # Test JS files
+  deps += [ ":node_api_test_js_files" ]
+
+  # Test modules
+  deps += [
     ":2_function_arguments",
     ":3_callbacks",
     ":4_object_factory",
@@ -313,7 +356,6 @@ executable("node_api_tests") {
     ":6_object_wrap",
     ":7_factory_wrap",
     ":8_passing_wrapped",
-    ":node_api_test_js_files",
     ":test_array",
     ":test_bigint",
     ":test_cannot_run_js",
@@ -341,9 +383,6 @@ executable("node_api_tests") {
     ":test_string",
     ":test_symbol",
     ":test_typedarray",
-    "//build/win:default_exe_manifest",
-    "//jsi:v8jsi",
-    "//testing/gtest",
   ]
 
   configs += [
@@ -357,38 +396,9 @@ executable("node_api_tests") {
     "//build/config/compiler:no_rtti",
   ]
 
-  cflags = [ "-DJSI_V8_IMPL" ]
-
-  # Run microtasks explicitly for JSI
-  cflags += [ "-DJSI_SUPPORT_MICROTASKS" ]
-
-  if (is_win) {
-    # Import Node-API functions and (-FC) use full path of source code files in diagnostics.
-    cflags += [
-      "-DNAPI_EXTERN=__declspec(dllimport)",
-      "-FC",
-    ]
-  }
-
-  include_dirs = [
-    ".",
-    "..",
-    "../..",
-    "../../node-api",
-    "../../public",
-  ]
-
   sources = [
-    "../../node-api/js_native_api.h",
-    "../../node-api/js_native_api_types.h",
-    "../../node-api/js_runtime_api.h",
-    "../../public/compat.h",
-    "../../public/v8_api.h",
     "child_process.cpp",
     "child_process.h",
-    "node_api_test.cpp",
-    "node_api_test.h",
-    "node_api_test_v8.cpp",
     "testmain.cpp",
   ]
 }

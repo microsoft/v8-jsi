@@ -14,31 +14,11 @@ class V8RuntimeHolder : public IEnvHolder {
     jsr_config_enable_gc_api(config, true);
     std::shared_ptr<NodeApiTaskRunner>* taskRunnerPtr =
         new std::shared_ptr<NodeApiTaskRunner>(std::move(taskRunner));
-    jsr_config_set_task_runner(
-        config,
-        taskRunnerPtr,
-        [](void* task_runner_data,
-           void* task_data,
-           jsr_task_run_cb task_run_cb,
-           jsr_data_delete_cb task_data_delete_cb,
-           void* deleter_data) {
-          NodeApiTaskRunner* taskRunnerPtr =
-              static_cast<std::shared_ptr<NodeApiTaskRunner>*>(task_runner_data)
-                  ->get();
-          taskRunnerPtr->PostTask(
-              [task_run_cb, task_data, task_data_delete_cb, deleter_data]() {
-                if (task_run_cb != nullptr) {
-                  task_run_cb(task_data);
-                }
-                if (task_data_delete_cb != nullptr) {
-                  task_data_delete_cb(task_data, deleter_data);
-                }
-              });
-        },
-        [](void* data, void* /*deleter_data*/) {
-          delete static_cast<std::shared_ptr<NodeApiTaskRunner>*>(data);
-        },
-        nullptr);
+    jsr_config_set_task_runner(config,
+                               taskRunnerPtr,
+                               NodeApiTaskRunner::PostTaskCallback,
+                               NodeApiTaskRunner::DeleteCallback,
+                               nullptr);
     jsr_create_runtime(config, &runtime_);
     jsr_delete_config(config);
     jsr_runtime_get_node_api_env(runtime_, &env_);

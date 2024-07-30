@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 #include "node_api_test.h"
-#include <child_process.h>
 #include <js_runtime_api.h>
 #include <windows.h>
 #include <algorithm>
@@ -13,9 +12,14 @@
 #include <limits>
 #include <regex>
 #include <sstream>
+#include "child_process.h"
 
 namespace fs = std::filesystem;
 
+namespace node_api_tests {
+
+// Use to override printf in tests to send output to a std::string instead of
+// stdout.
 int test_printf(std::string& output, const char* format, ...) {
   va_list args1;
   va_start(args1, format);
@@ -28,8 +32,6 @@ int test_printf(std::string& output, const char* format, ...) {
   output += buf;
   return buf.size();
 }
-
-namespace node_api_tests {
 
 std::string replaceAll(std::string&& str,
                        std::string_view from,
@@ -221,8 +223,8 @@ int EvaluateJSFile(int argc, char** argv) {
   std::vector<std::string> args;
   args.reserve(argc);
   bool skipOptions = true;
-  if (argc < 3) {
-    std::cerr << "Usage: " << argv[0] << " --js <js_file>" << std::endl;
+  if (argc < 2) {
+    std::cerr << "Usage: " << argv[0] << " <js_file>" << std::endl;
     return 1;
   }
   args.push_back(argv[0]);
@@ -750,7 +752,6 @@ static void SetNullProperty(napi_env env, napi_value obj, char const* name) {
 
 napi_value NodeApiTestContext::SpawnSync(std::string command,
                                          std::vector<std::string> args) {
-  args.insert(args.begin(), "--js");
   ProcessResult procResult = spawnSync(command, args);
   napi_value result{};
   THROW_IF_NOT_OK(napi_create_object(env, &result));
@@ -987,3 +988,7 @@ std::string NodeApiTestErrorHandler::GetSourceCodeSliceForError(
 }
 
 }  // namespace node_api_tests
+
+int main(int argc, char** argv) {
+  return node_api_tests::EvaluateJSFile(argc, argv);
+}

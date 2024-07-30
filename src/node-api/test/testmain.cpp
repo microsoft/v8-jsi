@@ -2,9 +2,9 @@
 // Licensed under the MIT license.
 #include <gtest/gtest.h>
 
-#include <child_process.h>
 #include <filesystem>
 #include <string_view>
+#include "child_process.h"
 
 namespace fs = std::filesystem;
 
@@ -24,7 +24,7 @@ struct NodeApiTestFixture : ::testing::Test {
 
   void TestBody() override {
     ProcessResult result =
-        spawnSync(m_testProcess.string(), {"--js", m_jsFilePath.string()});
+        spawnSync(m_testProcess.string(), {m_jsFilePath.string()});
     if (result.status == 0) {
       return;
     }
@@ -73,7 +73,7 @@ std::string SanitizeName(const std::string& name) {
 }
 
 void RegisterNodeApiTests(const char* exePathStr) {
-  fs::path exePath = fs::path(exePathStr);
+  fs::path exePath = fs::path(exePathStr).replace_filename("node_lite.exe");
   fs::path rootJsPath = fs::path(exePath).replace_filename("test-js-files");
   for (const fs::directory_entry& dir_entry :
        fs::recursive_directory_iterator(rootJsPath)) {
@@ -101,11 +101,7 @@ void RegisterNodeApiTests(const char* exePathStr) {
 }  // namespace node_api_tests
 
 int main(int argc, char** argv) {
-  if (argc >= 3 && std::string_view(argv[1]) == "--js") {
-    return node_api_tests::EvaluateJSFile(argc, argv);
-  } else {
-    ::testing::InitGoogleTest(&argc, argv);
-    node_api_tests::RegisterNodeApiTests(argv[0]);
-    return RUN_ALL_TESTS();
-  }
+  ::testing::InitGoogleTest(&argc, argv);
+  node_api_tests::RegisterNodeApiTests(argv[0]);
+  return RUN_ALL_TESTS();
 }

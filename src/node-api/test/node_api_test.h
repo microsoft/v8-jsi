@@ -51,10 +51,6 @@ constexpr napi_property_attributes operator|(napi_property_attributes left,
                                   static_cast<int>(right));
 }
 
-// Use to override printf in tests to send output to a std::string instead of
-// stdout.
-extern int test_printf(std::string& output, const char* format, ...);
-
 namespace node_api_tests {
 
 // Forward declarations
@@ -117,6 +113,29 @@ class NodeApiTaskRunner {
       m_taskQueue.pop_front();
       task.second();
     }
+  }
+
+  static void PostTaskCallback(void* task_runner_data,
+                               void* task_data,
+                               jsr_task_run_cb task_run_cb,
+                               jsr_data_delete_cb task_data_delete_cb,
+                               void* deleter_data) {
+    NodeApiTaskRunner* taskRunnerPtr =
+        static_cast<std::shared_ptr<NodeApiTaskRunner>*>(task_runner_data)
+            ->get();
+    taskRunnerPtr->PostTask(
+        [task_run_cb, task_data, task_data_delete_cb, deleter_data]() {
+          if (task_run_cb != nullptr) {
+            task_run_cb(task_data);
+          }
+          if (task_data_delete_cb != nullptr) {
+            task_data_delete_cb(task_data, deleter_data);
+          }
+        });
+  }
+
+  static void DeleteCallback(void* data, void* /*deleter_data*/) {
+    delete static_cast<std::shared_ptr<NodeApiTaskRunner>*>(data);
   }
 
  private:
