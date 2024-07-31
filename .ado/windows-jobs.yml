@@ -4,14 +4,11 @@ parameters:
     default : false
   - name: BuildMatrix
     type: object
-    default : 
+    default :
+      # We build x86 along with x64
       - Name: Desktop_x64_Debug
         BuildConfiguration: Debug
         BuildPlatform: x64
-        AppPlatform: win32
-      - Name: Desktop_x86_Debug
-        BuildConfiguration: Debug
-        BuildPlatform: x86
         AppPlatform: win32
       - Name: Desktop_ARM64_Debug
         BuildConfiguration: Debug
@@ -21,17 +18,12 @@ parameters:
         BuildConfiguration: Release
         BuildPlatform: x64
         AppPlatform: win32
-      - Name: Desktop_x86_Release
-        BuildConfiguration: Release
-        BuildPlatform: x86
-        AppPlatform: win32
       - Name: Desktop_ARM64_Release
         BuildConfiguration: Release
         BuildPlatform: arm64
         AppPlatform: win32
 
 jobs:
-
   - ${{ each matrix in parameters.BuildMatrix }}:
     - job: V8JsiBuild_${{ matrix.Name }}
       timeoutInMinutes: 1200
@@ -59,6 +51,17 @@ jobs:
             buildConfiguration: ${{ matrix.BuildConfiguration }}
             buildPlatform: ${{ matrix.BuildPlatform }}
             isPublish: ${{ parameters.isPublish }}
+
+        # Build x86 in the same machine as x64 to save build time
+        - ${{ if eq(matrix.BuildPlatform, 'x64') }}:
+          - template: windows-build.yml
+            parameters:
+              outputPath: $(Build.ArtifactStagingDirectory)
+              appPlatform: ${{ matrix.AppPlatform }}
+              buildConfiguration: ${{ matrix.BuildConfiguration }}
+              buildPlatform: x86
+              isPublish: ${{ parameters.isPublish }}
+              noSetup: true
 
   - job: V8JsiPublishNuget
     condition: and(succeeded(), not(eq(variables['Build.Reason'], 'PullRequest')))
