@@ -10,7 +10,9 @@ parameters:
   type: string
 - name: buildPlatform
   type: string
-
+- name: noSetup
+  type: boolean
+  default : false
 
 steps:
   - task: PowerShell@2
@@ -18,8 +20,13 @@ steps:
     inputs:
       targetType: filePath
       filePath: $(Build.SourcesDirectory)\scripts\download_depottools.ps1
-      arguments:
-        -SourcesPath:$(Build.SourcesDirectory)
+      ${{ if eq(parameters.noSetup, true) }}:
+        arguments:
+          -SourcesPath:$(Build.SourcesDirectory)
+          -NoSetup
+      ${{ else }}:
+        arguments:
+          -SourcesPath:$(Build.SourcesDirectory)
 
   - task: PowerShell@2
     displayName: Fetch the V8 source code and extra build tools
@@ -30,6 +37,7 @@ steps:
         -SourcesPath:$(Build.SourcesDirectory)
         -Configuration:${{parameters.buildConfiguration}}
         -AppPlatform:${{parameters.appPlatform}}
+    condition: not(${{parameters.noSetup}})
 
   - task: PowerShell@2
     displayName: Build code
@@ -60,11 +68,27 @@ steps:
     displayName: Set GoogleTestAdapterPath
 
   - task: VSTest@2
-    displayName: Run Unit Tests
-    timeoutInMinutes: 2
+    displayName: Run JSI Unit Tests
+    timeoutInMinutes: 5
     inputs:
       testSelector: testAssemblies
       testAssemblyVer2: jsitests.exe
+      pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
+      searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/${{parameters.buildPlatform}}/${{parameters.buildConfiguration}}
+      runTestsInIsolation: true
+      platform: ${{parameters.buildPlatform}}
+      configuration: ${{parameters.buildConfiguration}}
+      publishRunAttachments: true
+      collectDumpOn: onAbortOnly
+      vsTestVersion: latest
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
+
+  - task: VSTest@2
+    displayName: Run Node-API Unit Tests
+    timeoutInMinutes: 5
+    inputs:
+      testSelector: testAssemblies
+      testAssemblyVer2: node_api_tests.exe
       pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
       searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/${{parameters.buildPlatform}}/${{parameters.buildConfiguration}}
       runTestsInIsolation: true
