@@ -1,8 +1,8 @@
 diff --git a/BUILD.gn b/BUILD.gn
-index c2c11c24ac..389b26a557 100644
+index f0976f97e5..c4f6a026cf 100644
 --- a/BUILD.gn
 +++ b/BUILD.gn
-@@ -1530,7 +1530,7 @@ config("toolchain") {
+@@ -1511,7 +1511,7 @@ config("toolchain") {
    if (is_win) {
      cflags += [
        "/wd4245",  # Conversion with signed/unsigned mismatch.
@@ -11,7 +11,7 @@ index c2c11c24ac..389b26a557 100644
        "/wd4324",  # Padding structure due to alignment.
        "/wd4701",  # Potentially uninitialized local variable.
        "/wd4702",  # Unreachable code.
-@@ -1634,14 +1634,14 @@ config("toolchain") {
+@@ -1615,14 +1615,14 @@ config("toolchain") {
  
        "/wd4100",  # Unreferenced formal function parameter.
        "/wd4121",  # Alignment of a member was sensitive to packing.
@@ -29,7 +29,7 @@ index c2c11c24ac..389b26a557 100644
  
        # These are variable shadowing warnings that are new in VS2015. We
        # should work through these at some point -- they may be removed from
-@@ -1665,7 +1665,7 @@ config("toolchain") {
+@@ -1646,7 +1646,7 @@ config("toolchain") {
        "/wd4245",  # 'conversion' : conversion from 'type1' to 'type2',
                    # signed/unsigned mismatch
  
@@ -38,7 +38,7 @@ index c2c11c24ac..389b26a557 100644
                    # data
  
        "/wd4305",  # 'identifier' : truncation from 'type1' to 'type2'
-@@ -7337,26 +7337,6 @@ group("v8_python_base") {
+@@ -7147,26 +7147,6 @@ group("v8_python_base") {
    data = [ ".vpython3" ]
  }
  
@@ -65,7 +65,7 @@ index c2c11c24ac..389b26a557 100644
  # Targets we ensure work with gcc. The aim is to keep this list small to have
  # a fast overall compile time.
  group("v8_gcc_light") {
-@@ -7588,7 +7568,7 @@ v8_executable("d8") {
+@@ -7401,7 +7381,7 @@ v8_executable("d8") {
    }
  
    if (v8_correctness_fuzzer) {
@@ -74,7 +74,7 @@ index c2c11c24ac..389b26a557 100644
    }
  
    defines = []
-@@ -7891,3 +7871,9 @@ if (!build_with_chromium && v8_use_perfetto) {
+@@ -8096,3 +8076,9 @@ if (!build_with_chromium && v8_use_perfetto) {
      ]
    }
  }  # if (!build_with_chromium && v8_use_perfetto)
@@ -84,13 +84,12 @@ index c2c11c24ac..389b26a557 100644
 +    "jsi:v8jsi",
 +  ]
 +}
-\ No newline at end of file
 diff --git a/DEPS b/DEPS
-index 35a9c38e12..32aafe447c 100644
+index 529f54b59f..f0ecac5c0c 100644
 --- a/DEPS
 +++ b/DEPS
-@@ -751,6 +751,17 @@ hooks = [
-                Var('rbe_instance'),
+@@ -708,4 +708,15 @@ hooks = [
+                '--quiet',
                 ],
    },
 +  {
@@ -105,13 +104,11 @@ index 35a9c38e12..32aafe447c 100644
 +    ],
 +  },
  ]
- 
- recursedeps = [
 diff --git a/src/maglev/maglev-ir.h b/src/maglev/maglev-ir.h
-index 83c2eb3957..3101ad9d35 100644
+index 68a751b775..75277e0f7e 100644
 --- a/src/maglev/maglev-ir.h
 +++ b/src/maglev/maglev-ir.h
-@@ -2660,8 +2660,8 @@ class NodeTMixin : public Base {
+@@ -2335,8 +2335,8 @@ class NodeTMixin : public Base {
    template <typename... Args>
    explicit NodeTMixin(uint64_t bitfield, Args&&... args)
        : Base(bitfield, std::forward<Args>(args)...) {
@@ -122,7 +119,7 @@ index 83c2eb3957..3101ad9d35 100644
    }
  };
  
-@@ -2728,7 +2728,7 @@ class FixedInputNodeTMixin : public NodeTMixin<Base, Derived> {
+@@ -2403,7 +2403,7 @@ class FixedInputNodeTMixin : public NodeTMixin<Base, Derived> {
    template <typename... Args>
    explicit FixedInputNodeTMixin(uint64_t bitfield, Args&&... args)
        : NodeTMixin<Base, Derived>(bitfield, std::forward<Args>(args)...) {
@@ -132,15 +129,18 @@ index 83c2eb3957..3101ad9d35 100644
  };
  
 diff --git a/src/utils/allocation.cc b/src/utils/allocation.cc
-index b886de7ee8..9d449e4104 100644
+index dc8a3696fa..50bcba0a3b 100644
 --- a/src/utils/allocation.cc
 +++ b/src/utils/allocation.cc
-@@ -64,8 +64,7 @@ const int kAllocationTries = 2;
+@@ -64,8 +64,10 @@ const int kAllocationTries = 2;
  }  // namespace
  
  v8::PageAllocator* GetPlatformPageAllocator() {
 -  DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
 -  return GetPageAllocatorInitializer()->page_allocator();
++  //DCHECK_NOT_NULL(GetPageAllocatorInitializer()->page_allocator());
++  //return GetPageAllocatorInitializer()->page_allocator();
++
 +  return V8::GetCurrentPlatform()->GetPageAllocator();
  }
  

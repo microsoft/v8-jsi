@@ -1,5 +1,5 @@
 {
-    "version":  "0.71.17",
-    "v8ref":  "refs/branch-heads/12.6",
+    "version":  "0.71.18",
+    "v8ref":  "refs/branch-heads/12.1",
     "buildNumber":  "1"
 }
