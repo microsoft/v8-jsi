@@ -30,7 +30,7 @@
 // JSI version defines set of features available in the API.
 // Each significant API change must be under a new version.
 #ifndef JSI_VERSION
-#define JSI_VERSION 11
+#define JSI_VERSION 12
 #endif
 
 #if JSI_VERSION >= 3
