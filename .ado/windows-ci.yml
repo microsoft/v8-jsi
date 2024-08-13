@@ -31,9 +31,7 @@ extends:
   template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
   parameters:
     pool:
-      name: OE-OfficePublic
-      demands:
-        - ImageVersionOverride -equals 69.0.0
+      name: OEDevJeff-OfficePublic
 
     sdl:
       baseline:
@@ -43,6 +41,11 @@ extends:
         # This repo does not ship any javascript code. But has many test cases for the js engine that fail parsing, have code considered insecure and crash eslint.
         exclusionPatterns: |
           '**/*.[jt]s'
+      codeql:
+        compiled:
+          enabled: true
+        runSourceLanguagesInSourceAnalysis: true
+
     stages:
     - stage: main
       jobs:
