@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string_view>
@@ -60,7 +61,7 @@ using namespace std::string_view_literals;
     }                                        \
   } while (false)
 
-// Check NAPI result and and throw JS exception if it is not napi_ok.
+// Check Node-API result and and throw JS exception if it is not napi_ok.
 #define CHECK_NAPI(...)                             \
   do {                                              \
     napi_status temp_error_code_ = (__VA_ARGS__);   \
@@ -69,7 +70,7 @@ using namespace std::string_view_literals;
     }                                               \
   } while (false)
 
-// Check NAPI result and and crash if it is not napi_ok.
+// Check Node-API result and and crash if it is not napi_ok.
 #define CHECK_NAPI_ELSE_CRASH(expression)              \
   do {                                                 \
     napi_status temp_error_code_ = (expression);       \
@@ -78,7 +79,7 @@ using namespace std::string_view_literals;
     }                                                  \
   } while (false)
 
-// Check NAPI result and return it when it is an error.
+// Check Node-API result and return it when it is an error.
 #define NAPI_CALL(expression)                       \
   do {                                              \
     napi_status temp_error_code_ = (expression);    \
@@ -176,6 +177,9 @@ class StringKey {
   size_t hash_;
 };
 
+struct NodeApiAttachTag {
+} attachTag;
+
 // Implementation of N-API JSI Runtime
 class NodeApiJsiRuntime : public jsi::Runtime {
  public:
@@ -189,7 +193,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
       std::string sourceURL) override;
   jsi::Value evaluatePreparedJavaScript(const std::shared_ptr<const jsi::PreparedJavaScript> &js) override;
 #if JSI_VERSION >= 12
-  void queueMicrotask(const jsi::Function& callback) override;
+  void queueMicrotask(const jsi::Function &callback) override;
 #endif
 #if JSI_VERSION >= 4
   bool drainMicrotasks(int maxMicrotasksHint = -1) override;
@@ -337,7 +341,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     T oldValue_;
   };
 
-  enum class NodeApiPointerValueKind {
+  enum class NodeApiPointerValueKind : uint8_t {
     Object,
     WeakObject,
     String,
@@ -348,22 +352,200 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   class NodeApiRefCountedPointerValue;
 
+  class NodeApiRefCount {
+   public:
+    static void incRefCount(std::atomic<int32_t> &value) noexcept {
+      int refCount = value.fetch_add(1, std::memory_order_relaxed) + 1;
+      CHECK_ELSE_CRASH(refCount > 1, "The ref count cannot bounce from zero.");
+      CHECK_ELSE_CRASH(refCount < std::numeric_limits<int32_t>::max(), "The ref count is too big.");
+    }
+
+    static bool decRefCount(std::atomic<int32_t> &value) noexcept {
+      int refCount = value.fetch_sub(1, std::memory_order_release) - 1;
+      CHECK_ELSE_CRASH(refCount >= 0, "The ref count must not be negative.");
+      if (refCount == 0) {
+        std::atomic_thread_fence(std::memory_order_acquire);
+        return true;
+      }
+      return false;
+    }
+
+    static bool isZero(std::atomic<int32_t> &value) noexcept {
+      return value.load(std::memory_order_relaxed) == 0;
+    }
+  };
+
+  // A smart pointer for types that implement intrusive ref count using
+  // methods incRefCount and decRefCount.
+  template <typename T>
+  class NodeApiRefCountedPtr final {
+   public:
+    NodeApiRefCountedPtr() noexcept = default;
+
+    explicit NodeApiRefCountedPtr(T *ptr, NodeApiAttachTag) noexcept : ptr_(ptr) {}
+
+    NodeApiRefCountedPtr(const NodeApiRefCountedPtr &other) noexcept : ptr_(other.ptr_) {
+      if (ptr_ != nullptr) {
+        ptr_->incRefCount();
+      }
+    }
+
+    NodeApiRefCountedPtr(NodeApiRefCountedPtr &&other) : ptr_(std::exchange(other.ptr_, nullptr)) {}
+
+    ~NodeApiRefCountedPtr() noexcept {
+      if (ptr_ != nullptr) {
+        ptr_->decRefCount();
+      }
+    }
+
+    NodeApiRefCountedPtr &operator=(std::nullptr_t) noexcept {
+      if (ptr_ != nullptr) {
+        ptr_->decRefCount();
+      }
+      ptr_ = nullptr;
+      return *this;
+    }
+
+    NodeApiRefCountedPtr &operator=(const NodeApiRefCountedPtr &other) noexcept {
+      if (this != &other) {
+        NodeApiRefCountedPtr temp(std::move(*this));
+        ptr_ = other.ptr_;
+        if (ptr_ != nullptr) {
+          ptr_->incRefCount();
+        }
+      }
+      return *this;
+    }
+
+    NodeApiRefCountedPtr &operator=(NodeApiRefCountedPtr &&other) noexcept {
+      if (this != &other) {
+        NodeApiRefCountedPtr temp(std::move(*this));
+        ptr_ = std::exchange(other.ptr_, nullptr);
+      }
+      return *this;
+    }
+
+    T *operator->() const noexcept {
+      return ptr_;
+    }
+
+    T *get() const noexcept {
+      return ptr_;
+    }
+
+    explicit operator bool() const noexcept {
+      return ptr_ != nullptr;
+    }
+
+    T *release() noexcept {
+      return std::exchange(ptr_, nullptr);
+    }
+
+   private:
+    T *ptr_{};
+  };
+
+  // Removes the `napi_value value_` field.
+  class NodeApiStackValueDeleter {
+   public:
+    void operator()(NodeApiRefCountedPointerValue *ptr) const noexcept;
+  };
+
+  // Removes the NodeApiRefCountedPointerValue instance and ignores the `napi_ref ref_` field.
+  class NodeApiRefDeleter {
+   public:
+    void operator()(NodeApiRefCountedPointerValue *ptr) const noexcept;
+  };
+
+  using NodeApiRefHolder = NodeApiRefCountedPtr<NodeApiRefCountedPointerValue>;
+  using NodeApiStackValuePtr = std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiStackValueDeleter>;
+  using NodeApiRefPtr = std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiRefDeleter>;
+
+  // NodeApiPendingDeletions helps to delete PointerValues in a thread safe way from the JS thread.
+  // According to JSI spec the PointerValue's release method can be called from any thread, while Node-API can only
+  // manage objects in the JS thread. So, when a PointerValue's ref count goes to zero after calling the release method,
+  // the PointerValue is added into the pointerValuesToDelete_ vector, and then NodeApiJsiRuntime deletes them later
+  // from the JS thread. Note that the napi_delete_reference can only be called before the napi_env is destroyed. Thus,
+  // we remove the pointer to napi_env as soon as NodeApiJsiRuntime destructor starts.
+  class NodeApiPendingDeletions {
+   public:
+    // Create new instance of NodeApiPendingDeletions.
+    static NodeApiRefCountedPtr<NodeApiPendingDeletions> create() noexcept {
+      return NodeApiRefCountedPtr<NodeApiPendingDeletions>(new NodeApiPendingDeletions(), attachTag);
+    }
+
+    // Add PointerValues to delete from JS thread. The method can be called from any thread.
+    void addPointerValueToDelete(NodeApiRefPtr pointerValueToDelete) noexcept {
+      std::scoped_lock lock{mutex_};
+      pointerValuesToDeletePool_[poolSelector_].push_back(std::move(pointerValueToDelete));
+    }
+
+    // Delete all PointerValues scheduled for deletion along with their napi_ref instances.
+    // It must be called from a JS thread.
+    void deletePointerValues(NodeApiJsiRuntime &runtime) noexcept {
+      {
+        // TODO: Does it affect the performance to take the lock every time? Should we use an atomic variable?
+        std::scoped_lock lock{mutex_};
+        if (pointerValuesToDeletePool_[poolSelector_].empty()) {
+          return;
+        }
+
+        // Switch the pool entries.
+        poolSelector_ = poolSelector_ ^ 1;
+      }
+
+      std::vector<NodeApiRefPtr> &deleteInJSThread = pointerValuesToDeletePool_[poolSelector_ ^ 1];
+      for (auto &pointerValue : deleteInJSThread) {
+        pointerValue.release()->deleteNodeApiRef(runtime);
+      }
+      deleteInJSThread.resize(0);
+    }
+
+   private:
+    friend class NodeApiRefCountedPtr<NodeApiPendingDeletions>;
+
+    NodeApiPendingDeletions() noexcept = default;
+
+    void incRefCount() noexcept {
+      NodeApiRefCount::incRefCount(refCount_);
+    }
+
+    void decRefCount() noexcept {
+      if (NodeApiRefCount::decRefCount(refCount_)) {
+        delete this;
+      }
+    }
+
+   private:
+    mutable std::atomic<int32_t> refCount_{1};
+    std::recursive_mutex mutex_;
+    // One of the vectors is used from different threads under the mutex_ lock to add items, while another is from JS
+    // thread to remove items. Since we never change the capacity of the vectors, it should help avoiding memory
+    // allocations at some point.
+    std::vector<NodeApiRefPtr> pointerValuesToDeletePool_[2]{
+        std::vector<NodeApiRefPtr>(),
+        std::vector<NodeApiRefPtr>()};
+    // Index of the pool to access under mutex.
+    int32_t poolSelector_{0};
+  };
+
   // NodeApiPointerValue is used by jsi::Pointer derived classes.
   struct NodeApiPointerValue : PointerValue {
-    virtual NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const = 0;
+    virtual NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept = 0;
     virtual napi_value getValue(NodeApiJsiRuntime &runtime) noexcept = 0;
     virtual NodeApiPointerValueKind getKind() const noexcept = 0;
   };
 
   // NodeApiStackOnlyPointerValue helps to avoid memory allocation in some scenarios.
   // It is used by the JsiValueView, JsiValueViewArgs, and PropNameIDView classes
-  // to keep temporary PointerValues on the call stack.
+  // to keep temporary PointerValues on the call stack when we call functions.
+  // Note that the clone() method return a new instance of the NodeApiRefCountedPointerValue.
   class NodeApiStackOnlyPointerValue final : public NodeApiPointerValue {
    public:
     NodeApiStackOnlyPointerValue(napi_value value, NodeApiPointerValueKind pointerKind) noexcept;
 
     void invalidate() noexcept override;
-    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const override;
+    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept override;
     napi_value getValue(NodeApiJsiRuntime &runtime) noexcept override;
     NodeApiPointerValueKind getKind() const noexcept override;
 
@@ -375,144 +557,89 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     NodeApiPointerValueKind pointerKind_{NodeApiPointerValueKind::Object};
   };
 
+  // TODO: Use arena allocator for NodeApiRefCountedPointerValue.
+
   // NodeApiRefCountedPointerValue is a ref counted implementation of PointerValue that is allocated in the heap.
-  // It expects to have three different types of smart pointers:
-  // - jsi::Pointer derived classes uses clone() and invalidate() methods to increment and decrement the ref count.
-  //   The invalidate() method can be called from any thread.
-  // - NodeApiStackValueHolder points to NodeApiRefCountedPointerValue when it has associated napi_value.
-  // - NodeApiRefHolder points to NodeApiRefCountedPointerValue when it has associated napi_ref.
   //
-  // Using three types of smart pointers ensures that we always destroy napi_ref from the right thread.
-  // The invalidate() method can destroy NodeApiRefCountedPointerValue from a different thread only when there are
-  // no napi_value or napi_ref present in the class. Otherwise, the destruction will happen when we remove
-  // either napi_value or napi_ref reference.
+  // Its lifetime is controlled by the atomic `refCount_` field. Since the `refCount_` can be changed from any thread,
+  // we do not remove the instance immediately when the `refCount_` becomes zero. Instead, we add it to the
+  // `NodeApiJsiRuntime::pendingDeletions_` list and delete it later from the JS thread. If `node_value value_` field is
+  // not null, then the `NodeApiRefCountedPointerValue` instance is also referenced from the
+  // `NodeApiJsiRuntime::stackValues_` list.
+  //
+  // The `NodeApiJsiRuntime::pendingDeletions_` is responsible for deleting `napi_ref ref_` and it deletes
+  // `NodeApiRefCountedPointerValue` instance if the `node_value value_` field is null. While
+  // `NodeApiJsiRuntime::stackValues_` is responsible for deleting `NodeApiRefCountedPointerValue` instance if
+  // `node_value value_` field is not null and `napi_ref ref_` is null. In case if
+  // `NodeApiJsiRuntime::pendingDeletions_` or `NodeApiJsiRuntime::stackValues_` cannot delete the instance, they
+  // set their "owned" `value_` or `ref_` fields to null.
   //
   // Some NodeApiRefCountedPointerValue are created with napi_value and may never get napi_ref.
-  // When stack scope is closed we see if there any jsi::Pointer references. If such references still exist, then
-  // we ensure that it has an associated napi_ref or we create one.
+  // When stack scope is closed we check the `refCount_`. If it is not zero, then
+  // we ensure that it has an associated `napi_ref` or we create one.
   //
-  // In addition to the scope closure, there are two cases when we collect NodeApiRefCountedPointerValue
-  // without jsi::Pointer references:
-  // - When we grow the NodeApiJsiRuntime::stackValues_ vector and we reached current capacity.
-  // - When we grow the NodeApiJsiRuntime::refs_ vector and we reached current capacity.
+  // All methods except for invalidate() and decRefCount() must be called from the JS thread.
   class NodeApiRefCountedPointerValue final : public NodeApiPointerValue {
-   public:
-    // Creates new NodeApiRefCountedPointerValue and adds it to the NodeApiJsiRuntime::stackValues_. The ref count
-    // usually starts with 2: one for NodeApiJsiRuntime::stackValues_ reference and another for the targeting
-    // jsi::Pointer.
-    static NodeApiRefCountedPointerValue *make(
-        NodeApiJsiRuntime &runtime,
-        napi_value value,
-        NodeApiPointerValueKind pointerKind,
-        int32_t initialRefCount = 2);
+    friend class NodeApiStackValueDeleter;
+    friend class NodeApiRefDeleter;
+    friend class NodeApiRefCountedPtr<NodeApiRefCountedPointerValue>;
 
-    // Creates new NodeApiRefCountedPointerValue and adds it to the NodeApiJsiRuntime::stackValues_. Then, it creates
-    // the napi_ref. The ref count usually starts with 2: one for NodeApiJsiRuntime::stackValues_ reference and another
-    // for the targeting NodeApiRefHolder.
-    static NodeApiRefCountedPointerValue *makeNodeApiRef(
+   public:
+    // Creates new NodeApiRefCountedPointerValue and adds it to the NodeApiJsiRuntime::stackValues_.
+    static NodeApiRefHolder make(
         NodeApiJsiRuntime &runtime,
         napi_value value,
         NodeApiPointerValueKind pointerKind,
-        int32_t initialRefCount = 2);
+        int32_t initialRefCount = 1);
+
+    // Calls `make` method and forces creation of `napi_ref`.
+    static NodeApiRefHolder makeNodeApiRef(
+        NodeApiJsiRuntime &runtime,
+        napi_value value,
+        NodeApiPointerValueKind pointerKind,
+        int32_t initialRefCount = 1);
 
     void invalidate() noexcept override;
-    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const override;
+    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept override;
     napi_value getValue(NodeApiJsiRuntime &runtime) noexcept override;
     NodeApiPointerValueKind getKind() const noexcept override;
 
-    // Returns true if the ref count is bigger than if we would have only references for napi_value and napi_ref.
-    static bool usedByJsiPointer(NodeApiRefCountedPointerValue *ptr) noexcept;
+    // Returns true if the refCount_ is not zero.
+    bool usedByJsiPointer() const noexcept;
 
-    // Remove napi_value field.
-    static void deleteStackValue(NodeApiRefCountedPointerValue *ptr) noexcept;
+    // Removes `napi_value value_` field.
+    // In case if `refCount_` is not null, it ensures existence of the `napi_ref ref_` field.
+    void deleteStackValue(NodeApiJsiRuntime &runtime) noexcept;
 
-    // Removes napi_value field and ensures existence of napi_ref field.
-    // Returns true if napi_ref was created and ref count did not change.
-    // Otherwise, the napi_ref was already there and the ref count was decremented.
-    void convertToNodeApiRef(NodeApiJsiRuntime &runtime) noexcept;
-
-    // Removes napi_ref pointer and decrements ref count. The napi_ref is not deleted.
-    // It is useful for napi_env shutdown when napi_env deletes napi_ref and we must not do it.
-    static void deleteNodeApiRef(NodeApiRefCountedPointerValue *ptr) noexcept;
-
-    // Deletes napi_ref, removes napi_ref pointer, and decrements ref count.
-    // This method must be used in all scenarios except for napi_env shutdown.
-    static void deleteNodeApiRef(NodeApiRefCountedPointerValue *ptr, NodeApiJsiRuntime &runtime) noexcept;
+    // Removes napi_ref and deletes `NodeApiRefCountedPointerValue` if `value_` is null.
+    void deleteNodeApiRef(NodeApiJsiRuntime &runtime) noexcept;
 
     NodeApiRefCountedPointerValue(const NodeApiRefCountedPointerValue &) = delete;
     NodeApiRefCountedPointerValue &operator=(const NodeApiRefCountedPointerValue &) = delete;
 
    private:
     NodeApiRefCountedPointerValue(
+        NodeApiJsiRuntime &runtime,
         napi_value value,
         NodeApiPointerValueKind pointerKind,
         int32_t initialRefCount) noexcept;
 
     void incRefCount() const noexcept;
-
-    // Decrements ref count. Delete this instance if ref count is zero.
     void decRefCount() const noexcept;
 
+    // Creates `napi_ref ref_` field for the `napi_value value_` field.
     NodeApiRefCountedPointerValue *createNodeApiRef(NodeApiJsiRuntime &runtime);
 
    private:
+    NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_;
     napi_value value_{};
     napi_ref ref_{};
-    mutable std::atomic<int32_t> refCount_{};
+    mutable std::atomic<int32_t> refCount_{1};
     const NodeApiPointerValueKind pointerKind_{NodeApiPointerValueKind::Object};
+    bool canBeDeletedFromStack_{false};
 
     static constexpr char kPrimitivePropertyName[] = "X";
   };
-
-  using NodeApiPointerValueDeleter = void(NodeApiRefCountedPointerValue *);
-
-  template <NodeApiPointerValueDeleter *deleter>
-  class NodeApiPointerValueHolder {
-   public:
-    NodeApiPointerValueHolder() = default;
-    explicit NodeApiPointerValueHolder(NodeApiRefCountedPointerValue *ptr) : ptr_(ptr) {}
-
-    NodeApiPointerValueHolder(NodeApiPointerValueHolder &&other) : ptr_(std::exchange(other.ptr_, nullptr)) {}
-
-    NodeApiPointerValueHolder &operator=(NodeApiPointerValueHolder &&other) {
-      if (this != &other) {
-        NodeApiPointerValueHolder temp(std::move(*this));
-        ptr_ = std::exchange(other.ptr_, nullptr);
-      }
-      return *this;
-    }
-
-    ~NodeApiPointerValueHolder() {
-      if (NodeApiRefCountedPointerValue *ptr = std::exchange(ptr_, nullptr)) {
-        deleter(ptr);
-      }
-    }
-
-    NodeApiRefCountedPointerValue *operator->() const {
-      return ptr_;
-    }
-
-    NodeApiRefCountedPointerValue *get() const {
-      return ptr_;
-    }
-
-    NodeApiRefCountedPointerValue *release() {
-      return std::exchange(ptr_, nullptr);
-    }
-
-    explicit operator bool() const {
-      return ptr_ != nullptr;
-    }
-
-    NodeApiPointerValueHolder(NodeApiPointerValueHolder const &) = delete;
-    NodeApiPointerValueHolder &operator=(NodeApiPointerValueHolder const &) = delete;
-
-   private:
-    NodeApiRefCountedPointerValue *ptr_{};
-  };
-
-  using NodeApiStackValueHolder = NodeApiPointerValueHolder<&NodeApiRefCountedPointerValue::deleteStackValue>;
-  using NodeApiRefHolder = NodeApiPointerValueHolder<&NodeApiRefCountedPointerValue::deleteNodeApiRef>;
 
   // SmallBuffer keeps InplaceSize elements in place in the class, and uses heap memory for more elements.
   template <typename T, size_t InplaceSize>
@@ -535,7 +662,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   // The number of arguments that we keep on stack. We use heap if we have more arguments.
   constexpr static size_t MaxStackArgCount = 8;
 
-  // NodeApiValueArgs helps optimize passing arguments to NAPI functions.
+  // NodeApiValueArgs helps optimize passing arguments to Node-API functions.
   // If number of arguments is below or equal to MaxStackArgCount, they are kept on the call stack,
   // otherwise arguments are allocated on the heap.
   class NodeApiValueArgs {
@@ -665,7 +792,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   bool setException(napi_value error) const noexcept;
   bool setException(std::string_view message) const noexcept;
 
- private: // Shared NAPI call helpers
+ private: // Shared Node-API call helpers
   napi_valuetype typeOf(napi_value value) const;
   bool strictEquals(napi_value left, napi_value right) const;
   napi_value getUndefined() const;
@@ -703,7 +830,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   void setElement(napi_value array, uint32_t index, napi_value value) const;
   static napi_value __cdecl jsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept;
   napi_value createExternalFunction(napi_value name, int32_t paramCount, napi_callback callback, void *callbackData);
-  napi_value createExternalObject(void *data, napi_finalize finalizeCallback) const;
+  napi_value createExternalObject(void *data, node_api_nogc_finalize finalizeCallback) const;
   template <typename T>
   napi_value createExternalObject(std::unique_ptr<T> &&data) const;
   void *getExternalData(napi_value object) const;
@@ -742,14 +869,11 @@ class NodeApiJsiRuntime : public jsi::Runtime {
       std::enable_if_t<std::is_base_of_v<jsi::Pointer, TTo>, int> = 0,
       std::enable_if_t<std::is_base_of_v<jsi::Pointer, TFrom>, int> = 0>
   TTo cloneAs(const TFrom &pointer) const;
-  NodeApiRefHolder makeNodeApiRef(napi_value value, NodeApiPointerValueKind pointerKind, int32_t initialRefCount = 2);
+  NodeApiRefHolder makeNodeApiRef(napi_value value, NodeApiPointerValueKind pointerKind, int32_t initialRefCount = 1);
 
-  void addStackValue(NodeApiStackValueHolder &&pointerHolder);
-  void addRef(NodeApiRefHolder &&refHolder);
+  void addStackValue(NodeApiStackValuePtr stackPointer);
   void pushPointerValueScope() noexcept;
   void popPointerValueScope() noexcept;
-  void collectUnusedStackValues();
-  void collectUnusedRefs() noexcept;
 
   napi_env getEnv() const noexcept {
     return env_;
@@ -799,13 +923,13 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   bool hasPendingJSError_{false};
 
   std::vector<size_t> stackScopes_;
-  std::vector<NodeApiStackValueHolder> stackValues_;
-  std::vector<NodeApiRefHolder> refs_;
+  std::vector<NodeApiStackValuePtr> stackValues_;
 
   // TODO: implement GC for propNameIDs_
   std::unordered_map<StringKey, NodeApiRefHolder, StringKey::Hash, StringKey::EqualTo> propNameIDs_;
 
   NodeApiJsiRuntime &runtime{*this};
+  NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_{NodeApiPendingDeletions::create()};
 };
 
 //=====================================================================================================================
@@ -944,7 +1068,7 @@ jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(const std::shared_ptr<c
 }
 
 #if JSI_VERSION >= 12
-void NodeApiJsiRuntime::queueMicrotask(const jsi::Function& callback) {
+void NodeApiJsiRuntime::queueMicrotask(const jsi::Function &callback) {
   NodeApiScope scope{*this};
   napi_value callbackValue = getNodeApiValue(callback);
   CHECK_NAPI(jsrApi_->jsr_queue_microtask(env_, callbackValue));
@@ -1013,7 +1137,7 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromAscii(const char *str, si
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
       env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 3);
+  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
   propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
@@ -1035,7 +1159,7 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf8(const uint8_t *utf8,
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
       env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 3);
+  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
   propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
@@ -1062,7 +1186,7 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromString(const jsi::String 
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
       env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 3);
+  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
   propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
@@ -1344,7 +1468,7 @@ void NodeApiJsiRuntime::setNativeState(const jsi::Object &obj, std::shared_ptr<j
         env_,
         getNodeApiValue(obj),
         new std::shared_ptr<jsi::NativeState>(std::move(state)),
-        [](napi_env /*env*/, void *data, void * /*finalize_hint*/) {
+        [](node_api_nogc_env /*env*/, void *data, void * /*finalize_hint*/) {
           std::shared_ptr<jsi::NativeState> oldState{
               std::move(*reinterpret_cast<std::shared_ptr<jsi::NativeState> *>(data))};
         },
@@ -1442,8 +1566,10 @@ jsi::Array NodeApiJsiRuntime::getPropertyNames(const jsi::Object &obj) {
 
 jsi::WeakObject NodeApiJsiRuntime::createWeakObject(const jsi::Object &obj) {
   NodeApiScope scope{*this};
-  return make<jsi::WeakObject>(NodeApiRefCountedPointerValue::make(
-      *const_cast<NodeApiJsiRuntime *>(this), getNodeApiValue(obj), NodeApiPointerValueKind::WeakObject));
+  return make<jsi::WeakObject>(
+      NodeApiRefCountedPointerValue::make(
+          *const_cast<NodeApiJsiRuntime *>(this), getNodeApiValue(obj), NodeApiPointerValueKind::WeakObject)
+          .release());
 }
 
 jsi::Value NodeApiJsiRuntime::lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObject) {
@@ -1471,7 +1597,7 @@ jsi::ArrayBuffer NodeApiJsiRuntime::createArrayBuffer(std::shared_ptr<jsi::Mutab
       env_,
       data,
       size,
-      [](napi_env /*env*/, void * /*data*/, void *finalizeHint) {
+      [](node_api_nogc_env /*env*/, void * /*data*/, void *finalizeHint) {
         std::shared_ptr<jsi::MutableBuffer> buffer{
             std::move(*reinterpret_cast<std::shared_ptr<jsi::MutableBuffer> *>(finalizeHint))};
       },
@@ -1543,7 +1669,6 @@ jsi::Value NodeApiJsiRuntime::callAsConstructor(const jsi::Function &func, const
 }
 
 jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
-  NodeApiEnvScope scope{getEnv()};
   napi_handle_scope result{};
   CHECK_NAPI(jsrApi_->napi_open_handle_scope(env_, &result));
   pushPointerValueScope();
@@ -1551,7 +1676,6 @@ jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
 }
 
 void NodeApiJsiRuntime::popScope(jsi::Runtime::ScopeState *state) {
-  NodeApiEnvScope scope{getEnv()};
   popPointerValueScope();
   CHECK_NAPI(jsrApi_->napi_close_handle_scope(env_, reinterpret_cast<napi_handle_scope>(state)));
 }
@@ -1597,9 +1721,12 @@ NodeApiJsiRuntime::NodeApiScope::NodeApiScope(const NodeApiJsiRuntime &runtime) 
     : NodeApiScope(const_cast<NodeApiJsiRuntime &>(runtime)) {}
 
 NodeApiJsiRuntime::NodeApiScope::NodeApiScope(NodeApiJsiRuntime &runtime) noexcept
-    : runtime_(runtime), envScope_(runtime_.getEnv()), scopeState_(runtime_.pushScope()) {}
+    : runtime_(runtime), envScope_(runtime_.getEnv()), scopeState_(runtime_.pushScope()) {
+  runtime_.pushPointerValueScope();
+}
 
 NodeApiJsiRuntime::NodeApiScope::~NodeApiScope() noexcept {
+  runtime_.popPointerValueScope();
   runtime_.popScope(scopeState_);
 }
 
@@ -1638,12 +1765,12 @@ NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::NodeApiStackOnlyPointerValue(
     NodeApiPointerValueKind pointerKind) noexcept
     : value_(value), pointerKind_(pointerKind) {}
 
-// Intentionally do nothing.
+// Intentionally do nothing since the value is allocated on the stack.
 void NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::invalidate() noexcept {}
 
 NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::clone(
-    NodeApiJsiRuntime &runtime) const {
-  return NodeApiRefCountedPointerValue::make(runtime, value_, pointerKind_);
+    NodeApiJsiRuntime &runtime) const noexcept {
+  return NodeApiRefCountedPointerValue::make(runtime, value_, pointerKind_).release();
 }
 
 napi_value NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::getValue(NodeApiJsiRuntime & /*runtime*/) noexcept {
@@ -1659,28 +1786,33 @@ NodeApiJsiRuntime::NodeApiPointerValueKind NodeApiJsiRuntime::NodeApiStackOnlyPo
 //=====================================================================================================================
 
 NodeApiJsiRuntime::NodeApiRefCountedPointerValue::NodeApiRefCountedPointerValue(
+    NodeApiJsiRuntime &runtime,
     napi_value value,
     NodeApiJsiRuntime::NodeApiPointerValueKind pointerKind,
     int32_t initialRefCount) noexcept
-    : value_(value), pointerKind_(pointerKind), refCount_(initialRefCount) {}
+    : pendingDeletions_(runtime.pendingDeletions_),
+      value_(value),
+      refCount_(initialRefCount),
+      pointerKind_(pointerKind) {}
 
-/*static*/ NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiRefCountedPointerValue::make(
+/*static*/ NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::NodeApiRefCountedPointerValue::make(
     NodeApiJsiRuntime &runtime,
     napi_value value,
     NodeApiJsiRuntime::NodeApiPointerValueKind pointerKind,
     int32_t initialRefCount) {
-  NodeApiRefCountedPointerValue *result = new NodeApiRefCountedPointerValue(value, pointerKind, initialRefCount);
-  runtime.addStackValue(NodeApiStackValueHolder(result));
+  NodeApiRefHolder result{new NodeApiRefCountedPointerValue(runtime, value, pointerKind, initialRefCount), attachTag};
+  runtime.addStackValue(NodeApiStackValuePtr{result.get()});
   return result;
 }
 
-/*static*/ NodeApiJsiRuntime::NodeApiRefCountedPointerValue *
-NodeApiJsiRuntime::NodeApiRefCountedPointerValue::makeNodeApiRef(
+/*static*/ NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::NodeApiRefCountedPointerValue::makeNodeApiRef(
     NodeApiJsiRuntime &runtime,
     napi_value value,
     NodeApiPointerValueKind pointerKind,
     int32_t initialRefCount) {
-  return make(runtime, value, pointerKind, initialRefCount)->createNodeApiRef(runtime);
+  NodeApiRefHolder result{make(runtime, value, pointerKind, initialRefCount)};
+  result->createNodeApiRef(runtime);
+  return result;
 }
 
 void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::invalidate() noexcept {
@@ -1688,7 +1820,7 @@ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::invalidate() noexcept {
 }
 
 NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiRefCountedPointerValue::clone(
-    NodeApiJsiRuntime & /*runtime*/) const {
+    NodeApiJsiRuntime & /*runtime*/) const noexcept {
   incRefCount();
   return const_cast<NodeApiRefCountedPointerValue *>(this);
 }
@@ -1708,12 +1840,12 @@ napi_value NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getValue(NodeApiJsi
   } else {
     napi_value obj{};
     CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_reference_value(runtime.getEnv(), ref_, &obj));
+    // TODO: Should we use an interned property key?
     CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_named_property(runtime.getEnv(), obj, kPrimitivePropertyName, &value_));
   }
 
   if (value_ != nullptr) {
-    runtime.addStackValue(NodeApiStackValueHolder(this));
-    incRefCount();
+    runtime.addStackValue(NodeApiStackValuePtr(this));
   }
 
   return value_;
@@ -1723,67 +1855,66 @@ NodeApiJsiRuntime::NodeApiPointerValueKind NodeApiJsiRuntime::NodeApiRefCountedP
   return pointerKind_;
 }
 
-/*static*/ bool NodeApiJsiRuntime::NodeApiRefCountedPointerValue::usedByJsiPointer(
-    NodeApiRefCountedPointerValue *ptr) noexcept {
-  if (ptr == nullptr)
-    return false;
-  const int32_t internalRefCount = (ptr->value_ != nullptr ? 1 : 0) + (ptr->ref_ != nullptr ? 1 : 0);
-  const int32_t refCount = ptr->refCount_.load(std::memory_order_acquire);
-  return refCount > internalRefCount;
+bool NodeApiJsiRuntime::NodeApiRefCountedPointerValue::usedByJsiPointer() const noexcept {
+  return !NodeApiRefCount::isZero(refCount_);
 }
 
-/*static*/ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteStackValue(
-    NodeApiRefCountedPointerValue *ptr) noexcept {
-  if (ptr != nullptr && ptr->value_ != nullptr) {
-    ptr->value_ = nullptr;
-    ptr->decRefCount();
-  }
-}
-
-void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::convertToNodeApiRef(NodeApiJsiRuntime &runtime) noexcept {
-  if (value_ == nullptr) {
-    return;
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteStackValue(NodeApiJsiRuntime &runtime) noexcept {
+  CHECK_ELSE_CRASH(value_, "value_ must not be null");
+  if (canBeDeletedFromStack_) {
+    delete this;
   }
 
-  if (ref_ == nullptr && usedByJsiPointer(this)) {
+  if (usedByJsiPointer() && ref_ == nullptr) {
     createNodeApiRef(runtime);
-    runtime.addRef(NodeApiRefHolder(this));
-    value_ = nullptr;
-    return;
   }
 
   value_ = nullptr;
-  decRefCount();
-  return;
 }
 
-/*static*/ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(
-    NodeApiRefCountedPointerValue *ptr) noexcept {
-  if (ptr != nullptr && ptr->ref_ != nullptr) {
-    ptr->ref_ = nullptr;
-    ptr->decRefCount();
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(NodeApiJsiRuntime &runtime) noexcept {
+  if (ref_ != nullptr) {
+    CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_delete_reference(runtime.getEnv(), ref_));
+    ref_ = nullptr;
+  }
+
+  if (value_ != nullptr) {
+    canBeDeletedFromStack_ = true;
+  } else {
+    delete this;
   }
 }
 
-/*static*/ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(
-    NodeApiRefCountedPointerValue *ptr,
-    NodeApiJsiRuntime &runtime) noexcept {
-  if (ptr != nullptr && ptr->ref_ != nullptr) {
-    CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_delete_reference(runtime.getEnv(), ptr->ref_));
-    ptr->ref_ = nullptr;
-    ptr->decRefCount();
+void NodeApiJsiRuntime::NodeApiStackValueDeleter::operator()(NodeApiRefCountedPointerValue *ptr) const noexcept {
+  if (ptr == nullptr) {
+    return;
+  }
+
+  ptr->value_ = nullptr;
+  if (ptr->canBeDeletedFromStack_) {
+    delete ptr;
+  }
+}
+
+void NodeApiJsiRuntime::NodeApiRefDeleter::operator()(NodeApiRefCountedPointerValue *ptr) const noexcept {
+  if (ptr == nullptr) {
+    return;
+  }
+
+  if (ptr->value_ != nullptr) {
+    ptr->canBeDeletedFromStack_ = true;
+  } else {
+    delete ptr;
   }
 }
 
 void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::incRefCount() const noexcept {
-  refCount_.fetch_add(1, std::memory_order_relaxed);
+  NodeApiRefCount::incRefCount(refCount_);
 }
 
 void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::decRefCount() const noexcept {
-  int32_t count = refCount_.fetch_sub(1, std::memory_order_release) - 1;
-  if (count == 0) {
-    std::atomic_thread_fence(std::memory_order_acquire);
-    delete this;
+  if (NodeApiRefCount::decRefCount(refCount_)) {
+    pendingDeletions_->addPointerValueToDelete(NodeApiRefPtr(const_cast<NodeApiRefCountedPointerValue *>(this)));
   }
 }
 
@@ -1942,11 +2073,14 @@ jsi::JSError NodeApiJsiRuntime::makeJSError(Args &&...args) {
 [[noreturn]] void NodeApiJsiRuntime::throwJSException(napi_status status) const {
   napi_value jsError{};
   CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_get_and_clear_last_exception(env_, &jsError));
+  napi_valuetype jsErrorType;
+  CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_typeof(env_, jsError, &jsErrorType));
 
-  if (!hasPendingJSError_ &&
-      (status == napi_pending_exception || instanceOf(jsError, getNodeApiValue(cachedValue_.Error)))) {
+  if (!hasPendingJSError_ && (status == napi_pending_exception || jsErrorType != napi_undefined)) {
     AutoRestore<bool> setValue(const_cast<NodeApiJsiRuntime *>(this)->hasPendingJSError_, true);
-    rewriteErrorMessage(jsError);
+    if (jsErrorType == napi_object && instanceOf(jsError, getNodeApiValue(cachedValue_.Error))) {
+      rewriteErrorMessage(jsError);
+    }
     throw jsi::JSError(*const_cast<NodeApiJsiRuntime *>(this), toJsiValue(jsError));
   } else {
     std::ostringstream errorStream;
@@ -2013,7 +2147,7 @@ auto NodeApiJsiRuntime::runInMethodContext(char const *methodName, TLambda lambd
   }
 }
 
-// Evaluates lambda and converts all exceptions to NAPI errors.
+// Evaluates lambda and converts all exceptions to Node-API errors.
 template <typename TLambda>
 napi_value NodeApiJsiRuntime::handleCallbackExceptions(TLambda lambda) const noexcept {
   try {
@@ -2032,13 +2166,13 @@ napi_value NodeApiJsiRuntime::handleCallbackExceptions(TLambda lambda) const noe
   return getUndefined();
 }
 
-// Throws JavaScript exception using NAPI.
+// Throws JavaScript exception using Node-API.
 bool NodeApiJsiRuntime::setException(napi_value error) const noexcept {
   // This method must not throw. We return false in case of error.
   return jsrApi_->napi_throw(env_, error) == napi_status::napi_ok;
 }
 
-// Throws JavaScript error exception with the provided message using NAPI.
+// Throws JavaScript error exception with the provided message using Node-API.
 bool NodeApiJsiRuntime::setException(std::string_view message) const noexcept {
   // This method must not throw. We return false in case of error.
   return jsrApi_->napi_throw_error(env_, "Unknown", message.data()) == napi_status::napi_ok;
@@ -2299,7 +2433,7 @@ void NodeApiJsiRuntime::setElement(napi_value array, uint32_t index, napi_value 
   CHECK_NAPI(jsrApi_->napi_set_element(env_, array, index, value));
 }
 
-// The NAPI external function callback used for the JSI host function implementation.
+// The Node-API external function callback used for the JSI host function implementation.
 /*static*/ napi_value __cdecl NodeApiJsiRuntime::jsiHostFunctionCallback(
     napi_env env,
     napi_callback_info info) noexcept {
@@ -2344,7 +2478,7 @@ napi_value NodeApiJsiRuntime::createExternalFunction(
 }
 
 // Creates an object that wraps up external data.
-napi_value NodeApiJsiRuntime::createExternalObject(void *data, napi_finalize finalizeCallback) const {
+napi_value NodeApiJsiRuntime::createExternalObject(void *data, node_api_nogc_finalize finalizeCallback) const {
   napi_value result{};
   CHECK_NAPI(jsrApi_->napi_create_external(env_, data, finalizeCallback, nullptr, &result));
   return result;
@@ -2353,7 +2487,7 @@ napi_value NodeApiJsiRuntime::createExternalObject(void *data, napi_finalize fin
 // Wraps up std::unique_ptr as an external object.
 template <typename T>
 napi_value NodeApiJsiRuntime::createExternalObject(std::unique_ptr<T> &&data) const {
-  napi_finalize finalize = [](napi_env /*env*/, void *dataToDestroy, void * /*finalizerHint*/) {
+  node_api_nogc_finalize finalize = [](node_api_nogc_env /*env*/, void *dataToDestroy, void * /*finalizerHint*/) {
     // We wrap dataToDestroy in a unique_ptr to avoid calling delete explicitly.
     std::unique_ptr<T> dataDeleter{static_cast<T *>(dataToDestroy)};
   };
@@ -2699,26 +2833,30 @@ std::optional<uint32_t> NodeApiJsiRuntime::toArrayIndex(
 template <typename T, std::enable_if_t<std::is_same_v<jsi::Object, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-      *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Object));
+                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Object)
+                     .release());
 }
 
 template <typename T, std::enable_if_t<std::is_same_v<jsi::String, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-      *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::String));
+                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::String)
+                     .release());
 }
 
 template <typename T, std::enable_if_t<std::is_same_v<jsi::Symbol, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-      *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Symbol));
+                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Symbol)
+                     .release());
 }
 
 #if JSI_VERSION >= 6
 template <typename T, std::enable_if_t<std::is_same_v<jsi::BigInt, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-      *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::BigInt));
+                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::BigInt)
+                     .release());
 }
 #endif
 
@@ -2732,25 +2870,13 @@ TTo NodeApiJsiRuntime::cloneAs(const TFrom &pointer) const {
                        ->clone(*const_cast<NodeApiJsiRuntime *>(this)));
 }
 
-NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::makeNodeApiRef(
-    napi_value value,
-    NodeApiJsiRuntime::NodeApiPointerValueKind pointerKind,
-    int32_t initialRefCount) {
-  return NodeApiRefHolder(NodeApiRefCountedPointerValue::makeNodeApiRef(*this, value, pointerKind, initialRefCount));
+NodeApiJsiRuntime::NodeApiRefHolder
+NodeApiJsiRuntime::makeNodeApiRef(napi_value value, NodeApiPointerValueKind pointerKind, int32_t initialRefCount) {
+  return NodeApiRefCountedPointerValue::make(*this, value, pointerKind, initialRefCount);
 }
 
-void NodeApiJsiRuntime::addStackValue(NodeApiStackValueHolder &&pointerHolder) {
-  if (stackValues_.size() == stackValues_.capacity()) {
-    collectUnusedStackValues();
-  }
-  stackValues_.push_back(std::move(pointerHolder));
-}
-
-void NodeApiJsiRuntime::addRef(NodeApiRefHolder &&refHolder) {
-  if (refs_.size() == refs_.capacity()) {
-    collectUnusedRefs();
-  }
-  refs_.push_back(std::move(refHolder));
+void NodeApiJsiRuntime::addStackValue(NodeApiStackValuePtr stackPointer) {
+  stackValues_.push_back(std::move(stackPointer));
 }
 
 void NodeApiJsiRuntime::pushPointerValueScope() noexcept {
@@ -2759,39 +2885,14 @@ void NodeApiJsiRuntime::pushPointerValueScope() noexcept {
 
 void NodeApiJsiRuntime::popPointerValueScope() noexcept {
   CHECK_ELSE_CRASH(!stackScopes_.empty(), "There are no scopes to pop");
-
   size_t newStackSize = stackScopes_.back();
   auto beginIterator = stackValues_.begin() + newStackSize;
   stackScopes_.pop_back();
-  std::for_each(beginIterator, stackValues_.end(), [this](NodeApiStackValueHolder &holder) {
-    holder.release()->convertToNodeApiRef(*this);
-  });
+  std::for_each(
+      beginIterator, stackValues_.end(), [this](NodeApiStackValuePtr &ptr) { ptr.release()->deleteStackValue(*this); });
   stackValues_.resize(newStackSize);
-}
 
-void NodeApiJsiRuntime::collectUnusedStackValues() {
-  auto usedByJsiPointer = [](NodeApiStackValueHolder &holder) {
-    return NodeApiRefCountedPointerValue::usedByJsiPointer(holder.get());
-  };
-  auto beginIterator = stackValues_.begin();
-  for (size_t &scope : stackScopes_) {
-    auto endIterator = stackValues_.begin() + scope;
-    beginIterator = std::partition(beginIterator, endIterator, usedByJsiPointer);
-    scope -= endIterator - beginIterator;
-  }
-  beginIterator = std::partition(beginIterator, stackValues_.end(), usedByJsiPointer);
-  stackValues_.resize(beginIterator - stackValues_.begin());
-}
-
-void NodeApiJsiRuntime::collectUnusedRefs() noexcept {
-  auto usedByJsiPointer = [](NodeApiRefHolder &holder) {
-    return NodeApiRefCountedPointerValue::usedByJsiPointer(holder.get());
-  };
-  auto beginIterator = std::partition(refs_.begin(), refs_.end(), usedByJsiPointer);
-  std::for_each(beginIterator, refs_.end(), [this](NodeApiRefHolder &holder) {
-    NodeApiRefCountedPointerValue::deleteNodeApiRef(holder.release(), *this);
-  });
-  refs_.resize(beginIterator - refs_.begin());
+  pendingDeletions_->deletePointerValues(*this);
 }
 
 } // namespace
