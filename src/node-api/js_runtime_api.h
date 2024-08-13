@@ -185,6 +185,14 @@ JSR_API jsr_has_unhandled_promise_rejection(napi_env env, bool* result);
 JSR_API jsr_get_and_clear_last_unhandled_promise_rejection(napi_env env,
                                                            napi_value* result);
 
+// Create new napi_env for the runtime.
+JSR_API jsr_create_node_api_env(napi_env root_env,
+                                int32_t api_version,
+                                napi_env* env);
+
+// Run task in the environment context.
+JSR_API jsr_run_task(napi_env env, jsr_task_run_cb task_cb, void* data);
+
 EXTERN_C_END
 
 #endif  // !SRC_JS_RUNTIME_API_H_

@@ -15,21 +15,19 @@
 #include <string>
 #include <vector>
 
-#ifndef JSI_EXPORT
-#ifdef _MSC_VER
-#ifdef CREATE_SHARED_LIBRARY
-#define JSI_EXPORT __declspec(dllexport)
-#else
-#define JSI_EXPORT
-#endif // CREATE_SHARED_LIBRARY
-#else // _MSC_VER
-#define JSI_EXPORT __attribute__((visibility("default")))
-#endif // _MSC_VER
-#endif // !defined(JSI_EXPORT)
-
 // JSI version defines set of features available in the API.
 // Each significant API change must be under a new version.
+// The JSI_VERSION can be provided as a parameter to compiler
+// or in the optional "jsi_version.h" file.
+
 #ifndef JSI_VERSION
+#if defined(__has_include) && __has_include(<jsi/jsi-version.h>)
+#include <jsi/jsi-version.h>
+#endif
+#endif
+
+#ifndef JSI_VERSION
+// Use the latest version by default
 #define JSI_VERSION 12
 #endif
 
@@ -44,6 +42,18 @@
 #else
 #define JSI_CONST_10
 #endif
+
+#ifndef JSI_EXPORT
+#ifdef _MSC_VER
+#ifdef CREATE_SHARED_LIBRARY
+#define JSI_EXPORT __declspec(dllexport)
+#else
+#define JSI_EXPORT
+#endif // CREATE_SHARED_LIBRARY
+#else // _MSC_VER
+#define JSI_EXPORT __attribute__((visibility("default")))
+#endif // _MSC_VER
+#endif // !defined(JSI_EXPORT)
 
 class FBJSRuntime;
 namespace facebook {
@@ -241,6 +251,7 @@ class JSI_EXPORT Runtime {
   /// \param callback a function to be executed as a microtask.
   virtual void queueMicrotask(const jsi::Function& callback) = 0;
 #endif
+
 #if JSI_VERSION >= 4
   /// Drain the JavaScript VM internal Microtask (a.k.a. Job in ECMA262) queue.
   ///
@@ -1592,6 +1603,7 @@ class JSI_EXPORT JSError : public JSIException {
     return *value_;
   }
 
+  //TODO: (vmoroz) Can we remove it considering that we have the new JSError constructor?
   // In V8's case, creating an Error object in JS doesn't record the callstack.
   // To preserve it, we need a way to manually add the stack here and on the JS
   // side.
