@@ -7,8 +7,7 @@ pr:
   - "*-stable"
 
 pool:
-  name: rnw-pool-4
-  demands: ImageOverride -equals MMS2022
+  name: OEDevJeff-OfficePublic
 
 jobs:
   - template: windows-jobs.yml
