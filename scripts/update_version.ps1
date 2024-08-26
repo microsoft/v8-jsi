@@ -1,9 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 param(
-    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot,
-    [switch]$BetaBranch,
-    [switch]$GitPush
+    [System.IO.DirectoryInfo]$SourcesPath = $PSScriptRoot
 )
 
 # Details about the V8 release process: https://v8.dev/docs/release-process
@@ -11,15 +9,9 @@ param(
 # TODO: a cron ADO task should trigger this script to update the version
 
 # https://omahaproxy.appspot.com is deprecated in favor of https://chromiumdash.appspot.com
+$latestVersion = (Invoke-WebRequest "https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Windows&num=1" -UseBasicParsing | ConvertFrom-Json).milestone / 10
 
-$channel = "Stable"
-if ($BetaBranch.IsPresent) {
-  $channel = "Beta"
-}
-
-$latestVersion = (Invoke-WebRequest "https://chromiumdash.appspot.com/fetch_releases?channel=$channel&platform=Windows&num=1" -UseBasicParsing | ConvertFrom-Json).milestone / 10
-
-Write-Host "Latest $channel version is $latestVersion"
+Write-Host "Latest stable version is $latestVersion"
 
 $config = Get-Content (Join-Path $SourcesPath "config.json") | Out-String | ConvertFrom-Json
 $builtVersion = (($config.v8ref | Select-String -Pattern "refs/branch-heads/(\d+\.\d+)").Matches[0].Groups[1].Value).Trim()
@@ -27,9 +19,9 @@ $builtVersion = (($config.v8ref | Select-String -Pattern "refs/branch-heads/(\d+
 Write-Host "Version currently being built is $builtVersion"
 
 if ($builtVersion -eq $latestVersion) {
-  Write-Host "Latest $channel version is already being built"
+  Write-Host "Latest stable version is already being built"
 } else {
-  Write-Host "New $channel version released, manual intervention required to bump the version!"
+  Write-Host "New stable version released, manual intervention required to bump the version!"
   exit 1
 }
 
@@ -62,19 +54,15 @@ if ($buildNumber -eq $config.buildNumber) {
   exit 0
 }
 
-Write-Host "New $channel build number released, attempting to bump it"
+Write-Host "New stable build number released, attempting to bump it"
 
 $config.buildNumber = $buildNumber
 $config.version = BumpSemVer($config.version)
 
 ConvertTo-Json -InputObject $config | Set-Content (Join-Path $SourcesPath "config.json")
 
-if (! $GitPush.IsPresent) {
-  Write-Host "Git push not requested, we would be updating the version to $($config.version) (new upstream build number $buildNumber)"
-} else {
-  git config user.name github-actions
-  git config user.email github-actions@github.com
-  git add config.json
-  git commit -m "Updating version to $($config.version) (new upstream build number $buildNumber)"
-  git push
-}
+git config user.name github-actions
+git config user.email github-actions@github.com
+git add config.json
+git commit -m "Updating version to $($config.version) (new upstream build number $buildNumber)"
+git push

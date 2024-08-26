@@ -91,7 +91,6 @@ struct V8RuntimeArgs {
       bool lite_mode : 1; // enables trade-off of performance for memory savings
 
       bool enableMultiThread : 1; // if true, enables the use of v8::Locker for multi-threaded Isolate access
-      bool explicitMicrotaskPolicy : 1; // if true, enables the use of v8::MicrotasksPolicy::kExplicit
 
       // caps the number of worker threads (trade fewer threads for time)
       std::uint8_t thread_pool_size; // by default (0) V8 uses min(N-1,16) where N = number of cores

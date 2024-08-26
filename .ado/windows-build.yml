@@ -75,22 +75,6 @@ steps:
       vsTestVersion: latest
     condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
 
-  - task: VSTest@2
-    displayName: Run Node-API Unit Tests
-    timeoutInMinutes: 5
-    inputs:
-      testSelector: testAssemblies
-      testAssemblyVer2: node_api_tests.exe
-      pathtoCustomTestAdapters: $(GoogleTestAdapterPath)
-      searchFolder: $(Build.SourcesDirectory)/build/v8/out/${{parameters.appPlatform}}/${{parameters.buildPlatform}}/${{parameters.buildConfiguration}}
-      runTestsInIsolation: true
-      platform: ${{parameters.buildPlatform}}
-      configuration: ${{parameters.buildConfiguration}}
-      publishRunAttachments: true
-      collectDumpOn: onAbortOnly
-      vsTestVersion: latest
-    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
-
   - ${{ if not(parameters.isPublish) }}:
     - task: ComponentGovernanceComponentDetection@0
       inputs:

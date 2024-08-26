@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
+#include <thread>
 #include <gtest/gtest.h>
 #include <jsi/jsi.h>
-#include <thread>
 #include "jsi/test/testlib.h"
 #include "node-api-jsi/ApiLoaders/V8Api.h"
 #include "node-api-jsi/NodeApiJsiRuntime.h"
@@ -15,33 +15,31 @@ using namespace Microsoft::NodeApiJsi;
 namespace facebook::jsi {
 
 std::vector<facebook::jsi::RuntimeFactory> runtimeGenerators() {
-  return std::vector<facebook::jsi::RuntimeFactory>{
+  return std::vector<facebook::jsi::RuntimeFactory> {
 #if defined(JSI_V8_IMPL)
-      []() -> std::unique_ptr<facebook::jsi::Runtime> {
-        v8runtime::V8RuntimeArgs args;
-        args.flags.explicitMicrotaskPolicy = true;
-        args.flags.enableGCApi = true;
-        return v8runtime::makeV8Runtime(std::move(args));
-      },
+    []() -> std::unique_ptr<facebook::jsi::Runtime> {
+      v8runtime::V8RuntimeArgs args;
+      return v8runtime::makeV8Runtime(std::move(args));
+    },
 #endif
-#if defined(_WIN32) // Node-API not supported on POSIX (LibLoader not implemented)
-      []() -> std::unique_ptr<facebook::jsi::Runtime> {
-        V8Api *v8Api = V8Api::fromLib();
-        V8Api::setCurrent(v8Api);
+#ifdef _WIN32 // NApi not supported on POSIX (LibLoader not implemented)
+        []() -> std::unique_ptr<facebook::jsi::Runtime> {
+          V8Api *v8Api = V8Api::fromLib();
+          V8Api::setCurrent(v8Api);
 
-        jsr_config config{};
-        jsr_runtime runtime{};
-        napi_env env{};
-        v8Api->jsr_create_config(&config);
-        v8Api->jsr_config_enable_gc_api(config, true);
-        v8Api->jsr_create_runtime(config, &runtime);
-        v8Api->jsr_delete_config(config);
-        v8Api->jsr_runtime_get_node_api_env(runtime, &env);
+          jsr_config config{};
+          jsr_runtime runtime{};
+          napi_env env{};
+          v8Api->jsr_create_config(&config);
+          v8Api->jsr_config_enable_gc_api(config, true);
+          v8Api->jsr_create_runtime(config, &runtime);
+          v8Api->jsr_delete_config(config);
+          v8Api->jsr_runtime_get_node_api_env(runtime, &env);
 
-        NodeApiEnvScope envScope{env};
+          NodeApiEnvScope envScope{env};
 
-        return makeNodeApiJsiRuntime(env, v8Api, [runtime]() { V8Api::current()->jsr_delete_runtime(runtime); });
-      }
+          return makeNodeApiJsiRuntime(env, v8Api, [runtime]() { V8Api::current()->jsr_delete_runtime(runtime); });
+        }
 #endif
   };
 };
@@ -98,8 +96,8 @@ TEST(Basic, MultiThreadIsolate) {
   }
 }
 
-#ifdef _WIN32 // Node-API not supported on POSIX (LibLoader not implemented)
-TEST(Basic, MultiThreadIsolateNodeApi) {
+#ifdef _WIN32 // NApi not supported on POSIX (LibLoader not implemented)
+TEST(Basic, MultiThreadIsolateNApi) {
   V8Api *v8Api = V8Api::fromLib();
   V8Api::setCurrent(v8Api);
 

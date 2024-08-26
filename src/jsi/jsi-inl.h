@@ -232,13 +232,6 @@ inline void Object::setNativeState(
 }
 #endif
 
-#if JSI_VERSION >= 11
-inline void Object::setExternalMemoryPressure(Runtime& runtime, size_t amt)
-    const {
-  runtime.setExternalMemoryPressure(*this, amt);
-}
-#endif
-
 inline Array Object::getPropertyNames(Runtime& runtime) const {
   return runtime.getPropertyNames(*this);
 }

@@ -9,11 +9,8 @@ It is being used by React Native project to work with JS engines.
 JSI has versions associated with the following commit hashes in the 
 https://github.com/facebook/hermes repo. 
 
-| Version | Commit Hash                                | Commit Description
-|--------:|:-------------------------------------------|------------------------------------------------------
-|      12 | `de9dfe408bc3f8715aef161c5fcec291fc6dacb2` | Add queueMicrotask method to JSI
-|         | `a699e87f995bc2f7193990ff36a57ec9cad940e5` | Make queueMicrotask pure virtual
-|      11 | `a1c168705f609c8f1ae800c60d88eb199154264b` | Add JSI method for setting external memory size
+| Version | Commit Hash                              | Commit Description
+|--------:|:-----------------------------------------|------------------------------------------------------
 |      10 | `b81666598672cb5f8b365fe6548d3273f216322e` | Clarify const-ness of JSI references
 |       9 | `e6d887ae96bef5c71032f11ed1a9fb9fecec7b46` | Add external ArrayBuffers to JSI
 |       8 | `4d64e61a1f9926eca0afd4eb38d17cea30bdc34c` | Add BigInt JSI API support
@@ -26,15 +23,3 @@ https://github.com/facebook/hermes repo.
 |       2 | `e0616e77e1ddc3ea5e2ccbca2e20dd0c4049c637` | Make it possible for a Runtime implementation to provide its own JSON parsing
 |       1 | `3ba9615f80913764ecb6456779d502e31dde9e5d` | Fix build break in MSVC (#26462)
 |       0 | `f22a18f67da3f03db59c1ec715d6ec3776b03fbf` | Initial commit
-
-Relationship to React Native versions:
-
-| RN Version | JSI version |
-|-----------:|------------:|
-|       main |          12 |
-|       0.74 |          11 |
-|       0.73 |          10 |
-|       0.72 |          10 |
-|       0.71 |           9 |
-|       0.70 |           6 |
-|       0.69 |           5 |

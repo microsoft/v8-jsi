@@ -15,19 +15,21 @@
 #include <string>
 #include <vector>
 
+#ifndef JSI_EXPORT
+#ifdef _MSC_VER
+#ifdef CREATE_SHARED_LIBRARY
+#define JSI_EXPORT __declspec(dllexport)
+#else
+#define JSI_EXPORT
+#endif // CREATE_SHARED_LIBRARY
+#else // _MSC_VER
+#define JSI_EXPORT __attribute__((visibility("default")))
+#endif // _MSC_VER
+#endif // !defined(JSI_EXPORT)
+
 // JSI version defines set of features available in the API.
 // Each significant API change must be under a new version.
-// The JSI_VERSION can be provided as a parameter to compiler
-// or in the optional "jsi_version.h" file.
-
 #ifndef JSI_VERSION
-#if defined(__has_include) && __has_include(<jsi/jsi-version.h>)
-#include <jsi/jsi-version.h>
-#endif
-#endif
-
-#ifndef JSI_VERSION
-// Use the latest version by default
 #define JSI_VERSION 10
 #endif
 
@@ -42,18 +44,6 @@
 #else
 #define JSI_CONST_10
 #endif
-
-#ifndef JSI_EXPORT
-#ifdef _MSC_VER
-#ifdef CREATE_SHARED_LIBRARY
-#define JSI_EXPORT __declspec(dllexport)
-#else
-#define JSI_EXPORT
-#endif // CREATE_SHARED_LIBRARY
-#else // _MSC_VER
-#define JSI_EXPORT __attribute__((visibility("default")))
-#endif // _MSC_VER
-#endif // !defined(JSI_EXPORT)
 
 class FBJSRuntime;
 namespace facebook {
@@ -242,15 +232,6 @@ class JSI_EXPORT Runtime {
   /// when the JSI API is sufficient.
   virtual Value evaluatePreparedJavaScript(
       const std::shared_ptr<const PreparedJavaScript>& js) = 0;
-
-#if JSI_VERSION >= 12
-  /// Queues a microtask in the JavaScript VM internal Microtask (a.k.a. Job in
-  /// ECMA262) queue, to be executed when the host drains microtasks in
-  /// its event loop implementation.
-  ///
-  /// \param callback a function to be executed as a microtask.
-  virtual void queueMicrotask(const jsi::Function& callback) = 0;
-#endif
 
 #if JSI_VERSION >= 4
   /// Drain the JavaScript VM internal Microtask (a.k.a. Job in ECMA262) queue.
@@ -449,13 +430,6 @@ class JSI_EXPORT Runtime {
   virtual bool strictEquals(const Object& a, const Object& b) const = 0;
 
   virtual bool instanceOf(const Object& o, const Function& f) = 0;
-
-#if JSI_VERSION >= 11
-  /// See Object::setExternalMemoryPressure.
-  virtual void setExternalMemoryPressure(
-      const jsi::Object& obj,
-      size_t amount) = 0;
-#endif
 
   // These exist so derived classes can access the private parts of
   // Value, Symbol, String, and Object, which are all friends of Runtime.
@@ -916,18 +890,6 @@ class JSI_EXPORT Object : public Pointer {
   /// works.  I only need it in one place.)
   Array getPropertyNames(Runtime& runtime) const;
 
-#if JSI_VERSION >= 11
-  /// Inform the runtime that there is additional memory associated with a given
-  /// JavaScript object that is not visible to the GC. This can be used if an
-  /// object is known to retain some native memory, and may be used to guide
-  /// decisions about when to run garbage collection.
-  /// This method may be invoked multiple times on an object, and subsequent
-  /// calls will overwrite any previously set value. Once the object is garbage
-  /// collected, the associated external memory will be considered freed and may
-  /// no longer factor into GC decisions.
-  void setExternalMemoryPressure(Runtime& runtime, size_t amt) const;
-#endif
-
  protected:
   void setPropertyValue(
       Runtime& runtime,
@@ -1018,7 +980,6 @@ class JSI_EXPORT Array : public Object {
  private:
   friend class Object;
   friend class Value;
-  friend class Runtime;
 
   void setValueAtIndexImpl(Runtime& runtime, size_t i, const Value& value)
       JSI_CONST_10 {
@@ -1039,8 +1000,7 @@ class JSI_EXPORT ArrayBuffer : public Object {
       : ArrayBuffer(runtime.createArrayBuffer(std::move(buffer))) {}
 #endif
 
-  /// \return the size of the ArrayBuffer storage. This is not affected by
-  /// overriding the byteLength property.
+  /// \return the size of the ArrayBuffer, according to its byteLength property.
   /// (C++ naming convention)
   size_t size(Runtime& runtime) const {
     return runtime.size(*this);
@@ -1057,7 +1017,6 @@ class JSI_EXPORT ArrayBuffer : public Object {
  private:
   friend class Object;
   friend class Value;
-  friend class Runtime;
 
   ArrayBuffer(Runtime::PointerValue* value) : Object(value) {}
 };
@@ -1166,7 +1125,6 @@ class JSI_EXPORT Function : public Object {
  private:
   friend class Object;
   friend class Value;
-  friend class Runtime;
 
   Function(Runtime::PointerValue* value) : Object(value) {}
 };
@@ -1198,16 +1156,16 @@ class JSI_EXPORT Value {
   }
 
   /// Moves a Symbol, String, or Object rvalue into a new JS value.
-  template <
-      typename T,
-      typename = std::enable_if_t<
-          std::is_base_of<Symbol, T>::value ||
-#if JSI_VERSION >= 6
-          std::is_base_of<BigInt, T>::value ||
-#endif
-          std::is_base_of<String, T>::value ||
-          std::is_base_of<Object, T>::value>>
+  template <typename T>
   /* implicit */ Value(T&& other) : Value(kindOf(other)) {
+    static_assert(
+        std::is_base_of<Symbol, T>::value ||
+#if JSI_VERSION >= 6
+            std::is_base_of<BigInt, T>::value ||
+#endif
+            std::is_base_of<String, T>::value ||
+            std::is_base_of<Object, T>::value,
+        "Value cannot be implicitly move-constructed from this type");
     new (&data_.pointer) T(std::move(other));
   }
 
@@ -1506,7 +1464,7 @@ class JSI_EXPORT Scope {
   explicit Scope(Runtime& rt) : rt_(rt), prv_(rt.pushScope()) {}
   ~Scope() {
     rt_.popScope(prv_);
-  }
+  };
 
   Scope(const Scope&) = delete;
   Scope(Scope&&) = delete;
@@ -1528,8 +1486,8 @@ class JSI_EXPORT Scope {
 /// Base class for jsi exceptions
 class JSI_EXPORT JSIException : public std::exception {
  protected:
-  JSIException() {}
-  JSIException(std::string what) : what_(std::move(what)) {}
+  JSIException(){};
+  JSIException(std::string what) : what_(std::move(what)){};
 
  public:
   JSIException(const JSIException&) = default;
@@ -1570,7 +1528,7 @@ class JSI_EXPORT JSError : public JSIException {
   /// Creates a JSError referring to new \c Error instance capturing current
   /// JavaScript stack. The error message property is set to given \c message.
   JSError(Runtime& rt, const char* message)
-      : JSError(rt, std::string(message)) {}
+      : JSError(rt, std::string(message)){};
 
   /// Creates a JSError referring to a JavaScript Object having message and
   /// stack properties set to provided values.
@@ -1580,11 +1538,6 @@ class JSI_EXPORT JSError : public JSIException {
   /// set to provided message.  This argument order is a bit weird,
   /// but necessary to avoid ambiguity with the above.
   JSError(std::string what, Runtime& rt, Value&& value);
-
-  /// Creates a JSError referring to the provided value, message and stack. This
-  /// constructor does not take a Runtime parameter, and therefore cannot result
-  /// in recursively invoking the JSError constructor.
-  JSError(Value&& value, std::string message, std::string stack);
 
   JSError(const JSError&) = default;
 
@@ -1603,7 +1556,6 @@ class JSI_EXPORT JSError : public JSIException {
     return *value_;
   }
 
-  //TODO: (vmoroz) Can we remove it considering that we have the new JSError constructor?
   // In V8's case, creating an Error object in JS doesn't record the callstack.
   // To preserve it, we need a way to manually add the stack here and on the JS
   // side.
