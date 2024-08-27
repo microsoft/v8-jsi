@@ -1,44 +1,52 @@
 declare_args() {
   # Sets -DV8JSI_ENABLE_INSPECTOR
   v8jsi_enable_inspector = true
+
+  # Sets -DV8JSI_ENABLE_NODE_API
+  v8jsi_enable_node_api = true
 }
 
 target("shared_library", "v8jsi") {
   sources = [
+    "IsolateData.h",
+    "MurmurHash.cpp",
+    "MurmurHash.h",
+    "V8JsiRuntime.cpp",
+    "V8JsiRuntime_impl.h",
+    "jsi/JSIDynamic.h",
     "jsi/decorator.h",
     "jsi/instrumentation.h",
     "jsi/jsi-inl.h",
     "jsi/jsi.cpp",
     "jsi/jsi.h",
-    "jsi/JSIDynamic.h",
     "jsi/jsilib-windows.cpp",
     "jsi/jsilib.h",
     "jsi/threadsafe.h",
-    "napi/env-inl.h",
-    "napi/js_native_api_v8_internals.h",
-    "napi/js_native_api_v8.cc",
-    "napi/js_native_api_v8.h",
-    "napi/util-inl.h",
-    "napi/v8_api.cpp",
-    "node-api/js_native_api_types.h",
-    "node-api/js_native_api.h",
-    "node-api/js_runtime_api.h",
-    "public/compat.h",
     "public/ScriptStore.h",
-    "public/v8_api.h",
     "public/V8JsiRuntime.h",
-    "V8JsiRuntime_impl.h",
-    "V8JsiRuntime.cpp",
-    "IsolateData.h",
-    "MurmurHash.h",
-    "MurmurHash.cpp",
   ]
+
+  if (v8jsi_enable_node_api) {
+    sources += [
+      "node-api/env-inl.h",
+      "node-api/js_native_api.h",
+      "node-api/js_native_api_types.h",
+      "node-api/js_native_api_v8.cc",
+      "node-api/js_native_api_v8.h",
+      "node-api/js_native_api_v8_internals.h",
+      "node-api/js_runtime_api.h",
+      "node-api/util-inl.h",
+      "node-api/v8_api.cpp",
+      "public/compat.h",
+      "public/v8_api.h",
+    ]
+  }
 
   if (is_win) {
     sources += [
-      "version_gen.rc",
+      "etw/tracing.cpp",
       "etw/tracing.h",
-      "etw/tracing.cpp"
+      "version_gen.rc",
     ]
 
     if (v8jsi_enable_inspector) {
@@ -56,23 +64,43 @@ target("shared_library", "v8jsi") {
         "inspector/llhttp.c",
         "inspector/llhttp.h",
         "inspector/llhttp_api.c",
-        "inspector/llhttp_http.c"
+        "inspector/llhttp_http.c",
       ]
     }
 
-    ldflags = [ "/OPT:REF", "/INCREMENTAL:NO" ]
+    ldflags = [
+      "/OPT:REF",
+      "/INCREMENTAL:NO",
+    ]
 
     if (!is_clang) {
-      ldflags += [ "/PDBSTRIPPED:v8jsi_stripped.dll.pdb", "/SOURCELINK:" + rebase_path("//jsi/source_link_gen.json") ]
+      ldflags += [
+        "/PDBSTRIPPED:v8jsi_stripped.dll.pdb",
+        "/SOURCELINK:" + rebase_path("//jsi/source_link_gen.json"),
+      ]
     }
   } else if (!is_mac) {
     ldflags = [ "-Wl,--allow-multiple-definition" ]
-    ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ] 
+    ldflags += [ "-Wl,--version-script=" + rebase_path("//jsi/makev8jsi.lst") ]
   }
 
-  include_dirs = [ ".", "../include", "jsi", "node-api", "public", getenv("ASIO_ROOT") ]
+  include_dirs = [
+    ".",
+    "../include",
+    "jsi",
+    "public",
+    getenv("ASIO_ROOT"),
+  ]
 
-  configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions" ]
+  if (v8jsi_enable_node_api) {
+    include_dirs += [ "node-api" ]
+  }
+
+  configs += [
+    "//:toolchain",
+    "//:internal_config_base",
+    "//build/config/compiler:exceptions",
+  ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
 
   if (is_win) {
@@ -83,7 +111,7 @@ target("shared_library", "v8jsi") {
 
   deps = [
     "//:v8_headers",
-    "//:v8_monolith"
+    "//:v8_monolith",
   ]
 
   defines = [ "BUILDING_V8JSI_SHARED" ]
@@ -102,152 +130,87 @@ target("shared_library", "v8jsi") {
   }
 }
 
-# copy test JS files
-copy("napi_test_js_files") {
-  sources = [
-    "napi/test/js-native-api/2_function_arguments/test.js",
-    "napi/test/js-native-api/3_callbacks/test.js",
-    "napi/test/js-native-api/4_object_factory/test.js",
-    "napi/test/js-native-api/5_function_factory/test.js",
-    "napi/test/js-native-api/6_object_wrap/test.js",
-    "napi/test/js-native-api/7_factory_wrap/test.js",
-    "napi/test/js-native-api/8_passing_wrapped/test.js",
-    "napi/test/js-native-api/common/assert.js",
-    "napi/test/js-native-api/common/common.js",
-    "napi/test/js-native-api/test_array/test.js",
-    "napi/test/js-native-api/test_bigint/test.js",
-    "napi/test/js-native-api/test_constructor/test.js",
-    "napi/test/js-native-api/test_constructor/test2.js",
-    "napi/test/js-native-api/test_conversions/test.js",
-    "napi/test/js-native-api/test_dataview/test.js",
-    "napi/test/js-native-api/test_date/test.js",
-    "napi/test/js-native-api/test_error/test.js",
-    "napi/test/js-native-api/test_exception/test.js",
-    "napi/test/js-native-api/test_exception/testFinalizerException.js",
-    "napi/test/js-native-api/test_function/test.js",
-    "napi/test/js-native-api/test_general/test.js",
-    "napi/test/js-native-api/test_general/testEnvCleanup.js",
-    "napi/test/js-native-api/test_general/testFinalizer.js",
-    "napi/test/js-native-api/test_general/testGlobals.js",
-    "napi/test/js-native-api/test_general/testInstanceOf.js",
-    "napi/test/js-native-api/test_general/testNapiRun.js",
-    "napi/test/js-native-api/test_general/testNapiStatus.js",
-    "napi/test/js-native-api/test_handle_scope/test.js",
-    "napi/test/js-native-api/test_instance_data/test.js",
-    "napi/test/js-native-api/test_new_target/test.js",
-    "napi/test/js-native-api/test_number/test.js",
-    "napi/test/js-native-api/test_object/test.js",
-    "napi/test/js-native-api/test_object/test_null.js",
-    "napi/test/js-native-api/test_promise/test.js",
-    "napi/test/js-native-api/test_properties/test.js",
-    "napi/test/js-native-api/test_reference/test.js",
-    "napi/test/js-native-api/test_reference_double_free/test.js",
-    "napi/test/js-native-api/test_string/test.js",
-    "napi/test/js-native-api/test_symbol/test1.js",
-    "napi/test/js-native-api/test_symbol/test2.js",
-    "napi/test/js-native-api/test_symbol/test3.js",
-    "napi/test/js-native-api/test_typedarray/test.js",
-  ]
-  outputs = [ "$root_out_dir/{{source}}" ]
-}
-
 target("executable", "jsitests") {
   testonly = true
 
   deps = [
     ":v8jsi",
-    ":napi_test_js_files",
+    "node-api/test:node_api_tests",
     "//build/win:default_exe_manifest",
     "//testing/gtest",
   ]
 
-  configs += [ "//:toolchain", "//:internal_config_base", "//build/config/compiler:exceptions", "//build/config/compiler:rtti" ]
-  configs -= [ "//build/config/compiler:no_exceptions", "//build/config/compiler:no_rtti" ]
+  configs += [
+    "//:toolchain",
+    "//:internal_config_base",
+    "//build/config/compiler:exceptions",
+    "//build/config/compiler:rtti",
+  ]
+  configs -= [
+    "//build/config/compiler:no_exceptions",
+    "//build/config/compiler:no_rtti",
+  ]
 
   cflags = [ "-DJSI_V8_IMPL" ]
 
   # Run microtasks explicitly for JSI
   cflags += [ "-DJSI_SUPPORT_MICROTASKS" ]
 
-  if (is_win) {
-    # Import Node-API functions and (-FC) use full path of source code files in diagnostics.
-    cflags += [ "-DNAPI_EXTERN=__declspec(dllimport)", "-FC" ]
+  include_dirs = [
+    ".",
+    "jsi",
+    "public",
+  ]
+
+  if (v8jsi_enable_node_api) {
+    include_dirs += [
+      "node-api/test",
+      "node-api",
+    ]
   }
 
-  include_dirs = [ ".", "jsi", "napi", "napi/test", "node-api", "public" ]
-
   sources = [
+    "jsi/JSIDynamic.h",
     "jsi/decorator.h",
     "jsi/instrumentation.h",
     "jsi/jsi-inl.h",
     "jsi/jsi.cpp",
     "jsi/jsi.h",
-    "jsi/JSIDynamic.h",
     "jsi/jsilib.h",
-    "jsi/threadsafe.h",
+    "jsi/test/testlib.cpp",
     "jsi/test/testlib.h",
     "jsi/test/testlib_ext.cpp",
-    "jsi/test/testlib.cpp",
-    "napi/test/napitest_v8.cpp",
-    "napi/test/napitest.cpp",
-    "napi/test/napitest.h",
-    "napi/test/test_2_function_arguments.cpp",
-    "napi/test/test_3_callbacks.cpp",
-    "napi/test/test_4_object_factory.cpp",
-    "napi/test/test_5_function_factory.cpp",
-    "napi/test/test_6_object_wrap.cpp",
-    "napi/test/test_7_factory_wrap.cpp",
-    "napi/test/test_8_passing_wrapped.cpp",
-    "napi/test/test_array.cpp",
-    "napi/test/test_assert.cpp",
-    "napi/test/test_basics.cpp",
-    "napi/test/test_bigint.cpp",
-    "napi/test/test_constructor.cpp",
-    "napi/test/test_conversions.cpp",
-    "napi/test/test_dataview.cpp",
-    "napi/test/test_date.cpp",
-    "napi/test/test_error.cpp",
-    "napi/test/test_exception.cpp",
-    "napi/test/test_ext.cpp",
-    "napi/test/test_function.cpp",
-    "napi/test/test_general.cpp",
-    "napi/test/test_handle_scope.cpp",
-    "napi/test/test_instance_data.cpp",
-    "napi/test/test_new_target.cpp",
-    "napi/test/test_number.cpp",
-    "napi/test/test_object.cpp",
-    "napi/test/test_promise.cpp",
-    "napi/test/test_properties.cpp",
-    "napi/test/test_reference_double_free.cpp",
-    "napi/test/test_reference.cpp",
-    "napi/test/test_string.cpp",
-    "napi/test/test_symbol.cpp",
-    "napi/test/test_typedarray.cpp",
-    "node-api/js_native_api_types.h",
-    "node-api/js_native_api.h",
-    "node-api/js_runtime_api.h",
-    "node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
-    "node-api-jsi/ApiLoaders/JSRuntimeApi.h",
-    "node-api-jsi/ApiLoaders/NodeApi.cpp",
-    "node-api-jsi/ApiLoaders/NodeApi.h",
-    "node-api-jsi/ApiLoaders/V8Api.cpp",
-    "node-api-jsi/ApiLoaders/V8Api.h",
-    "node-api-jsi/NodeApiJsiRuntime.cpp",
-    "node-api-jsi/NodeApiJsiRuntime.h",
+    "jsi/threadsafe.h",
     "public/compat.h",
     "public/v8_api.h",
-    "testmain.cpp"
+    "testmain.cpp",
   ]
 
   if (is_win) {
-    sources += [
-      "jsi/jsilib-windows.cpp",
-      "node-api-jsi/ApiLoaders/NodeApi_win.cpp"
-    ]
+    sources += [ "jsi/jsilib-windows.cpp" ]
   } else {
+    sources += [ "jsi/jsilib-posix.cpp" ]
+  }
+
+  if (v8jsi_enable_node_api) {
     sources += [
-      "jsi/jsilib-posix.cpp",
-      "node-api-jsi/ApiLoaders/NodeApi_posix.cpp"
+      "node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
+      "node-api-jsi/ApiLoaders/JSRuntimeApi.h",
+      "node-api-jsi/ApiLoaders/JSRuntimeApi.inc",
+      "node-api-jsi/ApiLoaders/NodeApi.cpp",
+      "node-api-jsi/ApiLoaders/NodeApi.h",
+      "node-api-jsi/ApiLoaders/NodeApi.inc",
+      "node-api-jsi/ApiLoaders/V8Api.cpp",
+      "node-api-jsi/ApiLoaders/V8Api.h",
+      "node-api-jsi/ApiLoaders/V8Api.inc",
+      "node-api-jsi/NodeApiJsiRuntime.cpp",
+      "node-api-jsi/NodeApiJsiRuntime.h",
     ]
+
+    if (is_win) {
+      sources += [ "node-api-jsi/ApiLoaders/NodeApi_win.cpp" ]
+    } else {
+      sources += [ "node-api-jsi/ApiLoaders/NodeApi_posix.cpp" ]
+    }
   }
 }

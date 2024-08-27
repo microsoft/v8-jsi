@@ -26,3 +26,15 @@ https://github.com/facebook/hermes repo.
 |       2 | `e0616e77e1ddc3ea5e2ccbca2e20dd0c4049c637` | Make it possible for a Runtime implementation to provide its own JSON parsing
 |       1 | `3ba9615f80913764ecb6456779d502e31dde9e5d` | Fix build break in MSVC (#26462)
 |       0 | `f22a18f67da3f03db59c1ec715d6ec3776b03fbf` | Initial commit
+
+Relationship to React Native versions:
+
+| RN Version | JSI version |
+|-----------:|------------:|
+|       main |          12 |
+|       0.74 |          11 |
+|       0.73 |          10 |
+|       0.72 |          10 |
+|       0.71 |           9 |
+|       0.70 |           6 |
+|       0.69 |           5 |

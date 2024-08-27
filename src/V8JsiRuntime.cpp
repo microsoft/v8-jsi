@@ -7,11 +7,11 @@
 
 #include "IsolateData.h"
 #include "MurmurHash.h"
-#include "napi/js_native_api_v8.h"
+#include "node-api/js_native_api_v8.h"
 #include "node-api/js_native_api.h"
 #include "public/ScriptStore.h"
 
-#include "napi/util-inl.h"
+#include "node-api/util-inl.h"
 
 #include <algorithm>
 #include <atomic>
