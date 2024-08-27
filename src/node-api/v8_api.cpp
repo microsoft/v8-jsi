@@ -93,10 +93,11 @@ class V8RuntimeEnv : public v8runtime::V8Runtime {
   V8RuntimeEnv(v8runtime::V8RuntimeArgs&& args)
       : v8runtime::V8Runtime(std::move(args)),
         m_rootEnv(createNodeApi(NAPI_VERSION_EXPERIMENTAL)) {}
+  ~V8RuntimeEnv() override {}
 
   napi_status getRootNodeApi(napi_env* env);
   NodeApiEnv* createNodeApi(int32_t apiVersion);
-  void removeModuleEnv(NodeApiEnv* env);
+  bool removeModuleEnv(NodeApiEnv* env);
 
   void SetImmediate(std::function<void()> callback) {
     isolate_data_->foreground_task_runner_->postTask(
@@ -144,11 +145,7 @@ class V8RuntimeEnv : public v8runtime::V8Runtime {
   };
 
  private:
-  ~V8RuntimeEnv() override {}
-
- private:
   std::vector<NodeApiEnv*> m_moduleEnvList;
-  std::atomic<int32_t> m_moduleEnvCount{0};
   NodeApiEnv* m_rootEnv;  // Must the last field so we can call createNodeApi.
 };
 
@@ -162,9 +159,14 @@ class NodeApiEnv : public napi_env__ {
 
   void DeleteMe() override {
     m_isDestructing = true;
-    m_runtime->removeModuleEnv(this);
+    // Get the field before this instance is deleted.
+    V8RuntimeEnv* runtime = m_runtime;
+    bool shouldDeleteRuntime = runtime->removeModuleEnv(this);
     DrainFinalizerQueue();
     napi_env__::DeleteMe();
+    if (shouldDeleteRuntime) {
+      delete runtime;
+    }
   }
 
   void EnqueueFinalizer(v8impl::RefTracker* finalizer) override {
@@ -398,7 +400,6 @@ class NodeApiEnv : public napi_env__ {
 NodeApiEnv* V8RuntimeEnv::createNodeApi(int32_t apiVersion) {
   NodeApiEnv* env = new NodeApiEnv(this, apiVersion);
   m_moduleEnvList.push_back(env);
-  ++m_moduleEnvCount;
   return env;
 }
 
@@ -407,23 +408,23 @@ napi_status V8RuntimeEnv::getRootNodeApi(napi_env* env) {
   return napi_ok;
 }
 
-void V8RuntimeEnv::removeModuleEnv(NodeApiEnv* env) {
+bool V8RuntimeEnv::removeModuleEnv(NodeApiEnv* env) {
   auto it = std::find(m_moduleEnvList.begin(), m_moduleEnvList.end(), env);
   if (it == m_moduleEnvList.end()) {
-    return;
+    return false;
   }
   m_moduleEnvList.erase(it);
-  int32_t refCount = --m_moduleEnvCount;
-  if (m_rootEnv == env) {
+  bool isRootEnv = m_rootEnv == env;
+  if (isRootEnv) {
     m_rootEnv = nullptr;
+    // Do a copy to iterate over a snapshot of the list.
     std::vector<NodeApiEnv*> moduleEnvList = m_moduleEnvList;
     for (NodeApiEnv* moduleEnv : moduleEnvList) {
       moduleEnv->Unref();
     }
   }
-  if (refCount == 0) {
-    delete this;
-  }
+
+  return isRootEnv;
 }
 
 class V8TaskRunner : public v8runtime::JSITaskRunner {
