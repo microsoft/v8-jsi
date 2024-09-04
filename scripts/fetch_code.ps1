@@ -92,6 +92,7 @@ Remove-Item -Recurse -Force (Join-Path $workpath "depot_tools\external_bin\gsuti
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\test\test262\data\tools")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\depot_tools\external_bin\gsutil")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\perfetto")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf_chrome")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\bazel")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\clusterfuzz")
