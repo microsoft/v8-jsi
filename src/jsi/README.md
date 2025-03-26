@@ -11,6 +11,15 @@ https://github.com/facebook/hermes repo.
 
 | Version | Commit Hash                                | Commit Description
 |--------:|:-------------------------------------------|------------------------------------------------------
+|      19 | `00a84e7bae9b8569e7b3f4118f4238544c67fe1b` | Add createFromUtf16 JSI method
+|      18 | `d0328097291aade7269b2879910e11c48c8fbeb1` | Add default implementation for Object.create(prototype)
+|      17 | `1012f891165e7dda3b51939b75bbc52e16e48a75` | Add default implementation for Object.getPrototypeOf and Object.setPrototypeOf
+|      16 | `215bbe6ddc75393332b74138205e7cf5ab874e4e` | Add default getStringData/getPropNameIdData implementation
+|      15 | `54e428c749358fb4aa25c6d7e2dcc3fc23b47124` | Let Pointer be nothrow-move-constructible
+|         | `c582a23d62505a00948f5aa49006f60f959f8df4` | Let PointerValue::invalidate() be noexcept
+|         | `b07ef4fc10dd53ad542f811040c820064c5ceb57` | Let Value be nothrow-move-constructible
+|      14 | `c98b00e88bb685e75b769be67919a23a7f03b2e0` | Add utf16 method to JSI
+|      13 | `077f2633dea36e1d0d18d6c4f114bf66e3ab74cf` | Add HeapSnapshotOptions for jsi::Instrumentation
 |      12 | `de9dfe408bc3f8715aef161c5fcec291fc6dacb2` | Add queueMicrotask method to JSI
 |         | `a699e87f995bc2f7193990ff36a57ec9cad940e5` | Make queueMicrotask pure virtual
 |      11 | `a1c168705f609c8f1ae800c60d88eb199154264b` | Add JSI method for setting external memory size
