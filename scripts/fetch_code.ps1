@@ -74,6 +74,15 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
     -replace ('V8JSIVER_V8REF', $v8Version) |`
     Set-Content "$SourcesPath\src\source_link_gen.json"
 
+# Update ADO build version string when run from ADO pipeline
+if ($env:BUILD_BUILDNUMBER) {
+    $buildVersion = $env:BUILD_BUILDNUMBER
+    if (!$buildVersion.EndsWith($v8Version.Replace('.', '_'))) {
+        $buildVersion = $buildVersion + " - " + $version.Major + "." + $version.Minor + "." + $version.Build + "." + $v8Version.Replace('.', '_')
+        Write-Host "##vso[build.updateBuildNumber]$buildVersion"
+    }
+}
+
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {
     $install_script_path = Join-Path $workpath "v8/build/install-build-deps-android.sh"

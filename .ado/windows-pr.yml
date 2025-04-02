@@ -1,13 +1,13 @@
-name: v8jsi_win_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
+name: v8jsi_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
+# The triggers are overridden by the ADO pipeline definitions.
 trigger: none
-pr:
-  - beta
-  - master
-  - "*-stable"
+pr: none
 
-pool:
-  name: OEDevJeff-OfficePublic
-
-jobs:
-  - template: windows-jobs.yml
+extends:
+  template: windows-jobs.yml@self
+  parameters:
+    # PR builds must pass false.
+    isPublish: false
+    # It must be false for real builds. Use true only for the build pipeline debugging.
+    fakeBuild: false

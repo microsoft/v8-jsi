@@ -772,6 +772,11 @@ JSR_API jsr_delete_runtime(jsr_runtime runtime) {
   return napi_ok;
 }
 
+JSR_API v8_platform_dispose() {
+  v8runtime::V8PlatformHolder::disposePlatform();
+  return napi_ok;
+}
+
 JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env) {
   return CHECKED_RUNTIME(runtime)->getNodeApi(env);
 }

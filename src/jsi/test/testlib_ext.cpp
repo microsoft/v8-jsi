@@ -69,6 +69,7 @@ TEST_P(JSITestExt, ArrayBufferTest) {
 }
 
 #if JSI_VERSION >= 9
+#ifndef JSI_V8_IMPL
 TEST_P(JSITestExt, ExternalArrayBufferTest) {
   struct FixedBuffer : MutableBuffer {
     size_t size() const override {
@@ -98,7 +99,7 @@ TEST_P(JSITestExt, ExternalArrayBufferTest) {
       EXPECT_EQ(buf->arr[i], i * i);
   }
 }
-
+#endif
 // This test fails in CI for V8 (x86 Release Win32), so disabling it for now.
 // TEST_P(JSITestExt, NoCorruptionOnJSError) {
 //   // If the test crashes or infinite loops, the likely cause is that

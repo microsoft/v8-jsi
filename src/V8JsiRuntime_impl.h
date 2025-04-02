@@ -78,49 +78,49 @@ class CounterCollection {
 
 using CounterMap = std::unordered_map<std::string, Counter *>;
 
+// This class is used to hold the V8 platform singleton.
+// It ensures that the platform is initialized and disposed only once.
+// It is thread-safe.
+// The platform must be initialized before any V8 isolate is created.
+// The platform must be disposed before the process exits. Otherwise, we may see
+// random failures caused by tasks still being in the delayed task queue.
+// The queue can be still in in use by GC.
 class V8PlatformHolder {
  public:
-  V8PlatformHolder() {}
-
   // thread_pool_size of 0 is the default (V8 will use the number of cores N to compute it as min(N-1, 16))
-  void addUsage(int thread_pool_size = 0) {
+  template <typename InitAction>
+  static void initializePlatform(int thread_pool_size, InitAction&& init) {
     std::lock_guard<std::mutex> guard(mutex_s_);
-
-    if (use_count_s_++ == 0) {
-      if (!platform_s_) {
-        platform_s_ = v8::platform::NewDefaultPlatform(thread_pool_size);
-
-        v8::V8::InitializePlatform(platform_s_.get());
-        v8::V8::Initialize();
-      }
+    if (is_initialized_s_) {
+      return;
     }
+    is_initialized_s_ = true;
+    init();
+    platform_s_ = v8::platform::NewDefaultPlatform(thread_pool_size);
+    v8::V8::InitializePlatform(platform_s_.get());
+    v8::V8::Initialize();
   }
 
-  void releaseUsage() {
+  static void disposePlatform() {
     std::lock_guard<std::mutex> guard(mutex_s_);
-
-    if (--use_count_s_ == 0) {
-      // We cannot shutdown the platform once created because V8 internally references bits of the platform from
-      // process-globals This cannot be worked around, the design of V8 is not currently embedder-friendly
-      // v8::V8::Dispose();
-
-      // This used to work until 9.2, but afterwards shutting down the platform permanently breaks the code that creates
-      // page allocators (through global statics) v8::V8::ShutdownPlatform(); platform_s_ = nullptr;
+    if (is_disposed_s_) {
+      return;
     }
+    is_disposed_s_ = true;
+    v8::V8::Dispose();
+    v8::V8::DisposePlatform();
+    platform_s_ = nullptr;
   }
 
-  bool firstInit() {
-    std::lock_guard<std::mutex> guard(mutex_s_);
-    return (use_count_s_ == 0) && !platform_s_;
-  }
-
- private:
+  V8PlatformHolder() = delete;
   V8PlatformHolder(const V8PlatformHolder &) = delete;
   V8PlatformHolder &operator=(const V8PlatformHolder &) = delete;
 
-  static std::unique_ptr<v8::Platform> platform_s_;
-  static std::atomic_uint32_t use_count_s_;
+ private:
   static std::mutex mutex_s_;
+  static std::unique_ptr<v8::Platform> platform_s_;
+  static bool is_initialized_s_;
+  static bool is_disposed_s_;
 }; // namespace v8runtime
 
 struct UnhandledPromiseRejection {
@@ -801,8 +801,6 @@ class V8Runtime : public facebook::jsi::Runtime {
   std::string desc_;
 
   static thread_local uint16_t tls_isolate_usage_counter_;
-
-  V8PlatformHolder platform_holder_;
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;

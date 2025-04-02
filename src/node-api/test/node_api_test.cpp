@@ -3,6 +3,7 @@
 
 #include "node_api_test.h"
 #include <js_runtime_api.h>
+#include <v8_api.h>
 #include <windows.h>
 #include <algorithm>
 #include <cstdarg>
@@ -989,6 +990,16 @@ std::string NodeApiTestErrorHandler::GetSourceCodeSliceForError(
 
 }  // namespace node_api_tests
 
+class DeferPlatformDispose {
+ public:
+  DeferPlatformDispose() = default;
+  DeferPlatformDispose(const DeferPlatformDispose&) = delete;
+  DeferPlatformDispose& operator=(const DeferPlatformDispose&) = delete;
+
+  ~DeferPlatformDispose() { v8_platform_dispose(); }
+};
+
 int main(int argc, char** argv) {
+  DeferPlatformDispose deferPlatformDispose;
   return node_api_tests::EvaluateJSFile(argc, argv);
 }

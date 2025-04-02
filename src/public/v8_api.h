@@ -8,11 +8,9 @@
 
 EXTERN_C_START
 
-//=============================================================================
-// jsr_config
-//=============================================================================
-
 JSR_API v8_config_enable_multithreading(jsr_config config, bool value);
+
+JSR_API v8_platform_dispose();
 
 EXTERN_C_END
 
