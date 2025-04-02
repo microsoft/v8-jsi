@@ -1,8 +1,9 @@
 name: v8jsi_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-# The triggers are overridden by the ADO pipeline definitions.
 trigger: none
-pr: none
+pr:
+  - master
+  - "*-stable"
 
 extends:
   template: windows-jobs.yml@self
