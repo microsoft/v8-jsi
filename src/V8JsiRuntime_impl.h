@@ -103,7 +103,7 @@ class V8PlatformHolder {
 
   static void disposePlatform() {
     std::lock_guard<std::mutex> guard(mutex_s_);
-    if (is_disposed_s_) {
+    if (!is_initialized_s_ || is_disposed_s_) {
       return;
     }
     is_disposed_s_ = true;
