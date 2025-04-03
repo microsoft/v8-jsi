@@ -13,7 +13,7 @@ param(
 # https://omahaproxy.appspot.com is deprecated in favor of https://chromiumdash.appspot.com
 
 $channel = "Stable"
-if ($BetaBranch.IsPresent) {
+if ($BetaBranch) {
   $channel = "Beta"
 }
 
@@ -69,7 +69,7 @@ $config.version = BumpSemVer($config.version)
 
 ConvertTo-Json -InputObject $config | Set-Content (Join-Path $SourcesPath "config.json")
 
-if (! $GitPush.IsPresent) {
+if (! $GitPush) {
   Write-Host "Git push not requested, we would be updating the version to $($config.version) (new upstream build number $buildNumber)"
 } else {
   git config user.name github-actions

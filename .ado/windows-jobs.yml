@@ -1,10 +1,16 @@
 parameters:
+    # isPublish is `true` for CI builds and `false` for PR validation.
   - name: isPublish
     type: boolean
-    default : false
+    default: false
+    # To fake building v8-jsi for faster debugging.
+  - name: fakeBuild
+    type: boolean
+    default: false
+    # Matrix with target platforms for v8-jsi binaries.
   - name: BuildMatrix
     type: object
-    default : 
+    default:
       - Name: Desktop_x64_Debug
         BuildConfiguration: Debug
         BuildPlatform: x64
@@ -30,106 +36,224 @@ parameters:
         BuildPlatform: arm64
         AppPlatform: win32
 
-jobs:
+resources:
+  repositories:
+    # The repo for the Office compliant build pipeline templates.
+  - repository: OfficePipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/OfficePipelineTemplates
+    ref: refs/tags/release
 
-  - ${{ each matrix in parameters.BuildMatrix }}:
-    - job: V8JsiBuild_${{ matrix.Name }}
-      timeoutInMinutes: 1200
-      variables:
-        - name: Packaging.EnableSBOMSigning
-          value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
-      displayName: 'Build v8jsi.dll ${{ matrix.BuildPlatform }} ${{ matrix.BuildConfiguration }}'
-      ${{ if parameters.isPublish }}:
+extends:
+  # Extend the Office compliant build pipeline template.
+  ${{ if eq(parameters.isPublish, true) }}:
+    template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
+  ${{ else }}:
+    template: v1/Office.Unofficial.PipelineTemplate.yml@OfficePipelineTemplates
+
+  parameters:
+    settings:
+      ${{ if eq(parameters.isPublish, false) }}:
+        skipBuildTagsForGitHubPullRequests: true
+    pool:
+      name: Azure-Pipelines-1ESPT-ExDShared
+      image: windows-latest
+      os: windows
+    sdl:
+      binskim:
+        analyzeTarget: |
+          $(Build.StagingDirectory)\out\pkg-staging\**\*.dll
+          $(Build.StagingDirectory)\out\pkg-staging\**\*.exe
+      componentgovernance:
+        ignoreDirectories: $(Build.SourcesDirectory)\website
+      eslint:
+        enableExclusions: true
+        # This repo does not ship any JavaScript code. But it has many test cases for
+        # the Hermes JS engine that fail parsing, have code considered insecure and crash eslint.
+        exclusionPatterns: |
+          '**/*.*'
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnsuppress
+      codeql:
+        compiled:
+          enabled: true
+        runSourceLanguagesInSourceAnalysis: true
+
+    stages:
+    - stage: main
+      jobs:
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - job: V8JsiBuild_${{ matrix.Name }}
+          displayName: Build V8-JSI ${{ matrix.Name }}
+
+          timeoutInMinutes: 1200
+
+          variables:
+          - name: Packaging.EnableSBOMSigning
+            value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+
+          templateContext:
+            outputs:
+              # The base template takes care of publishing the artifacts.
+            - output: pipelineArtifact
+              artifactName: ${{ matrix.Name }}
+              targetPath: $(Build.StagingDirectory)\out\pkg-staging
+
+          steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python 3.x
+            inputs:
+              versionSpec: '3.x'
+              addToPath: true
+              architecture: 'x64'
+
+          - template: /.ado/windows-build.yml@self
+            parameters:
+              outputPath: $(Build.StagingDirectory)\out\pkg-staging
+              appPlatform: ${{ matrix.AppPlatform }}
+              buildConfiguration: ${{ matrix.BuildConfiguration }}
+              buildPlatform: ${{ matrix.BuildPlatform }}
+              isPublish: ${{ parameters.isPublish }}
+              fakeBuild: ${{ parameters.fakeBuild }}
+
+            # Sign binaries only for the non-fake CI builds.
+          - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
+            - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+              displayName: CodeSign Binaries
+              inputs:
+                connectedServiceName: 'ESRP-JSHost3'
+                appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+                appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+                authAKVName: 'OGX-JSHost-KV'
+                authCertName: 'OGX-JSHost-Auth4'
+                authSignCertName: 'OGX-JSHost-Sign3'
+                folderPath: $(Build.StagingDirectory)\out\pkg-staging
+                # Recursively finds files matching these patterns:
+                pattern: |
+                  **\v8jsi.dll
+                useMinimatch: true
+                signConfigType: inlineSignParams
+                inlineOperation: |
+                  [
+                    {
+                      "KeyCode" : "CP-230012",
+                      "OperationCode" : "SigntoolSign",
+                      "Parameters" : {
+                        "OpusName" : "Microsoft",
+                        "OpusInfo" : "http://www.microsoft.com",
+                        "FileDigest" : "/fd \"SHA256\"",
+                        "PageHash" : "/NPH",
+                        "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+                      },
+                      "ToolName" : "sign",
+                      "ToolVersion" : "1.0"
+                    },
+                    {
+                      "KeyCode" : "CP-230012",
+                      "OperationCode" : "SigntoolVerify",
+                      "Parameters" : {},
+                      "ToolName" : "sign",
+                      "ToolVersion" : "1.0"
+                    }
+                  ]
+
+      - job: V8JsiCreateNuget
+        dependsOn:
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - V8JsiBuild_${{ matrix.Name }}
+        displayName: Create Nuget
+
         templateContext:
           outputs:
-            - output: buildArtifacts
-              PathtoPublish: $(Build.ArtifactStagingDirectory)
-              ArtifactName: V8Jsi
-      steps:
-        - task: UsePythonVersion@0
-          inputs:
-            versionSpec: '3.x'
-            addToPath: true
-            architecture: 'x64'
-
-        - template: windows-build.yml
-          parameters:
-            outputPath: $(Build.ArtifactStagingDirectory)
-            appPlatform: ${{ matrix.AppPlatform }}
-            buildConfiguration: ${{ matrix.BuildConfiguration }}
-            buildPlatform: ${{ matrix.BuildPlatform }}
-            isPublish: ${{ parameters.isPublish }}
-
-  - job: V8JsiPublishNuget
-    condition: and(succeeded(), not(eq(variables['Build.Reason'], 'PullRequest')))
-    dependsOn:
-      - ${{ each matrix in parameters.BuildMatrix }}:
-        - V8JsiBuild_${{ matrix.Name }}
-    displayName: Publish Nuget
-    ${{ if parameters.isPublish }}:
-      templateContext:
-        outputs:
+            # The base template takes care of publishing the artifacts.
           - output: pipelineArtifact
-            targetPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
-            artifactName: "V8Jsi-final-nuget"
+            targetPath: $(Build.StagingDirectory)\out\pkg
+            artifactName: published-packages
 
-    steps:
-      - checkout: none
+        steps:
+        - checkout: none
 
-      - task: NuGetToolInstaller@0
-        inputs:
-          versionSpec: ">=4.6.0"
-
-      - task: DownloadBuildArtifacts@0
-        displayName: Download Build outputs
-        inputs:
-          artifactName: V8Jsi
-          downloadPath: $(System.DefaultWorkingDirectory)
-
-      # Make symbols available through http://symweb.
-      - task: PublishSymbols@2
-        displayName: Publish symbols
-        inputs:
-          UseNetCoreClientTool: true
-          SearchPattern: $(System.DefaultWorkingDirectory)/**/*.pdb
-          SymbolServerType: TeamServices
-
-      - task: PowerShell@2
-        displayName: Set version variables
-        inputs:
-          targetType: 'inline'
-          script: |
-            $config = Get-Content (Join-Path $(System.DefaultWorkingDirectory) "V8Jsi\config.json") | ConvertFrom-Json
-            $Version = $config.version
-            Write-Host "##vso[task.setvariable variable=Version]$Version"
-            Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
-
-      - task: NuGetCommand@2
-        displayName: 'NuGet Pack'
-        inputs:
-          command: pack
-          packagesToPack: $(System.DefaultWorkingDirectory)\V8Jsi\ReactNative.V8Jsi.Windows.nuspec
-          packDestination: $(System.DefaultWorkingDirectory)\NugetRootFinal
-          buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(System.DefaultWorkingDirectory)\V8Jsi;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
-          versioningScheme: byEnvVar
-          versionEnvVar: Version
-          includeSymbols: false
-
-      - pwsh: |
-          if ((Get-ChildItem $(System.DefaultWorkingDirectory)\NugetRootFinal\*nupkg).Count -lt 1) {
-            Write-Error 'No NUPKG generated'
-          }
-        displayName: Verify NuGet packages creation
-
-      - ${{ if not(parameters.isPublish) }}:
-        - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
-          displayName: 📒 Generate Manifest NuGet
-          condition: and(succeeded(), not(eq(variables['Build.Reason'], 'PullRequest')))
+          # The substitution tags in the nuspec require that we use at least NuGet 4.6.
+        - task: NuGetToolInstaller@0
+          displayName: Install NuGet tools
           inputs:
-            BuildDropPath: $(System.DefaultWorkingDirectory)\NugetRootFinal
+            versionSpec: ">=4.6.0"
 
-        - task: PublishBuildArtifacts@1
-          displayName: "Publish final nuget artifacts"
+          # Download v8-jsi binaries built in previous jobs.
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - task: DownloadPipelineArtifact@2
+            displayName: Download ${{ matrix.Name }} v8-jsi artifacts
+            inputs:
+              artifact: ${{ matrix.Name }}
+              path: $(Build.StagingDirectory)\out\pkg-staging
+
+          # Publish symbols only for the non-fake CI builds.
+        - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
+            # Make symbols available through http://symweb.
+          - task: PublishSymbols@2
+            displayName: Publish symbols
+            inputs:
+              UseNetCoreClientTool: true
+              SearchPattern: $(Build.StagingDirectory)\out\pkg-staging\**\*.pdb
+              SymbolServerType: TeamServices
+
+        - task: PowerShell@2
+          displayName: Set version variables
           inputs:
-            PathtoPublish: $(System.DefaultWorkingDirectory)\NugetRootFinal
-            ArtifactName: "V8Jsi-final-nuget"
+            targetType: 'inline'
+            script: |
+              $config = Get-Content $(Build.StagingDirectory)\out\pkg-staging\config.json | ConvertFrom-Json
+              $Version = $config.version
+              Write-Host "##vso[task.setvariable variable=Version]$Version"
+              Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
+
+        - task: NuGetCommand@2
+          displayName: 'NuGet Pack'
+          inputs:
+            command: pack
+            packagesToPack: $(Build.StagingDirectory)\out\pkg-staging\ReactNative.V8Jsi.Windows.nuspec
+            packDestination: $(Build.StagingDirectory)\out\pkg
+            buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(Build.StagingDirectory)\out\pkg-staging;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
+            versioningScheme: byEnvVar
+            versionEnvVar: Version
+            includeSymbols: false
+
+        - pwsh: |
+            if ((Get-ChildItem $(Build.StagingDirectory)\out\pkg\*nupkg).Count -lt 1) {
+              Write-Error 'No NUPKG generated'
+            }
+          displayName: Verify NuGet packages creation
+
+          # Sign the NuGet packages only for the CI builds.
+        - ${{ if parameters.isPublish }}:
+          - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+            displayName: CodeSign NuGets
+            inputs:
+              connectedServiceName: 'ESRP-JSHost3'
+              appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+              appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+              authAKVName: 'OGX-JSHost-KV'
+              authCertName: 'OGX-JSHost-Auth4'
+              authSignCertName: 'OGX-JSHost-Sign3'
+              folderPath: $(Build.StagingDirectory)\out\pkg
+              pattern: |
+                ReactNative.V8Jsi.Windows.*.nupkg
+              useMinimatch: true
+              signConfigType: inlineSignParams
+              inlineOperation: |
+                [
+                  {
+                    "KeyCode" : "CP-401405",
+                    "OperationCode" : "NuGetSign",
+                    "Parameters" : {},
+                    "ToolName" : "sign",
+                    "ToolVersion" : "1.0"
+                  },
+                  {
+                    "KeyCode" : "CP-401405",
+                    "OperationCode" : "NuGetVerify",
+                    "Parameters" : {},
+                    "ToolName" : "sign",
+                    "ToolVersion" : "1.0"
+                  }
+                ]

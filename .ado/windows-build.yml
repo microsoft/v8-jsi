@@ -3,16 +3,22 @@ parameters:
   type: string
 - name: outputPath
   type: string
+  # isPublish is `true` for CI builds and `false` for PR validation.
 - name: isPublish
   type: boolean
-  default : false
+  default: false
 - name: buildConfiguration
   type: string
 - name: buildPlatform
   type: string
+  # To fake building v8-jsi for faster debugging.
+- name: fakeBuild
+  type: boolean
+  default: false
 
 
 steps:
+- ${{ if eq(parameters.fakeBuild, false) }}:
   - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
     inputs:
@@ -31,18 +37,20 @@ steps:
         -Configuration:${{parameters.buildConfiguration}}
         -AppPlatform:${{parameters.appPlatform}}
 
-  - task: PowerShell@2
-    displayName: Build code
-    inputs:
-      targetType: filePath
-      filePath: $(Build.SourcesDirectory)\scripts\build.ps1
-      arguments:
-        -OutputPath:${{parameters.outputPath}}
-        -SourcesPath:$(Build.SourcesDirectory)
-        -Platform:${{parameters.buildPlatform}}
-        -Configuration:${{parameters.buildConfiguration}}
-        -AppPlatform:${{parameters.appPlatform}}
+- task: PowerShell@2
+  displayName: Build code
+  inputs:
+    targetType: filePath
+    filePath: $(Build.SourcesDirectory)\scripts\build.ps1
+    arguments:
+      -OutputPath:${{parameters.outputPath}}
+      -SourcesPath:$(Build.SourcesDirectory)
+      -Platform:${{parameters.buildPlatform}}
+      -Configuration:${{parameters.buildConfiguration}}
+      -AppPlatform:${{parameters.appPlatform}}
+      -FakeBuild:$${{parameters.fakeBuild}}
 
+- ${{ if eq(parameters.fakeBuild, false) }}:
   - script: |
       dir build\v8\buildtools\reclient\scandeps_server.exe
       taskkill -f -im scandeps_server.exe
@@ -90,37 +98,3 @@ steps:
       collectDumpOn: onAbortOnly
       vsTestVersion: latest
     condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
-
-  - ${{ if not(parameters.isPublish) }}:
-    - task: ComponentGovernanceComponentDetection@0
-      inputs:
-        ignoreDirectories: 'build\depot_tools'
-  
-    - script: mkdir ${{parameters.outputPath}}\_manifest\${{parameters.buildPlatform}}\${{parameters.buildConfiguration}}
-      displayName: 📒 Prep Manifest
-  
-    - task: AzureArtifacts.manifest-generator-task.manifest-generator-task.ManifestGeneratorTask@0
-      displayName: 📒 Generate Manifest
-      inputs:
-        BuildDropPath: ${{parameters.outputPath}}
-        ManifestDirPath: ${{parameters.outputPath}}\_manifest\${{parameters.buildPlatform}}\${{parameters.buildConfiguration}}
-  
-    # Guardian does not handle custom builds, so manually running Binskim
-    - task: BinSkim@3
-      displayName: Run Binskim Analysis
-      inputs:
-          InputType: 'Basic'
-          Function: 'analyze'
-          AnalyzeTarget: $(Build.ArtifactStagingDirectory)/**/*.dll
-          AnalyzeVerbose: true
-          toolVersion: 'LatestPreRelease'
-      continueOnError: true
-      condition: and(succeeded(), and(eq('${{parameters.buildConfiguration}}', 'Release'), not(eq('${{parameters.buildPlatform}}', 'arm64'))))
-  
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish artifacts"
-      inputs:
-        artifactName: V8Jsi
-        pathtoPublish: ${{parameters.outputPath}}
-  
-    - task: ComponentGovernanceComponentDetection@0

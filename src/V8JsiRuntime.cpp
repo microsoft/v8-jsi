@@ -7,8 +7,8 @@
 
 #include "IsolateData.h"
 #include "MurmurHash.h"
-#include "node-api/js_native_api_v8.h"
 #include "node-api/js_native_api.h"
+#include "node-api/js_native_api_v8.h"
 #include "public/ScriptStore.h"
 
 #include "node-api/util-inl.h"
@@ -32,9 +32,10 @@ struct ContextEmbedderIndex {
   constexpr static int ContextTag = 1;
 };
 
-/*static */ std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
-/*static */ std::atomic_uint32_t V8PlatformHolder::use_count_s_{0};
-/*static */ std::mutex V8PlatformHolder::mutex_s_;
+/*static*/ std::mutex V8PlatformHolder::mutex_s_;
+/*static*/ std::unique_ptr<v8::Platform> V8PlatformHolder::platform_s_;
+/*static*/ bool V8PlatformHolder::is_initialized_s_{false};
+/*static*/ bool V8PlatformHolder::is_disposed_s_{false};
 
 // String utilities
 std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::String> string) {
@@ -432,74 +433,63 @@ void V8Runtime::createHostObjectConstructorPerContext() {
       GetIsolate(), constructorForHostObjectTemplate->GetFunction(GetContextLocal()).ToLocalChecked());
 }
 
-#ifdef _WIN32
-std::once_flag g_tracingInitialized;
-#endif
-
-void V8Runtime::initializeTracing() {
-#ifdef _WIN32
-  std::call_once(g_tracingInitialized, []() { globalInitializeTracing(); });
-#endif
-
-  TRACEV8RUNTIME_VERBOSE("Initializing");
-}
-
 void V8Runtime::initializeV8() {
-  std::vector<const char *> argv;
-  argv.push_back("v8jsi");
+  V8PlatformHolder::initializePlatform(args_.flags.thread_pool_size, [this]() {
+#ifdef _WIN32
+    globalInitializeTracing();
 
-  if (args_.flags.trackGCObjectStats)
-    argv.push_back("--track_gc_object_stats");
+    v8::V8::SetUnhandledExceptionCallback([](_EXCEPTION_POINTERS *exception_pointers) -> int {
+      TRACEV8RUNTIME_CRITICAL("V8::SetUnhandledExceptionCallback");
+      return 0;
+    });
+#endif
 
-  if (args_.flags.enableGCApi)
-    argv.push_back("--expose_gc");
+    // We are only allowed to set the flags the first time V8 is being initialized
+    std::vector<const char *> argv;
+    argv.push_back("v8jsi");
 
-  if (args_.flags.enableSystemInstrumentation)
-    argv.push_back("--enable-system-instrumentation");
+    if (args_.flags.trackGCObjectStats)
+      argv.push_back("--track_gc_object_stats");
 
-  if (args_.flags.sparkplug)
-    argv.push_back("--sparkplug");
+    if (args_.flags.enableGCApi)
+      argv.push_back("--expose_gc");
 
-  if (args_.flags.predictable)
-    argv.push_back("--predictable");
+    if (args_.flags.enableSystemInstrumentation)
+      argv.push_back("--enable-system-instrumentation");
 
-  if (args_.flags.optimize_for_size)
-    argv.push_back("--optimize_for_size");
+    if (args_.flags.sparkplug)
+      argv.push_back("--sparkplug");
 
-  if (args_.flags.always_compact)
-    argv.push_back("--always_compact");
+    if (args_.flags.predictable)
+      argv.push_back("--predictable");
 
-  if (args_.flags.jitless)
-    argv.push_back("--jitless");
+    if (args_.flags.optimize_for_size)
+      argv.push_back("--optimize_for_size");
 
-  if (args_.flags.lite_mode)
-    argv.push_back("--lite_mode");
+    if (args_.flags.always_compact)
+      argv.push_back("--always_compact");
 
-  int argc = static_cast<int>(argv.size());
-  v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
+    if (args_.flags.jitless)
+      argv.push_back("--jitless");
+
+    if (args_.flags.lite_mode)
+      argv.push_back("--lite_mode");
+
+    int argc = static_cast<int>(argv.size());
+    v8::V8::SetFlagsFromCommandLine(&argc, const_cast<char **>(&argv[0]), false);
+  });
 }
 
 V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
-  initializeTracing();
+  initializeV8();
 
-  if (platform_holder_.firstInit()) {
-    // We are only allowed to set the flags the first time V8 is being initialized
-    initializeV8();
-  }
-
-#ifdef _WIN32
-  v8::V8::SetUnhandledExceptionCallback([](_EXCEPTION_POINTERS *exception_pointers) -> int {
-    TRACEV8RUNTIME_CRITICAL("V8::SetUnhandledExceptionCallback");
-    return 0;
-  });
-#endif
+  TRACEV8RUNTIME_VERBOSE("Initializing");
 
   // Try to reuse the already existing isolate in this thread.
   if (tls_isolate_usage_counter_++ > 0) {
     TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
     isolate_ = v8::Isolate::GetCurrent();
   } else {
-    platform_holder_.addUsage(args.flags.thread_pool_size);
     CreateNewIsolate();
   }
 
@@ -588,8 +578,6 @@ V8Runtime::~V8Runtime() {
     isolate_->Dispose();
 
     delete create_params_.array_buffer_allocator;
-
-    platform_holder_.releaseUsage();
   }
 
   // Note :: We never dispose V8 here. Is it required ?
@@ -1204,7 +1192,7 @@ bool V8Runtime::hasProperty(const jsi::Object &obj, const jsi::String &name) {
   IsolateLocker isolate_locker(this);
   v8::Maybe<bool> result = objectRef(obj)->Has(GetContextLocal(), stringRef(name));
   if (result.IsNothing())
-    throw jsi::JSError(*this, "V8Runtime::setPropertyValue failed.");
+    throw jsi::JSError(*this, "V8Runtime::hasPropertyValue failed.");
   return result.FromJust();
 }
 
@@ -1212,7 +1200,7 @@ bool V8Runtime::hasProperty(const jsi::Object &obj, const jsi::PropNameID &name)
   IsolateLocker isolate_locker(this);
   v8::Maybe<bool> result = objectRef(obj)->Has(GetContextLocal(), valueRef(name));
   if (result.IsNothing())
-    throw jsi::JSError(*this, "V8Runtime::setPropertyValue failed.");
+    throw jsi::JSError(*this, "V8Runtime::hasPropertyValue failed.");
   return result.FromJust();
 }
 

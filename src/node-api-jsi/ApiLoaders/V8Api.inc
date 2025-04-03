@@ -7,5 +7,6 @@
 
 // The V8 runtime functions sorted alphabetically.
 V8_FUNC(v8_config_enable_multithreading)
+V8_FUNC(v8_platform_dispose)
 
 #undef V8_FUNC

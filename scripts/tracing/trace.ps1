@@ -109,7 +109,7 @@ process {
     $traceLogStopCmd = "tracelog -stop $SessionName"
     
     $traceLogCmd = $traceLogStartCmd
-    if ($IncludeInspectorTraces.IsPresent)
+    if ($IncludeInspectorTraces)
     {
         $traceLogCmd = $traceLogCmd + " & $traceLogEnableInspectorCmd"
     }

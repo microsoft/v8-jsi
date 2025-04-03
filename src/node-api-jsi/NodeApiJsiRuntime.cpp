@@ -2078,7 +2078,7 @@ jsi::JSError NodeApiJsiRuntime::makeJSError(Args &&...args) {
 
   if (!hasPendingJSError_ && (status == napi_pending_exception || jsErrorType != napi_undefined)) {
     AutoRestore<bool> setValue(const_cast<NodeApiJsiRuntime *>(this)->hasPendingJSError_, true);
-    if (jsErrorType == napi_object && instanceOf(jsError, getNodeApiValue(cachedValue_.Error))) {
+    if (jsErrorType == napi_object) {
       rewriteErrorMessage(jsError);
     }
     throw jsi::JSError(*const_cast<NodeApiJsiRuntime *>(this), toJsiValue(jsError));
