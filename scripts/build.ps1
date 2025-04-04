@@ -86,6 +86,7 @@ if ($PSVersionTable.Platform -and !$IsWindows) {
 $ninjaExtraTargets = @()
 if ($AppPlatform -ne "android") {
     $ninjaExtraTargets += "jsitests"
+    $ninjaExtraTargets += "node_api_tests"
 
     if (($AppPlatform -ne "linux") -and ($AppPlatform -ne "mac")) {
         $ninjaExtraTargets += "v8windbg"

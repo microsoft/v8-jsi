@@ -41,6 +41,11 @@ extends:
         # This repo does not ship any javascript code. But has many test cases for the js engine that fail parsing, have code considered insecure and crash eslint.
         exclusionPatterns: |
           '**/*.[jt]s'
+      codeql:
+        compiled:
+          enabled: true
+        runSourceLanguagesInSourceAnalysis: true
+
     stages:
     - stage: main
       jobs:

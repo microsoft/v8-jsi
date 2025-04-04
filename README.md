@@ -57,12 +57,12 @@ powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release
 * Install minimal dependencies on the Debian VM: `sudo apt install lsb-release`
 * Make sure you have at least 15Gb of disk space on the drive where the WSL image lives (usually C:)
 * Build with `pwsh ./localbuild.ps1 -AppPlatform android`
-* If setup is completed succesfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform android -NoSetup`
+* If setup is completed successfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform android -NoSetup`
 
 ##### [EXPERIMENTAL!] Building on macOS
 * [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-macos?view=powershell-7.3) by running `brew install --cask powershell`
 * Build with `pwsh ./localbuild.ps1 -AppPlatform mac`
-* If setup is completed succesfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform mac -NoSetup`
+* If setup is completed successfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform mac -NoSetup`
 * **Note**: there are several test failures on macOS currently
 
 ### Out-of-sync issues

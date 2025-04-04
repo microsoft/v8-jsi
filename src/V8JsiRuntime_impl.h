@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 #pragma once
 
-#include "napi/env-inl.h"
+#include "node-api/env-inl.h"
 #include "node-api/js_runtime_api.h"
 #include "public/V8JsiRuntime.h"
 #include "public/compat.h"
