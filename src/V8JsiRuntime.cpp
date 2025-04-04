@@ -408,8 +408,6 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   // TODO :: Toggle for ship builds.
   isolate_->SetAbortOnUncaughtExceptionCallback([](v8::Isolate *) { return true; });
 
-  isolate_->Enter();
-
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("end", "op"));
   DumpCounters("isolate_created");
 
@@ -495,8 +493,9 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
 #endif
 
   // Try to reuse the already existing isolate in this thread.
-  if (tls_isolate_usage_counter_++ > 0) {
+  if (v8::Isolate::TryGetCurrent()) {
     TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
+    tls_isolate_usage_counter_++;
     isolate_ = v8::Isolate::GetCurrent();
   } else {
     platform_holder_.addUsage(args.flags.thread_pool_size);
@@ -584,7 +583,6 @@ V8Runtime::~V8Runtime() {
     isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, nullptr);
     isolate_->SetData(v8runtime::ISOLATE_INSPECTOR_SLOT, nullptr);
 
-    isolate_->Exit();
     isolate_->Dispose();
 
     delete create_params_.array_buffer_allocator;

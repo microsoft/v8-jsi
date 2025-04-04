@@ -1,8 +1,8 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
-index de1cd6efc..ed87ccb75 100644
+index 89b4755ac..f358bd78b 100644
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1758,7 +1758,7 @@ config("default_warnings") {
+@@ -1757,7 +1757,7 @@ config("default_warnings") {
        # TODO(thakis): Remove this once
        # https://swiftshader-review.googlesource.com/c/SwiftShader/+/57968 has
        # rolled into angle.
@@ -10,8 +10,8 @@ index de1cd6efc..ed87ccb75 100644
 +      # cflags += [ "/wd4244" ]
      }
    } else {
-     if (is_apple && !is_nacl) {
-@@ -2045,7 +2045,7 @@ config("no_chromium_code") {
+     if ((is_apple || is_android) && !is_nacl) {
+@@ -2047,7 +2047,7 @@ config("no_chromium_code") {
      }
      cflags += [
        "/wd4800",  # Disable warning when forcing value to bool.
