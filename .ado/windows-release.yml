@@ -65,7 +65,7 @@ extends:
           inputs:
             useDotNetTask: true
             packageParentPath: '$(Pipeline.Workspace)/published-packages'
-            packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows_FIXME.*.nupkg'
+            packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg'
             nuGetFeedType: external
             publishFeedCredentials: 'Nuget - ms/react-native-public'
             externalEndpoint: 'Nuget - ms/react-native-public'
@@ -96,7 +96,7 @@ extends:
           inputs:
             useDotNetTask: true
             packageParentPath: '$(Pipeline.Workspace)/published-packages'
-            packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows_FIXME.*.nupkg'
+            packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg'
             nuGetFeedType: external
             publishFeedCredentials: 'ES365-Office-Nuget-Package-Publisher'
             externalEndpoint: 'ES365-Office-Nuget-Package-Publisher'
