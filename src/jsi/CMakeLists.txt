@@ -24,9 +24,6 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "MSVC")
   list(APPEND jsi_compile_flags "/Qspectre")
   list(APPEND jsi_compile_flags "/sdl")
 endif()
-if (HERMES_ENABLE_BITCODE)
-  list(APPEND jsi_compile_flags "-fembed-bitcode")
-endif ()
 
 target_compile_options(jsi PRIVATE ${jsi_compile_flags})
 

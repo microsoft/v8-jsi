@@ -134,7 +134,7 @@ extern std::string JSStringToSTLString(v8::Isolate *isolate, v8::Local<v8::Strin
 class V8Runtime : public facebook::jsi::Runtime {
  public:
   V8Runtime(V8RuntimeArgs &&args);
-  ~V8Runtime();
+  ~V8Runtime() override;
 
  public: // Used by openInspector public API.
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
@@ -207,16 +207,24 @@ class V8Runtime : public facebook::jsi::Runtime {
   V8Runtime &operator=(const V8Runtime &) = delete;
   V8Runtime &operator=(V8Runtime &&) = delete;
 
- public:
+ public: // Implementation of JSI Runtime public methods
   facebook::jsi::Value evaluateJavaScript(
       const std::shared_ptr<const facebook::jsi::Buffer> &buffer,
       const std::string &sourceURL) override;
 
+  std::shared_ptr<const facebook::jsi::PreparedJavaScript> prepareJavaScript(
+      const std::shared_ptr<const facebook::jsi::Buffer> &,
+      std::string) override;
+
+  facebook::jsi::Value evaluatePreparedJavaScript(
+      const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &) override;
+
 #if JSI_VERSION >= 12
   void queueMicrotask(const facebook::jsi::Function &callback) override;
 #endif
+
 #if JSI_VERSION >= 4
-  bool drainMicrotasks(int maxMicrotasksHint) override;
+  bool drainMicrotasks(int maxMicrotasksHint = -1) override;
 #endif
 
   facebook::jsi::Object global() override;
@@ -542,7 +550,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       v8Object_.Reset();
     }
 
-    void invalidate() override {
+    void invalidate() JSI_NOEXCEPT_15 override {
       delete this;
     }
 
@@ -574,7 +582,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       v8Object_.Reset();
     }
 
-    void invalidate() override {
+    void invalidate() JSI_NOEXCEPT_15 override {
       delete this;
     }
 
@@ -604,24 +612,20 @@ class V8Runtime : public facebook::jsi::Runtime {
     std::shared_ptr<const facebook::jsi::Buffer> buffer_;
   };
 
-  std::shared_ptr<const facebook::jsi::PreparedJavaScript> prepareJavaScript(
-      const std::shared_ptr<const facebook::jsi::Buffer> &,
-      std::string) override;
-  facebook::jsi::Value evaluatePreparedJavaScript(
-      const std::shared_ptr<const facebook::jsi::PreparedJavaScript> &) override;
-
-  std::string symbolToString(const facebook::jsi::Symbol &) override;
-
-  PointerValue *cloneString(const PointerValue *pv) override;
-  PointerValue *cloneObject(const PointerValue *pv) override;
-  PointerValue *clonePropNameID(const PointerValue *pv) override;
+ private: // Implementation of JSI Runtime protected methods
   PointerValue *cloneSymbol(const PointerValue *pv) override;
 #if JSI_VERSION >= 6
   PointerValue *cloneBigInt(const PointerValue *pv) override;
 #endif
+  PointerValue *cloneString(const PointerValue *pv) override;
+  PointerValue *cloneObject(const PointerValue *pv) override;
+  PointerValue *clonePropNameID(const PointerValue *pv) override;
 
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  facebook::jsi::PropNameID createPropNameIDFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   facebook::jsi::PropNameID createPropNameIDFromString(const facebook::jsi::String &str) override;
 #if JSI_VERSION >= 5
   facebook::jsi::PropNameID createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) override;
@@ -629,14 +633,45 @@ class V8Runtime : public facebook::jsi::Runtime {
   std::string utf8(const facebook::jsi::PropNameID &) override;
   bool compare(const facebook::jsi::PropNameID &, const facebook::jsi::PropNameID &) override;
 
+  std::string symbolToString(const facebook::jsi::Symbol &) override;
+
+#if JSI_VERSION >= 8
+  facebook::jsi::BigInt createBigIntFromInt64(int64_t val) override;
+  facebook::jsi::BigInt createBigIntFromUint64(uint64_t val) override;
+  bool bigintIsInt64(const facebook::jsi::BigInt &) override;
+  bool bigintIsUint64(const facebook::jsi::BigInt &val) override;
+  uint64_t truncate(const facebook::jsi::BigInt &val) override;
+  facebook::jsi::String bigintToString(const facebook::jsi::BigInt &, int) override;
+#endif
+
   facebook::jsi::String createStringFromAscii(const char *str, size_t length) override;
   facebook::jsi::String createStringFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  facebook::jsi::String createStringFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   std::string utf8(const facebook::jsi::String &) override;
 
   facebook::jsi::Object createObject() override;
   facebook::jsi::Object createObject(std::shared_ptr<facebook::jsi::HostObject> ho) override;
   virtual std::shared_ptr<facebook::jsi::HostObject> getHostObject(const facebook::jsi::Object &) override;
   facebook::jsi::HostFunctionType &getHostFunction(const facebook::jsi::Function &) override;
+
+#if JSI_VERSION >= 18
+  facebook::jsi::Object createObjectWithPrototype(const facebook::jsi::Value &prototype) override;
+#endif
+
+#if JSI_VERSION >= 7
+  bool hasNativeState(const facebook::jsi::Object &obj) override;
+  std::shared_ptr<facebook::jsi::NativeState> getNativeState(const facebook::jsi::Object &obj) override;
+  void setNativeState(const facebook::jsi::Object &obj, std::shared_ptr<facebook::jsi::NativeState> nativeState)
+      override;
+  NativeStateHolder *getNativeStateHolder(v8::Local<v8::Object> v8Object);
+#endif
+
+#if JSI_VERSION >= 17
+  void setPrototypeOf(const facebook::jsi::Object &object, const facebook::jsi::Value &prototype) override;
+  facebook::jsi::Value getPrototypeOf(const facebook::jsi::Object &object) override;
+#endif
 
   facebook::jsi::Value getProperty(const facebook::jsi::Object &, const facebook::jsi::String &name) override;
   facebook::jsi::Value getProperty(const facebook::jsi::Object &, const facebook::jsi::PropNameID &name) override;
@@ -650,6 +685,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       JSI_CONST_10 facebook::jsi::Object &,
       const facebook::jsi::String &name,
       const facebook::jsi::Value &value) override;
+
   bool isArray(const facebook::jsi::Object &) const override;
   bool isArrayBuffer(const facebook::jsi::Object &) const override;
   bool isFunction(const facebook::jsi::Object &) const override;
@@ -661,6 +697,9 @@ class V8Runtime : public facebook::jsi::Runtime {
   facebook::jsi::Value lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 facebook::jsi::WeakObject &) override;
 
   facebook::jsi::Array createArray(size_t length) override;
+#if JSI_VERSION >= 9
+  facebook::jsi::ArrayBuffer createArrayBuffer(std::shared_ptr<facebook::jsi::MutableBuffer>) override;
+#endif
   size_t size(const facebook::jsi::Array &) override;
   size_t size(const facebook::jsi::ArrayBuffer &) override;
   uint8_t *data(const facebook::jsi::ArrayBuffer &) override;
@@ -692,27 +731,24 @@ class V8Runtime : public facebook::jsi::Runtime {
   void setExternalMemoryPressure(const facebook::jsi::Object &obj, size_t amount) override;
 #endif
 
-#if JSI_VERSION >= 8
-  facebook::jsi::BigInt createBigIntFromInt64(int64_t val) override;
-  facebook::jsi::BigInt createBigIntFromUint64(uint64_t val) override;
-  bool bigintIsInt64(const facebook::jsi::BigInt &) override;
-  bool bigintIsUint64(const facebook::jsi::BigInt &val) override;
-  uint64_t truncate(const facebook::jsi::BigInt &val) override;
-  facebook::jsi::String bigintToString(const facebook::jsi::BigInt &, int) override;
+#if JSI_VERSION >= 14
+  std::u16string utf16(const facebook::jsi::String &str) override;
+  std::u16string utf16(const facebook::jsi::PropNameID &sym) override;
 #endif
 
-#if JSI_VERSION >= 7
-  bool hasNativeState(const facebook::jsi::Object &obj) override;
-  std::shared_ptr<facebook::jsi::NativeState> getNativeState(const facebook::jsi::Object &obj) override;
-  void setNativeState(const facebook::jsi::Object &obj, std::shared_ptr<facebook::jsi::NativeState> nativeState)
-      override;
-  NativeStateHolder *getNativeStateHolder(v8::Local<v8::Object> v8Object);
+#if JSI_VERSION >= 16
+  void getStringData(
+      const facebook::jsi::String &str,
+      void *ctx,
+      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
+
+  void getPropNameIdData(
+      const facebook::jsi::PropNameID &sym,
+      void *ctx,
+      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
 #endif
 
-#if JSI_VERSION >= 9
-  facebook::jsi::ArrayBuffer createArrayBuffer(std::shared_ptr<facebook::jsi::MutableBuffer>) override;
-#endif
-
+ private:
   void AddHostObjectLifetimeTracker(std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker);
 
   static void OnMessage(v8::Local<v8::Message> message, v8::Local<v8::Value> error);
