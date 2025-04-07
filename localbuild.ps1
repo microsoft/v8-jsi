@@ -14,10 +14,12 @@ param(
     [ValidateSet('win32', 'android', 'linux', 'mac')]
     [String[]]$AppPlatform = @('win32'),
 
-    [switch]$NoSetup
+    [switch]$NoSetup,
+
+    [switch]$FakeBuild
 )
 
-if (! $NoSetup.IsPresent) {
+if (!$NoSetup -and !$FakeBuild) {
     Write-Host "Downloading environment..."
     & ".\scripts\download_depottools.ps1" -SourcesPath $SourcesPath -NoADO
 
@@ -41,7 +43,8 @@ foreach ($Plat in $Platform) {
     foreach ($Config in $Configuration) {
         foreach ($AppPlat in $AppPlatform) {
             Write-Host "Building $AppPlat $Plat $Config..."
-            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath -Platform $Plat -Configuration $Config -AppPlatform $AppPlat
+            & ".\scripts\build.ps1" -SourcesPath $SourcesPath -OutputPath $OutputPath `
+              -Platform $Plat -Configuration $Config -AppPlatform $AppPlat -FakeBuild:$FakeBuild
         }
     }
 }

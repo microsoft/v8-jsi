@@ -7,7 +7,8 @@ param(
     [string]$Configuration = "Release",
     [string]$AppPlatform = "win32",
     [switch]$UseClang,
-    [switch]$UseLibCpp
+    [switch]$UseLibCpp,
+    [switch]$FakeBuild
 )
 
 $workpath = Join-Path $SourcesPath "build"
@@ -65,10 +66,14 @@ if ($Configuration -like "*ebug*") {
 $buildoutput = Join-Path $workpath "v8\out\$AppPlatform\$Platform\$Configuration"
 
 Write-Host "gn command line: gn gen $buildoutput --args='$gnargs'"
-& gn gen $buildoutput --args="$gnargs"
-if (!$?) {
-    Write-Host "Failed during build system generation (gn)"
-    exit 1
+if (!$FakeBuild) {
+    & gn gen $buildoutput --args="$gnargs"
+    if (!$?) {
+        Write-Host "Failed during build system generation (gn)"
+        exit 1
+    }
+} else {
+    Write-Host "gn command skipped: fake build"
 }
 
 # We'll use 2x the number of cores for parallel execution
@@ -93,15 +98,24 @@ if ($AppPlatform -ne "android") {
     }
 }
 
-& ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets | Tee-Object -FilePath "$SourcesPath\build.log"
-if (!$?) {
-    Write-Host "Build failure, check logs for details"
-    exit 1
+Write-Host "ninja command line: ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets"
+if (!$FakeBuild) {
+    & ninja -v -j $numberOfThreads -C $buildoutput v8jsi $ninjaExtraTargets |
+        Tee-Object -FilePath "$SourcesPath\build.log"
+    if (!$?) {
+        Write-Host "Build failure, check logs for details"
+        exit 1
+    }
+} else {
+    Write-Host "ninja command skipped: fake build"
 }
 
 Pop-Location
 
-if (!(Test-Path -Path "$buildoutput\v8jsi.dll") -and !(Test-Path -Path "$buildoutput\libv8jsi.so") -and !(Test-Path -Path "$buildoutput\libv8jsi.dylib")) {
+if (!$FakeBuild -and 
+    !(Test-Path -Path "$buildoutput\v8jsi.dll") -and
+    !(Test-Path -Path "$buildoutput\libv8jsi.so") -and
+    !(Test-Path -Path "$buildoutput\libv8jsi.dylib")) {
     Write-Host "Build failure"
     exit 1
 }
@@ -130,26 +144,38 @@ if (!(Test-Path -Path "$OutputPath\lib\$AppPlatform\$Configuration\$Platform")) 
 }
 
 # Binaries
-if (!$PSVersionTable.Platform -or $IsWindows) {
-    Copy-Item "$buildoutput\v8jsi.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-    Copy-Item "$buildoutput\v8jsi.dll.lib" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+if (!$FakeBuild) {
+    if (!$PSVersionTable.Platform -or $IsWindows) {
+        Copy-Item "$buildoutput\v8jsi.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        Copy-Item "$buildoutput\v8jsi.dll.lib" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
 
-    if ($Platform -eq "arm64") {
-        # Due to size limitations, copy only the stripped PDBs for ARM64
-        Copy-Item "$buildoutput\v8jsi_stripped.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
+        if ($Platform -eq "arm64") {
+            # Due to size limitations, copy only the stripped PDBs for ARM64
+            Copy-Item "$buildoutput\v8jsi_stripped.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
+        } else {
+            Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        }
+
+        # Debugging extension
+        Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
     } else {
-        Copy-Item "$buildoutput\v8jsi.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        #TODO (#2): .so
     }
-
-    # Debugging extension
-    Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-    Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+} else {
+    # Copy kernel32.dll to simulate built binaries
+    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll"
+    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.lib"
+    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
+    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll"
+    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll.pdb"
 }
-else {
-    #TODO (#2): .so
-}
 
-Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+if (!$FakeBuild) {
+    Copy-Item "$buildoutput\args.gn" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+} else {
+    New-Item -Path "$OutputPath\lib\$AppPlatform\$Configuration\$Platform" -Name "args.gn" -ItemType File -Force | Out-Null
+}
 
 # Headers
 Copy-Item "$jsigitpath\node-api\js_native_api_types.h" -Destination "$OutputPath\build\native\include\node-api\"

@@ -2099,13 +2099,18 @@ napi_status NAPI_CDECL napi_call_function(napi_env env,
   v8::Local<v8::Function> v8func;
   CHECK_TO_FUNCTION(env, v8func, func);
 
-  auto maybe = v8func->Call(
+  v8::MaybeLocal<v8::Value> maybe = v8func->Call(
       context,
       v8recv,
       argc,
       reinterpret_cast<v8::Local<v8::Value>*>(const_cast<napi_value*>(argv)));
 
-  CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybe, napi_generic_failure);
+  if (maybe.IsEmpty()) {
+    return napi_set_last_error(
+        env,
+        try_catch.HasCaught() ? napi_pending_exception : napi_generic_failure);
+  }
+
   if (result != nullptr) {
     *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
   }
@@ -2916,15 +2921,14 @@ napi_status NAPI_CDECL napi_new_instance(napi_env env,
   v8::Local<v8::Function> ctor;
   CHECK_TO_FUNCTION(env, ctor, constructor);
 
-  auto maybe = ctor->NewInstance(
+  v8::MaybeLocal<v8::Object> maybe = ctor->NewInstance(
       context,
       argc,
       reinterpret_cast<v8::Local<v8::Value>*>(const_cast<napi_value*>(argv)));
-
-  CHECK_MAYBE_EMPTY(env, maybe, napi_pending_exception);
+  CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybe, napi_generic_failure);
 
   *result = v8impl::JsValueFromV8LocalValue(maybe.ToLocalChecked());
-  return GET_RETURN_STATUS(env);
+  return napi_clear_last_error(env);
 }
 
 napi_status NAPI_CDECL napi_instanceof(napi_env env,
@@ -2949,13 +2953,12 @@ napi_status NAPI_CDECL napi_instanceof(napi_env env,
     return napi_set_last_error(env, napi_function_expected);
   }
 
-  napi_status status = napi_generic_failure;
-
   v8::Local<v8::Value> val = v8impl::V8LocalValueFromJsValue(object);
-  auto maybe_result = val->InstanceOf(context, ctor);
-  CHECK_MAYBE_NOTHING(env, maybe_result, status);
+  v8::Maybe<bool> maybe_result = val->InstanceOf(context, ctor);
+  CHECK_MAYBE_NOTHING_WITH_PREAMBLE(env, maybe_result, napi_generic_failure);
+
   *result = maybe_result.FromJust();
-  return GET_RETURN_STATUS(env);
+  return napi_clear_last_error(env);
 }
 
 // Methods to support catching exceptions
