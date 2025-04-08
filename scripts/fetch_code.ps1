@@ -74,6 +74,15 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
     -replace ('V8JSIVER_V8REF', $v8Version) |`
     Set-Content "$SourcesPath\src\source_link_gen.json"
 
+# Update ADO build version string when run from ADO pipeline
+if ($env:BUILD_BUILDNUMBER) {
+    $buildVersion = $env:BUILD_BUILDNUMBER
+    if (!$buildVersion.EndsWith($v8Version.Replace('.', '_'))) {
+        $buildVersion = $buildVersion + " - " + $version.Major + "." + $version.Minor + "." + $version.Build + "." + $v8Version.Replace('.', '_')
+        Write-Host "##vso[build.updateBuildNumber]$buildVersion"
+    }
+}
+
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {
     $install_script_path = Join-Path $workpath "v8/build/install-build-deps-android.sh"
@@ -88,10 +97,13 @@ if ($AppPlatform -eq "linux") {
 }
 
 # Remove unused code
+Remove-Item -Recurse -Force (Join-Path $workpath "depot_tools\external_bin\gsutil")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\test\test262\data\tools")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\depot_tools\external_bin\gsutil")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\perfetto")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\bazel")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\clusterfuzz")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\turbolizer")
-Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package.json")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package-lock.json")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package.json")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\turbolizer")

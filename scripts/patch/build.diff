@@ -51,7 +51,7 @@ index 6e1417aa4..4079a06c8 100644
 +
 +# Control Flow Guard (CFG)
 +config("win_msvc_cfg") {
-+  if (!is_clang && !is_debug) {
++  if (!is_clang) {
 +    cflags = [ "/guard:cf", "/Qspectre", "/W3" ]
 +    ldflags = [ "/guard:cf" ]
 +  }

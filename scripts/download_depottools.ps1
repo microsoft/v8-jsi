@@ -14,7 +14,7 @@ if (!(Test-Path -Path $workpath)) {
     New-Item -ItemType "directory" -Path $workpath | Out-Null
 }
 
-if (! $NoSetup.IsPresent) {
+if (! $NoSetup) {
     Write-Host "Downloading depot-tools.zip..."
 
     # This is the recommended way to get depot-tools on Windows, but the git checkout is much faster (shaves off about 5 minutes from CI loop runtime)
@@ -59,7 +59,7 @@ $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
 $env:GCLIENT_PY3 = 1
 $env:ASIO_ROOT = Join-Path $workpath "asio-asio-$ASIO_VERSION\asio\include"
 
-if (! $NoADO.IsPresent) {
+if (! $NoADO) {
     Write-Host "##vso[task.setvariable variable=PATH;]$path"
     Write-Host "##vso[task.setvariable variable=DEPOT_TOOLS_WIN_TOOLCHAIN;]0"
     Write-Host "##vso[task.setvariable variable=GCLIENT_PY3;]1"

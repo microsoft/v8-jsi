@@ -290,9 +290,6 @@ inline napi_status napi_set_last_error(node_api_nogc_env nogc_env,
     }                                                                          \
   } while (0)
 
-#define CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybe, status)                    \
-  RETURN_STATUS_IF_FALSE_WITH_PREAMBLE((env), !((maybe).IsEmpty()), (status))
-
 #define STATUS_CALL(call)                                                      \
   do {                                                                         \
     napi_status status = (call);                                               \
