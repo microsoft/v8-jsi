@@ -21,6 +21,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <sstream>
+#include <unordered_map>
+#include <gtest/gtest.h>
+#include <fstream>
+#include <iterator>
+
 using namespace facebook::jsi;
 
 class JSITestExt : public JSITestBase {};
@@ -558,6 +564,79 @@ TEST_P(JSITestExt, NativeExceptionDoesNotUseGlobalError) {
       "typeof Error is number; Exception in HostFunction: Native "
       "std::logic_error C++ exception in Host Function",
       test.call(rt).getString(rt).utf8(rt));
+}
+
+TEST_P(JSITestExt, V8Instrumentation_GetRecordedGCStats) {
+  auto& instrumentation = rt.instrumentation();
+  std::string gcStats = instrumentation.getRecordedGCStats();
+
+  EXPECT_FALSE(gcStats.empty());
+  EXPECT_NE(gcStats.find("totalHeapSize"), std::string::npos);
+}
+
+TEST_P(JSITestExt, V8Instrumentation_GetHeapInfo) {
+  auto& instrumentation = rt.instrumentation();
+  auto heapInfoBefore = instrumentation.getHeapInfo(false);
+
+  // Allocate objects to increase heap usage
+  eval("var arr = new Array(10000).fill(0);");
+  eval("var obj = {}; for (let i = 0; i < 10000; i++) obj[i] = i;");
+
+  auto heapInfoAfter = instrumentation.getHeapInfo(false);
+
+  EXPECT_GT(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
+  EXPECT_GT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
+}
+
+TEST_P(JSITestExt, V8Instrumentation_CollectGarbage) {
+  auto& instrumentation = rt.instrumentation();
+
+  // Allocate objects to increase heap usage
+  eval("var arr = new Array(10000).fill(0);");
+  eval("var obj = {}; for (let i = 0; i < 10000; i++) obj[i] = i;");
+
+  auto heapInfoBefore = instrumentation.getHeapInfo(false);
+
+  instrumentation.collectGarbage("Test GC");
+
+  auto heapInfoAfter = instrumentation.getHeapInfo(false);
+
+  EXPECT_LT(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
+  EXPECT_LT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
+}
+
+TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToFile) {
+  auto& instrumentation = rt.instrumentation();
+  const std::string snapshotPath = "test.heapsnapshot";
+
+  Instrumentation::HeapSnapshotOptions options;
+  options.captureNumericValue = true;
+
+  // Allocate objects to increase heap usage
+  eval("globalThis.arr = []; for (let i = 0; i < 1000000; i++) arr.push(i);");
+  eval("globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = JSON.stringify(i);");
+  eval("globalThis.obj2 = {x: 42};");
+
+  instrumentation.createSnapshotToFile(snapshotPath, options);
+
+  // Verify that the snapshot file is created and not empty
+  std::ifstream snapshotFile(snapshotPath);
+  ASSERT_TRUE(snapshotFile.is_open());
+  std::string content((std::istreambuf_iterator<char>(snapshotFile)), std::istreambuf_iterator<char>());
+  snapshotFile.close();
+
+  EXPECT_FALSE(content.empty());
+}
+
+TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToStream) {
+  auto& instrumentation = rt.instrumentation();
+  std::ostringstream snapshotStream;
+
+  instrumentation.createSnapshotToStream(snapshotStream);
+
+  // Verify that the snapshot stream is not empty
+  std::string content = snapshotStream.str();
+  EXPECT_FALSE(content.empty());
 }
 
 INSTANTIATE_TEST_SUITE_P(
