@@ -27,8 +27,7 @@
 #endif
 
 #ifndef JSI_VERSION
-// Use the latest version by default
-#define JSI_VERSION 11
+#define JSI_VERSION 12
 #endif
 
 #if JSI_VERSION >= 3
