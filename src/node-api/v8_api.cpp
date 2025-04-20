@@ -238,8 +238,7 @@ class NodeApiEnv : public napi_env__ {
   }
 
   napi_status collectGarbage() {
-    isolate->RequestGarbageCollectionForTesting(
-        v8::Isolate::kFullGarbageCollection);
+    isolate->LowMemoryNotification();
     return napi_status::napi_ok;
   }
 
@@ -388,6 +387,10 @@ class NodeApiEnv : public napi_env__ {
   napi_status runTask(jsr_task_run_cb task_cb, void* data) {
     CallIntoModule([task_cb, data](napi_env env) { task_cb(data); });
     return napi_ok;
+  }
+
+  facebook::jsi::Instrumentation* GetInstrumentationForTesting() {
+    return &m_runtime->instrumentation();
   }
 
  private:
@@ -941,4 +944,268 @@ napi_create_external_buffer(napi_env env,
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);
+}
+
+// Helper functions for instrumentation APIs
+namespace {
+
+facebook::jsi::Instrumentation* GetInstrumentation(napi_env env) {
+  auto v8impl_env = static_cast<v8impl::NodeApiEnv*>(env);
+  if (!v8impl_env) {
+    return nullptr;
+  }
+  
+  v8::Isolate* isolate = v8impl_env->isolate;
+  if (!isolate) {
+    return nullptr;
+  }
+  
+  // Create a new V8Instrumentation instance just for handling this call
+  // This gives us access to the V8 instrumentation capabilities without 
+  // needing to access the private runtime member
+  return new v8runtime::V8Instrumentation(isolate);
+}
+
+napi_status CopyStringToOutput(napi_env env, const std::string& str, char** result, size_t* result_length) {
+  if (!result || !result_length) {
+    return napi_invalid_arg;
+  }
+  
+  size_t len = str.length();
+  char* buffer = new char[len + 1];
+  memcpy(buffer, str.c_str(), len);
+  buffer[len] = '\0';
+  
+  *result = buffer;
+  *result_length = len;
+  
+  return napi_ok;
+}
+
+class StringOutputStream : public std::stringstream {
+public:
+  ~StringOutputStream() = default;
+};
+
+// Custom buffer stream that writes directly to a provided buffer
+class DirectBufferStream : public std::ostream {
+public:
+  class DirectBufferStreamBuf : public std::streambuf {
+  public:
+    DirectBufferStreamBuf(char* buffer, size_t size) : buffer_(buffer), size_(size), current_size_(0) {
+      if (buffer_) {
+        setp(buffer_, buffer_ + size_ - 1); // Reserve space for null terminator
+      } else {
+        // No actual buffer available, we'll just track size
+        setp(nullptr, nullptr);
+      }
+    }
+
+    size_t size() const { return current_size_; }
+
+    int_type overflow(int_type ch) override {
+      current_size_++;
+      
+      if (!buffer_ || current_size_ > size_) {
+        // Just tracking the required size or already overflowed buffer
+        return ch;
+      }
+
+      // We have space in the buffer
+      *pptr() = static_cast<char>(ch);
+      pbump(1);
+      
+      return ch;
+    }
+    
+  private:
+    char* buffer_;
+    size_t size_;
+    size_t current_size_;
+  };
+
+  DirectBufferStream(char* buffer, size_t size) 
+    : std::ostream(&buffer_), buffer_(buffer, size) {}
+
+  size_t size() const { return buffer_.size(); }
+
+private:
+  DirectBufferStreamBuf buffer_;
+};
+
+} // anonymous namespace
+
+// Free a string allocated by JSR APIs
+JSR_API jsr_free_string(napi_env env, char* string) {
+  if (string) {
+    delete[] string;
+  }
+  
+  return napi_ok;
+}
+
+JSR_API jsr_get_recorded_gc_stats(napi_env env, char** result, size_t* result_length) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  std::string stats = instrumentation->getRecordedGCStats();
+  return CopyStringToOutput(env, stats, result, result_length);
+}
+
+JSR_API jsr_get_heap_info(napi_env env, bool include_expensive, char** result, size_t* result_length) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  auto heapInfo = instrumentation->getHeapInfo(include_expensive);
+  
+  // Convert the map to JSON
+  std::stringstream json;
+  json << "{";
+  bool first = true;
+  for (const auto& item : heapInfo) {
+    if (!first) {
+      json << ",";
+    }
+    json << "\"" << item.first << "\":" << item.second;
+    first = false;
+  }
+  json << "}";
+  
+  return CopyStringToOutput(env, json.str(), result, result_length);
+}
+
+JSR_API jsr_start_tracking_heap_object_stack_traces(napi_env env) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  instrumentation->startTrackingHeapObjectStackTraces(nullptr);
+  return napi_ok;
+}
+
+JSR_API jsr_stop_tracking_heap_object_stack_traces(napi_env env) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  instrumentation->stopTrackingHeapObjectStackTraces();
+  return napi_ok;
+}
+
+JSR_API jsr_start_heap_sampling(napi_env env, size_t sampling_interval) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  instrumentation->startHeapSampling(sampling_interval);
+  return napi_ok;
+}
+
+JSR_API jsr_stop_heap_sampling(napi_env env, char** result, size_t* result_length) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  StringOutputStream stream;
+  instrumentation->stopHeapSampling(stream);
+  
+  return CopyStringToOutput(env, stream.str(), result, result_length);
+}
+
+JSR_API jsr_create_heap_snapshot_to_file(napi_env env, const char* path, const jsr_heap_snapshot_options* options) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation || !path) {
+    return napi_invalid_arg;
+  }
+  
+  facebook::jsi::Instrumentation::HeapSnapshotOptions jsiOptions;
+  if (options) {
+    jsiOptions.captureNumericValue = options->capture_numeric_value;
+  }
+  
+  #if JSI_VERSION >= 13
+  instrumentation->createSnapshotToFile(path, jsiOptions);
+  #else
+  instrumentation->createSnapshotToFile(path);
+  #endif
+  return napi_ok;
+}
+
+JSR_API jsr_create_heap_snapshot_to_string(
+    napi_env env,
+    char* buffer,
+    size_t buffer_length,
+    const jsr_heap_snapshot_options* options,
+    size_t* required_length) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation || !required_length) {
+    return napi_invalid_arg;
+  }
+
+  facebook::jsi::Instrumentation::HeapSnapshotOptions jsiOptions;
+  if (options) {
+    jsiOptions.captureNumericValue = options->capture_numeric_value;
+  }
+
+  // Create a custom stream that writes directly to the provided buffer
+  DirectBufferStream stream(buffer, buffer_length);
+
+#if JSI_VERSION >= 13
+  instrumentation->createSnapshotToStream(stream, jsiOptions);
+#else
+  instrumentation->createSnapshotToStream(stream);
+#endif
+
+  // Update the required length based on what the stream determined
+  *required_length = stream.size();
+
+  // Add null terminator if we have space
+  if (buffer && buffer_length > 0 && stream.size() < buffer_length) {
+    buffer[stream.size()] = '\0';
+  }
+
+  // Return an appropriate error code if the buffer was too small
+  if (buffer && buffer_length > 0 && stream.size() >= buffer_length) {
+    return napi_invalid_arg;  // Buffer overflow - too small for the data
+  }
+
+  return napi_ok;
+}
+
+JSR_API jsr_flush_and_disable_bridge_traffic_trace(napi_env env, char** result, size_t* result_length) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation) {
+    return napi_generic_failure;
+  }
+  
+  std::string trace = instrumentation->flushAndDisableBridgeTrafficTrace();
+  return CopyStringToOutput(env, trace, result, result_length);
+}
+
+JSR_API jsr_write_basic_block_profile_trace(napi_env env, const char* file_name) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation || !file_name) {
+    return napi_invalid_arg;
+  }
+  
+  instrumentation->writeBasicBlockProfileTraceToFile(file_name);
+  return napi_ok;
+}
+
+JSR_API jsr_dump_profiler_symbols(napi_env env, const char* file_name) {
+  auto instrumentation = GetInstrumentation(env);
+  if (!instrumentation || !file_name) {
+    return napi_invalid_arg;
+  }
+  
+  instrumentation->dumpProfilerSymbolsToFile(file_name);
+  return napi_ok;
 }

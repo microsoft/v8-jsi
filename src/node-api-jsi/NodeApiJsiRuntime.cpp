@@ -13,6 +13,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <jsi/instrumentation.h>
 
 // JSI version defines set of features available in the API.
 // Each significant API change must be under a new version.
@@ -193,6 +194,136 @@ struct NodeApiAttachTag {
 } attachTag;
 
 // Implementation of N-API JSI Runtime
+class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
+ public:
+  NodeApiJsiInstrumentation(napi_env env, JSRuntimeApi* jsrApi)
+      : env_(env), jsrApi_(jsrApi) {}
+
+  std::string getRecordedGCStats() override {
+    char* result = nullptr;
+    size_t len = 0;
+    if (jsrApi_->jsr_get_recorded_gc_stats(env_, &result, &len) == napi_ok && result) {
+      std::string out(result, len);
+      jsrApi_->jsr_free_string(env_, result);
+      return out;
+    }
+    return {};
+  }
+
+  std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
+    char* result = nullptr;
+    size_t len = 0;
+    std::unordered_map<std::string, int64_t> out;
+    if (jsrApi_->jsr_get_heap_info(env_, includeExpensive, &result, &len) == napi_ok && result) {
+      std::string json(result, len);
+      // Very simple JSON parser for flat key-value pairs
+      size_t pos = 0;
+      while ((pos = json.find('"', pos)) != std::string::npos) {
+        size_t keyStart = pos + 1;
+        size_t keyEnd = json.find('"', keyStart);
+        if (keyEnd == std::string::npos) break;
+        std::string key = json.substr(keyStart, keyEnd - keyStart);
+        size_t colon = json.find(':', keyEnd);
+        if (colon == std::string::npos) break;
+        size_t valueStart = colon + 1;
+        size_t valueEnd = json.find_first_of(",}", valueStart);
+        std::string valueStr = json.substr(valueStart, valueEnd - valueStart);
+        int64_t value = std::stoll(valueStr);
+        out[key] = value;
+        pos = valueEnd;
+      }
+      jsrApi_->jsr_free_string(env_, result);
+    }
+    return out;
+  }
+
+  void collectGarbage(std::string /*cause*/) override {
+    jsrApi_->jsr_collect_garbage(env_);
+  }
+
+  void startTrackingHeapObjectStackTraces(std::function<void(uint64_t, std::chrono::microseconds, std::vector<HeapStatsUpdate>)> /*fragmentCallback*/) override {
+    jsrApi_->jsr_start_tracking_heap_object_stack_traces(env_);
+  }
+
+  void stopTrackingHeapObjectStackTraces() override {
+    jsrApi_->jsr_stop_tracking_heap_object_stack_traces(env_);
+  }
+
+  void startHeapSampling(size_t samplingInterval) override {
+    jsrApi_->jsr_start_heap_sampling(env_, samplingInterval);
+  }
+
+  void stopHeapSampling(std::ostream& os) override {
+    char* result = nullptr;
+    size_t len = 0;
+    if (jsrApi_->jsr_stop_heap_sampling(env_, &result, &len) == napi_ok && result) {
+      os.write(result, len);
+      jsrApi_->jsr_free_string(env_, result);
+    }
+  }
+
+#if JSI_VERSION >= 13
+  void createSnapshotToFile(const std::string& path, const HeapSnapshotOptions& options = {false}) override {
+    jsr_heap_snapshot_options jsrOptions = {
+      options.captureNumericValue
+    };
+    jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
+  }
+  void createSnapshotToStream(std::ostream& os, const HeapSnapshotOptions& options = {false}) override {
+    size_t required = 0;
+    jsr_heap_snapshot_options jsrOptions = {
+      options.captureNumericValue
+    };
+    jsrApi_->jsr_create_heap_snapshot_to_string(env_, nullptr, 0, &jsrOptions, &required);
+    if (required > 0) {
+      std::string buf(required, '\0');
+      if (jsrApi_->jsr_create_heap_snapshot_to_string(env_, buf.data(), buf.size(), &jsrOptions, &required) == napi_ok) {
+        os.write(buf.data(), required);
+      }
+    }
+  }
+#else
+  void createSnapshotToFile(const std::string& path) override {
+    jsr_heap_snapshot_options jsrOptions = {false};
+    jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
+  }
+  void createSnapshotToStream(std::ostream& os) override {
+    size_t required = 0;
+    jsr_heap_snapshot_options jsrOptions = {false};
+    jsrApi_->jsr_create_heap_snapshot_to_string(env_, nullptr, 0, &jsrOptions, &required);
+    if (required > 0) {
+      std::string buf(required, '\0');
+      if (jsrApi_->jsr_create_heap_snapshot_to_string(env_, buf.data(), buf.size(), &jsrOptions, &required) == napi_ok) {
+        os.write(buf.data(), required);
+      }
+    }
+  }
+#endif
+
+  std::string flushAndDisableBridgeTrafficTrace() override {
+    char* result = nullptr;
+    size_t len = 0;
+    if (jsrApi_->jsr_flush_and_disable_bridge_traffic_trace(env_, &result, &len) == napi_ok && result) {
+      std::string out(result, len);
+      jsrApi_->jsr_free_string(env_, result);
+      return out;
+    }
+    return {};
+  }
+
+  void writeBasicBlockProfileTraceToFile(const std::string& fileName) const override {
+    jsrApi_->jsr_write_basic_block_profile_trace(env_, fileName.c_str());
+  }
+
+  void dumpProfilerSymbolsToFile(const std::string& fileName) const override {
+    jsrApi_->jsr_dump_profiler_symbols(env_, fileName.c_str());
+  }
+
+ private:
+  napi_env env_;
+  JSRuntimeApi* jsrApi_;
+};
+
 class NodeApiJsiRuntime : public jsi::Runtime {
  public:
   NodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> onDelete) noexcept;
@@ -213,6 +344,13 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   jsi::Object global() override;
   std::string description() override;
   bool isInspectable() override;
+
+  facebook::jsi::Instrumentation& instrumentation() override {
+    if (!instrumentation_) {
+      instrumentation_ = std::make_unique<NodeApiJsiInstrumentation>(env_, jsrApi_);
+    }
+    return *instrumentation_;
+  }
 
  protected:
   PointerValue *cloneSymbol(const PointerValue *pointerValue) override;
@@ -977,6 +1115,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   NodeApiJsiRuntime &runtime{*this};
   NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_{NodeApiPendingDeletions::create()};
+  std::unique_ptr<facebook::jsi::Instrumentation> instrumentation_;
 };
 
 //=====================================================================================================================
