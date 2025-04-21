@@ -200,40 +200,34 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
       : env_(env), jsrApi_(jsrApi) {}
 
   std::string getRecordedGCStats() override {
-    char* result = nullptr;
-    size_t len = 0;
-    if (jsrApi_->jsr_get_recorded_gc_stats(env_, &result, &len) == napi_ok && result) {
-      std::string out(result, len);
-      jsrApi_->jsr_free_string(env_, result);
-      return out;
-    }
-    return {};
+    std::string out;
+    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
+      auto* str = static_cast<std::string*>(ctx);
+      str->assign(data, len);
+      return napi_ok;
+    };
+    jsrApi_->jsr_get_recorded_gc_stats(env_, &out, cb);
+    return out;
   }
 
   std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
-    char* result = nullptr;
-    size_t len = 0;
     std::unordered_map<std::string, int64_t> out;
-    if (jsrApi_->jsr_get_heap_info(env_, includeExpensive, &result, &len) == napi_ok && result) {
-      std::string json(result, len);
-      // Very simple JSON parser for flat key-value pairs
-      size_t pos = 0;
-      while ((pos = json.find('"', pos)) != std::string::npos) {
-        size_t keyStart = pos + 1;
-        size_t keyEnd = json.find('"', keyStart);
-        if (keyEnd == std::string::npos) break;
-        std::string key = json.substr(keyStart, keyEnd - keyStart);
-        size_t colon = json.find(':', keyEnd);
-        if (colon == std::string::npos) break;
-        size_t valueStart = colon + 1;
-        size_t valueEnd = json.find_first_of(",}", valueStart);
-        std::string valueStr = json.substr(valueStart, valueEnd - valueStart);
-        int64_t value = std::stoll(valueStr);
-        out[key] = value;
-        pos = valueEnd;
-      }
-      jsrApi_->jsr_free_string(env_, result);
-    }
+    jsr_heap_statistics stats{};
+    jsrApi_->jsr_get_heap_info(env_, includeExpensive, &stats);
+    out["totalHeapSize"] = static_cast<int64_t>(stats.total_heap_size);
+    out["totalHeapSizeExecutable"] = static_cast<int64_t>(stats.total_heap_size_executable);
+    out["totalPhysicalSize"] = static_cast<int64_t>(stats.total_physical_size);
+    out["totalAvailableSize"] = static_cast<int64_t>(stats.total_available_size);
+    out["usedHeapSize"] = static_cast<int64_t>(stats.used_heap_size);
+    out["heapSizeLimit"] = static_cast<int64_t>(stats.heap_size_limit);
+    out["mallocedMemory"] = static_cast<int64_t>(stats.malloced_memory);
+    out["externalMemory"] = static_cast<int64_t>(stats.external_memory);
+    out["peakMallocedMemory"] = static_cast<int64_t>(stats.peak_malloced_memory);
+    out["doesZapGarbage"] = static_cast<int64_t>(stats.does_zap_garbage);
+    out["numberOfNativeContexts"] = static_cast<int64_t>(stats.number_of_native_contexts);
+    out["numberOfDetachedContexts"] = static_cast<int64_t>(stats.number_of_detached_contexts);
+    out["totalGlobalHandlesSize"] = static_cast<int64_t>(stats.total_global_handles_size);
+    out["usedGlobalHandlesSize"] = static_cast<int64_t>(stats.used_global_handles_size);
     return out;
   }
 
@@ -254,11 +248,14 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
   }
 
   void stopHeapSampling(std::ostream& os) override {
-    char* result = nullptr;
-    size_t len = 0;
-    if (jsrApi_->jsr_stop_heap_sampling(env_, &result, &len) == napi_ok && result) {
-      os.write(result, len);
-      jsrApi_->jsr_free_string(env_, result);
+    std::string result;
+    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
+      auto* str = static_cast<std::string*>(ctx);
+      str->assign(data, len);
+      return napi_ok;
+    };
+    if (jsrApi_->jsr_stop_heap_sampling(env_, &result, cb) == napi_ok && !result.empty()) {
+      os.write(result.data(), result.size());
     }
   }
 
@@ -270,17 +267,17 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
     jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
   }
   void createSnapshotToStream(std::ostream& os, const HeapSnapshotOptions& options = {false}) override {
-    size_t required = 0;
     jsr_heap_snapshot_options jsrOptions = {
       options.captureNumericValue
     };
-    jsrApi_->jsr_create_heap_snapshot_to_string(env_, nullptr, 0, &jsrOptions, &required);
-    if (required > 0) {
-      std::string buf(required, '\0');
-      if (jsrApi_->jsr_create_heap_snapshot_to_string(env_, buf.data(), buf.size(), &jsrOptions, &required) == napi_ok) {
-        os.write(buf.data(), required);
+    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
+      auto* os_ptr = static_cast<std::ostream*>(ctx);
+      if (len > 0 && os_ptr) {
+        os_ptr->write(data, len);
       }
-    }
+      return napi_ok;
+    };
+    jsrApi_->jsr_create_heap_snapshot_to_string(env_, &os, cb, &jsrOptions);
   }
 #else
   void createSnapshotToFile(const std::string& path) override {
@@ -288,27 +285,27 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
     jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
   }
   void createSnapshotToStream(std::ostream& os) override {
-    size_t required = 0;
     jsr_heap_snapshot_options jsrOptions = {false};
-    jsrApi_->jsr_create_heap_snapshot_to_string(env_, nullptr, 0, &jsrOptions, &required);
-    if (required > 0) {
-      std::string buf(required, '\0');
-      if (jsrApi_->jsr_create_heap_snapshot_to_string(env_, buf.data(), buf.size(), &jsrOptions, &required) == napi_ok) {
-        os.write(buf.data(), required);
+    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
+      auto* os_ptr = static_cast<std::ostream*>(ctx);
+      if (len > 0 && os_ptr) {
+        os_ptr->write(data, len);
       }
-    }
+      return napi_ok;
+    };
+    jsrApi_->jsr_create_heap_snapshot_to_string(env_, &os, cb, &jsrOptions);
   }
 #endif
 
   std::string flushAndDisableBridgeTrafficTrace() override {
-    char* result = nullptr;
-    size_t len = 0;
-    if (jsrApi_->jsr_flush_and_disable_bridge_traffic_trace(env_, &result, &len) == napi_ok && result) {
-      std::string out(result, len);
-      jsrApi_->jsr_free_string(env_, result);
-      return out;
-    }
-    return {};
+    std::string out;
+    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
+      auto* str = static_cast<std::string*>(ctx);
+      str->assign(data, len);
+      return napi_ok;
+    };
+    jsrApi_->jsr_flush_and_disable_bridge_traffic_trace(env_, &out, cb);
+    return out;
   }
 
   void writeBasicBlockProfileTraceToFile(const std::string& fileName) const override {

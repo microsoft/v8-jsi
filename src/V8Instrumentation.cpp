@@ -19,47 +19,49 @@ V8Instrumentation::~V8Instrumentation() {
 }
 
 std::string V8Instrumentation::getRecordedGCStats() {
-  // Create a JSON structure with V8 GC stats
-  std::stringstream json;
   v8::HeapStatistics heapStats;
   isolate_->GetHeapStatistics(&heapStats);
-  
+
+  std::stringstream json;
   json << "{\n";
-  json << "  \"type\": \"v8-gc-stats\",\n";
-  json << "  \"version\": 1,\n";
-  json << "  \"stats\": {\n";
-  json << "    \"totalHeapSize\": " << heapStats.total_heap_size() << ",\n";
-  json << "    \"totalHeapSizeExecutable\": " << heapStats.total_heap_size_executable() << ",\n";
-  json << "    \"totalPhysicalSize\": " << heapStats.total_physical_size() << ",\n";
-  json << "    \"usedHeapSize\": " << heapStats.used_heap_size() << ",\n";
-  json << "    \"heapSizeLimit\": " << heapStats.heap_size_limit() << "\n";
-  json << "  }\n";
+  json << "  \"totalHeapSize\": " << heapStats.total_heap_size() << ",\n";
+  json << "  \"totalHeapSizeExecutable\": " << heapStats.total_heap_size_executable() << ",\n";
+  json << "  \"totalPhysicalSize\": " << heapStats.total_physical_size() << ",\n";
+  json << "  \"totalAvailableSize\": " << heapStats.total_available_size() << ",\n";
+  json << "  \"totalGlobalHandlesSize\": " << heapStats.total_global_handles_size() << ",\n";
+  json << "  \"usedGlobalHandlesSize\": " << heapStats.used_global_handles_size() << ",\n";
+  json << "  \"usedHeapSize\": " << heapStats.used_heap_size() << ",\n";
+  json << "  \"heapSizeLimit\": " << heapStats.heap_size_limit() << ",\n";
+  json << "  \"mallocedMemory\": " << heapStats.malloced_memory() << ",\n";
+  json << "  \"externalMemory\": " << heapStats.external_memory() << ",\n";
+  json << "  \"peakMallocedMemory\": " << heapStats.peak_malloced_memory() << ",\n";
+  json << "  \"doesZapGarbage\": " << (heapStats.does_zap_garbage() != 0) << ",\n";
+  json << "  \"numberOfNativeContexts\": " << heapStats.number_of_native_contexts() << ",\n";
+  json << "  \"numberOfDetachedContexts\": " << heapStats.number_of_detached_contexts() << "\n";
   json << "}";
-  
   return json.str();
 }
 
-std::unordered_map<std::string, int64_t> V8Instrumentation::getHeapInfo(bool includeExpensive) {
+std::unordered_map<std::string, int64_t> V8Instrumentation::getHeapInfo(bool /*includeExpensive*/) {
   std::unordered_map<std::string, int64_t> result;
   v8::HeapStatistics heapStats;
   isolate_->GetHeapStatistics(&heapStats);
-  
+
   result["totalHeapSize"] = heapStats.total_heap_size();
   result["totalHeapSizeExecutable"] = heapStats.total_heap_size_executable();
   result["totalPhysicalSize"] = heapStats.total_physical_size();
+  result["totalAvailableSize"] = heapStats.total_available_size();
+  result["totalGlobalHandlesSize"] = heapStats.total_global_handles_size();
+  result["usedGlobalHandlesSize"] = heapStats.used_global_handles_size();
   result["usedHeapSize"] = heapStats.used_heap_size();
   result["heapSizeLimit"] = heapStats.heap_size_limit();
   result["mallocedMemory"] = heapStats.malloced_memory();
+  result["externalMemory"] = heapStats.external_memory();
   result["peakMallocedMemory"] = heapStats.peak_malloced_memory();
-  
-  if (includeExpensive) {
-    // Add more expensive heap info stats
-    result["numberOfNativeContexts"] = heapStats.number_of_native_contexts();
-    result["numberOfDetachedContexts"] = heapStats.number_of_detached_contexts();
-    
-    // We could get more detailed info from heap profiler if needed
-  }
-  
+  result["doesZapGarbage"] = heapStats.does_zap_garbage();
+  result["numberOfNativeContexts"] = heapStats.number_of_native_contexts();
+  result["numberOfDetachedContexts"] = heapStats.number_of_detached_contexts();
+
   return result;
 }
 
