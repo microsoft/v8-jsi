@@ -29,6 +29,24 @@ typedef struct {
   bool capture_numeric_value;
 } jsr_heap_snapshot_options;
 
+// Heap statistics struct corresponding to v8::HeapStatistics
+typedef struct {
+  size_t total_heap_size;
+  size_t total_heap_size_executable;
+  size_t total_physical_size;
+  size_t total_available_size;
+  size_t used_heap_size;
+  size_t heap_size_limit;
+  size_t malloced_memory;
+  size_t external_memory;
+  size_t peak_malloced_memory;
+  size_t number_of_native_contexts;
+  size_t number_of_detached_contexts;
+  size_t total_global_handles_size;
+  size_t used_global_handles_size;
+  bool does_zap_garbage;
+} jsr_heap_statistics;
+
 typedef void(NAPI_CDECL* jsr_data_delete_cb)(void* data, void* deleter_data);
 
 // Generic callback for string output
@@ -48,24 +66,6 @@ JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env);
 
 // Gets garbage collection statistics as a JSON-encoded string
 JSR_API jsr_get_recorded_gc_stats(napi_env env, void* ctx, jsr_string_output_cb cb);
-
-// Heap statistics struct corresponding to v8::HeapStatistics
-typedef struct {
-  size_t total_heap_size;
-  size_t total_heap_size_executable;
-  size_t total_physical_size;
-  size_t total_available_size;
-  size_t used_heap_size;
-  size_t heap_size_limit;
-  size_t malloced_memory;
-  size_t external_memory;
-  size_t peak_malloced_memory;
-  size_t number_of_native_contexts;
-  size_t number_of_detached_contexts;
-  size_t total_global_handles_size;
-  size_t used_global_handles_size;
-  bool does_zap_garbage;
-} jsr_heap_statistics;
 
 // Gets current heap information as a struct
 JSR_API jsr_get_heap_info(napi_env env, bool include_expensive, jsr_heap_statistics* stats);

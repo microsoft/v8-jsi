@@ -506,11 +506,11 @@ class NodeApiEnv : public napi_env__ {
       jsiOptions.captureNumericValue = options->capture_numeric_value;
     }
     
-    #if JSI_VERSION >= 13
+#if JSI_VERSION >= 13
     instrumentation.createSnapshotToFile(path, jsiOptions);
-    #else
+#else
     instrumentation.createSnapshotToFile(path);
-    #endif
+#endif
     return napi_ok;
   }
   
@@ -531,11 +531,11 @@ class NodeApiEnv : public napi_env__ {
     // Create a custom stream that writes directly to the provided buffer
     DirectBufferStream stream(buffer, buffer_length);
   
-  #if JSI_VERSION >= 13
+#if JSI_VERSION >= 13
     instrumentation.createSnapshotToStream(stream, jsiOptions);
-  #else
+#else
     instrumentation.createSnapshotToStream(stream);
-  #endif
+#endif
   
     // Update the required length based on what the stream determined
     *required_length = stream.size();
