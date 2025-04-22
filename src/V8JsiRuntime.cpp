@@ -500,7 +500,6 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     CreateNewIsolate();
   }
 
-  // Initialize our instrumentation with the isolate
   instrumentation_ = std::make_unique<V8Instrumentation>(isolate_);
 
   if (args_.flags.explicitMicrotaskPolicy) {

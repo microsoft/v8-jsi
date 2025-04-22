@@ -3,7 +3,6 @@ build
 build.log
 src/version_gen.rc
 src/source_link_gen.json
-test.heapsnapshot
 
 # outputs
 out

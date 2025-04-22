@@ -24,33 +24,7 @@ typedef struct jsr_config_s* jsr_config;
 typedef struct jsr_prepared_script_s* jsr_prepared_script;
 typedef struct jsr_napi_env_scope_s* jsr_napi_env_scope;
 
-// Heap snapshot options to control what is included when capturing a heap snapshot
-typedef struct {
-  bool capture_numeric_value;
-} jsr_heap_snapshot_options;
-
-// Heap statistics struct corresponding to v8::HeapStatistics
-typedef struct {
-  size_t total_heap_size;
-  size_t total_heap_size_executable;
-  size_t total_physical_size;
-  size_t total_available_size;
-  size_t used_heap_size;
-  size_t heap_size_limit;
-  size_t malloced_memory;
-  size_t external_memory;
-  size_t peak_malloced_memory;
-  size_t number_of_native_contexts;
-  size_t number_of_detached_contexts;
-  size_t total_global_handles_size;
-  size_t used_global_handles_size;
-  bool does_zap_garbage;
-} jsr_heap_statistics;
-
 typedef void(NAPI_CDECL* jsr_data_delete_cb)(void* data, void* deleter_data);
-
-// Generic callback for string output
-typedef napi_status(NAPI_CDECL* jsr_string_output_cb)(void* ctx, const char* data, size_t len);
 
 //=============================================================================
 // jsr_runtime
@@ -59,56 +33,6 @@ typedef napi_status(NAPI_CDECL* jsr_string_output_cb)(void* ctx, const char* dat
 JSR_API jsr_create_runtime(jsr_config config, jsr_runtime* runtime);
 JSR_API jsr_delete_runtime(jsr_runtime runtime);
 JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env);
-
-//=============================================================================
-// Instrumentation
-//=============================================================================
-
-// Gets garbage collection statistics as a JSON-encoded string
-JSR_API jsr_get_recorded_gc_stats(napi_env env, void* ctx, jsr_string_output_cb cb);
-
-// Gets current heap information as a struct
-JSR_API jsr_get_heap_info(napi_env env, bool include_expensive, jsr_heap_statistics* stats);
-
-// Starts tracking heap object stack traces
-JSR_API jsr_start_tracking_heap_object_stack_traces(napi_env env);
-
-// Stops tracking heap object stack traces
-JSR_API jsr_stop_tracking_heap_object_stack_traces(napi_env env);
-
-// Starts heap sampling profiler
-JSR_API jsr_start_heap_sampling(napi_env env, size_t sampling_interval);
-
-// Stops heap sampling profiler and returns the result as JSON
-JSR_API jsr_stop_heap_sampling(napi_env env, void* ctx, jsr_string_output_cb cb);
-
-// Creates a heap snapshot and saves it to a file
-JSR_API jsr_create_heap_snapshot_to_file(napi_env env, const char* path, const jsr_heap_snapshot_options* options);
-
-// Writes a heap snapshot to a provided buffer as a JSON string.
-// If the buffer is too small, returns napi_invalid_arg and required_length is set.
-JSR_API jsr_create_heap_snapshot_to_buffer(
-    napi_env env,
-    char* buffer,
-    size_t buffer_length,
-    const jsr_heap_snapshot_options* options,
-    size_t* required_length);
-
-// Writes a heap snapshot to a callback as a JSON string.
-JSR_API jsr_create_heap_snapshot_to_string(
-    napi_env env,
-    void* ctx,
-    jsr_string_output_cb cb,
-    const jsr_heap_snapshot_options* options);
-
-// Flushes bridge traffic trace and returns it
-JSR_API jsr_flush_and_disable_bridge_traffic_trace(napi_env env, void* ctx, jsr_string_output_cb cb);
-
-// Writes basic block profile trace to a file
-JSR_API jsr_write_basic_block_profile_trace(napi_env env, const char* file_name);
-
-// Dumps profiler symbols to a file
-JSR_API jsr_dump_profiler_symbols(napi_env env, const char* file_name);
 
 //=============================================================================
 // jsr_config
@@ -244,6 +168,47 @@ JSR_API jsr_delete_prepared_script(napi_env env,
 JSR_API jsr_prepared_script_run(napi_env env,
                                 jsr_prepared_script prepared_script,
                                 napi_value* result);
+
+//=============================================================================
+// JSI instrumentation
+//=============================================================================
+
+// Generic callback for string output
+typedef void(NAPI_CDECL* jsr_string_output_cb)(void* ctx,
+                                               const char* data,
+                                               size_t len);
+
+// Gets garbage collection statistics as a JSON-encoded string
+JSR_API jsr_instrumentation_get_gc_stats(napi_env env,
+                                         jsr_string_output_cb cb,
+                                         void* cb_ctx);
+
+typedef void(NAPI_CDECL* jsr_heap_info_cb)(void* ctx,
+                                           const char* key,
+                                           int64_t value);
+
+// Gets current heap information as a struct
+JSR_API jsr_instrumentation_get_heap_info(napi_env env,
+                                          bool include_expensive,
+                                          jsr_heap_info_cb cb,
+                                          void* cb_ctx);
+
+JSR_API jsr_instrumentation_collect_garbage(napi_env env, const char* cause);
+
+// Starts heap sampling profiler
+JSR_API jsr_instrumentation_start_heap_sampling(napi_env env,
+                                                size_t sampling_interval);
+
+// Stops heap sampling profiler and returns the result as JSON
+JSR_API jsr_instrumentation_stop_heap_sampling(napi_env env,
+                                               jsr_string_output_cb cb,
+                                               void* cb_ctx);
+
+// Creates a heap snapshot and saves it to a file
+JSR_API jsr_instrumentation_create_heap_snapshot(napi_env env,
+                                                 bool capture_numeric_value,
+                                                 jsr_string_output_cb cb,
+                                                 void* cb_ctx);
 
 //=============================================================================
 // Functions to support unit tests.

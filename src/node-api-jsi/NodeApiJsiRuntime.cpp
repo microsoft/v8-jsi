@@ -5,15 +5,16 @@
 
 #include "NodeApiJsiRuntime.h"
 
+#include <jsi/instrumentation.h>
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
-#include <jsi/instrumentation.h>
 
 // JSI version defines set of features available in the API.
 // Each significant API change must be under a new version.
@@ -196,129 +197,95 @@ struct NodeApiAttachTag {
 // Implementation of N-API JSI Runtime
 class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
  public:
-  NodeApiJsiInstrumentation(napi_env env, JSRuntimeApi* jsrApi)
-      : env_(env), jsrApi_(jsrApi) {}
+  NodeApiJsiInstrumentation(napi_env env, JSRuntimeApi *jsrApi) : env_(env), jsrApi_(jsrApi) {}
 
   std::string getRecordedGCStats() override {
-    std::string out;
-    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
-      auto* str = static_cast<std::string*>(ctx);
-      str->assign(data, len);
-      return napi_ok;
-    };
-    jsrApi_->jsr_get_recorded_gc_stats(env_, &out, cb);
-    return out;
+    std::string result;
+    jsrApi_->jsr_instrumentation_get_gc_stats(env_, writeToStdString, &result);
+    return result;
   }
 
   std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
-    std::unordered_map<std::string, int64_t> out;
-    jsr_heap_statistics stats{};
-    jsrApi_->jsr_get_heap_info(env_, includeExpensive, &stats);
-    out["totalHeapSize"] = static_cast<int64_t>(stats.total_heap_size);
-    out["totalHeapSizeExecutable"] = static_cast<int64_t>(stats.total_heap_size_executable);
-    out["totalPhysicalSize"] = static_cast<int64_t>(stats.total_physical_size);
-    out["totalAvailableSize"] = static_cast<int64_t>(stats.total_available_size);
-    out["usedHeapSize"] = static_cast<int64_t>(stats.used_heap_size);
-    out["heapSizeLimit"] = static_cast<int64_t>(stats.heap_size_limit);
-    out["mallocedMemory"] = static_cast<int64_t>(stats.malloced_memory);
-    out["externalMemory"] = static_cast<int64_t>(stats.external_memory);
-    out["peakMallocedMemory"] = static_cast<int64_t>(stats.peak_malloced_memory);
-    out["doesZapGarbage"] = static_cast<int64_t>(stats.does_zap_garbage);
-    out["numberOfNativeContexts"] = static_cast<int64_t>(stats.number_of_native_contexts);
-    out["numberOfDetachedContexts"] = static_cast<int64_t>(stats.number_of_detached_contexts);
-    out["totalGlobalHandlesSize"] = static_cast<int64_t>(stats.total_global_handles_size);
-    out["usedGlobalHandlesSize"] = static_cast<int64_t>(stats.used_global_handles_size);
-    return out;
+    std::unordered_map<std::string, int64_t> result;
+    auto cb = [](void *ctx, const char *key, int64_t value) {
+      std::unordered_map<std::string, int64_t> *map = static_cast<std::unordered_map<std::string, int64_t> *>(ctx);
+      map->try_emplace(key, value);
+    };
+    jsrApi_->jsr_instrumentation_get_heap_info(env_, includeExpensive, cb, &result);
+    return result;
   }
 
-  void collectGarbage(std::string /*cause*/) override {
-    jsrApi_->jsr_collect_garbage(env_);
+  void collectGarbage(std::string cause) override {
+    jsrApi_->jsr_instrumentation_collect_garbage(env_, cause.c_str());
   }
 
-  void startTrackingHeapObjectStackTraces(std::function<void(uint64_t, std::chrono::microseconds, std::vector<HeapStatsUpdate>)> /*fragmentCallback*/) override {
-    jsrApi_->jsr_start_tracking_heap_object_stack_traces(env_);
-  }
+  void startTrackingHeapObjectStackTraces(
+      std::function<void(uint64_t, std::chrono::microseconds, std::vector<HeapStatsUpdate>)> /*fragmentCallback*/)
+      override {}
 
-  void stopTrackingHeapObjectStackTraces() override {
-    jsrApi_->jsr_stop_tracking_heap_object_stack_traces(env_);
-  }
+  void stopTrackingHeapObjectStackTraces() override {}
 
   void startHeapSampling(size_t samplingInterval) override {
-    jsrApi_->jsr_start_heap_sampling(env_, samplingInterval);
+    jsrApi_->jsr_instrumentation_start_heap_sampling(env_, samplingInterval);
   }
 
-  void stopHeapSampling(std::ostream& os) override {
+  void stopHeapSampling(std::ostream &os) override {
     std::string result;
-    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
-      auto* str = static_cast<std::string*>(ctx);
-      str->assign(data, len);
-      return napi_ok;
-    };
-    if (jsrApi_->jsr_stop_heap_sampling(env_, &result, cb) == napi_ok && !result.empty()) {
-      os.write(result.data(), result.size());
-    }
+    jsrApi_->jsr_instrumentation_stop_heap_sampling(env_, writeToStdString, &result);
+    os << result;
   }
 
 #if JSI_VERSION >= 13
-  void createSnapshotToFile(const std::string& path, const HeapSnapshotOptions& options = {false}) override {
-    jsr_heap_snapshot_options jsrOptions = {
-      options.captureNumericValue
-    };
-    jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
+  void createSnapshotToFile(const std::string &path, const HeapSnapshotOptions &options) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    std::ofstream file(path);
+    file << result;
+    file.close();
   }
-  void createSnapshotToStream(std::ostream& os, const HeapSnapshotOptions& options = {false}) override {
-    jsr_heap_snapshot_options jsrOptions = {
-      options.captureNumericValue
-    };
-    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
-      auto* os_ptr = static_cast<std::ostream*>(ctx);
-      if (len > 0 && os_ptr) {
-        os_ptr->write(data, len);
-      }
-      return napi_ok;
-    };
-    jsrApi_->jsr_create_heap_snapshot_to_string(env_, &os, cb, &jsrOptions);
+
+  void createSnapshotToStream(std::ostream &os, const HeapSnapshotOptions &options = {false}) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    os << result;
   }
 #else
-  void createSnapshotToFile(const std::string& path) override {
-    jsr_heap_snapshot_options jsrOptions = {false};
-    jsrApi_->jsr_create_heap_snapshot_to_file(env_, path.c_str(), &jsrOptions);
+  void createSnapshotToFile(const std::string &path) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    std::ofstream file(path);
+    file << result;
+    file.close();
   }
-  void createSnapshotToStream(std::ostream& os) override {
-    jsr_heap_snapshot_options jsrOptions = {false};
-    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
-      auto* os_ptr = static_cast<std::ostream*>(ctx);
-      if (len > 0 && os_ptr) {
-        os_ptr->write(data, len);
-      }
-      return napi_ok;
-    };
-    jsrApi_->jsr_create_heap_snapshot_to_string(env_, &os, cb, &jsrOptions);
+
+  void createSnapshotToStream(std::ostream &os) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    os << result;
   }
 #endif
 
   std::string flushAndDisableBridgeTrafficTrace() override {
-    std::string out;
-    auto cb = [](void* ctx, const char* data, size_t len) -> napi_status {
-      auto* str = static_cast<std::string*>(ctx);
-      str->assign(data, len);
-      return napi_ok;
-    };
-    jsrApi_->jsr_flush_and_disable_bridge_traffic_trace(env_, &out, cb);
-    return out;
+    std::abort();
   }
 
-  void writeBasicBlockProfileTraceToFile(const std::string& fileName) const override {
-    jsrApi_->jsr_write_basic_block_profile_trace(env_, fileName.c_str());
+  void writeBasicBlockProfileTraceToFile(const std::string &fileName) const override {
+    std::abort();
   }
 
-  void dumpProfilerSymbolsToFile(const std::string& fileName) const override {
-    jsrApi_->jsr_dump_profiler_symbols(env_, fileName.c_str());
+  void dumpProfilerSymbolsToFile(const std::string &fileName) const override {
+    std::abort();
   }
 
  private:
+  static void NAPI_CDECL writeToStdString(void *ctx, const char *data, size_t len) {
+    std::string *str = static_cast<std::string *>(ctx);
+    str->assign(data, len);
+  };
+
+ private:
   napi_env env_;
-  JSRuntimeApi* jsrApi_;
+  JSRuntimeApi *jsrApi_;
 };
 
 class NodeApiJsiRuntime : public jsi::Runtime {
@@ -342,7 +309,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::string description() override;
   bool isInspectable() override;
 
-  facebook::jsi::Instrumentation& instrumentation() override {
+  facebook::jsi::Instrumentation &instrumentation() override {
     if (!instrumentation_) {
       instrumentation_ = std::make_unique<NodeApiJsiInstrumentation>(env_, jsrApi_);
     }
@@ -2747,8 +2714,9 @@ void NodeApiJsiRuntime::setElement(napi_value array, uint32_t index, napi_value 
     napi_callback_info info) noexcept {
   HostFunctionWrapper *hostFuncWrapper{};
   size_t argc{};
-  CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_get_cb_info(
-      env, info, &argc, nullptr, nullptr, reinterpret_cast<void **>(&hostFuncWrapper)));
+  CHECK_NAPI_ELSE_CRASH(
+      JSRuntimeApi::current()->napi_get_cb_info(
+          env, info, &argc, nullptr, nullptr, reinterpret_cast<void **>(&hostFuncWrapper)));
   CHECK_ELSE_CRASH(hostFuncWrapper, "Cannot find the host function");
   NodeApiJsiRuntime &runtime = hostFuncWrapper->runtime();
   NodeApiPointerValueScope scope{runtime};
@@ -2851,8 +2819,9 @@ void NodeApiJsiRuntime::setProxyTrap(napi_value handler, napi_value propertyName
     NodeApiJsiRuntime *runtime{};
     napi_value args[argCount]{};
     size_t actualArgCount{argCount};
-    CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_get_cb_info(
-        env, info, &actualArgCount, args, nullptr, reinterpret_cast<void **>(&runtime)));
+    CHECK_NAPI_ELSE_CRASH(
+        JSRuntimeApi::current()->napi_get_cb_info(
+            env, info, &actualArgCount, args, nullptr, reinterpret_cast<void **>(&runtime)));
     CHECK_ELSE_CRASH(actualArgCount == argCount, "proxy trap requires argCount arguments.");
     NodeApiPointerValueScope scope{*runtime};
     return runtime->handleCallbackExceptions(
@@ -3257,7 +3226,39 @@ napi_status NAPI_CDECL default_jsr_close_napi_env_scope(napi_env /*env*/, jsr_na
   return napi_ok;
 }
 
-// TODO: Ensure that we either load all three functions or use their default versions and never mix and match.
+napi_status NAPI_CDECL
+default_jsr_instrumentation_get_gc_stats(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_get_heap_info(
+    napi_env /*env*/,
+    bool /*include_expensive*/,
+    jsr_heap_info_cb /*cb*/,
+    void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_collect_garbage(napi_env /*env*/, const char * /*cause*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_start_heap_sampling(napi_env /*env*/, size_t /*sampling_interval*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL
+default_jsr_instrumentation_stop_heap_sampling(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_create_heap_snapshot(
+    napi_env /*env*/,
+    bool /*capture_numeric_value*/,
+    jsr_string_output_cb /*cb*/,
+    void * /*cb_ctx*/) {
+  return napi_ok;
+}
 
 // Default implementation of jsr_create_prepared_script if it is not provided by JS engine.
 // It return napi_ref as a jsr_prepared_script that wraps up an object with a "script" property string.
