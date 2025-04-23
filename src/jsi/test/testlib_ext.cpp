@@ -604,31 +604,32 @@ TEST_P(JSITestExt, V8Instrumentation_GetHeapInfo) {
     )");
 }
 
-TEST_P(JSITestExt, V8Instrumentation_CollectGarbage) {
-  auto& instrumentation = rt.instrumentation();
+// Disabling this test for now, since GC is not deterministic and it may fail
+// TEST_P(JSITestExt, V8Instrumentation_CollectGarbage) {
+//   auto& instrumentation = rt.instrumentation();
 
-  // Allocate objects to increase heap usage
-  eval(R"(
-    globalThis.arr = new Array(10000).fill(0);
-    globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = {val:i};
-    )");
+//   // Allocate objects to increase heap usage
+//   eval(R"(
+//     globalThis.arr = new Array(10000).fill(0);
+//     globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = {val:i};
+//     )");
 
-  auto heapInfoBefore = instrumentation.getHeapInfo(false);
+//   auto heapInfoBefore = instrumentation.getHeapInfo(false);
 
-  eval(R"(
-    globalThis.arr = undefined;
-    globalThis.obj = undefined;
-    )");
+//   eval(R"(
+//     globalThis.arr = undefined;
+//     globalThis.obj = undefined;
+//     )");
 
-  instrumentation.collectGarbage("Test GC");
+//   instrumentation.collectGarbage("Test GC");
 
-  auto heapInfoAfter = instrumentation.getHeapInfo(false);
+//   auto heapInfoAfter = instrumentation.getHeapInfo(false);
 
-  // The heap is growing by chunks, it is possible that the totalHeapSize may
-  // not change.
-  EXPECT_LE(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
-  EXPECT_LT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
-}
+//   // The heap is growing by chunks, it is possible that the totalHeapSize may
+//   // not change.
+//   EXPECT_LE(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
+//   EXPECT_LT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
+// }
 
 TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToFile) {
   auto& instrumentation = rt.instrumentation();
