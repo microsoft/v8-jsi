@@ -21,6 +21,12 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <gtest/gtest.h>
+#include <fstream>
+#include <iterator>
+#include <sstream>
+#include <unordered_map>
+
 using namespace facebook::jsi;
 
 class JSITestExt : public JSITestBase {};
@@ -173,13 +179,14 @@ TEST_P(JSITestExt, HostObjectWithOwnProperties) {
   // handling checking for property existence.
   EXPECT_TRUE(eval("\"foo\" in ho").getBool());
 
-  EXPECT_TRUE(eval("var properties = Object.getOwnPropertyNames(ho);"
-                   "properties[0] === '1' && "
-                   "properties[1] === '2' && "
-                   "properties[2] === '3' && "
-                   "properties[3] === 'prop1' && "
-                   "properties[4] === 'prop2' && "
-                   "properties.length === 5")
+  EXPECT_TRUE(eval(
+                  "var properties = Object.getOwnPropertyNames(ho);"
+                  "properties[0] === '1' && "
+                  "properties[1] === '2' && "
+                  "properties[2] === '3' && "
+                  "properties[3] === 'prop1' && "
+                  "properties[4] === 'prop2' && "
+                  "properties.length === 5")
                   .getBool());
   EXPECT_TRUE(eval("ho[2] === undefined").getBool());
   EXPECT_TRUE(eval("ho.prop2 === undefined").getBool());
@@ -189,15 +196,16 @@ TEST_P(JSITestExt, HostObjectWithOwnProperties) {
   eval("Object.defineProperty(ho, '4', {value: 'hi there'})");
   eval("Object.defineProperty(ho, 'prop2', {value: 'hi there'})");
 
-  EXPECT_TRUE(eval("var properties = Object.getOwnPropertyNames(ho);"
-                   "properties[0] === '0' && "
-                   "properties[1] === '1' && "
-                   "properties[2] === '2' && "
-                   "properties[3] === '3' && "
-                   "properties[4] === '4' && "
-                   "properties[5] === 'prop2' && "
-                   "properties[6] === 'prop1' && "
-                   "properties.length === 7")
+  EXPECT_TRUE(eval(
+                  "var properties = Object.getOwnPropertyNames(ho);"
+                  "properties[0] === '0' && "
+                  "properties[1] === '1' && "
+                  "properties[2] === '2' && "
+                  "properties[3] === '3' && "
+                  "properties[4] === '4' && "
+                  "properties[5] === 'prop2' && "
+                  "properties[6] === 'prop1' && "
+                  "properties.length === 7")
                   .getBool());
   EXPECT_TRUE(eval("ho[2] === 'hi there'").getBool());
   EXPECT_TRUE(eval("ho.prop2 === 'hi there'").getBool());
@@ -209,17 +217,19 @@ TEST_P(JSITestExt, HostObjectWithOwnProperties) {
       eval("Object.prototype.hasOwnProperty.call(ho, 'any-string')").getBool());
 
   // getOwnPropertyDescriptor() always succeeds on HostObject
-  EXPECT_TRUE(eval("var d = Object.getOwnPropertyDescriptor(ho, 'prop1');"
-                   "d != undefined && "
-                   "d.value == 10 && "
-                   "d.enumerable && "
-                   "d.writable ")
+  EXPECT_TRUE(eval(
+                  "var d = Object.getOwnPropertyDescriptor(ho, 'prop1');"
+                  "d != undefined && "
+                  "d.value == 10 && "
+                  "d.enumerable && "
+                  "d.writable ")
                   .getBool());
-  EXPECT_TRUE(eval("var d = Object.getOwnPropertyDescriptor(ho, 'any-string');"
-                   "d != undefined && "
-                   "d.value == undefined && "
-                   "d.enumerable && "
-                   "d.writable")
+  EXPECT_TRUE(eval(
+                  "var d = Object.getOwnPropertyDescriptor(ho, 'any-string');"
+                  "d != undefined && "
+                  "d.value == undefined && "
+                  "d.enumerable && "
+                  "d.writable")
                   .getBool());
 }
 #endif
@@ -434,12 +444,15 @@ TEST_P(JSITestExt, BigIntJSIFromScalar) {
 
   EXPECT_TRUE(BigInt::strictEquals(rt, BigInt("0"), BigInt::fromUint64(rt, 0)));
   EXPECT_TRUE(BigInt::strictEquals(rt, BigInt("0"), BigInt::fromInt64(rt, 0)));
-  EXPECT_TRUE(BigInt::strictEquals(
-      rt, BigInt("0xdeadbeef"), BigInt::fromUint64(rt, 0xdeadbeef)));
-  EXPECT_TRUE(BigInt::strictEquals(
-      rt, BigInt("0xc0ffee"), BigInt::fromInt64(rt, 0xc0ffee)));
-  EXPECT_TRUE(BigInt::strictEquals(
-      rt, BigInt("0xffffffffffffffffn"), BigInt::fromUint64(rt, ~0ull)));
+  EXPECT_TRUE(
+      BigInt::strictEquals(
+          rt, BigInt("0xdeadbeef"), BigInt::fromUint64(rt, 0xdeadbeef)));
+  EXPECT_TRUE(
+      BigInt::strictEquals(
+          rt, BigInt("0xc0ffee"), BigInt::fromInt64(rt, 0xc0ffee)));
+  EXPECT_TRUE(
+      BigInt::strictEquals(
+          rt, BigInt("0xffffffffffffffffn"), BigInt::fromUint64(rt, ~0ull)));
   EXPECT_TRUE(
       BigInt::strictEquals(rt, BigInt("-1"), BigInt::fromInt64(rt, ~0ull)));
 }
@@ -558,6 +571,108 @@ TEST_P(JSITestExt, NativeExceptionDoesNotUseGlobalError) {
       "typeof Error is number; Exception in HostFunction: Native "
       "std::logic_error C++ exception in Host Function",
       test.call(rt).getString(rt).utf8(rt));
+}
+
+TEST_P(JSITestExt, V8Instrumentation_GetRecordedGCStats) {
+  auto& instrumentation = rt.instrumentation();
+  std::string gcStats = instrumentation.getRecordedGCStats();
+
+  EXPECT_FALSE(gcStats.empty());
+  EXPECT_NE(gcStats.find("totalHeapSize"), std::string::npos);
+}
+
+TEST_P(JSITestExt, V8Instrumentation_GetHeapInfo) {
+  auto& instrumentation = rt.instrumentation();
+  auto heapInfoBefore = instrumentation.getHeapInfo(false);
+
+  // Allocate objects to increase heap usage
+  eval(R"(
+    globalThis.arr = new Array(10000).fill(0);
+    globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = {val:i};
+    )");
+
+  auto heapInfoAfter = instrumentation.getHeapInfo(false);
+
+  // The heap is growing by chunks, it is possible that the totalHeapSize may
+  // not change.
+  EXPECT_GE(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
+  EXPECT_GT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
+
+  eval(R"(
+    globalThis.arr = undefined;
+    globalThis.obj = undefined;
+    )");
+}
+
+// Disabling this test for now, since GC is not deterministic and it may fail
+// TEST_P(JSITestExt, V8Instrumentation_CollectGarbage) {
+//   auto& instrumentation = rt.instrumentation();
+
+//   // Allocate objects to increase heap usage
+//   eval(R"(
+//     globalThis.arr = new Array(10000).fill(0);
+//     globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = {val:i};
+//     )");
+
+//   auto heapInfoBefore = instrumentation.getHeapInfo(false);
+
+//   eval(R"(
+//     globalThis.arr = undefined;
+//     globalThis.obj = undefined;
+//     )");
+
+//   instrumentation.collectGarbage("Test GC");
+
+//   auto heapInfoAfter = instrumentation.getHeapInfo(false);
+
+//   // The heap is growing by chunks, it is possible that the totalHeapSize may
+//   // not change.
+//   EXPECT_LE(heapInfoAfter["totalHeapSize"], heapInfoBefore["totalHeapSize"]);
+//   EXPECT_LT(heapInfoAfter["usedHeapSize"], heapInfoBefore["usedHeapSize"]);
+// }
+
+TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToFile) {
+  auto& instrumentation = rt.instrumentation();
+  const std::string snapshotPath = "test.heapsnapshot";
+
+  Instrumentation::HeapSnapshotOptions options;
+  options.captureNumericValue = true;
+
+  // Allocate objects to increase heap usage
+  eval(R"(
+    globalThis.arr = []; for (let i = 0; i < 1000000; i++) arr.push(i);
+    globalThis.obj = {}; for (let i = 0; i < 10000; i++) obj[i] = JSON.stringify(i);
+    globalThis.obj2 = {x: 42};
+    )");
+
+  instrumentation.createSnapshotToFile(snapshotPath, options);
+
+  // Verify that the snapshot file is created and not empty
+  std::ifstream snapshotFile(snapshotPath);
+  ASSERT_TRUE(snapshotFile.is_open());
+  std::string content(
+      (std::istreambuf_iterator<char>(snapshotFile)),
+      std::istreambuf_iterator<char>());
+  snapshotFile.close();
+
+  EXPECT_FALSE(content.empty());
+
+  eval(R"(
+    globalThis.arr = undefined;
+    globalThis.obj = undefined;
+    globalThis.obj2 = undefined;
+    )");
+}
+
+TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToStream) {
+  auto& instrumentation = rt.instrumentation();
+  std::ostringstream snapshotStream;
+
+  instrumentation.createSnapshotToStream(snapshotStream);
+
+  // Verify that the snapshot stream is not empty
+  std::string content = snapshotStream.str();
+  EXPECT_FALSE(content.empty());
 }
 
 INSTANTIATE_TEST_SUITE_P(

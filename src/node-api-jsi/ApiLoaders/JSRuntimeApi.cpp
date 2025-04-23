@@ -13,6 +13,20 @@ extern napi_status NAPI_CDECL default_jsr_queue_microtask(napi_env env, napi_val
 extern napi_status NAPI_CDECL default_jsr_drain_microtasks(napi_env env, int32_t max_count_hint, bool *result);
 extern napi_status NAPI_CDECL default_jsr_is_inspectable(napi_env env, bool *result);
 
+extern napi_status NAPI_CDECL
+default_jsr_instrumentation_get_gc_stats(napi_env env, jsr_string_output_cb cb, void *cb_ctx);
+extern napi_status NAPI_CDECL
+default_jsr_instrumentation_get_heap_info(napi_env env, bool include_expensive, jsr_heap_info_cb cb, void *cb_ctx);
+extern napi_status NAPI_CDECL default_jsr_instrumentation_collect_garbage(napi_env env, const char *cause);
+extern napi_status NAPI_CDECL default_jsr_instrumentation_start_heap_sampling(napi_env env, size_t sampling_interval);
+extern napi_status NAPI_CDECL
+default_jsr_instrumentation_stop_heap_sampling(napi_env env, jsr_string_output_cb cb, void *cb_ctx);
+extern napi_status NAPI_CDECL default_jsr_instrumentation_create_heap_snapshot(
+    napi_env env,
+    bool capture_numeric_value,
+    jsr_string_output_cb cb,
+    void *cb_ctx);
+
 extern napi_status NAPI_CDECL default_jsr_create_prepared_script(
     napi_env env,
     const uint8_t *script_utf8,

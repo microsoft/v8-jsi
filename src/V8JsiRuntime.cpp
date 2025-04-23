@@ -500,6 +500,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     CreateNewIsolate();
   }
 
+  instrumentation_ = std::make_unique<V8Instrumentation>(isolate_);
+
   if (args_.flags.explicitMicrotaskPolicy) {
     isolate_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
   }

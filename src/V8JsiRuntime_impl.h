@@ -28,6 +28,8 @@
 
 #include <cstdlib>
 
+#include "V8Instrumentation.h"
+
 namespace v8runtime {
 
 class NativeStateHolder;
@@ -232,6 +234,10 @@ class V8Runtime : public facebook::jsi::Runtime {
   std::string description() override;
 
   bool isInspectable() override;
+
+  facebook::jsi::Instrumentation& instrumentation() override {
+    return *instrumentation_;
+  }
 
  private:
   struct IHostProxy {
@@ -857,5 +863,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   static void DumpCounters(const char *when);
 
   static void JitCodeEventListener(const v8::JitCodeEvent *event);
+
+  std::unique_ptr<facebook::jsi::Instrumentation> instrumentation_;
 };
 } // namespace v8runtime
