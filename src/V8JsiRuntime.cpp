@@ -500,6 +500,8 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
     CreateNewIsolate();
   }
 
+  instrumentation_ = std::make_unique<V8Instrumentation>(isolate_);
+
   if (args_.flags.explicitMicrotaskPolicy) {
     isolate_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
   }
@@ -1112,6 +1114,24 @@ jsi::PropNameID V8Runtime::createPropNameIDFromUtf8(const uint8_t *utf8, size_t 
   return res;
 }
 
+#if JSI_VERSION >= 19
+jsi::PropNameID V8Runtime::createPropNameIDFromUtf16(const char16_t *utf16, size_t length) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::String> v8String;
+  if (!v8::String::NewFromTwoByte(
+           GetIsolate(),
+           reinterpret_cast<const uint16_t *>(utf16),
+           v8::NewStringType::kInternalized,
+           static_cast<int>(length))
+           .ToLocal(&v8String)) {
+    throw jsi::JSError(*this, "Unable to create UTF16 property id");
+  }
+
+  auto res = make<jsi::PropNameID>(V8StringValue::make(GetIsolate(), v8String));
+  return res;
+}
+#endif
+
 jsi::PropNameID V8Runtime::createPropNameIDFromString(const jsi::String &str) {
   IsolateLocker isolate_locker(this);
   return make<jsi::PropNameID>(V8StringValue::make(GetIsolate(), v8::Local<v8::String>::Cast(stringRef(str))));
@@ -1150,6 +1170,24 @@ jsi::String V8Runtime::createStringFromUtf8(const uint8_t *str, size_t length) {
   jsi::String jsistr = make<jsi::String>(V8StringValue::make(GetIsolate(), v8string));
   return jsistr;
 }
+
+#if JSI_VERSION >= 19
+jsi::String V8Runtime::createStringFromUtf16(const char16_t *utf16, size_t length) {
+  IsolateLocker isolate_locker(this);
+  v8::Local<v8::String> v8string;
+  if (!v8::String::NewFromTwoByte(
+           GetIsolate(),
+           reinterpret_cast<const uint16_t *>(utf16),
+           v8::NewStringType::kNormal,
+           static_cast<int>(length))
+           .ToLocal(&v8string)) {
+    throw jsi::JSError(*this, "V8 UTF-16 string creation failed.");
+  }
+
+  jsi::String jsistr = make<jsi::String>(V8StringValue::make(GetIsolate(), v8string));
+  return jsistr;
+}
+#endif
 
 std::string V8Runtime::utf8(const jsi::String &str) {
   IsolateLocker isolate_locker(this);
@@ -1373,6 +1411,14 @@ jsi::HostFunctionType &V8Runtime::getHostFunction(const jsi::Function &obj) {
   std::abort();
 }
 
+#if JSI_VERSION >= 18
+jsi::Object V8Runtime::createObjectWithPrototype(const jsi::Value &prototype) {
+  IsolateLocker isolate_locker(this);
+  return make<jsi::Object>(
+      V8ObjectValue::make(GetIsolate(), v8::Object::New(GetIsolate(), valueReference(prototype), nullptr, nullptr, 0)));
+}
+#endif
+
 namespace {
 std::string getFunctionName(v8::Isolate *isolate, v8::Local<v8::Function> func) {
   std::string functionNameStr;
@@ -1507,9 +1553,49 @@ bool V8Runtime::instanceOf(const jsi::Object &o, const jsi::Function &f) {
   return objectRef(o)->InstanceOf(GetContextLocal(), objectRef(f)).ToChecked();
 }
 
+#if JSI_VERSION >= 17
+void V8Runtime::setPrototypeOf(const jsi::Object &object, const jsi::Value &prototype) {
+  IsolateLocker isolate_locker(this);
+  objectRef(object)->SetPrototype(GetContextLocal(), valueReference(prototype));
+}
+
+jsi::Value V8Runtime::getPrototypeOf(const jsi::Object &object) {
+  IsolateLocker isolate_locker(this);
+  return createValue(objectRef(object)->GetPrototype());
+}
+#endif
+
 #if JSI_VERSION >= 11
 void V8Runtime::setExternalMemoryPressure(const jsi::Object &obj, size_t amount) {
   // TODO: implement this
+}
+#endif
+
+#if JSI_VERSION >= 14
+std::u16string V8Runtime::utf16(const jsi::String &str) {
+  IsolateLocker isolate_locker(this);
+  return JSStringToStlU16String(GetIsolate(), stringRef(str));
+}
+
+std::u16string V8Runtime::utf16(const jsi::PropNameID &sym) {
+  IsolateLocker isolate_locker(this);
+  return JSStringToStlU16String(GetIsolate(), v8::Local<v8::String>::Cast(valueRef(sym)));
+}
+#endif
+
+#if JSI_VERSION >= 16
+void V8Runtime::getStringData(
+    const jsi::String &str,
+    void *ctx,
+    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
+  return Runtime::getStringData(str, ctx, cb);
+}
+
+void V8Runtime::getPropNameIdData(
+    const jsi::PropNameID &sym,
+    void *ctx,
+    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
+  return Runtime::getPropNameIdData(sym, ctx, cb);
 }
 #endif
 

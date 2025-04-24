@@ -170,6 +170,47 @@ JSR_API jsr_prepared_script_run(napi_env env,
                                 napi_value* result);
 
 //=============================================================================
+// JSI instrumentation
+//=============================================================================
+
+// Generic callback for string output
+typedef void(NAPI_CDECL* jsr_string_output_cb)(void* ctx,
+                                               const char* data,
+                                               size_t len);
+
+// Gets garbage collection statistics as a JSON-encoded string
+JSR_API jsr_instrumentation_get_gc_stats(napi_env env,
+                                         jsr_string_output_cb cb,
+                                         void* cb_ctx);
+
+typedef void(NAPI_CDECL* jsr_heap_info_cb)(void* ctx,
+                                           const char* key,
+                                           int64_t value);
+
+// Gets current heap information as a struct
+JSR_API jsr_instrumentation_get_heap_info(napi_env env,
+                                          bool include_expensive,
+                                          jsr_heap_info_cb cb,
+                                          void* cb_ctx);
+
+JSR_API jsr_instrumentation_collect_garbage(napi_env env, const char* cause);
+
+// Starts heap sampling profiler
+JSR_API jsr_instrumentation_start_heap_sampling(napi_env env,
+                                                size_t sampling_interval);
+
+// Stops heap sampling profiler and returns the result as JSON
+JSR_API jsr_instrumentation_stop_heap_sampling(napi_env env,
+                                               jsr_string_output_cb cb,
+                                               void* cb_ctx);
+
+// Creates a heap snapshot and saves it to a file
+JSR_API jsr_instrumentation_create_heap_snapshot(napi_env env,
+                                                 bool capture_numeric_value,
+                                                 jsr_string_output_cb cb,
+                                                 void* cb_ctx);
+
+//=============================================================================
 // Functions to support unit tests.
 //=============================================================================
 
