@@ -635,9 +635,6 @@ TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToFile) {
   auto& instrumentation = rt.instrumentation();
   const std::string snapshotPath = "test.heapsnapshot";
 
-  Instrumentation::HeapSnapshotOptions options;
-  options.captureNumericValue = true;
-
   // Allocate objects to increase heap usage
   eval(R"(
     globalThis.arr = []; for (let i = 0; i < 1000000; i++) arr.push(i);
@@ -645,7 +642,13 @@ TEST_P(JSITestExt, V8Instrumentation_CreateHeapSnapshotToFile) {
     globalThis.obj2 = {x: 42};
     )");
 
+#if JSI_VERSION >= 13
+  Instrumentation::HeapSnapshotOptions options;
+  options.captureNumericValue = true;
   instrumentation.createSnapshotToFile(snapshotPath, options);
+#else
+  instrumentation.createSnapshotToFile(snapshotPath);
+#endif
 
   // Verify that the snapshot file is created and not empty
   std::ifstream snapshotFile(snapshotPath);
