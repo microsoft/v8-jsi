@@ -86,7 +86,7 @@ extends:
         - job: V8JsiBuild_${{ matrix.Name }}
           displayName: Build V8-JSI ${{ matrix.Name }}
 
-          timeoutInMinutes: 1200
+          timeoutInMinutes: 1800
 
           variables:
           - name: Packaging.EnableSBOMSigning

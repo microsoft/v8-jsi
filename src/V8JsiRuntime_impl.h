@@ -28,6 +28,8 @@
 
 #include <cstdlib>
 
+#include "V8Instrumentation.h"
+
 namespace v8runtime {
 
 class NativeStateHolder;
@@ -232,6 +234,10 @@ class V8Runtime : public facebook::jsi::Runtime {
   std::string description() override;
 
   bool isInspectable() override;
+
+  facebook::jsi::Instrumentation& instrumentation() override {
+    return *instrumentation_;
+  }
 
  private:
   struct IHostProxy {
@@ -550,7 +556,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       v8Object_.Reset();
     }
 
-    void invalidate() override {
+    void invalidate() JSI_NOEXCEPT_15 override {
       delete this;
     }
 
@@ -582,7 +588,7 @@ class V8Runtime : public facebook::jsi::Runtime {
       v8Object_.Reset();
     }
 
-    void invalidate() override {
+    void invalidate() JSI_NOEXCEPT_15 override {
       delete this;
     }
 
@@ -623,6 +629,9 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   facebook::jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   facebook::jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  facebook::jsi::PropNameID createPropNameIDFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   facebook::jsi::PropNameID createPropNameIDFromString(const facebook::jsi::String &str) override;
 #if JSI_VERSION >= 5
   facebook::jsi::PropNameID createPropNameIDFromSymbol(const facebook::jsi::Symbol &sym) override;
@@ -643,6 +652,9 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   facebook::jsi::String createStringFromAscii(const char *str, size_t length) override;
   facebook::jsi::String createStringFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  facebook::jsi::String createStringFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   std::string utf8(const facebook::jsi::String &) override;
 
   facebook::jsi::Object createObject() override;
@@ -650,12 +662,21 @@ class V8Runtime : public facebook::jsi::Runtime {
   virtual std::shared_ptr<facebook::jsi::HostObject> getHostObject(const facebook::jsi::Object &) override;
   facebook::jsi::HostFunctionType &getHostFunction(const facebook::jsi::Function &) override;
 
+#if JSI_VERSION >= 18
+  facebook::jsi::Object createObjectWithPrototype(const facebook::jsi::Value &prototype) override;
+#endif
+
 #if JSI_VERSION >= 7
   bool hasNativeState(const facebook::jsi::Object &obj) override;
   std::shared_ptr<facebook::jsi::NativeState> getNativeState(const facebook::jsi::Object &obj) override;
   void setNativeState(const facebook::jsi::Object &obj, std::shared_ptr<facebook::jsi::NativeState> nativeState)
       override;
   NativeStateHolder *getNativeStateHolder(v8::Local<v8::Object> v8Object);
+#endif
+
+#if JSI_VERSION >= 17
+  void setPrototypeOf(const facebook::jsi::Object &object, const facebook::jsi::Value &prototype) override;
+  facebook::jsi::Value getPrototypeOf(const facebook::jsi::Object &object) override;
 #endif
 
   facebook::jsi::Value getProperty(const facebook::jsi::Object &, const facebook::jsi::String &name) override;
@@ -714,6 +735,23 @@ class V8Runtime : public facebook::jsi::Runtime {
 
 #if JSI_VERSION >= 11
   void setExternalMemoryPressure(const facebook::jsi::Object &obj, size_t amount) override;
+#endif
+
+#if JSI_VERSION >= 14
+  std::u16string utf16(const facebook::jsi::String &str) override;
+  std::u16string utf16(const facebook::jsi::PropNameID &sym) override;
+#endif
+
+#if JSI_VERSION >= 16
+  void getStringData(
+      const facebook::jsi::String &str,
+      void *ctx,
+      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
+
+  void getPropNameIdData(
+      const facebook::jsi::PropNameID &sym,
+      void *ctx,
+      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
 #endif
 
  private:
@@ -825,5 +863,7 @@ class V8Runtime : public facebook::jsi::Runtime {
   static void DumpCounters(const char *when);
 
   static void JitCodeEventListener(const v8::JitCodeEvent *event);
+
+  std::unique_ptr<facebook::jsi::Instrumentation> instrumentation_;
 };
 } // namespace v8runtime

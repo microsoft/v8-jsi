@@ -39,6 +39,13 @@ JSR_JSI_FUNC(jsr_get_description)
 JSR_JSI_FUNC(jsr_is_inspectable)
 JSR_JSI_FUNC(jsr_open_napi_env_scope)
 
+JSR_JSI_FUNC(jsr_instrumentation_get_gc_stats)
+JSR_JSI_FUNC(jsr_instrumentation_get_heap_info)
+JSR_JSI_FUNC(jsr_instrumentation_collect_garbage)
+JSR_JSI_FUNC(jsr_instrumentation_start_heap_sampling)
+JSR_JSI_FUNC(jsr_instrumentation_stop_heap_sampling)
+JSR_JSI_FUNC(jsr_instrumentation_create_heap_snapshot)
+
 // The JS runtime functions needed for prepared script.
 JSR_PREPARED_SCRIPT(jsr_create_prepared_script)
 JSR_PREPARED_SCRIPT(jsr_delete_prepared_script)

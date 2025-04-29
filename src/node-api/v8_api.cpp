@@ -390,6 +390,73 @@ class NodeApiEnv : public napi_env__ {
     return napi_ok;
   }
 
+  napi_status instrumentationGetGCStats(jsr_string_output_cb cb, void* cb_ctx) {
+    CHECK_ARG(env, cb);
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    std::string stats = instrumentation.getRecordedGCStats();
+    cb(cb_ctx, stats.data(), stats.size());
+    return napi_ok;
+  }
+
+  napi_status instrumentationGetHeapInfo(bool include_expensive,
+                                         jsr_heap_info_cb cb,
+                                         void* cb_ctx) {
+    CHECK_ARG(env, cb);
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    std::unordered_map<std::string, int64_t> heap_info =
+        instrumentation.getHeapInfo(include_expensive);
+    for (const auto& entry : heap_info) {
+      cb(cb_ctx, entry.first.c_str(), entry.second);
+    }
+    return napi_ok;
+  }
+
+  napi_status instrumentationCollectGarbage(const char* cause) {
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    instrumentation.collectGarbage(cause);
+    return napi_ok;
+  }
+
+  napi_status instrumentationStartHeapSampling(size_t sampling_interval) {
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    instrumentation.startHeapSampling(sampling_interval);
+    return napi_ok;
+  }
+
+  napi_status instrumentationStopHeapSampling(jsr_string_output_cb cb,
+                                              void* cb_ctx) {
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    std::stringstream stream;
+    instrumentation.stopHeapSampling(stream);
+    std::string out = stream.str();
+    cb(cb_ctx, out.data(), out.size());
+    return napi_ok;
+  }
+
+  napi_status instrumentationCreateHeapSnapshot(bool capture_numeric_value,
+                                                jsr_string_output_cb cb,
+                                                void* cb_ctx) {
+    CHECK_ARG(env, cb);
+    facebook::jsi::Instrumentation& instrumentation =
+        m_runtime->instrumentation();
+    std::stringstream stream;
+#if JSI_VERSION >= 13
+    facebook::jsi::Instrumentation::HeapSnapshotOptions options;
+    options.captureNumericValue = capture_numeric_value;
+    instrumentation.createSnapshotToStream(stream, options);
+#else
+    instrumentation.createSnapshotToStream(stream);
+#endif
+    std::string out = stream.str();
+    cb(cb_ctx, out.data(), out.size());
+    return napi_ok;
+  }
+
  private:
   V8RuntimeEnv* m_runtime;
   napi_env env{this};
@@ -941,4 +1008,50 @@ napi_create_external_buffer(napi_env env,
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);
+}
+
+//=============================================================================
+// JSI instrumentation
+//=============================================================================
+
+// Gets garbage collection statistics as a JSON-encoded string
+JSR_API jsr_instrumentation_get_gc_stats(napi_env env,
+                                         jsr_string_output_cb cb,
+                                         void* cb_ctx) {
+  return CHECKED_ENV(env)->instrumentationGetGCStats(cb, cb_ctx);
+}
+
+// Gets current heap information as a struct
+JSR_API jsr_instrumentation_get_heap_info(napi_env env,
+                                          bool include_expensive,
+                                          jsr_heap_info_cb cb,
+                                          void* cb_ctx) {
+  return CHECKED_ENV(env)->instrumentationGetHeapInfo(
+      include_expensive, cb, cb_ctx);
+}
+
+JSR_API jsr_instrumentation_collect_garbage(napi_env env, const char* cause) {
+  return CHECKED_ENV(env)->instrumentationCollectGarbage(cause);
+}
+
+// Starts heap sampling profiler
+JSR_API jsr_instrumentation_start_heap_sampling(napi_env env,
+                                                size_t sampling_interval) {
+  return CHECKED_ENV(env)->instrumentationStartHeapSampling(sampling_interval);
+}
+
+// Stops heap sampling profiler and returns the result as JSON
+JSR_API jsr_instrumentation_stop_heap_sampling(napi_env env,
+                                               jsr_string_output_cb cb,
+                                               void* cb_ctx) {
+  return CHECKED_ENV(env)->instrumentationStopHeapSampling(cb, cb_ctx);
+}
+
+// Creates a heap snapshot and saves it to a file
+JSR_API jsr_instrumentation_create_heap_snapshot(napi_env env,
+                                                 bool capture_numeric_value,
+                                                 jsr_string_output_cb cb,
+                                                 void* cb_ctx) {
+  return CHECKED_ENV(env)->instrumentationCreateHeapSnapshot(
+      capture_numeric_value, cb, cb_ctx);
 }

@@ -5,8 +5,10 @@
 
 #include "NodeApiJsiRuntime.h"
 
+#include <jsi/instrumentation.h>
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -19,7 +21,7 @@
 // These macros must be defined in jsi.h, but define them here too
 // in case if this code is used with unmodified jsi.h.
 #ifndef JSI_VERSION
-#define JSI_VERSION 10
+#define JSI_VERSION 19
 #endif
 
 #ifndef JSI_NO_CONST_3
@@ -35,6 +37,14 @@
 #define JSI_CONST_10 const
 #else
 #define JSI_CONST_10
+#endif
+#endif
+
+#ifndef JSI_NOEXCEPT_15
+#if JSI_VERSION >= 15
+#define JSI_NOEXCEPT_15 noexcept
+#else
+#define JSI_NOEXCEPT_15
 #endif
 #endif
 
@@ -139,27 +149,28 @@ class span {
 #endif // __cpp_lib_span
 
 // To be used as a key in a unordered_map.
-class StringKey {
+template <typename TChar>
+class BasicStringKey {
  public:
-  explicit StringKey(std::string &&string) noexcept;
-  explicit StringKey(std::string_view view) noexcept;
-  explicit StringKey(const char *data, size_t length) noexcept;
-  StringKey(StringKey &&other) noexcept;
-  StringKey &operator=(StringKey &&other) noexcept;
-  StringKey(const StringKey &other) = delete;
-  StringKey &operator=(const StringKey &other) = delete;
-  ~StringKey();
+  explicit BasicStringKey(std::basic_string<TChar> string) noexcept;
+  explicit BasicStringKey(std::basic_string_view<TChar> view) noexcept;
+  explicit BasicStringKey(const TChar *data, size_t length) noexcept;
+  BasicStringKey(BasicStringKey &&other) noexcept;
+  BasicStringKey &operator=(BasicStringKey &&other) noexcept;
+  BasicStringKey(const BasicStringKey &other) = delete;
+  BasicStringKey &operator=(const BasicStringKey &other) = delete;
+  ~BasicStringKey();
 
-  std::string_view getStringView() const;
-  bool equalTo(const StringKey &other) const;
+  std::basic_string_view<TChar> getStringView() const;
+  bool equalTo(const BasicStringKey &other) const;
   size_t hash() const;
 
   struct Hash {
-    size_t operator()(const StringKey &key) const;
+    size_t operator()(const BasicStringKey &key) const;
   };
 
   struct EqualTo {
-    bool operator()(const StringKey &left, const StringKey &right) const;
+    bool operator()(const BasicStringKey &left, const BasicStringKey &right) const;
   };
 
  private:
@@ -170,17 +181,113 @@ class StringKey {
 
  private:
   union {
-    std::string string_;
-    std::string_view view_;
+    std::basic_string<TChar> string_;
+    std::basic_string_view<TChar> view_;
   };
   Type type_{Type::String};
   size_t hash_;
 };
 
+using StringKey = BasicStringKey<char>;
+using Utf16StringKey = BasicStringKey<char16_t>;
+
 struct NodeApiAttachTag {
 } attachTag;
 
 // Implementation of N-API JSI Runtime
+class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
+ public:
+  NodeApiJsiInstrumentation(napi_env env, JSRuntimeApi *jsrApi) : env_(env), jsrApi_(jsrApi) {}
+
+  std::string getRecordedGCStats() override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_get_gc_stats(env_, writeToStdString, &result);
+    return result;
+  }
+
+  std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
+    std::unordered_map<std::string, int64_t> result;
+    auto cb = [](void *ctx, const char *key, int64_t value) {
+      std::unordered_map<std::string, int64_t> *map = static_cast<std::unordered_map<std::string, int64_t> *>(ctx);
+      map->try_emplace(key, value);
+    };
+    jsrApi_->jsr_instrumentation_get_heap_info(env_, includeExpensive, cb, &result);
+    return result;
+  }
+
+  void collectGarbage(std::string cause) override {
+    jsrApi_->jsr_instrumentation_collect_garbage(env_, cause.c_str());
+  }
+
+  void startTrackingHeapObjectStackTraces(
+      std::function<void(uint64_t, std::chrono::microseconds, std::vector<HeapStatsUpdate>)> /*fragmentCallback*/)
+      override {}
+
+  void stopTrackingHeapObjectStackTraces() override {}
+
+  void startHeapSampling(size_t samplingInterval) override {
+    jsrApi_->jsr_instrumentation_start_heap_sampling(env_, samplingInterval);
+  }
+
+  void stopHeapSampling(std::ostream &os) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_stop_heap_sampling(env_, writeToStdString, &result);
+    os << result;
+  }
+
+#if JSI_VERSION >= 13
+  void createSnapshotToFile(const std::string &path, const HeapSnapshotOptions &options) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    std::ofstream file(path);
+    file << result;
+    file.close();
+  }
+
+  void createSnapshotToStream(std::ostream &os, const HeapSnapshotOptions &options = {false}) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    os << result;
+  }
+#else
+  void createSnapshotToFile(const std::string &path) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    std::ofstream file(path);
+    file << result;
+    file.close();
+  }
+
+  void createSnapshotToStream(std::ostream &os) override {
+    std::string result;
+    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    os << result;
+  }
+#endif
+
+  std::string flushAndDisableBridgeTrafficTrace() override {
+    std::abort();
+  }
+
+  void writeBasicBlockProfileTraceToFile(const std::string &fileName) const override {
+    std::abort();
+  }
+
+  void dumpProfilerSymbolsToFile(const std::string &fileName) const override {
+    std::abort();
+  }
+
+ private:
+  static void NAPI_CDECL writeToStdString(void *ctx, const char *data, size_t len) {
+    std::string *str = static_cast<std::string *>(ctx);
+    str->assign(data, len);
+  };
+
+ private:
+  napi_env env_;
+  JSRuntimeApi *jsrApi_;
+};
+
 class NodeApiJsiRuntime : public jsi::Runtime {
  public:
   NodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> onDelete) noexcept;
@@ -202,6 +309,13 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::string description() override;
   bool isInspectable() override;
 
+  facebook::jsi::Instrumentation &instrumentation() override {
+    if (!instrumentation_) {
+      instrumentation_ = std::make_unique<NodeApiJsiInstrumentation>(env_, jsrApi_);
+    }
+    return *instrumentation_;
+  }
+
  protected:
   PointerValue *cloneSymbol(const PointerValue *pointerValue) override;
 #if JSI_VERSION >= 6
@@ -213,6 +327,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
   jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  jsi::PropNameID createPropNameIDFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   jsi::PropNameID createPropNameIDFromString(const jsi::String &str) override;
 #if JSI_VERSION >= 5
   jsi::PropNameID createPropNameIDFromSymbol(const jsi::Symbol &sym) override;
@@ -233,6 +350,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   jsi::String createStringFromAscii(const char *str, size_t length) override;
   jsi::String createStringFromUtf8(const uint8_t *utf8, size_t length) override;
+#if JSI_VERSION >= 19
+  jsi::String createStringFromUtf16(const char16_t *utf16, size_t length) override;
+#endif
   std::string utf8(const jsi::String &str) override;
 
   jsi::Object createObject() override;
@@ -240,10 +360,19 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::shared_ptr<jsi::HostObject> getHostObject(const jsi::Object &) override;
   jsi::HostFunctionType &getHostFunction(const jsi::Function &) override;
 
+#if JSI_VERSION >= 18
+  jsi::Object createObjectWithPrototype(const jsi::Value &prototype) override;
+#endif
+
 #if JSI_VERSION >= 7
   bool hasNativeState(const jsi::Object &value) override;
   std::shared_ptr<jsi::NativeState> getNativeState(const jsi::Object &value) override;
   void setNativeState(const jsi::Object &value, std::shared_ptr<jsi::NativeState> state) override;
+#endif
+
+#if JSI_VERSION >= 17
+  void setPrototypeOf(const jsi::Object &object, const jsi::Value &prototype) override;
+  jsi::Value getPrototypeOf(const jsi::Object &object) override;
 #endif
 
   jsi::Value getProperty(const jsi::Object &obj, const jsi::PropNameID &name) override;
@@ -294,6 +423,21 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
 #if JSI_VERSION >= 11
   void setExternalMemoryPressure(const jsi::Object &obj, size_t amount) override;
+#endif
+
+#if JSI_VERSION >= 14
+  std::u16string utf16(const jsi::String &str) override;
+  std::u16string utf16(const jsi::PropNameID &sym) override;
+#endif
+
+#if JSI_VERSION >= 16
+  void getStringData(const jsi::String &str, void *ctx, void (*cb)(void *ctx, bool ascii, const void *data, size_t num))
+      override;
+
+  void getPropNameIdData(
+      const jsi::PropNameID &sym,
+      void *ctx,
+      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
 #endif
 
  private:
@@ -807,14 +951,18 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   napi_value createStringLatin1(std::string_view value) const;
   napi_value createStringUtf8(std::string_view value) const;
   napi_value createStringUtf8(const uint8_t *data, size_t length) const;
-  std::string stringToStdString(napi_value stringValue) const;
+  napi_value createStringUtf16(std::u16string_view value) const;
+  template <typename TChar>
+  std::basic_string<TChar> stringToStdBasicString(napi_value stringValue) const;
   napi_value getPropertyIdFromName(std::string_view value) const;
   napi_value getPropertyIdFromName(const uint8_t *data, size_t length) const;
   napi_value getPropertyIdFromName(napi_value str) const;
   napi_value getPropertyIdFromSymbol(napi_value sym) const;
-  std::string propertyIdToStdString(napi_value propertyId);
+  template <typename TChar>
+  std::basic_string<TChar> propertyIdToStdBasicString(napi_value propertyId);
   napi_value createSymbol(std::string_view symbolDescription) const;
-  std::string symbolToStdString(napi_value symbolValue);
+  template <typename TChar>
+  std::basic_string<TChar> symbolToStdBasicString(napi_value symbolValue);
   napi_value callFunction(napi_value thisArg, napi_value function, span<napi_value> args = {}) const;
   napi_value constructObject(napi_value constructor, span<napi_value> args = {}) const;
   bool instanceOf(napi_value object, napi_value constructor) const;
@@ -927,41 +1075,51 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   // TODO: implement GC for propNameIDs_
   std::unordered_map<StringKey, NodeApiRefHolder, StringKey::Hash, StringKey::EqualTo> propNameIDs_;
+  std::unordered_map<Utf16StringKey, NodeApiRefHolder, Utf16StringKey::Hash, Utf16StringKey::EqualTo> utf16PropNameIDs_;
 
   NodeApiJsiRuntime &runtime{*this};
   NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_{NodeApiPendingDeletions::create()};
+  std::unique_ptr<facebook::jsi::Instrumentation> instrumentation_;
 };
 
 //=====================================================================================================================
-// StringKey implementation
+// BasicStringKey implementation
 //=====================================================================================================================
 
-StringKey::StringKey(std::string &&string) noexcept
-    : string_(std::move(string)), type_(Type::String), hash_(std::hash<std::string_view>{}(string_)) {}
+template <typename TChar>
+BasicStringKey<TChar>::BasicStringKey(std::basic_string<TChar> string) noexcept
+    : string_(std::move(string)), type_(Type::String), hash_(std::hash<std::basic_string_view<TChar>>{}(string_)) {}
 
-StringKey::StringKey(std::string_view view) noexcept
-    : view_(view), type_(Type::View), hash_(std::hash<std::string_view>{}(view_)) {}
+template <typename TChar>
+BasicStringKey<TChar>::BasicStringKey(std::basic_string_view<TChar> view) noexcept
+    : view_(view), type_(Type::View), hash_(std::hash<std::basic_string_view<TChar>>{}(view_)) {}
 
-StringKey::StringKey(const char *data, size_t length) noexcept
-    : view_(data, length), type_(Type::View), hash_(std::hash<std::string_view>{}(view_)) {}
+template <typename TChar>
+BasicStringKey<TChar>::BasicStringKey(const TChar *data, size_t length) noexcept
+    : view_(data, length), type_(Type::View), hash_(std::hash<std::basic_string_view<TChar>>{}(view_)) {}
 
-StringKey::StringKey(StringKey &&other) noexcept : type_(other.type_), hash_(std::exchange(other.hash_, 0)) {
+template <typename TChar>
+BasicStringKey<TChar>::BasicStringKey(BasicStringKey<TChar> &&other) noexcept
+    : type_(other.type_), hash_(std::exchange(other.hash_, 0)) {
   if (type_ == Type::String) {
-    ::new (std::addressof(string_)) std::string(std::move(other.string_));
+    ::new (std::addressof(string_)) std::basic_string<TChar>(std::move(other.string_));
   } else {
-    ::new (std::addressof(view_)) std::string_view(std::exchange(other.view_, std::string_view()));
+    ::new (std::addressof(view_))
+        std::basic_string_view<TChar>(std::exchange(other.view_, std::basic_string_view<TChar>()));
   }
 }
 
-StringKey &StringKey::operator=(StringKey &&other) noexcept {
+template <typename TChar>
+BasicStringKey<TChar> &BasicStringKey<TChar>::operator=(BasicStringKey<TChar> &&other) noexcept {
   if (this != &other) {
-    this->~StringKey();
-    ::new (this) StringKey(std::move(other));
+    this->~BasicStringKey();
+    ::new (this) BasicStringKey<TChar>(std::move(other));
   }
   return *this;
 }
 
-StringKey::~StringKey() {
+template <typename TChar>
+BasicStringKey<TChar>::~BasicStringKey() {
   if (type_ == Type::String) {
     std::addressof(string_)->~basic_string();
   } else {
@@ -969,23 +1127,29 @@ StringKey::~StringKey() {
   }
 }
 
-std::string_view StringKey::getStringView() const {
-  return (type_ == Type::String) ? std::string_view(string_) : view_;
+template <typename TChar>
+std::basic_string_view<TChar> BasicStringKey<TChar>::getStringView() const {
+  return (type_ == Type::String) ? std::basic_string_view<TChar>(string_) : view_;
 }
 
-bool StringKey::equalTo(const StringKey &other) const {
+template <typename TChar>
+bool BasicStringKey<TChar>::equalTo(const BasicStringKey<TChar> &other) const {
   return getStringView().compare(other.getStringView()) == 0;
 }
 
-size_t StringKey::hash() const {
+template <typename TChar>
+size_t BasicStringKey<TChar>::hash() const {
   return hash_;
 }
 
-size_t StringKey::Hash::operator()(const StringKey &key) const {
+template <typename TChar>
+size_t BasicStringKey<TChar>::Hash::operator()(const BasicStringKey<TChar> &key) const {
   return key.hash();
 }
 
-bool StringKey::EqualTo::operator()(const StringKey &left, const StringKey &right) const {
+template <typename TChar>
+bool BasicStringKey<TChar>::EqualTo::operator()(const BasicStringKey<TChar> &left, const BasicStringKey<TChar> &right)
+    const {
   return left.equalTo(right);
 }
 
@@ -1032,6 +1196,12 @@ NodeApiJsiRuntime::~NodeApiJsiRuntime() {
     onDelete_();
   }
 }
+
+// Forward declaration of the template specializations.
+template <>
+std::string NodeApiJsiRuntime::stringToStdBasicString<char>(napi_value stringValue) const;
+template <>
+std::u16string NodeApiJsiRuntime::stringToStdBasicString<char16_t>(napi_value stringValue) const;
 
 jsi::Value NodeApiJsiRuntime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
@@ -1165,6 +1335,30 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf8(const uint8_t *utf8,
   return result;
 }
 
+#if JSI_VERSION >= 19
+jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf16(const char16_t *utf16, size_t length) {
+  NodeApiScope scope{*this};
+  Utf16StringKey keyName{utf16, length};
+  auto it = utf16PropNameIDs_.find(keyName);
+  if (it != utf16PropNameIDs_.end()) {
+    return make<jsi::PropNameID>(it->second->clone(*this));
+  }
+
+  napi_value obj = createNodeApiObject();
+  napi_value propName{};
+  CHECK_NAPI(jsrApi_->napi_create_string_utf16(env_, utf16, length, &propName));
+  CHECK_NAPI(jsrApi_->napi_set_property(env_, obj, propName, getUndefined()));
+  napi_value props{};
+  CHECK_NAPI(jsrApi_->napi_get_all_property_names(
+      env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
+  napi_value propNameId = getElement(props, 0);
+  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
+  jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
+  utf16PropNameIDs_.try_emplace(Utf16StringKey(std::u16string(keyName.getStringView())), std::move(propNameRef));
+  return result;
+}
+#endif
+
 jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromString(const jsi::String &str) {
   NodeApiScope scope{*this};
   const NodeApiPointerValue *pv = static_cast<const NodeApiPointerValue *>(getPointerValue(str));
@@ -1201,7 +1395,7 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromSymbol(const jsi::Symbol 
 
 std::string NodeApiJsiRuntime::utf8(const jsi::PropNameID &id) {
   NodeApiScope scope{*this};
-  return propertyIdToStdString(getNodeApiValue(id));
+  return propertyIdToStdBasicString<char>(getNodeApiValue(id));
 }
 
 bool NodeApiJsiRuntime::compare(const jsi::PropNameID &lhs, const jsi::PropNameID &rhs) {
@@ -1211,7 +1405,7 @@ bool NodeApiJsiRuntime::compare(const jsi::PropNameID &lhs, const jsi::PropNameI
 
 std::string NodeApiJsiRuntime::symbolToString(const jsi::Symbol &sym) {
   NodeApiScope scope{*this};
-  return symbolToStdString(getNodeApiValue(sym));
+  return symbolToStdBasicString<char>(getNodeApiValue(sym));
 }
 
 #if JSI_VERSION >= 8
@@ -1388,9 +1582,16 @@ jsi::String NodeApiJsiRuntime::createStringFromUtf8(const uint8_t *str, size_t l
   return makeJsiPointer<jsi::String>(createStringUtf8(str, length));
 }
 
+#if JSI_VERSION >= 19
+jsi::String NodeApiJsiRuntime::createStringFromUtf16(const char16_t *utf16, size_t length) {
+  NodeApiScope scope{*this};
+  return makeJsiPointer<jsi::String>(createStringUtf16({utf16, length}));
+}
+#endif
+
 std::string NodeApiJsiRuntime::utf8(const jsi::String &str) {
   NodeApiScope scope{*this};
-  return stringToStdString(getNodeApiValue(str));
+  return stringToStdBasicString<char>(getNodeApiValue(str));
 }
 
 jsi::Object NodeApiJsiRuntime::createObject() {
@@ -1432,6 +1633,12 @@ jsi::HostFunctionType &NodeApiJsiRuntime::getHostFunction(const jsi::Function &f
     throw jsi::JSINativeException("getHostFunction() can only be called with HostFunction.");
   }
 }
+
+#if JSI_VERSION >= 18
+jsi::Object NodeApiJsiRuntime::createObjectWithPrototype(const jsi::Value &prototype) {
+  return Runtime::createObjectWithPrototype(prototype);
+}
+#endif
 
 #if JSI_VERSION >= 7
 bool NodeApiJsiRuntime::hasNativeState(const jsi::Object &obj) {
@@ -1475,6 +1682,19 @@ void NodeApiJsiRuntime::setNativeState(const jsi::Object &obj, std::shared_ptr<j
         nullptr,
         nullptr));
   }
+}
+#endif
+
+#if JSI_VERSION >= 17
+void NodeApiJsiRuntime::setPrototypeOf(const jsi::Object &object, const jsi::Value &prototype) {
+  Runtime::setPrototypeOf(object, prototype);
+}
+
+jsi::Value NodeApiJsiRuntime::getPrototypeOf(const jsi::Object &object) {
+  NodeApiScope scope{*this};
+  napi_value prototype{};
+  CHECK_NAPI(jsrApi_->napi_get_prototype(env_, getNodeApiValue(object), &prototype));
+  return toJsiValue(prototype);
 }
 #endif
 
@@ -1710,6 +1930,34 @@ bool NodeApiJsiRuntime::instanceOf(const jsi::Object &obj, const jsi::Function &
 #if JSI_VERSION >= 11
 void NodeApiJsiRuntime::setExternalMemoryPressure(const jsi::Object & /*obj*/, size_t /*amount*/) {
   // TODO: implement
+}
+#endif
+
+#if JSI_VERSION >= 14
+std::u16string NodeApiJsiRuntime::utf16(const jsi::String &str) {
+  NodeApiScope scope{*this};
+  return stringToStdBasicString<char16_t>(getNodeApiValue(str));
+}
+
+std::u16string NodeApiJsiRuntime::utf16(const jsi::PropNameID &sym) {
+  NodeApiScope scope{*this};
+  return propertyIdToStdBasicString<char16_t>(getNodeApiValue(sym));
+}
+#endif
+
+#if JSI_VERSION >= 16
+void NodeApiJsiRuntime::getStringData(
+    const jsi::String &str,
+    void *ctx,
+    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
+  return Runtime::getStringData(str, ctx, cb);
+}
+
+void NodeApiJsiRuntime::getPropNameIdData(
+    const jsi::PropNameID &sym,
+    void *ctx,
+    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
+  return Runtime::getPropNameIdData(sym, ctx, cb);
 }
 #endif
 
@@ -2078,7 +2326,7 @@ jsi::JSError NodeApiJsiRuntime::makeJSError(Args &&...args) {
 
   if (!hasPendingJSError_ && (status == napi_pending_exception || jsErrorType != napi_undefined)) {
     AutoRestore<bool> setValue(const_cast<NodeApiJsiRuntime *>(this)->hasPendingJSError_, true);
-    if (jsErrorType == napi_object && instanceOf(jsError, getNodeApiValue(cachedValue_.Error))) {
+    if (jsErrorType == napi_object) {
       rewriteErrorMessage(jsError);
     }
     throw jsi::JSError(*const_cast<NodeApiJsiRuntime *>(this), toJsiValue(jsError));
@@ -2106,7 +2354,7 @@ void NodeApiJsiRuntime::rewriteErrorMessage(napi_value jsError) const {
     jsrApi_->napi_get_and_clear_last_exception(env_, &ignoreJSError);
   } else if (typeOf(message) == napi_string) {
     // JSI unit tests expect V8- or JSC-like messages for the stack overflow.
-    if (stringToStdString(message) == "Out of stack space") {
+    if (stringToStdBasicString<char>(message) == "Out of stack space") {
       setProperty(
           jsError,
           getNodeApiValue(propertyId_.message),
@@ -2124,7 +2372,7 @@ void NodeApiJsiRuntime::rewriteErrorMessage(napi_value jsError) const {
       jsrApi_->napi_get_and_clear_last_exception(env_, &ignoreJSError);
     } else if (typeOf(message) == napi_string) {
       // JSI unit tests expect URL to be part of the call stack.
-      std::string stackStr = stringToStdString(stack);
+      std::string stackStr = stringToStdBasicString<char>(stack);
       if (stackStr.find(sourceURL_) == std::string::npos) {
         stackStr += sourceURL_ + '\n' + stackStr;
         setProperty(jsError, getNodeApiValue(propertyId_.stack), createStringUtf8(stackStr.c_str()));
@@ -2277,8 +2525,17 @@ napi_value NodeApiJsiRuntime::createStringUtf8(const uint8_t *data, size_t lengt
   return createStringUtf8({reinterpret_cast<const char *>(data), length});
 }
 
+// Creates a napi_value string from a UTF-16 string.
+napi_value NodeApiJsiRuntime::createStringUtf16(std::u16string_view value) const {
+  CHECK_ELSE_THROW(value.data(), "Cannot convert a nullptr to a JS string.");
+  napi_value result{};
+  CHECK_NAPI(jsrApi_->napi_create_string_utf16(env_, value.data(), value.size(), &result));
+  return result;
+}
+
 // Gets std::string from the napi_value string.
-std::string NodeApiJsiRuntime::stringToStdString(napi_value stringValue) const {
+template <>
+std::string NodeApiJsiRuntime::stringToStdBasicString<char>(napi_value stringValue) const {
   std::string result;
   CHECK_ELSE_THROW(
       typeOf(stringValue) == napi_valuetype::napi_string,
@@ -2288,6 +2545,22 @@ std::string NodeApiJsiRuntime::stringToStdString(napi_value stringValue) const {
   result.assign(strLength, '\0');
   size_t copiedLength{};
   CHECK_NAPI(jsrApi_->napi_get_value_string_utf8(env_, stringValue, &result[0], result.length() + 1, &copiedLength));
+  CHECK_ELSE_THROW(result.length() == copiedLength, "Unexpected string length");
+  return result;
+}
+
+// Gets std::u16string from the napi_value string.
+template <>
+std::u16string NodeApiJsiRuntime::stringToStdBasicString<char16_t>(napi_value stringValue) const {
+  std::u16string result;
+  CHECK_ELSE_THROW(
+      typeOf(stringValue) == napi_valuetype::napi_string,
+      "Cannot convert a non JS string Node-API Value to a std::u16string.");
+  size_t strLength{};
+  CHECK_NAPI(jsrApi_->napi_get_value_string_utf16(env_, stringValue, nullptr, 0, &strLength));
+  result.assign(strLength, '\0');
+  size_t copiedLength{};
+  CHECK_NAPI(jsrApi_->napi_get_value_string_utf16(env_, stringValue, &result[0], result.length() + 1, &copiedLength));
   CHECK_ELSE_THROW(result.length() == copiedLength, "Unexpected string length");
   return result;
 }
@@ -2314,13 +2587,14 @@ napi_value NodeApiJsiRuntime::getPropertyIdFromSymbol(napi_value sym) const {
   return sym;
 }
 
-// Converts property id value to std::string.
-std::string NodeApiJsiRuntime::propertyIdToStdString(napi_value propertyId) {
+// Converts property id value to std::basic_string<TChar>.
+template <typename TChar>
+std::basic_string<TChar> NodeApiJsiRuntime::propertyIdToStdBasicString(napi_value propertyId) {
   if (typeOf(propertyId) == napi_symbol) {
-    return symbolToStdString(propertyId);
+    return symbolToStdBasicString<TChar>(propertyId);
   }
 
-  return stringToStdString(propertyId);
+  return stringToStdBasicString<TChar>(propertyId);
 }
 
 // Creates a JavaScript symbol napi_value.
@@ -2331,8 +2605,9 @@ napi_value NodeApiJsiRuntime::createSymbol(std::string_view symbolDescription) c
   return result;
 }
 
-// Calls Symbol.toString() and returns it as std::string.
-std::string NodeApiJsiRuntime::symbolToStdString(napi_value symbolValue) {
+// Calls Symbol.toString() and returns it as std::basic_string<TChar>.
+template <typename TChar>
+std::basic_string<TChar> NodeApiJsiRuntime::symbolToStdBasicString(napi_value symbolValue) {
   if (!cachedValue_.SymbolToString) {
     napi_value symbolCtor = getProperty(getNodeApiValue(cachedValue_.Global), getNodeApiValue(propertyId_.Symbol));
     napi_value symbolPrototype = getProperty(symbolCtor, getNodeApiValue(propertyId_.prototype));
@@ -2340,7 +2615,7 @@ std::string NodeApiJsiRuntime::symbolToStdString(napi_value symbolValue) {
         getProperty(symbolPrototype, getNodeApiValue(propertyId_.toString)), NodeApiPointerValueKind::Object);
   }
   napi_value jsString = callFunction(symbolValue, getNodeApiValue(cachedValue_.SymbolToString), {});
-  return stringToStdString(jsString);
+  return stringToStdBasicString<TChar>(jsString);
 }
 
 // Calls a JavaScript function.
@@ -2439,8 +2714,9 @@ void NodeApiJsiRuntime::setElement(napi_value array, uint32_t index, napi_value 
     napi_callback_info info) noexcept {
   HostFunctionWrapper *hostFuncWrapper{};
   size_t argc{};
-  CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_get_cb_info(
-      env, info, &argc, nullptr, nullptr, reinterpret_cast<void **>(&hostFuncWrapper)));
+  CHECK_NAPI_ELSE_CRASH(
+      JSRuntimeApi::current()->napi_get_cb_info(
+          env, info, &argc, nullptr, nullptr, reinterpret_cast<void **>(&hostFuncWrapper)));
   CHECK_ELSE_CRASH(hostFuncWrapper, "Cannot find the host function");
   NodeApiJsiRuntime &runtime = hostFuncWrapper->runtime();
   NodeApiPointerValueScope scope{runtime};
@@ -2467,7 +2743,7 @@ napi_value NodeApiJsiRuntime::createExternalFunction(
     int32_t paramCount,
     napi_callback callback,
     void *callbackData) {
-  std::string funcName = stringToStdString(name);
+  std::string funcName = stringToStdBasicString<char>(name);
   napi_value function{};
   CHECK_NAPI(
       jsrApi_->napi_create_function(env_, funcName.data(), funcName.length(), callback, callbackData, &function));
@@ -2543,8 +2819,9 @@ void NodeApiJsiRuntime::setProxyTrap(napi_value handler, napi_value propertyName
     NodeApiJsiRuntime *runtime{};
     napi_value args[argCount]{};
     size_t actualArgCount{argCount};
-    CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_get_cb_info(
-        env, info, &actualArgCount, args, nullptr, reinterpret_cast<void **>(&runtime)));
+    CHECK_NAPI_ELSE_CRASH(
+        JSRuntimeApi::current()->napi_get_cb_info(
+            env, info, &actualArgCount, args, nullptr, reinterpret_cast<void **>(&runtime)));
     CHECK_ELSE_CRASH(actualArgCount == argCount, "proxy trap requires argCount arguments.");
     NodeApiPointerValueScope scope{*runtime};
     return runtime->handleCallbackExceptions(
@@ -2672,7 +2949,7 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
     napi_value napiKey = getNodeApiValue(key);
     napi_valuetype valueType = typeOf(napiKey);
     if (valueType == napi_string) {
-      std::string keyStr = stringToStdString(napiKey);
+      std::string keyStr = stringToStdBasicString<char>(napiKey);
       std::optional<uint32_t> indexKey = toArrayIndex(keyStr.begin(), keyStr.end());
       if (indexKey.has_value()) {
         indexKeys.push_back(Index{indexKey.value(), napiKey});
@@ -2949,7 +3226,39 @@ napi_status NAPI_CDECL default_jsr_close_napi_env_scope(napi_env /*env*/, jsr_na
   return napi_ok;
 }
 
-// TODO: Ensure that we either load all three functions or use their default versions and never mix and match.
+napi_status NAPI_CDECL
+default_jsr_instrumentation_get_gc_stats(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_get_heap_info(
+    napi_env /*env*/,
+    bool /*include_expensive*/,
+    jsr_heap_info_cb /*cb*/,
+    void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_collect_garbage(napi_env /*env*/, const char * /*cause*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_start_heap_sampling(napi_env /*env*/, size_t /*sampling_interval*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL
+default_jsr_instrumentation_stop_heap_sampling(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+  return napi_ok;
+}
+
+napi_status NAPI_CDECL default_jsr_instrumentation_create_heap_snapshot(
+    napi_env /*env*/,
+    bool /*capture_numeric_value*/,
+    jsr_string_output_cb /*cb*/,
+    void * /*cb_ctx*/) {
+  return napi_ok;
+}
 
 // Default implementation of jsr_create_prepared_script if it is not provided by JS engine.
 // It return napi_ref as a jsr_prepared_script that wraps up an object with a "script" property string.

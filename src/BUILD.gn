@@ -11,6 +11,8 @@ target("shared_library", "v8jsi") {
     "IsolateData.h",
     "MurmurHash.cpp",
     "MurmurHash.h",
+    "V8Instrumentation.cpp",
+    "V8Instrumentation.h",
     "V8JsiRuntime.cpp",
     "V8JsiRuntime_impl.h",
     "jsi/JSIDynamic.h",
