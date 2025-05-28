@@ -103,6 +103,7 @@ Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\depot_tools\ext
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\perfetto")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\protobuf")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\rust")
+Remove-Item -Recurse -Force (Join-Path $workpath "v8\third_party\rust-toolchain")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\bazel")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\clusterfuzz")
 Remove-Item -Recurse -Force (Join-Path $workpath "v8\tools\package-lock.json")
