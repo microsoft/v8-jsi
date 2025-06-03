@@ -104,6 +104,19 @@ index 529f54b59f..f0ecac5c0c 100644
 +    ],
 +  },
  ]
+diff --git a/src/heap/cppgc/marking-state.h b/src/heap/cppgc/marking-state.h
+index 4ce1ce4074..3153407f4f 100644
+--- a/src/heap/cppgc/marking-state.h
++++ b/src/heap/cppgc/marking-state.h
+@@ -342,7 +342,7 @@ class MutatorMarkingState final : public BasicMarkingState {
+   ~MutatorMarkingState() override = default;
+ 
+   inline bool MarkNoPush(HeapObjectHeader& header) {
+-    return MutatorMarkingState::BasicMarkingState::MarkNoPush(header);
++    return BasicMarkingState::MarkNoPush(header);
+   }
+ 
+   inline void ReTraceMarkedWeakContainer(cppgc::Visitor&, HeapObjectHeader&);
 diff --git a/src/maglev/maglev-ir.h b/src/maglev/maglev-ir.h
 index 68a751b775..75277e0f7e 100644
 --- a/src/maglev/maglev-ir.h
