@@ -44,19 +44,23 @@ TEST_P(JSITest, PropNameIDTest) {
   EXPECT_TRUE(PropNameID::compare(rt, movedQuux, copiedQuux));
 
   EXPECT_TRUE(PropNameID::compare(rt, movedQuux, movedQuux));
-  EXPECT_TRUE(PropNameID::compare(
-      rt, movedQuux, PropNameID::forAscii(rt, std::string("quux2"))));
-  EXPECT_FALSE(PropNameID::compare(
-      rt, movedQuux, PropNameID::forAscii(rt, std::string("foo"))));
+  EXPECT_TRUE(
+      PropNameID::compare(
+          rt, movedQuux, PropNameID::forAscii(rt, std::string("quux2"))));
+  EXPECT_FALSE(
+      PropNameID::compare(
+          rt, movedQuux, PropNameID::forAscii(rt, std::string("foo"))));
   uint8_t utf8[] = {0xF0, 0x9F, 0x86, 0x97};
   PropNameID utf8PropNameID = PropNameID::forUtf8(rt, utf8, sizeof(utf8));
   EXPECT_EQ(
       utf8PropNameID.utf8(rt), reinterpret_cast<const char*>(u8"\U0001F197"));
-  EXPECT_TRUE(PropNameID::compare(
-      rt, utf8PropNameID, PropNameID::forUtf8(rt, utf8, sizeof(utf8))));
+  EXPECT_TRUE(
+      PropNameID::compare(
+          rt, utf8PropNameID, PropNameID::forUtf8(rt, utf8, sizeof(utf8))));
   PropNameID nonUtf8PropNameID = PropNameID::forUtf8(rt, "meow");
-  EXPECT_TRUE(PropNameID::compare(
-      rt, nonUtf8PropNameID, PropNameID::forAscii(rt, "meow")));
+  EXPECT_TRUE(
+      PropNameID::compare(
+          rt, nonUtf8PropNameID, PropNameID::forAscii(rt, "meow")));
   EXPECT_EQ(nonUtf8PropNameID.utf8(rt), "meow");
   PropNameID strPropNameID =
       PropNameID::forString(rt, String::createFromAscii(rt, "meow"));
@@ -149,11 +153,12 @@ TEST_P(JSITest, ObjectTest) {
   obj.setProperty(rt, "oprop", oprop);
   obj.setProperty(rt, "aprop", Array(rt, 1));
 
-  EXPECT_TRUE(function("function (obj) { return "
-                       "obj.roses == 'red' && "
-                       "obj['violets'] == 'blue' && "
-                       "typeof obj.oprop == 'object' && "
-                       "Array.isArray(obj.aprop); }")
+  EXPECT_TRUE(function(
+                  "function (obj) { return "
+                  "obj.roses == 'red' && "
+                  "obj['violets'] == 'blue' && "
+                  "typeof obj.oprop == 'object' && "
+                  "Array.isArray(obj.aprop); }")
                   .call(rt, obj)
                   .getBool());
 
@@ -196,7 +201,7 @@ TEST_P(JSITest, HostObjectTest) {
   EXPECT_TRUE(cho.getHostObject<ConstantHostObject>(rt).get() != nullptr);
 
   struct SameRuntimeHostObject : HostObject {
-    SameRuntimeHostObject(Runtime& rt) : rt_(rt){};
+    SameRuntimeHostObject(Runtime& rt) : rt_(rt) {};
 
     Value get(Runtime& rt, const PropNameID& sym) override {
       EXPECT_EQ(&rt, &rt_);
@@ -680,14 +685,15 @@ TEST_P(JSITest, HostFunctionTest) {
   EXPECT_TRUE(eval("cons.length == 2").getBool());
   EXPECT_TRUE(eval("cons instanceof Function").getBool());
 
-  EXPECT_TRUE(eval("(function() {"
-                   "  try {"
-                   "    cons('fail'); return false;"
-                   "  } catch (e) {"
-                   "    return ((e instanceof Error) &&"
-                   "            (e.message == 'Exception in HostFunction: ' +"
-                   "                          'expected 2 args'));"
-                   "  }})()")
+  EXPECT_TRUE(eval(
+                  "(function() {"
+                  "  try {"
+                  "    cons('fail'); return false;"
+                  "  } catch (e) {"
+                  "    return ((e instanceof Error) &&"
+                  "            (e.message == 'Exception in HostFunction: ' +"
+                  "                          'expected 2 args'));"
+                  "  }})()")
                   .getBool());
 
   Function coolify = Function::createFromHostFunction(
@@ -704,10 +710,11 @@ TEST_P(JSITest, HostFunctionTest) {
   EXPECT_TRUE(eval("coolify.name == 'coolify'").getBool());
   EXPECT_TRUE(eval("coolify.length == 0").getBool());
   EXPECT_TRUE(eval("coolify.bind('R&M')() == 'R&M is cool'").getBool());
-  EXPECT_TRUE(eval("(function() {"
-                   "  var s = coolify.bind(function(){})();"
-                   "  return s.lastIndexOf(' is cool') == (s.length - 8);"
-                   "})()")
+  EXPECT_TRUE(eval(
+                  "(function() {"
+                  "  var s = coolify.bind(function(){})();"
+                  "  return s.lastIndexOf(' is cool') == (s.length - 8);"
+                  "})()")
                   .getBool());
 
   Function lookAtMe = Function::createFromHostFunction(
@@ -840,14 +847,15 @@ TEST_P(JSITest, ValueTest) {
   uint8_t utf8[] = "[null, 2, \"c\", \"emoji: \xf0\x9f\x86\x97\", {}]";
 
   EXPECT_TRUE(
-      function("function (arr) { return "
-               "Array.isArray(arr) && "
-               "arr.length == 5 && "
-               "arr[0] === null && "
-               "arr[1] == 2 && "
-               "arr[2] == 'c' && "
-               "arr[3] == 'emoji: \\uD83C\\uDD97' && "
-               "typeof arr[4] == 'object'; }")
+      function(
+          "function (arr) { return "
+          "Array.isArray(arr) && "
+          "arr.length == 5 && "
+          "arr[0] === null && "
+          "arr[1] == 2 && "
+          "arr[2] == 'c' && "
+          "arr[3] == 'emoji: \\uD83C\\uDD97' && "
+          "typeof arr[4] == 'object'; }")
           .call(rt, Value::createFromJsonUtf8(rt, utf8, sizeof(utf8) - 1))
           .getBool());
 
@@ -889,14 +897,16 @@ TEST_P(JSITest, EqualsTest) {
   EXPECT_TRUE(Value::strictEquals(rt, nullptr, nullptr));
   EXPECT_TRUE(Value::strictEquals(rt, Value::undefined(), Value()));
   EXPECT_TRUE(Value::strictEquals(rt, rt.global(), Value(rt.global())));
-  EXPECT_FALSE(Value::strictEquals(
-      rt,
-      std::numeric_limits<double>::quiet_NaN(),
-      std::numeric_limits<double>::quiet_NaN()));
-  EXPECT_FALSE(Value::strictEquals(
-      rt,
-      std::numeric_limits<double>::signaling_NaN(),
-      std::numeric_limits<double>::signaling_NaN()));
+  EXPECT_FALSE(
+      Value::strictEquals(
+          rt,
+          std::numeric_limits<double>::quiet_NaN(),
+          std::numeric_limits<double>::quiet_NaN()));
+  EXPECT_FALSE(
+      Value::strictEquals(
+          rt,
+          std::numeric_limits<double>::signaling_NaN(),
+          std::numeric_limits<double>::signaling_NaN()));
   EXPECT_TRUE(Value::strictEquals(rt, +0.0, -0.0));
   EXPECT_TRUE(Value::strictEquals(rt, -0.0, +0.0));
 
@@ -1042,8 +1052,9 @@ TEST_P(JSITest, JSErrorDoesNotInfinitelyRecurse) {
     return rt.global().getPropertyAsObject(rt, "NotAProperty");
   };
   EXPECT_EQ(
-      function("function (f) { try { f(); return 'undefined'; }"
-               "catch (e) { return typeof e; } }")
+      function(
+          "function (f) { try { f(); return 'undefined'; }"
+          "catch (e) { return typeof e; } }")
           .call(
               rt,
               Function::createFromHostFunction(
@@ -1177,7 +1188,7 @@ TEST_P(JSITest, DecoratorTest) {
 
   class CountRuntime final : public WithRuntimeDecorator<Count> {
    public:
-    explicit CountRuntime(std::unique_ptr<Runtime> rt)
+    explicit CountRuntime(std::shared_ptr<Runtime> rt)
         : WithRuntimeDecorator<Count>(*rt, count_),
           rt_(std::move(rt)),
           count_(kInit) {}
@@ -1187,7 +1198,7 @@ TEST_P(JSITest, DecoratorTest) {
     }
 
    private:
-    std::unique_ptr<Runtime> rt_;
+    std::shared_ptr<Runtime> rt_;
     Count count_;
   };
 
@@ -1226,7 +1237,7 @@ TEST_P(JSITest, MultiDecoratorTest) {
   class MultiRuntime final
       : public WithRuntimeDecorator<std::tuple<Inc, Nest>> {
    public:
-    explicit MultiRuntime(std::unique_ptr<Runtime> rt)
+    explicit MultiRuntime(std::shared_ptr<Runtime> rt)
         : WithRuntimeDecorator<std::tuple<Inc, Nest>>(*rt, tuple_),
           rt_(std::move(rt)) {}
 
@@ -1238,7 +1249,7 @@ TEST_P(JSITest, MultiDecoratorTest) {
     }
 
    private:
-    std::unique_ptr<Runtime> rt_;
+    std::shared_ptr<Runtime> rt_;
     std::tuple<Inc, Nest> tuple_;
   };
 
@@ -1283,18 +1294,21 @@ TEST_P(JSITest, SymbolTest) {
   EXPECT_EQ(eval("Symbol('sym')").getSymbol(rt).toString(rt), "Symbol(sym)");
 
   // EqualsTest
-  EXPECT_FALSE(Symbol::strictEquals(
-      rt,
-      eval("Symbol('a')").getSymbol(rt),
-      eval("Symbol('a')").getSymbol(rt)));
-  EXPECT_TRUE(Symbol::strictEquals(
-      rt,
-      eval("Symbol.for('a')").getSymbol(rt),
-      eval("Symbol.for('a')").getSymbol(rt)));
+  EXPECT_FALSE(
+      Symbol::strictEquals(
+          rt,
+          eval("Symbol('a')").getSymbol(rt),
+          eval("Symbol('a')").getSymbol(rt)));
+  EXPECT_TRUE(
+      Symbol::strictEquals(
+          rt,
+          eval("Symbol.for('a')").getSymbol(rt),
+          eval("Symbol.for('a')").getSymbol(rt)));
   EXPECT_FALSE(
       Value::strictEquals(rt, eval("Symbol('a')"), eval("Symbol('a')")));
-  EXPECT_TRUE(Value::strictEquals(
-      rt, eval("Symbol.for('a')"), eval("Symbol.for('a')")));
+  EXPECT_TRUE(
+      Value::strictEquals(
+          rt, eval("Symbol.for('a')"), eval("Symbol.for('a')")));
   EXPECT_FALSE(Value::strictEquals(rt, eval("Symbol('a')"), eval("'a'")));
 }
 
@@ -1305,13 +1319,15 @@ TEST_P(JSITest, JSErrorTest) {
   // Getting message property can throw
 
   EXPECT_THROW(
-      eval("var GetMessageThrows = {get message() { throw Error('ex'); }};"
-           "throw GetMessageThrows;"),
+      eval(
+          "var GetMessageThrows = {get message() { throw Error('ex'); }};"
+          "throw GetMessageThrows;"),
       JSIException);
 
   EXPECT_THROW(
-      eval("var GetMessageThrows = {get message() { throw GetMessageThrows; }};"
-           "throw GetMessageThrows;"),
+      eval(
+          "var GetMessageThrows = {get message() { throw GetMessageThrows; }};"
+          "throw GetMessageThrows;"),
       JSIException);
 
   // Converting exception message to String can throw
@@ -1334,18 +1350,20 @@ TEST_P(JSITest, JSErrorTest) {
       JSIException);
 
   EXPECT_THROW(
-      eval("var e = Error();"
-           "String = function() { throw Error('ctor'); };"
-           "throw e;"),
+      eval(
+          "var e = Error();"
+          "String = function() { throw Error('ctor'); };"
+          "throw e;"),
       JSIException);
 
   // Converting an exception message to String can return a non-String
 
   EXPECT_THROW(
-      eval("String = function() { return 42; };"
-           "var e = Error();"
-           "e.message = 17;"
-           "throw e;"),
+      eval(
+          "String = function() { return 42; };"
+          "var e = Error();"
+          "e.message = 17;"
+          "throw e;"),
       JSIException);
 
   // Exception can be non-Object
@@ -1357,8 +1375,9 @@ TEST_P(JSITest, JSErrorTest) {
   // Converting exception with no message or stack property to String can throw
 
   EXPECT_THROW(
-      eval("var e = {toString() { throw new Error('errstr'); }};"
-           "throw e;"),
+      eval(
+          "var e = {toString() { throw new Error('errstr'); }};"
+          "throw e;"),
       JSIException);
 }
 
@@ -1790,6 +1809,114 @@ TEST_P(JSITest, ObjectCreateWithPrototype) {
   EXPECT_TRUE(child.getPrototype(rd).isNull());
 }
 #endif
+
+TEST_P(JSITest, SetRuntimeData) {
+  class RD : public RuntimeDecorator<Runtime, Runtime> {
+   public:
+    explicit RD(Runtime& rt) : RuntimeDecorator(rt) {}
+
+    void setRuntimeDataImpl(
+        const UUID& uuid,
+        const void* data,
+        void (*deleter)(const void* data)) override {
+      Runtime::setRuntimeDataImpl(uuid, data, deleter);
+    }
+
+    const void* getRuntimeDataImpl(const UUID& uuid) override {
+      return Runtime::getRuntimeDataImpl(uuid);
+    }
+  };
+
+  RD rd1 = RD(rt);
+  UUID uuid1{0xe67ab3d6, 0x09a0, 0x11f0, 0xa641, 0x325096b39f47};
+  auto str = std::make_shared<std::string>("hello world");
+  rd1.setRuntimeData(uuid1, str);
+
+  UUID uuid2{0xa12f99fc, 0x09a2, 0x11f0, 0x84de, 0x325096b39f47};
+  auto obj1 = std::make_shared<Object>(rd1);
+  rd1.setRuntimeData(uuid2, obj1);
+
+  auto storedStr =
+      std::static_pointer_cast<std::string>(rd1.getRuntimeData(uuid1));
+  auto storedObj = std::static_pointer_cast<Object>(rd1.getRuntimeData(uuid2));
+  EXPECT_EQ(storedStr, str);
+  EXPECT_EQ(storedObj, obj1);
+
+  // Override the existing value at uuid1
+  auto weakOldStr = std::weak_ptr<std::string>(str);
+  str = std::make_shared<std::string>("goodbye world");
+  rd1.setRuntimeData(uuid1, str);
+  storedStr = std::static_pointer_cast<std::string>(rd1.getRuntimeData(uuid1));
+  EXPECT_EQ(str, storedStr);
+  // Verify that the old data was not held on after it was overwritten.
+  EXPECT_EQ(weakOldStr.use_count(), 0);
+
+  auto rt2 = factory();
+  RD* rd2 = new RD(*rt2);
+  UUID uuid3{0x16f55892, 0x1034, 0x11f0, 0x8f65, 0x325096b39f47};
+  auto obj2 = std::make_shared<Object>(*rd2);
+  rd2->setRuntimeData(uuid3, obj2);
+
+  auto storedObj2 =
+      std::static_pointer_cast<Object>(rd2->getRuntimeData(uuid3));
+  EXPECT_EQ(storedObj2, obj2);
+
+  // UUID1 is for some data in runtime rd1, not rd2
+  EXPECT_FALSE(rd2->getRuntimeData(uuid1));
+
+  // Verify that when runtime is deleted, its runtime data map gets removed from
+  // the global map. So nothing should be holding on to the stored data.
+  auto weakObj2 = std::weak_ptr<Object>(obj2);
+  obj2.reset();
+  storedObj2.reset();
+  delete rd2;
+  rt2.reset();
+  EXPECT_EQ(weakObj2.use_count(), 0);
+
+  // Only the second runtime was destroyed, so custom data from the first
+  // runtime should remain unaffected.
+  storedStr = std::static_pointer_cast<std::string>(rd1.getRuntimeData(uuid1));
+  EXPECT_EQ(storedStr, str);
+
+  // Overwrite Object.defineProperty, which is called in the default
+  // implementation of setRuntimeDataImpl, to test that even if the JSI
+  // operations on this secret property fail, we are still able to properly
+  // clean up the custom data.
+  auto rt3 = factory();
+  RD* rd3 = new RD(*rt3);
+  UUID uuid4{0xa5682986, 0x1edc, 0x11f0, 0xa4fa, 0x325096b39f47};
+  rd3->global()
+      .getPropertyAsObject(*rd3, "Object")
+      .setProperty(*rd3, "defineProperty", Value(false));
+
+  auto obj3 = std::make_shared<Object>(*rd3);
+  auto weakObj3 = std::weak_ptr<Object>(obj3);
+  EXPECT_THROW(rd3->setRuntimeData(uuid4, obj3), JSIException);
+  obj3.reset();
+  delete rd3;
+  rt3.reset();
+  EXPECT_EQ(weakObj3.use_count(), 0);
+}
+
+TEST_P(JSITest, CastInterface) {
+  // This Runtime Decorator is used to test the default implementation of
+  // jsi::Runtime::castInterface
+  class RD : public RuntimeDecorator<Runtime, Runtime> {
+   public:
+    explicit RD(Runtime& rt) : RuntimeDecorator(rt) {}
+
+    ICast* castInterface(const UUID& interfaceUuid) override {
+      return Runtime::castInterface(interfaceUuid);
+    }
+  };
+
+  RD rd = RD(rt);
+  auto randomUuid = UUID{0xf2cd96cf, 0x455e, 0x42d9, 0x850a, 0x13e2cde59b8b};
+  auto ptr = rd.castInterface(randomUuid);
+
+  // ptr is of type facebook::jsi::ICast* , requires force the correct overload
+  EXPECT_EQ(static_cast<void*>(ptr), static_cast<void*>(nullptr));
+}
 
 INSTANTIATE_TEST_CASE_P(
     Runtimes,

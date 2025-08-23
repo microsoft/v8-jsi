@@ -11,6 +11,9 @@ https://github.com/facebook/hermes repo.
 
 | Version | Commit Hash                                | Commit Description
 |--------:|:-------------------------------------------|------------------------------------------------------
+|      20 | `3eeb01121b52dbe6f9fd67c623a87e08ae9d5197` | Add UUID struct to JSI
+|         | `8d1641f1918ed97b2f69e02ec9f420aa70701331` | Add JSI castInterface API  
+|         | `34b807b919c5dacafdf23cd8f855d8f78acf810f` | Adds setRuntimeData and getRuntimeData JSI APIs
 |      19 | `00a84e7bae9b8569e7b3f4118f4238544c67fe1b` | Add createFromUtf16 JSI method
 |      18 | `d0328097291aade7269b2879910e11c48c8fbeb1` | Add default implementation for Object.create(prototype)
 |      17 | `1012f891165e7dda3b51939b75bbc52e16e48a75` | Add default implementation for Object.getPrototypeOf and Object.setPrototypeOf
@@ -38,12 +41,17 @@ https://github.com/facebook/hermes repo.
 
 Relationship to React Native versions:
 
-| RN Version | JSI version |
-|-----------:|------------:|
-|       main |          12 |
-|       0.74 |          11 |
-|       0.73 |          10 |
-|       0.72 |          10 |
-|       0.71 |           9 |
-|       0.70 |           6 |
-|       0.69 |           5 |
+| Hermes RN Version | JSI version |
+|------------------:|------------:|
+|              main |          19 |
+|            0.79.0 |          19 |
+|            0.78.0 |          18 |
+|            0.77.0 |          15 |
+|            0.76.0 |          13 |
+|            0.74.3 |          12 |
+|            0.74.0 |          11 |
+|            0.73.0 |          10 |
+|            0.72.0 |          10 |
+|            0.71.0 |           9 |
+|            0.70.0 |           6 |
+|            0.69.0 |           5 |

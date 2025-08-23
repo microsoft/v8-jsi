@@ -112,6 +112,12 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
     return plain_;
   }
 
+  #if JSI_VERSION >= 20
+  ICast* castInterface(const UUID& interfaceUUID) override {
+    return plain().castInterface(interfaceUUID);
+  }
+  #endif
+
   Value evaluateJavaScript(
       const std::shared_ptr<const Buffer>& buffer,
       const std::string& sourceURL) override {
@@ -423,6 +429,19 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
     return plain_.callAsConstructor(f, args, count);
   };
 
+  #if JSI_VERSION >= 20
+  void setRuntimeDataImpl(
+      const UUID& uuid,
+      const void* data,
+      void (*deleter)(const void* data)) override {
+    return plain_.setRuntimeDataImpl(uuid, data, deleter);
+  }
+
+  const void* getRuntimeDataImpl(const UUID& uuid) override {
+    return plain_.getRuntimeDataImpl(uuid);
+  }
+  #endif
+
   // Private data for managing scopes.
   Runtime::ScopeState* pushScope() override {
     return plain_.pushScope();
@@ -619,6 +638,13 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   // the ctor, and there is no ctor, so they can be passed members of
   // the derived class.
   WithRuntimeDecorator(Plain& plain, With& with) : RD(plain), with_(with) {}
+
+  #if JSI_VERSION >= 20
+  ICast* castInterface(const UUID& interfaceUUID) override {
+    Around around{with_};
+    return RD::castInterface(interfaceUUID);
+  }
+  #endif
 
   Value evaluateJavaScript(
       const std::shared_ptr<const Buffer>& buffer,
@@ -1033,6 +1059,21 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
     RD::setExternalMemoryPressure(obj, amount);
   };
 #endif
+
+  #if JSI_VERSION >= 20
+  void setRuntimeDataImpl(
+      const UUID& uuid,
+      const void* data,
+      void (*deleter)(const void* data)) override {
+    Around around{with_};
+    RD::setRuntimeDataImpl(uuid, data, deleter);
+  }
+
+  const void* getRuntimeDataImpl(const UUID& uuid) override {
+    Around around{with_};
+    return RD::getRuntimeDataImpl(uuid);
+  }
+  #endif
 
  private:
   // Wrap an RAII type around With& to guarantee after always happens.
