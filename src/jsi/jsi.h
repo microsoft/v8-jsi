@@ -320,9 +320,9 @@ class JSI_EXPORT Runtime {
  public:
   virtual ~Runtime();
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   ICast* castInterface(const UUID& interfaceUUID) override;
-  #endif
+#endif
 
   /// Evaluates the given JavaScript \c buffer.  \c sourceURL is used
   /// to annotate the stack trace if there is an exception.  The
@@ -421,8 +421,8 @@ class JSI_EXPORT Runtime {
   /// implementation of this function returns an \c Instrumentation instance
   /// which returns no metrics.
   virtual Instrumentation& instrumentation();
-  
-  #if JSI_VERSION >= 20
+
+#if JSI_VERSION >= 20
   /// Stores the pointer \p data with the \p uuid in the runtime. This can be
   /// used to store some custom data within the runtime. When the runtime is
   /// destroyed, or if an entry at an existing key is overwritten, the runtime
@@ -432,7 +432,7 @@ class JSI_EXPORT Runtime {
   /// Returns the data associated with the \p uuid in the runtime. If there's no
   /// data associated with the uuid, return a null pointer.
   std::shared_ptr<void> getRuntimeData(const UUID& uuid);
-  #endif
+#endif
 
  protected:
   friend class Pointer;
@@ -450,8 +450,8 @@ class JSI_EXPORT Runtime {
   friend class Value;
   friend class Scope;
   friend class JSError;
-  
-  #if JSI_VERSION >= 20
+
+#if JSI_VERSION >= 20
   /// Stores the pointer \p data with the \p uuid in the runtime. This can be
   /// used to store some custom data within the runtime. When the runtime is
   /// destroyed, or if an entry at an existing key is overwritten, the runtime
@@ -464,7 +464,7 @@ class JSI_EXPORT Runtime {
   /// Returns the data associated with the \p uuid in the runtime. If there's no
   /// data associated with the uuid, return a null pointer.
   virtual const void* getRuntimeDataImpl(const UUID& uuid);
-  #endif
+#endif
 
   // Potential optimization: avoid the cloneFoo() virtual dispatch,
   // and instead just fix the number of fields, and copy them, since

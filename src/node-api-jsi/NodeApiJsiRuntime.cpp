@@ -5,10 +5,8 @@
 
 #include "NodeApiJsiRuntime.h"
 
-#include <jsi/instrumentation.h>
 #include <algorithm>
 #include <array>
-#include <fstream>
 #include <mutex>
 #include <optional>
 #include <sstream>
@@ -21,7 +19,7 @@
 // These macros must be defined in jsi.h, but define them here too
 // in case if this code is used with unmodified jsi.h.
 #ifndef JSI_VERSION
-#define JSI_VERSION 19
+#define JSI_VERSION 10
 #endif
 
 #ifndef JSI_NO_CONST_3
@@ -40,26 +38,27 @@
 #endif
 #endif
 
-#ifndef JSI_NOEXCEPT_15
-#if JSI_VERSION >= 15
-#define JSI_NOEXCEPT_15 noexcept
-#else
-#define JSI_NOEXCEPT_15
-#endif
-#endif
-
 using namespace facebook;
 using namespace std::string_view_literals;
 
 // We use macros to report errors.
 // Macros provide more flexibility to show assert and provide failure context.
 
+#if defined(__clang__) || defined(__GNUC__)
+#define CRASH_NOW() __builtin_trap()
+#elif defined(_MSC_VER)
+#include <intrin.h>
+#define CRASH_NOW() __fastfail(/*FAST_FAIL_FATAL_APP_EXIT*/ 7)
+#else
+#define CRASH_NOW() *((volatile int *)0) = 1
+#endif
+
 // Check condition and crash process if it fails.
 #define CHECK_ELSE_CRASH(condition, message)               \
   do {                                                     \
     if (!(condition)) {                                    \
       assert(false && "Failed: " #condition && (message)); \
-      *((int *)0) = 1;                                     \
+      CRASH_NOW();                                         \
     }                                                      \
   } while (false)
 
@@ -149,28 +148,27 @@ class span {
 #endif // __cpp_lib_span
 
 // To be used as a key in a unordered_map.
-template <typename TChar>
-class BasicStringKey {
+class StringKey {
  public:
-  explicit BasicStringKey(std::basic_string<TChar> string) noexcept;
-  explicit BasicStringKey(std::basic_string_view<TChar> view) noexcept;
-  explicit BasicStringKey(const TChar *data, size_t length) noexcept;
-  BasicStringKey(BasicStringKey &&other) noexcept;
-  BasicStringKey &operator=(BasicStringKey &&other) noexcept;
-  BasicStringKey(const BasicStringKey &other) = delete;
-  BasicStringKey &operator=(const BasicStringKey &other) = delete;
-  ~BasicStringKey();
+  explicit StringKey(std::string &&string) noexcept;
+  explicit StringKey(std::string_view view) noexcept;
+  explicit StringKey(const char *data, size_t length) noexcept;
+  StringKey(StringKey &&other) noexcept;
+  StringKey &operator=(StringKey &&other) noexcept;
+  StringKey(const StringKey &other) = delete;
+  StringKey &operator=(const StringKey &other) = delete;
+  ~StringKey();
 
-  std::basic_string_view<TChar> getStringView() const;
-  bool equalTo(const BasicStringKey &other) const;
+  std::string_view getStringView() const;
+  bool equalTo(const StringKey &other) const;
   size_t hash() const;
 
   struct Hash {
-    size_t operator()(const BasicStringKey &key) const;
+    size_t operator()(const StringKey &key) const;
   };
 
   struct EqualTo {
-    bool operator()(const BasicStringKey &left, const BasicStringKey &right) const;
+    bool operator()(const StringKey &left, const StringKey &right) const;
   };
 
  private:
@@ -181,124 +179,33 @@ class BasicStringKey {
 
  private:
   union {
-    std::basic_string<TChar> string_;
-    std::basic_string_view<TChar> view_;
+    std::string string_;
+    std::string_view view_;
   };
   Type type_{Type::String};
   size_t hash_;
 };
 
-using StringKey = BasicStringKey<char>;
-using Utf16StringKey = BasicStringKey<char16_t>;
-
 struct NodeApiAttachTag {
 } attachTag;
 
 // Implementation of N-API JSI Runtime
-class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
- public:
-  NodeApiJsiInstrumentation(napi_env env, JSRuntimeApi *jsrApi) : env_(env), jsrApi_(jsrApi) {}
-
-  std::string getRecordedGCStats() override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_get_gc_stats(env_, writeToStdString, &result);
-    return result;
-  }
-
-  std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
-    std::unordered_map<std::string, int64_t> result;
-    auto cb = [](void *ctx, const char *key, int64_t value) {
-      std::unordered_map<std::string, int64_t> *map = static_cast<std::unordered_map<std::string, int64_t> *>(ctx);
-      map->try_emplace(key, value);
-    };
-    jsrApi_->jsr_instrumentation_get_heap_info(env_, includeExpensive, cb, &result);
-    return result;
-  }
-
-  void collectGarbage(std::string cause) override {
-    jsrApi_->jsr_instrumentation_collect_garbage(env_, cause.c_str());
-  }
-
-  void startTrackingHeapObjectStackTraces(
-      std::function<void(uint64_t, std::chrono::microseconds, std::vector<HeapStatsUpdate>)> /*fragmentCallback*/)
-      override {}
-
-  void stopTrackingHeapObjectStackTraces() override {}
-
-  void startHeapSampling(size_t samplingInterval) override {
-    jsrApi_->jsr_instrumentation_start_heap_sampling(env_, samplingInterval);
-  }
-
-  void stopHeapSampling(std::ostream &os) override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_stop_heap_sampling(env_, writeToStdString, &result);
-    os << result;
-  }
-
-#if JSI_VERSION >= 13
-  void createSnapshotToFile(const std::string &path, const HeapSnapshotOptions &options) override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
-    std::ofstream file(path);
-    file << result;
-    file.close();
-  }
-
-  void createSnapshotToStream(std::ostream &os, const HeapSnapshotOptions &options = {false}) override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
-    os << result;
-  }
-#else
-  void createSnapshotToFile(const std::string &path) override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
-    std::ofstream file(path);
-    file << result;
-    file.close();
-  }
-
-  void createSnapshotToStream(std::ostream &os) override {
-    std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
-    os << result;
-  }
-#endif
-
-  std::string flushAndDisableBridgeTrafficTrace() override {
-    std::abort();
-  }
-
-  void writeBasicBlockProfileTraceToFile(const std::string &fileName) const override {
-    std::abort();
-  }
-
-  void dumpProfilerSymbolsToFile(const std::string &fileName) const override {
-    std::abort();
-  }
-
- private:
-  static void NAPI_CDECL writeToStdString(void *ctx, const char *data, size_t len) {
-    std::string *str = static_cast<std::string *>(ctx);
-    str->assign(data, len);
-  };
-
- private:
-  napi_env env_;
-  JSRuntimeApi *jsrApi_;
-};
-
 class NodeApiJsiRuntime : public jsi::Runtime {
  public:
-  NodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> onDelete) noexcept;
+  NodeApiJsiRuntime(
+      napi_env env,
+      JSRuntimeApi *jsrApi,
+      std::function<void()> onDelete) noexcept;
   ~NodeApiJsiRuntime() override;
 
-  jsi::Value evaluateJavaScript(const std::shared_ptr<const jsi::Buffer> &buffer, const std::string &sourceURL)
-      override;
+  jsi::Value evaluateJavaScript(
+      const std::shared_ptr<const jsi::Buffer> &buffer,
+      const std::string &sourceURL) override;
   std::shared_ptr<const jsi::PreparedJavaScript> prepareJavaScript(
       const std::shared_ptr<const jsi::Buffer> &buffer,
       std::string sourceURL) override;
-  jsi::Value evaluatePreparedJavaScript(const std::shared_ptr<const jsi::PreparedJavaScript> &js) override;
+  jsi::Value evaluatePreparedJavaScript(
+      const std::shared_ptr<const jsi::PreparedJavaScript> &js) override;
 #if JSI_VERSION >= 12
   void queueMicrotask(const jsi::Function &callback) override;
 #endif
@@ -309,13 +216,6 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::string description() override;
   bool isInspectable() override;
 
-  facebook::jsi::Instrumentation &instrumentation() override {
-    if (!instrumentation_) {
-      instrumentation_ = std::make_unique<NodeApiJsiInstrumentation>(env_, jsrApi_);
-    }
-    return *instrumentation_;
-  }
-
  protected:
   PointerValue *cloneSymbol(const PointerValue *pointerValue) override;
 #if JSI_VERSION >= 6
@@ -325,11 +225,10 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   PointerValue *cloneObject(const PointerValue *pointerValue) override;
   PointerValue *clonePropNameID(const PointerValue *pointerValue) override;
 
-  jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length) override;
-  jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) override;
-#if JSI_VERSION >= 19
-  jsi::PropNameID createPropNameIDFromUtf16(const char16_t *utf16, size_t length) override;
-#endif
+  jsi::PropNameID createPropNameIDFromAscii(const char *str, size_t length)
+      override;
+  jsi::PropNameID createPropNameIDFromUtf8(const uint8_t *utf8, size_t length)
+      override;
   jsi::PropNameID createPropNameIDFromString(const jsi::String &str) override;
 #if JSI_VERSION >= 5
   jsi::PropNameID createPropNameIDFromSymbol(const jsi::Symbol &sym) override;
@@ -350,9 +249,6 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   jsi::String createStringFromAscii(const char *str, size_t length) override;
   jsi::String createStringFromUtf8(const uint8_t *utf8, size_t length) override;
-#if JSI_VERSION >= 19
-  jsi::String createStringFromUtf16(const char16_t *utf16, size_t length) override;
-#endif
   std::string utf8(const jsi::String &str) override;
 
   jsi::Object createObject() override;
@@ -360,27 +256,54 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::shared_ptr<jsi::HostObject> getHostObject(const jsi::Object &) override;
   jsi::HostFunctionType &getHostFunction(const jsi::Function &) override;
 
-#if JSI_VERSION >= 18
-  jsi::Object createObjectWithPrototype(const jsi::Value &prototype) override;
-#endif
-
 #if JSI_VERSION >= 7
   bool hasNativeState(const jsi::Object &value) override;
-  std::shared_ptr<jsi::NativeState> getNativeState(const jsi::Object &value) override;
-  void setNativeState(const jsi::Object &value, std::shared_ptr<jsi::NativeState> state) override;
+  std::shared_ptr<jsi::NativeState> getNativeState(
+      const jsi::Object &value) override;
+  void setNativeState(
+      const jsi::Object &value,
+      std::shared_ptr<jsi::NativeState> state) override;
 #endif
 
-#if JSI_VERSION >= 17
-  void setPrototypeOf(const jsi::Object &object, const jsi::Value &prototype) override;
-  jsi::Value getPrototypeOf(const jsi::Object &object) override;
+  jsi::Value getProperty(const jsi::Object &obj, const jsi::PropNameID &name)
+      override;
+  jsi::Value getProperty(const jsi::Object &obj, const jsi::String &name)
+      override;
+
+#if JSI_VERSION >= 21
+  jsi::Value getProperty(const jsi::Object &obj, const jsi::Value &name)
+      override;
 #endif
 
-  jsi::Value getProperty(const jsi::Object &obj, const jsi::PropNameID &name) override;
-  jsi::Value getProperty(const jsi::Object &obj, const jsi::String &name) override;
-  bool hasProperty(const jsi::Object &obj, const jsi::PropNameID &name) override;
+  bool hasProperty(const jsi::Object &obj, const jsi::PropNameID &name)
+      override;
   bool hasProperty(const jsi::Object &obj, const jsi::String &name) override;
-  void setPropertyValue(JSI_CONST_10 jsi::Object &obj, const jsi::PropNameID &name, const jsi::Value &value) override;
-  void setPropertyValue(JSI_CONST_10 jsi::Object &obj, const jsi::String &name, const jsi::Value &value) override;
+
+#if JSI_VERSION >= 21
+  bool hasProperty(const jsi::Object &obj, const jsi::Value &name) override;
+#endif
+
+  void setPropertyValue(
+      JSI_CONST_10 jsi::Object &obj,
+      const jsi::PropNameID &name,
+      const jsi::Value &value) override;
+  void setPropertyValue(
+      JSI_CONST_10 jsi::Object &obj,
+      const jsi::String &name,
+      const jsi::Value &value) override;
+
+#if JSI_VERSION >= 21
+  void setPropertyValue(
+      const jsi::Object &obj,
+      const jsi::Value &name,
+      const jsi::Value &value) override;
+
+  void deleteProperty(const jsi::Object &obj, const jsi::PropNameID &name)
+      override;
+  void deleteProperty(const jsi::Object &obj, const jsi::String &name) override;
+
+  void deleteProperty(const jsi::Object &obj, const jsi::Value &name) override;
+#endif
 
   bool isArray(const jsi::Object &obj) const override;
   bool isArrayBuffer(const jsi::Object &obj) const override;
@@ -390,24 +313,36 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   jsi::Array getPropertyNames(const jsi::Object &obj) override;
 
   jsi::WeakObject createWeakObject(const jsi::Object &obj) override;
-  jsi::Value lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObj) override;
+  jsi::Value lockWeakObject(
+      JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObj) override;
 
   jsi::Array createArray(size_t length) override;
 #if JSI_VERSION >= 9
-  jsi::ArrayBuffer createArrayBuffer(std::shared_ptr<jsi::MutableBuffer> buffer);
+  jsi::ArrayBuffer createArrayBuffer(
+      std::shared_ptr<jsi::MutableBuffer> buffer) override;
 #endif
   size_t size(const jsi::Array &arr) override;
   size_t size(const jsi::ArrayBuffer &arrBuf) override;
   uint8_t *data(const jsi::ArrayBuffer &arrBuff) override;
   jsi::Value getValueAtIndex(const jsi::Array &arr, size_t index) override;
-  void setValueAtIndexImpl(JSI_CONST_10 jsi::Array &arr, size_t index, const jsi::Value &value) override;
+  void setValueAtIndexImpl(
+      JSI_CONST_10 jsi::Array &arr,
+      size_t index,
+      const jsi::Value &value) override;
 
   jsi::Function createFunctionFromHostFunction(
       const jsi::PropNameID &name,
       unsigned int paramCount,
       jsi::HostFunctionType func) override;
-  jsi::Value call(const jsi::Function &func, const jsi::Value &jsThis, const jsi::Value *args, size_t count) override;
-  jsi::Value callAsConstructor(const jsi::Function &func, const jsi::Value *args, size_t count) override;
+  jsi::Value call(
+      const jsi::Function &func,
+      const jsi::Value &jsThis,
+      const jsi::Value *args,
+      size_t count) override;
+  jsi::Value callAsConstructor(
+      const jsi::Function &func,
+      const jsi::Value *args,
+      size_t count) override;
 
   ScopeState *pushScope() override;
   void popScope(ScopeState *) override;
@@ -422,22 +357,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   bool instanceOf(const jsi::Object &obj, const jsi::Function &func) override;
 
 #if JSI_VERSION >= 11
-  void setExternalMemoryPressure(const jsi::Object &obj, size_t amount) override;
-#endif
-
-#if JSI_VERSION >= 14
-  std::u16string utf16(const jsi::String &str) override;
-  std::u16string utf16(const jsi::PropNameID &sym) override;
-#endif
-
-#if JSI_VERSION >= 16
-  void getStringData(const jsi::String &str, void *ctx, void (*cb)(void *ctx, bool ascii, const void *data, size_t num))
+  void setExternalMemoryPressure(const jsi::Object &obj, size_t amount)
       override;
-
-  void getPropNameIdData(
-      const jsi::PropNameID &sym,
-      void *ctx,
-      void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) override;
 #endif
 
  private:
@@ -464,13 +385,15 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     ~NodeApiPointerValueScope() noexcept;
 
     NodeApiPointerValueScope(const NodeApiPointerValueScope &) = delete;
-    NodeApiPointerValueScope &operator=(const NodeApiPointerValueScope &) = delete;
+    NodeApiPointerValueScope &operator=(const NodeApiPointerValueScope &) =
+        delete;
 
    private:
     NodeApiJsiRuntime &runtime_;
   };
 
-  // Sets the variable in the constructor and then restores its value in the destructor.
+  // Sets the variable in the constructor and then restores its value in the
+  // destructor.
   template <typename T>
   class AutoRestore {
    public:
@@ -501,7 +424,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     static void incRefCount(std::atomic<int32_t> &value) noexcept {
       int refCount = value.fetch_add(1, std::memory_order_relaxed) + 1;
       CHECK_ELSE_CRASH(refCount > 1, "The ref count cannot bounce from zero.");
-      CHECK_ELSE_CRASH(refCount < std::numeric_limits<int32_t>::max(), "The ref count is too big.");
+      CHECK_ELSE_CRASH(
+          refCount < std::numeric_limits<int32_t>::max(),
+          "The ref count is too big.");
     }
 
     static bool decRefCount(std::atomic<int32_t> &value) noexcept {
@@ -526,15 +451,18 @@ class NodeApiJsiRuntime : public jsi::Runtime {
    public:
     NodeApiRefCountedPtr() noexcept = default;
 
-    explicit NodeApiRefCountedPtr(T *ptr, NodeApiAttachTag) noexcept : ptr_(ptr) {}
+    explicit NodeApiRefCountedPtr(T *ptr, NodeApiAttachTag) noexcept
+        : ptr_(ptr) {}
 
-    NodeApiRefCountedPtr(const NodeApiRefCountedPtr &other) noexcept : ptr_(other.ptr_) {
+    NodeApiRefCountedPtr(const NodeApiRefCountedPtr &other) noexcept
+        : ptr_(other.ptr_) {
       if (ptr_ != nullptr) {
         ptr_->incRefCount();
       }
     }
 
-    NodeApiRefCountedPtr(NodeApiRefCountedPtr &&other) : ptr_(std::exchange(other.ptr_, nullptr)) {}
+    NodeApiRefCountedPtr(NodeApiRefCountedPtr &&other)
+        : ptr_(std::exchange(other.ptr_, nullptr)) {}
 
     ~NodeApiRefCountedPtr() noexcept {
       if (ptr_ != nullptr) {
@@ -550,7 +478,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
       return *this;
     }
 
-    NodeApiRefCountedPtr &operator=(const NodeApiRefCountedPtr &other) noexcept {
+    NodeApiRefCountedPtr &operator=(
+        const NodeApiRefCountedPtr &other) noexcept {
       if (this != &other) {
         NodeApiRefCountedPtr temp(std::move(*this));
         ptr_ = other.ptr_;
@@ -595,40 +524,50 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     void operator()(NodeApiRefCountedPointerValue *ptr) const noexcept;
   };
 
-  // Removes the NodeApiRefCountedPointerValue instance and ignores the `napi_ref ref_` field.
+  // Removes the NodeApiRefCountedPointerValue instance and ignores the
+  // `napi_ref ref_` field.
   class NodeApiRefDeleter {
    public:
     void operator()(NodeApiRefCountedPointerValue *ptr) const noexcept;
   };
 
   using NodeApiRefHolder = NodeApiRefCountedPtr<NodeApiRefCountedPointerValue>;
-  using NodeApiStackValuePtr = std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiStackValueDeleter>;
-  using NodeApiRefPtr = std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiRefDeleter>;
+  using NodeApiStackValuePtr =
+      std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiStackValueDeleter>;
+  using NodeApiRefPtr =
+      std::unique_ptr<NodeApiRefCountedPointerValue, NodeApiRefDeleter>;
 
-  // NodeApiPendingDeletions helps to delete PointerValues in a thread safe way from the JS thread.
-  // According to JSI spec the PointerValue's release method can be called from any thread, while Node-API can only
-  // manage objects in the JS thread. So, when a PointerValue's ref count goes to zero after calling the release method,
-  // the PointerValue is added into the pointerValuesToDelete_ vector, and then NodeApiJsiRuntime deletes them later
-  // from the JS thread. Note that the napi_delete_reference can only be called before the napi_env is destroyed. Thus,
-  // we remove the pointer to napi_env as soon as NodeApiJsiRuntime destructor starts.
+  // NodeApiPendingDeletions helps to delete PointerValues in a thread safe way
+  // from the JS thread. According to JSI spec the PointerValue's release method
+  // can be called from any thread, while Node-API can only manage objects in
+  // the JS thread. So, when a PointerValue's ref count goes to zero after
+  // calling the release method, the PointerValue is added into the
+  // pointerValuesToDelete_ vector, and then NodeApiJsiRuntime deletes them
+  // later from the JS thread. Note that the napi_delete_reference can only be
+  // called before the napi_env is destroyed. Thus, we remove the pointer to
+  // napi_env as soon as NodeApiJsiRuntime destructor starts.
   class NodeApiPendingDeletions {
    public:
     // Create new instance of NodeApiPendingDeletions.
     static NodeApiRefCountedPtr<NodeApiPendingDeletions> create() noexcept {
-      return NodeApiRefCountedPtr<NodeApiPendingDeletions>(new NodeApiPendingDeletions(), attachTag);
+      return NodeApiRefCountedPtr<NodeApiPendingDeletions>(
+          new NodeApiPendingDeletions(), attachTag);
     }
 
-    // Add PointerValues to delete from JS thread. The method can be called from any thread.
+    // Add PointerValues to delete from JS thread. The method can be called from
+    // any thread.
     void addPointerValueToDelete(NodeApiRefPtr pointerValueToDelete) noexcept {
       std::scoped_lock lock{mutex_};
-      pointerValuesToDeletePool_[poolSelector_].push_back(std::move(pointerValueToDelete));
+      pointerValuesToDeletePool_[poolSelector_].push_back(
+          std::move(pointerValueToDelete));
     }
 
-    // Delete all PointerValues scheduled for deletion along with their napi_ref instances.
-    // It must be called from a JS thread.
+    // Delete all PointerValues scheduled for deletion along with their napi_ref
+    // instances. It must be called from a JS thread.
     void deletePointerValues(NodeApiJsiRuntime &runtime) noexcept {
       {
-        // TODO: Does it affect the performance to take the lock every time? Should we use an atomic variable?
+        // TODO: Does it affect the performance to take the lock every time?
+        // Should we use an atomic variable?
         std::scoped_lock lock{mutex_};
         if (pointerValuesToDeletePool_[poolSelector_].empty()) {
           return;
@@ -638,7 +577,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
         poolSelector_ = poolSelector_ ^ 1;
       }
 
-      std::vector<NodeApiRefPtr> &deleteInJSThread = pointerValuesToDeletePool_[poolSelector_ ^ 1];
+      std::vector<NodeApiRefPtr> &deleteInJSThread =
+          pointerValuesToDeletePool_[poolSelector_ ^ 1];
       for (auto &pointerValue : deleteInJSThread) {
         pointerValue.release()->deleteNodeApiRef(runtime);
       }
@@ -663,8 +603,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
    private:
     mutable std::atomic<int32_t> refCount_{1};
     std::recursive_mutex mutex_;
-    // One of the vectors is used from different threads under the mutex_ lock to add items, while another is from JS
-    // thread to remove items. Since we never change the capacity of the vectors, it should help avoiding memory
+    // One of the vectors is used from different threads under the mutex_ lock
+    // to add items, while another is from JS thread to remove items. Since we
+    // never change the capacity of the vectors, it should help avoiding memory
     // allocations at some point.
     std::vector<NodeApiRefPtr> pointerValuesToDeletePool_[2]{
         std::vector<NodeApiRefPtr>(),
@@ -675,26 +616,32 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   // NodeApiPointerValue is used by jsi::Pointer derived classes.
   struct NodeApiPointerValue : PointerValue {
-    virtual NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept = 0;
+    virtual NodeApiRefCountedPointerValue *clone(
+        NodeApiJsiRuntime &runtime) const noexcept = 0;
     virtual napi_value getValue(NodeApiJsiRuntime &runtime) noexcept = 0;
     virtual NodeApiPointerValueKind getKind() const noexcept = 0;
   };
 
-  // NodeApiStackOnlyPointerValue helps to avoid memory allocation in some scenarios.
-  // It is used by the JsiValueView, JsiValueViewArgs, and PropNameIDView classes
-  // to keep temporary PointerValues on the call stack when we call functions.
-  // Note that the clone() method return a new instance of the NodeApiRefCountedPointerValue.
+  // NodeApiStackOnlyPointerValue helps to avoid memory allocation in some
+  // scenarios. It is used by the JsiValueView, JsiValueViewArgs, and
+  // PropNameIDView classes to keep temporary PointerValues on the call stack
+  // when we call functions. Note that the clone() method return a new instance
+  // of the NodeApiRefCountedPointerValue.
   class NodeApiStackOnlyPointerValue final : public NodeApiPointerValue {
    public:
-    NodeApiStackOnlyPointerValue(napi_value value, NodeApiPointerValueKind pointerKind) noexcept;
+    NodeApiStackOnlyPointerValue(
+        napi_value value,
+        NodeApiPointerValueKind pointerKind) noexcept;
 
     void invalidate() noexcept override;
-    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept override;
+    NodeApiRefCountedPointerValue *clone(
+        NodeApiJsiRuntime &runtime) const noexcept override;
     napi_value getValue(NodeApiJsiRuntime &runtime) noexcept override;
     NodeApiPointerValueKind getKind() const noexcept override;
 
     NodeApiStackOnlyPointerValue(const NodeApiStackOnlyPointerValue &) = delete;
-    NodeApiStackOnlyPointerValue &operator=(const NodeApiStackOnlyPointerValue &) = delete;
+    NodeApiStackOnlyPointerValue &operator=(
+        const NodeApiStackOnlyPointerValue &) = delete;
 
    private:
     napi_value value_{};
@@ -703,33 +650,42 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
   // TODO: Use arena allocator for NodeApiRefCountedPointerValue.
 
-  // NodeApiRefCountedPointerValue is a ref counted implementation of PointerValue that is allocated in the heap.
+  // NodeApiRefCountedPointerValue is a ref counted implementation of
+  // PointerValue that is allocated in the heap.
   //
-  // Its lifetime is controlled by the atomic `refCount_` field. Since the `refCount_` can be changed from any thread,
-  // we do not remove the instance immediately when the `refCount_` becomes zero. Instead, we add it to the
-  // `NodeApiJsiRuntime::pendingDeletions_` list and delete it later from the JS thread. If `node_value value_` field is
-  // not null, then the `NodeApiRefCountedPointerValue` instance is also referenced from the
+  // Its lifetime is controlled by the atomic `refCount_` field. Since the
+  // `refCount_` can be changed from any thread, we do not remove the instance
+  // immediately when the `refCount_` becomes zero. Instead, we add it to the
+  // `NodeApiJsiRuntime::pendingDeletions_` list and delete it later from the JS
+  // thread. If `node_value value_` field is not null, then the
+  // `NodeApiRefCountedPointerValue` instance is also referenced from the
   // `NodeApiJsiRuntime::stackValues_` list.
   //
-  // The `NodeApiJsiRuntime::pendingDeletions_` is responsible for deleting `napi_ref ref_` and it deletes
-  // `NodeApiRefCountedPointerValue` instance if the `node_value value_` field is null. While
-  // `NodeApiJsiRuntime::stackValues_` is responsible for deleting `NodeApiRefCountedPointerValue` instance if
-  // `node_value value_` field is not null and `napi_ref ref_` is null. In case if
-  // `NodeApiJsiRuntime::pendingDeletions_` or `NodeApiJsiRuntime::stackValues_` cannot delete the instance, they
-  // set their "owned" `value_` or `ref_` fields to null.
+  // The `NodeApiJsiRuntime::pendingDeletions_` is responsible for deleting
+  // `napi_ref ref_` and it deletes `NodeApiRefCountedPointerValue` instance if
+  // the `node_value value_` field is null. While
+  // `NodeApiJsiRuntime::stackValues_` is responsible for deleting
+  // `NodeApiRefCountedPointerValue` instance if `node_value value_` field is
+  // not null and `napi_ref ref_` is null. In case if
+  // `NodeApiJsiRuntime::pendingDeletions_` or `NodeApiJsiRuntime::stackValues_`
+  // cannot delete the instance, they set their "owned" `value_` or `ref_`
+  // fields to null.
   //
-  // Some NodeApiRefCountedPointerValue are created with napi_value and may never get napi_ref.
-  // When stack scope is closed we check the `refCount_`. If it is not zero, then
-  // we ensure that it has an associated `napi_ref` or we create one.
+  // Some NodeApiRefCountedPointerValue are created with napi_value and may
+  // never get napi_ref. When stack scope is closed we check the `refCount_`. If
+  // it is not zero, then we ensure that it has an associated `napi_ref` or we
+  // create one.
   //
-  // All methods except for invalidate() and decRefCount() must be called from the JS thread.
+  // All methods except for invalidate() and decRefCount() must be called from
+  // the JS thread.
   class NodeApiRefCountedPointerValue final : public NodeApiPointerValue {
     friend class NodeApiStackValueDeleter;
     friend class NodeApiRefDeleter;
     friend class NodeApiRefCountedPtr<NodeApiRefCountedPointerValue>;
 
    public:
-    // Creates new NodeApiRefCountedPointerValue and adds it to the NodeApiJsiRuntime::stackValues_.
+    // Creates new NodeApiRefCountedPointerValue and adds it to the
+    // NodeApiJsiRuntime::stackValues_.
     static NodeApiRefHolder make(
         NodeApiJsiRuntime &runtime,
         napi_value value,
@@ -744,7 +700,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
         int32_t initialRefCount = 1);
 
     void invalidate() noexcept override;
-    NodeApiRefCountedPointerValue *clone(NodeApiJsiRuntime &runtime) const noexcept override;
+    NodeApiRefCountedPointerValue *clone(
+        NodeApiJsiRuntime &runtime) const noexcept override;
     napi_value getValue(NodeApiJsiRuntime &runtime) noexcept override;
     NodeApiPointerValueKind getKind() const noexcept override;
 
@@ -752,14 +709,18 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     bool usedByJsiPointer() const noexcept;
 
     // Removes `napi_value value_` field.
-    // In case if `refCount_` is not null, it ensures existence of the `napi_ref ref_` field.
+    // In case if `refCount_` is not null, it ensures existence of the `napi_ref
+    // ref_` field.
     void deleteStackValue(NodeApiJsiRuntime &runtime) noexcept;
 
-    // Removes napi_ref and deletes `NodeApiRefCountedPointerValue` if `value_` is null.
+    // Removes napi_ref and deletes `NodeApiRefCountedPointerValue` if `value_`
+    // is null.
     void deleteNodeApiRef(NodeApiJsiRuntime &runtime) noexcept;
 
-    NodeApiRefCountedPointerValue(const NodeApiRefCountedPointerValue &) = delete;
-    NodeApiRefCountedPointerValue &operator=(const NodeApiRefCountedPointerValue &) = delete;
+    NodeApiRefCountedPointerValue(const NodeApiRefCountedPointerValue &) =
+        delete;
+    NodeApiRefCountedPointerValue &operator=(
+        const NodeApiRefCountedPointerValue &) = delete;
 
    private:
     NodeApiRefCountedPointerValue(
@@ -785,7 +746,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     static constexpr char kPrimitivePropertyName[] = "X";
   };
 
-  // SmallBuffer keeps InplaceSize elements in place in the class, and uses heap memory for more elements.
+  // SmallBuffer keeps InplaceSize elements in place in the class, and uses heap
+  // memory for more elements.
   template <typename T, size_t InplaceSize>
   class SmallBuffer {
    public:
@@ -803,12 +765,13 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     std::unique_ptr<T[]> heapData_{};
   };
 
-  // The number of arguments that we keep on stack. We use heap if we have more arguments.
+  // The number of arguments that we keep on stack. We use heap if we have more
+  // arguments.
   constexpr static size_t MaxStackArgCount = 8;
 
   // NodeApiValueArgs helps optimize passing arguments to Node-API functions.
-  // If number of arguments is below or equal to MaxStackArgCount, they are kept on the call stack,
-  // otherwise arguments are allocated on the heap.
+  // If number of arguments is below or equal to MaxStackArgCount, they are kept
+  // on the call stack, otherwise arguments are allocated on the heap.
   class NodeApiValueArgs {
    public:
     NodeApiValueArgs(NodeApiJsiRuntime &runtime, span<const jsi::Value> args);
@@ -821,8 +784,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     SmallBuffer<napi_value, MaxStackArgCount> args_;
   };
 
-  // Helps to use the stack storage for a temporary conversion from napi_value to jsi::Value.
-  // It also helps to avoid a conversion to a relatively expensive napi_ref.
+  // Helps to use the stack storage for a temporary conversion from napi_value
+  // to jsi::Value. It also helps to avoid a conversion to a relatively
+  // expensive napi_ref.
   class JsiValueView {
    public:
     union StoreType {
@@ -836,7 +800,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     JsiValueView(NodeApiJsiRuntime *runtime, napi_value jsValue);
     operator const jsi::Value &() const noexcept;
 
-    static jsi::Value initValue(NodeApiJsiRuntime *runtime, napi_value jsValue, StoreType *store);
+    static jsi::Value
+    initValue(NodeApiJsiRuntime *runtime, napi_value jsValue, StoreType *store);
 
     JsiValueView(const JsiValueView &) = delete;
     JsiValueView &operator=(const JsiValueView &) = delete;
@@ -846,12 +811,14 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     jsi::Value value_{};
   };
 
-  // Helps to use stack storage for passing arguments that must be temporarily converted
-  // from napi_value to jsi::Value.
-  // It helps to avoid conversion to a relatively expensive napi_ref.
+  // Helps to use stack storage for passing arguments that must be temporarily
+  // converted from napi_value to jsi::Value. It helps to avoid conversion to a
+  // relatively expensive napi_ref.
   class JsiValueViewArgs {
    public:
-    JsiValueViewArgs(NodeApiJsiRuntime *runtime, span<napi_value> args) noexcept;
+    JsiValueViewArgs(
+        NodeApiJsiRuntime *runtime,
+        span<napi_value> args) noexcept;
     const jsi::Value *data() noexcept;
     size_t size() const noexcept;
 
@@ -864,8 +831,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     SmallBuffer<jsi::Value, MaxStackArgCount> args_{0};
   };
 
-  // Helps to use stack storage for a temporary conversion from napi_value to jsi::PropNameID.
-  // It helps to avoid conversions to a relatively expensive napi_ref.
+  // Helps to use stack storage for a temporary conversion from napi_value to
+  // jsi::PropNameID. It helps to avoid conversions to a relatively expensive
+  // napi_ref.
   class PropNameIDView {
    public:
     PropNameIDView(NodeApiJsiRuntime *runtime, napi_value propertyId) noexcept;
@@ -883,7 +851,9 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   // Wraps up the jsi::HostFunctionType along with the NodeApiJsiRuntime.
   class HostFunctionWrapper {
    public:
-    HostFunctionWrapper(jsi::HostFunctionType &&hostFunction, NodeApiJsiRuntime &runtime);
+    HostFunctionWrapper(
+        jsi::HostFunctionType &&hostFunction,
+        NodeApiJsiRuntime &runtime);
 
     jsi::HostFunctionType &hostFunction() noexcept;
     NodeApiJsiRuntime &runtime() noexcept;
@@ -899,7 +869,10 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   // Wraps up the jsr_prepared_script.
   class NodeApiPreparedJavaScript final : public jsi::PreparedJavaScript {
    public:
-    NodeApiPreparedJavaScript(napi_env env, jsr_prepared_script script, std::string sourceURL)
+    NodeApiPreparedJavaScript(
+        napi_env env,
+        jsr_prepared_script script,
+        std::string sourceURL)
         : env_(env), script_(script), sourceURL_(std::move(sourceURL)) {}
 
     ~NodeApiPreparedJavaScript() override {
@@ -915,7 +888,8 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     }
 
     NodeApiPreparedJavaScript(const NodeApiPreparedJavaScript &) = delete;
-    NodeApiPreparedJavaScript &operator=(const NodeApiPreparedJavaScript &) = delete;
+    NodeApiPreparedJavaScript &operator=(const NodeApiPreparedJavaScript &) =
+        delete;
 
    private:
     napi_env env_;
@@ -951,40 +925,56 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   napi_value createStringLatin1(std::string_view value) const;
   napi_value createStringUtf8(std::string_view value) const;
   napi_value createStringUtf8(const uint8_t *data, size_t length) const;
-  napi_value createStringUtf16(std::u16string_view value) const;
-  template <typename TChar>
-  std::basic_string<TChar> stringToStdBasicString(napi_value stringValue) const;
+  std::string stringToStdString(napi_value stringValue) const;
   napi_value getPropertyIdFromName(std::string_view value) const;
   napi_value getPropertyIdFromName(const uint8_t *data, size_t length) const;
   napi_value getPropertyIdFromName(napi_value str) const;
   napi_value getPropertyIdFromSymbol(napi_value sym) const;
-  template <typename TChar>
-  std::basic_string<TChar> propertyIdToStdBasicString(napi_value propertyId);
+  std::string propertyIdToStdString(napi_value propertyId);
   napi_value createSymbol(std::string_view symbolDescription) const;
-  template <typename TChar>
-  std::basic_string<TChar> symbolToStdBasicString(napi_value symbolValue);
-  napi_value callFunction(napi_value thisArg, napi_value function, span<napi_value> args = {}) const;
-  napi_value constructObject(napi_value constructor, span<napi_value> args = {}) const;
+  std::string symbolToStdString(napi_value symbolValue);
+  napi_value callFunction(
+      napi_value thisArg,
+      napi_value function,
+      span<napi_value> args = {}) const;
+  napi_value constructObject(napi_value constructor, span<napi_value> args = {})
+      const;
   bool instanceOf(napi_value object, napi_value constructor) const;
   napi_value createNodeApiObject() const;
   bool hasProperty(napi_value object, napi_value propertyId) const;
   napi_value getProperty(napi_value object, napi_value propertyId) const;
-  void setProperty(napi_value object, napi_value propertyId, napi_value value) const;
-  void setProperty(napi_value object, napi_value propertyId, napi_value value, napi_property_attributes attrs) const;
+  void setProperty(napi_value object, napi_value propertyId, napi_value value)
+      const;
+  bool deleteProperty(napi_value object, napi_value propertyId) const;
+  void setProperty(
+      napi_value object,
+      napi_value propertyId,
+      napi_value value,
+      napi_property_attributes attrs) const;
   napi_value createNodeApiArray(size_t length) const;
   bool isArray(napi_value value) const;
   size_t getArrayLength(napi_value value) const;
   napi_value getElement(napi_value arr, size_t index) const;
   void setElement(napi_value array, uint32_t index, napi_value value) const;
-  static napi_value __cdecl jsiHostFunctionCallback(napi_env env, napi_callback_info info) noexcept;
-  napi_value createExternalFunction(napi_value name, int32_t paramCount, napi_callback callback, void *callbackData);
-  napi_value createExternalObject(void *data, node_api_nogc_finalize finalizeCallback) const;
+  static napi_value __cdecl jsiHostFunctionCallback(
+      napi_env env,
+      napi_callback_info info) noexcept;
+  napi_value createExternalFunction(
+      napi_value name,
+      int32_t paramCount,
+      napi_callback callback,
+      void *callbackData);
+  napi_value createExternalObject(
+      void *data,
+      node_api_nogc_finalize finalizeCallback) const;
   template <typename T>
   napi_value createExternalObject(std::unique_ptr<T> &&data) const;
   void *getExternalData(napi_value object) const;
   const std::shared_ptr<jsi::HostObject> &getJsiHostObject(napi_value obj);
   napi_value getHostObjectProxyHandler();
-  template <napi_value (NodeApiJsiRuntime::*trapMethod)(span<napi_value>), size_t argCount>
+  template <
+      napi_value (NodeApiJsiRuntime::*trapMethod)(span<napi_value>),
+      size_t argCount>
   void setProxyTrap(napi_value handler, napi_value propertyName);
   napi_value hostObjectHasTrap(span<napi_value> args);
   napi_value hostObjectGetTrap(span<napi_value> args);
@@ -998,17 +988,28 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   napi_value getNodeApiValue(const jsi::Value &value) const;
   napi_value getNodeApiValue(const jsi::Pointer &ptr) const;
   napi_value getNodeApiValue(const NodeApiRefHolder &ref) const;
-  NodeApiRefCountedPointerValue *cloneNodeApiPointerValue(const PointerValue *pointerValue);
-  std::optional<uint32_t> toArrayIndex(std::string::const_iterator first, std::string::const_iterator last);
+  NodeApiRefCountedPointerValue *cloneNodeApiPointerValue(
+      const PointerValue *pointerValue);
+  std::optional<uint32_t> toArrayIndex(
+      std::string::const_iterator first,
+      std::string::const_iterator last);
 
-  template <typename T, std::enable_if_t<std::is_same_v<jsi::Object, T>, int> = 0>
+  template <
+      typename T,
+      std::enable_if_t<std::is_same_v<jsi::Object, T>, int> = 0>
   T makeJsiPointer(napi_value value) const;
-  template <typename T, std::enable_if_t<std::is_same_v<jsi::String, T>, int> = 0>
+  template <
+      typename T,
+      std::enable_if_t<std::is_same_v<jsi::String, T>, int> = 0>
   T makeJsiPointer(napi_value value) const;
-  template <typename T, std::enable_if_t<std::is_same_v<jsi::Symbol, T>, int> = 0>
+  template <
+      typename T,
+      std::enable_if_t<std::is_same_v<jsi::Symbol, T>, int> = 0>
   T makeJsiPointer(napi_value value) const;
 #if JSI_VERSION >= 6
-  template <typename T, std::enable_if_t<std::is_same_v<jsi::BigInt, T>, int> = 0>
+  template <
+      typename T,
+      std::enable_if_t<std::is_same_v<jsi::BigInt, T>, int> = 0>
   T makeJsiPointer(napi_value value) const;
 #endif
   template <
@@ -1017,7 +1018,10 @@ class NodeApiJsiRuntime : public jsi::Runtime {
       std::enable_if_t<std::is_base_of_v<jsi::Pointer, TTo>, int> = 0,
       std::enable_if_t<std::is_base_of_v<jsi::Pointer, TFrom>, int> = 0>
   TTo cloneAs(const TFrom &pointer) const;
-  NodeApiRefHolder makeNodeApiRef(napi_value value, NodeApiPointerValueKind pointerKind, int32_t initialRefCount = 1);
+  NodeApiRefHolder makeNodeApiRef(
+      napi_value value,
+      NodeApiPointerValueKind pointerKind,
+      int32_t initialRefCount = 1);
 
   void addStackValue(NodeApiStackValuePtr stackPointer);
   void pushPointerValueScope() noexcept;
@@ -1074,52 +1078,56 @@ class NodeApiJsiRuntime : public jsi::Runtime {
   std::vector<NodeApiStackValuePtr> stackValues_;
 
   // TODO: implement GC for propNameIDs_
-  std::unordered_map<StringKey, NodeApiRefHolder, StringKey::Hash, StringKey::EqualTo> propNameIDs_;
-  std::unordered_map<Utf16StringKey, NodeApiRefHolder, Utf16StringKey::Hash, Utf16StringKey::EqualTo> utf16PropNameIDs_;
+  std::unordered_map<
+      StringKey,
+      NodeApiRefHolder,
+      StringKey::Hash,
+      StringKey::EqualTo>
+      propNameIDs_;
 
   NodeApiJsiRuntime &runtime{*this};
-  NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_{NodeApiPendingDeletions::create()};
-  std::unique_ptr<facebook::jsi::Instrumentation> instrumentation_;
+  NodeApiRefCountedPtr<NodeApiPendingDeletions> pendingDeletions_{
+      NodeApiPendingDeletions::create()};
 };
 
 //=====================================================================================================================
-// BasicStringKey implementation
+// StringKey implementation
 //=====================================================================================================================
 
-template <typename TChar>
-BasicStringKey<TChar>::BasicStringKey(std::basic_string<TChar> string) noexcept
-    : string_(std::move(string)), type_(Type::String), hash_(std::hash<std::basic_string_view<TChar>>{}(string_)) {}
+StringKey::StringKey(std::string &&string) noexcept
+    : string_(std::move(string)),
+      type_(Type::String),
+      hash_(std::hash<std::string_view>{}(string_)) {}
 
-template <typename TChar>
-BasicStringKey<TChar>::BasicStringKey(std::basic_string_view<TChar> view) noexcept
-    : view_(view), type_(Type::View), hash_(std::hash<std::basic_string_view<TChar>>{}(view_)) {}
+StringKey::StringKey(std::string_view view) noexcept
+    : view_(view),
+      type_(Type::View),
+      hash_(std::hash<std::string_view>{}(view_)) {}
 
-template <typename TChar>
-BasicStringKey<TChar>::BasicStringKey(const TChar *data, size_t length) noexcept
-    : view_(data, length), type_(Type::View), hash_(std::hash<std::basic_string_view<TChar>>{}(view_)) {}
+StringKey::StringKey(const char *data, size_t length) noexcept
+    : view_(data, length),
+      type_(Type::View),
+      hash_(std::hash<std::string_view>{}(view_)) {}
 
-template <typename TChar>
-BasicStringKey<TChar>::BasicStringKey(BasicStringKey<TChar> &&other) noexcept
+StringKey::StringKey(StringKey &&other) noexcept
     : type_(other.type_), hash_(std::exchange(other.hash_, 0)) {
   if (type_ == Type::String) {
-    ::new (std::addressof(string_)) std::basic_string<TChar>(std::move(other.string_));
+    ::new (std::addressof(string_)) std::string(std::move(other.string_));
   } else {
     ::new (std::addressof(view_))
-        std::basic_string_view<TChar>(std::exchange(other.view_, std::basic_string_view<TChar>()));
+        std::string_view(std::exchange(other.view_, std::string_view()));
   }
 }
 
-template <typename TChar>
-BasicStringKey<TChar> &BasicStringKey<TChar>::operator=(BasicStringKey<TChar> &&other) noexcept {
+StringKey &StringKey::operator=(StringKey &&other) noexcept {
   if (this != &other) {
-    this->~BasicStringKey();
-    ::new (this) BasicStringKey<TChar>(std::move(other));
+    this->~StringKey();
+    ::new (this) StringKey(std::move(other));
   }
   return *this;
 }
 
-template <typename TChar>
-BasicStringKey<TChar>::~BasicStringKey() {
+StringKey::~StringKey() {
   if (type_ == Type::String) {
     std::addressof(string_)->~basic_string();
   } else {
@@ -1127,29 +1135,25 @@ BasicStringKey<TChar>::~BasicStringKey() {
   }
 }
 
-template <typename TChar>
-std::basic_string_view<TChar> BasicStringKey<TChar>::getStringView() const {
-  return (type_ == Type::String) ? std::basic_string_view<TChar>(string_) : view_;
+std::string_view StringKey::getStringView() const {
+  return (type_ == Type::String) ? std::string_view(string_) : view_;
 }
 
-template <typename TChar>
-bool BasicStringKey<TChar>::equalTo(const BasicStringKey<TChar> &other) const {
+bool StringKey::equalTo(const StringKey &other) const {
   return getStringView().compare(other.getStringView()) == 0;
 }
 
-template <typename TChar>
-size_t BasicStringKey<TChar>::hash() const {
+size_t StringKey::hash() const {
   return hash_;
 }
 
-template <typename TChar>
-size_t BasicStringKey<TChar>::Hash::operator()(const BasicStringKey<TChar> &key) const {
+size_t StringKey::Hash::operator()(const StringKey &key) const {
   return key.hash();
 }
 
-template <typename TChar>
-bool BasicStringKey<TChar>::EqualTo::operator()(const BasicStringKey<TChar> &left, const BasicStringKey<TChar> &right)
-    const {
+bool StringKey::EqualTo::operator()(
+    const StringKey &left,
+    const StringKey &right) const {
   return left.equalTo(right);
 }
 
@@ -1157,37 +1161,65 @@ bool BasicStringKey<TChar>::EqualTo::operator()(const BasicStringKey<TChar> &lef
 // NodeApiJsiRuntime implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::NodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> onDelete) noexcept
+NodeApiJsiRuntime::NodeApiJsiRuntime(
+    napi_env env,
+    JSRuntimeApi *jsrApi,
+    std::function<void()> onDelete) noexcept
     : env_(env), jsrApi_(jsrApi), onDelete_(std::move(onDelete)) {
   NodeApiScope scope{*this};
-  propertyId_.Error = makeNodeApiRef(getPropertyIdFromName("Error"), NodeApiPointerValueKind::String);
-  propertyId_.Object = makeNodeApiRef(getPropertyIdFromName("Object"), NodeApiPointerValueKind::String);
-  propertyId_.Proxy = makeNodeApiRef(getPropertyIdFromName("Proxy"), NodeApiPointerValueKind::String);
-  propertyId_.Symbol = makeNodeApiRef(getPropertyIdFromName("Symbol"), NodeApiPointerValueKind::String);
-  propertyId_.byteLength = makeNodeApiRef(getPropertyIdFromName("byteLength"), NodeApiPointerValueKind::String);
-  propertyId_.configurable = makeNodeApiRef(getPropertyIdFromName("configurable"), NodeApiPointerValueKind::String);
-  propertyId_.enumerable = makeNodeApiRef(getPropertyIdFromName("enumerable"), NodeApiPointerValueKind::String);
-  propertyId_.get = makeNodeApiRef(getPropertyIdFromName("get"), NodeApiPointerValueKind::String);
-  propertyId_.getOwnPropertyDescriptor =
-      makeNodeApiRef(getPropertyIdFromName("getOwnPropertyDescriptor"), NodeApiPointerValueKind::String);
-  propertyId_.has = makeNodeApiRef(getPropertyIdFromName("has"), NodeApiPointerValueKind::String);
-  propertyId_.hostFunctionSymbol = makeNodeApiRef(createSymbol("hostFunctionSymbol"), NodeApiPointerValueKind::Symbol);
-  propertyId_.hostObjectSymbol = makeNodeApiRef(createSymbol("hostObjectSymbol"), NodeApiPointerValueKind::Symbol);
-  propertyId_.length = makeNodeApiRef(getPropertyIdFromName("length"), NodeApiPointerValueKind::String);
-  propertyId_.message = makeNodeApiRef(getPropertyIdFromName("message"), NodeApiPointerValueKind::String);
-  propertyId_.ownKeys = makeNodeApiRef(getPropertyIdFromName("ownKeys"), NodeApiPointerValueKind::String);
-  propertyId_.propertyIsEnumerable =
-      makeNodeApiRef(getPropertyIdFromName("propertyIsEnumerable"), NodeApiPointerValueKind::String);
-  propertyId_.prototype = makeNodeApiRef(getPropertyIdFromName("prototype"), NodeApiPointerValueKind::String);
-  propertyId_.set = makeNodeApiRef(getPropertyIdFromName("set"), NodeApiPointerValueKind::String);
-  propertyId_.stack = makeNodeApiRef(getPropertyIdFromName("stack"), NodeApiPointerValueKind::String);
-  propertyId_.toString = makeNodeApiRef(getPropertyIdFromName("toString"), NodeApiPointerValueKind::String);
-  propertyId_.value = makeNodeApiRef(getPropertyIdFromName("value"), NodeApiPointerValueKind::String);
-  propertyId_.writable = makeNodeApiRef(getPropertyIdFromName("writable"), NodeApiPointerValueKind::String);
+  propertyId_.Error = makeNodeApiRef(
+      getPropertyIdFromName("Error"), NodeApiPointerValueKind::String);
+  propertyId_.Object = makeNodeApiRef(
+      getPropertyIdFromName("Object"), NodeApiPointerValueKind::String);
+  propertyId_.Proxy = makeNodeApiRef(
+      getPropertyIdFromName("Proxy"), NodeApiPointerValueKind::String);
+  propertyId_.Symbol = makeNodeApiRef(
+      getPropertyIdFromName("Symbol"), NodeApiPointerValueKind::String);
+  propertyId_.byteLength = makeNodeApiRef(
+      getPropertyIdFromName("byteLength"), NodeApiPointerValueKind::String);
+  propertyId_.configurable = makeNodeApiRef(
+      getPropertyIdFromName("configurable"), NodeApiPointerValueKind::String);
+  propertyId_.enumerable = makeNodeApiRef(
+      getPropertyIdFromName("enumerable"), NodeApiPointerValueKind::String);
+  propertyId_.get = makeNodeApiRef(
+      getPropertyIdFromName("get"), NodeApiPointerValueKind::String);
+  propertyId_.getOwnPropertyDescriptor = makeNodeApiRef(
+      getPropertyIdFromName("getOwnPropertyDescriptor"),
+      NodeApiPointerValueKind::String);
+  propertyId_.has = makeNodeApiRef(
+      getPropertyIdFromName("has"), NodeApiPointerValueKind::String);
+  propertyId_.hostFunctionSymbol = makeNodeApiRef(
+      createSymbol("hostFunctionSymbol"), NodeApiPointerValueKind::Symbol);
+  propertyId_.hostObjectSymbol = makeNodeApiRef(
+      createSymbol("hostObjectSymbol"), NodeApiPointerValueKind::Symbol);
+  propertyId_.length = makeNodeApiRef(
+      getPropertyIdFromName("length"), NodeApiPointerValueKind::String);
+  propertyId_.message = makeNodeApiRef(
+      getPropertyIdFromName("message"), NodeApiPointerValueKind::String);
+  propertyId_.ownKeys = makeNodeApiRef(
+      getPropertyIdFromName("ownKeys"), NodeApiPointerValueKind::String);
+  propertyId_.propertyIsEnumerable = makeNodeApiRef(
+      getPropertyIdFromName("propertyIsEnumerable"),
+      NodeApiPointerValueKind::String);
+  propertyId_.prototype = makeNodeApiRef(
+      getPropertyIdFromName("prototype"), NodeApiPointerValueKind::String);
+  propertyId_.set = makeNodeApiRef(
+      getPropertyIdFromName("set"), NodeApiPointerValueKind::String);
+  propertyId_.stack = makeNodeApiRef(
+      getPropertyIdFromName("stack"), NodeApiPointerValueKind::String);
+  propertyId_.toString = makeNodeApiRef(
+      getPropertyIdFromName("toString"), NodeApiPointerValueKind::String);
+  propertyId_.value = makeNodeApiRef(
+      getPropertyIdFromName("value"), NodeApiPointerValueKind::String);
+  propertyId_.writable = makeNodeApiRef(
+      getPropertyIdFromName("writable"), NodeApiPointerValueKind::String);
 
-  cachedValue_.Global = makeNodeApiRef(getGlobal(), NodeApiPointerValueKind::Object);
+  cachedValue_.Global =
+      makeNodeApiRef(getGlobal(), NodeApiPointerValueKind::Object);
   cachedValue_.Error = makeNodeApiRef(
-      getProperty(getNodeApiValue(cachedValue_.Global), getNodeApiValue(propertyId_.Error)),
+      getProperty(
+          getNodeApiValue(cachedValue_.Global),
+          getNodeApiValue(propertyId_.Error)),
       NodeApiPointerValueKind::Object);
 }
 
@@ -1197,19 +1229,14 @@ NodeApiJsiRuntime::~NodeApiJsiRuntime() {
   }
 }
 
-// Forward declaration of the template specializations.
-template <>
-std::string NodeApiJsiRuntime::stringToStdBasicString<char>(napi_value stringValue) const;
-template <>
-std::u16string NodeApiJsiRuntime::stringToStdBasicString<char16_t>(napi_value stringValue) const;
-
 jsi::Value NodeApiJsiRuntime::evaluateJavaScript(
     const std::shared_ptr<const jsi::Buffer> &buffer,
     const std::string &sourceURL) {
   return evaluatePreparedJavaScript(prepareJavaScript(buffer, sourceURL));
 }
 
-std::shared_ptr<const jsi::PreparedJavaScript> NodeApiJsiRuntime::prepareJavaScript(
+std::shared_ptr<const jsi::PreparedJavaScript>
+NodeApiJsiRuntime::prepareJavaScript(
     const std::shared_ptr<const jsi::Buffer> &sourceBuffer,
     std::string sourceURL) {
   NodeApiScope scope{*this};
@@ -1219,21 +1246,27 @@ std::shared_ptr<const jsi::PreparedJavaScript> NodeApiJsiRuntime::prepareJavaScr
       sourceBuffer->data(),
       sourceBuffer->size(),
       [](void * /*data*/, void *deleterData) {
-        delete reinterpret_cast<std::shared_ptr<const jsi::Buffer> *>(deleterData);
+        delete reinterpret_cast<std::shared_ptr<const jsi::Buffer> *>(
+            deleterData);
       },
       new std::shared_ptr<const jsi::Buffer>(sourceBuffer),
       sourceURL.c_str(),
       &script);
   CHECK_NAPI(status); // Not for the call to keep better automated formatting.
-  return std::make_shared<NodeApiPreparedJavaScript>(env_, script, std::move(sourceURL));
+  return std::make_shared<NodeApiPreparedJavaScript>(
+      env_, script, std::move(sourceURL));
 }
 
-jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(const std::shared_ptr<const jsi::PreparedJavaScript> &js) {
+jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(
+    const std::shared_ptr<const jsi::PreparedJavaScript> &js) {
   NodeApiScope scope{*this};
-  auto preparedScript = static_cast<const NodeApiPreparedJavaScript *>(js.get());
-  AutoRestore<std::string> sourceURLScope{sourceURL_, preparedScript->sourceURL()};
+  auto preparedScript =
+      static_cast<const NodeApiPreparedJavaScript *>(js.get());
+  AutoRestore<std::string> sourceURLScope{
+      sourceURL_, preparedScript->sourceURL()};
   napi_value result{};
-  CHECK_NAPI(jsrApi_->jsr_prepared_script_run(env_, preparedScript->getScript(), &result));
+  CHECK_NAPI(jsrApi_->jsr_prepared_script_run(
+      env_, preparedScript->getScript(), &result));
   return toJsiValue(result);
 }
 
@@ -1269,29 +1302,36 @@ bool NodeApiJsiRuntime::isInspectable() {
   return result;
 }
 
-jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneSymbol(const jsi::Runtime::PointerValue *pointerValue) {
+jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneSymbol(
+    const jsi::Runtime::PointerValue *pointerValue) {
   return cloneNodeApiPointerValue(pointerValue);
 }
 
 #if JSI_VERSION >= 6
-jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneBigInt(const jsi::Runtime::PointerValue *pointerValue) {
+jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneBigInt(
+    const jsi::Runtime::PointerValue *pointerValue) {
   return cloneNodeApiPointerValue(pointerValue);
 }
 #endif
 
-jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneString(const jsi::Runtime::PointerValue *pointerValue) {
+jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneString(
+    const jsi::Runtime::PointerValue *pointerValue) {
   return cloneNodeApiPointerValue(pointerValue);
 }
 
-jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneObject(const jsi::Runtime::PointerValue *pointerValue) {
+jsi::Runtime::PointerValue *NodeApiJsiRuntime::cloneObject(
+    const jsi::Runtime::PointerValue *pointerValue) {
   return cloneNodeApiPointerValue(pointerValue);
 }
 
-jsi::Runtime::PointerValue *NodeApiJsiRuntime::clonePropNameID(const jsi::Runtime::PointerValue *pointerValue) {
+jsi::Runtime::PointerValue *NodeApiJsiRuntime::clonePropNameID(
+    const jsi::Runtime::PointerValue *pointerValue) {
   return cloneNodeApiPointerValue(pointerValue);
 }
 
-jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromAscii(const char *str, size_t length) {
+jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromAscii(
+    const char *str,
+    size_t length) {
   NodeApiScope scope{*this};
   StringKey keyName{str, length};
   auto it = propNameIDs_.find(keyName);
@@ -1305,15 +1345,24 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromAscii(const char *str, si
   CHECK_NAPI(jsrApi_->napi_set_property(env_, obj, propName, getUndefined()));
   napi_value props{};
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
-      env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
+      env_,
+      obj,
+      napi_key_own_only,
+      napi_key_skip_symbols,
+      napi_key_numbers_to_strings,
+      &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
+  NodeApiRefHolder propNameRef =
+      makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
-  propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
+  propNameIDs_.try_emplace(
+      StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
 }
 
-jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf8(const uint8_t *utf8, size_t length) {
+jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf8(
+    const uint8_t *utf8,
+    size_t length) {
   NodeApiScope scope{*this};
   StringKey keyName{reinterpret_cast<const char *>(utf8), length};
   auto it = propNameIDs_.find(keyName);
@@ -1323,45 +1372,31 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf8(const uint8_t *utf8,
 
   napi_value obj = createNodeApiObject();
   napi_value propName{};
-  CHECK_NAPI(jsrApi_->napi_create_string_utf8(env_, reinterpret_cast<const char *>(utf8), length, &propName));
+  CHECK_NAPI(jsrApi_->napi_create_string_utf8(
+      env_, reinterpret_cast<const char *>(utf8), length, &propName));
   CHECK_NAPI(jsrApi_->napi_set_property(env_, obj, propName, getUndefined()));
   napi_value props{};
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
-      env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
+      env_,
+      obj,
+      napi_key_own_only,
+      napi_key_skip_symbols,
+      napi_key_numbers_to_strings,
+      &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
+  NodeApiRefHolder propNameRef =
+      makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
-  propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
+  propNameIDs_.try_emplace(
+      StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
 }
 
-#if JSI_VERSION >= 19
-jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromUtf16(const char16_t *utf16, size_t length) {
+jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromString(
+    const jsi::String &str) {
   NodeApiScope scope{*this};
-  Utf16StringKey keyName{utf16, length};
-  auto it = utf16PropNameIDs_.find(keyName);
-  if (it != utf16PropNameIDs_.end()) {
-    return make<jsi::PropNameID>(it->second->clone(*this));
-  }
-
-  napi_value obj = createNodeApiObject();
-  napi_value propName{};
-  CHECK_NAPI(jsrApi_->napi_create_string_utf16(env_, utf16, length, &propName));
-  CHECK_NAPI(jsrApi_->napi_set_property(env_, obj, propName, getUndefined()));
-  napi_value props{};
-  CHECK_NAPI(jsrApi_->napi_get_all_property_names(
-      env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
-  napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
-  jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
-  utf16PropNameIDs_.try_emplace(Utf16StringKey(std::u16string(keyName.getStringView())), std::move(propNameRef));
-  return result;
-}
-#endif
-
-jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromString(const jsi::String &str) {
-  NodeApiScope scope{*this};
-  const NodeApiPointerValue *pv = static_cast<const NodeApiPointerValue *>(getPointerValue(str));
+  const NodeApiPointerValue *pv =
+      static_cast<const NodeApiPointerValue *>(getPointerValue(str));
   if (pv->getKind() == NodeApiPointerValueKind::StringPropNameID) {
     return make<jsi::PropNameID>(pv->clone(*this));
   }
@@ -1378,16 +1413,24 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromString(const jsi::String 
   setProperty(obj, napiStr, getUndefined());
   napi_value props{};
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
-      env_, obj, napi_key_own_only, napi_key_skip_symbols, napi_key_numbers_to_strings, &props));
+      env_,
+      obj,
+      napi_key_own_only,
+      napi_key_skip_symbols,
+      napi_key_numbers_to_strings,
+      &props));
   napi_value propNameId = getElement(props, 0);
-  NodeApiRefHolder propNameRef = makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
+  NodeApiRefHolder propNameRef =
+      makeNodeApiRef(propNameId, NodeApiPointerValueKind::StringPropNameID, 2);
   jsi::PropNameID result = make<jsi::PropNameID>(propNameRef.get());
-  propNameIDs_.try_emplace(StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
+  propNameIDs_.try_emplace(
+      StringKey(std::string(keyName.getStringView())), std::move(propNameRef));
   return result;
 }
 
 #if JSI_VERSION >= 5
-jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromSymbol(const jsi::Symbol &sym) {
+jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromSymbol(
+    const jsi::Symbol &sym) {
   // TODO: Should we ensure uniqueness of symbols?
   return cloneAs<jsi::PropNameID>(sym);
 }
@@ -1395,17 +1438,20 @@ jsi::PropNameID NodeApiJsiRuntime::createPropNameIDFromSymbol(const jsi::Symbol 
 
 std::string NodeApiJsiRuntime::utf8(const jsi::PropNameID &id) {
   NodeApiScope scope{*this};
-  return propertyIdToStdBasicString<char>(getNodeApiValue(id));
+  return propertyIdToStdString(getNodeApiValue(id));
 }
 
-bool NodeApiJsiRuntime::compare(const jsi::PropNameID &lhs, const jsi::PropNameID &rhs) {
+bool NodeApiJsiRuntime::compare(
+    const jsi::PropNameID &lhs,
+    const jsi::PropNameID &rhs) {
   NodeApiScope scope{*this};
-  return getPointerValue(lhs) == getPointerValue(rhs) || strictEquals(getNodeApiValue(lhs), getNodeApiValue(rhs));
+  return getPointerValue(lhs) == getPointerValue(rhs) ||
+      strictEquals(getNodeApiValue(lhs), getNodeApiValue(rhs));
 }
 
 std::string NodeApiJsiRuntime::symbolToString(const jsi::Symbol &sym) {
   NodeApiScope scope{*this};
-  return symbolToStdBasicString<char>(getNodeApiValue(sym));
+  return symbolToStdString(getNodeApiValue(sym));
 }
 
 #if JSI_VERSION >= 8
@@ -1428,7 +1474,8 @@ bool NodeApiJsiRuntime::bigintIsInt64(const jsi::BigInt &bigint) {
   napi_value value = getNodeApiValue(bigint);
   bool lossless{false};
   int64_t result{};
-  CHECK_NAPI(jsrApi_->napi_get_value_bigint_int64(env_, value, &result, &lossless));
+  CHECK_NAPI(
+      jsrApi_->napi_get_value_bigint_int64(env_, value, &result, &lossless));
   return lossless;
 }
 
@@ -1437,7 +1484,8 @@ bool NodeApiJsiRuntime::bigintIsUint64(const jsi::BigInt &bigint) {
   napi_value value = getNodeApiValue(bigint);
   bool lossless{false};
   uint64_t result{};
-  CHECK_NAPI(jsrApi_->napi_get_value_bigint_uint64(env_, value, &result, &lossless));
+  CHECK_NAPI(
+      jsrApi_->napi_get_value_bigint_uint64(env_, value, &result, &lossless));
   return lossless;
 }
 
@@ -1446,7 +1494,8 @@ uint64_t NodeApiJsiRuntime::truncate(const jsi::BigInt &bigint) {
   napi_value value = getNodeApiValue(bigint);
   bool lossless{false};
   uint64_t result{};
-  CHECK_NAPI(jsrApi_->napi_get_value_bigint_uint64(env_, value, &result, &lossless));
+  CHECK_NAPI(
+      jsrApi_->napi_get_value_bigint_uint64(env_, value, &result, &lossless));
   return result;
 }
 
@@ -1455,12 +1504,17 @@ inline uint32_t constexpr maxCharsPerDigitInRadix(int32_t radix) {
   // char. For power of 2 radixes, it is known (exactly) that each character
   // covers log2(radix) bits. For non-power of 2 radixes, a lower bound is
   // log2(greatest power of 2 that is less than radix).
-  uint32_t minNumBitsPerChar = radix < 4 ? 1 : radix < 8 ? 2 : radix < 16 ? 3 : radix < 32 ? 4 : 5;
+  uint32_t minNumBitsPerChar = radix < 4 ? 1
+      : radix < 8                        ? 2
+      : radix < 16                       ? 3
+      : radix < 32                       ? 4
+                                         : 5;
 
   // With minNumBitsPerChar being the lower bound estimate of how many bits each
   // char can represent, the upper bound of how many chars "fit" in a bigint
   // digit is ceil(sizeofInBits(bigint digit) / minNumBitsPerChar).
-  uint32_t numCharsPerDigits = static_cast<uint32_t>(sizeof(uint64_t)) / (1 << minNumBitsPerChar);
+  uint32_t numCharsPerDigits =
+      static_cast<uint32_t>(sizeof(uint64_t)) / (1 << minNumBitsPerChar);
 
   return numCharsPerDigits;
 }
@@ -1480,7 +1534,9 @@ constexpr inline uint64_t Make_64(uint32_t High, uint32_t Low) {
   return ((uint64_t)High << 32) | (uint64_t)Low;
 }
 
-jsi::String NodeApiJsiRuntime::bigintToString(const jsi::BigInt &bigint, int32_t radix) {
+jsi::String NodeApiJsiRuntime::bigintToString(
+    const jsi::BigInt &bigint,
+    int32_t radix) {
   NodeApiScope scope{*this};
   if (radix < 2 || radix > 36) {
     throw makeJSError("Invalid radix ", radix, " to BigInt.toString");
@@ -1488,7 +1544,8 @@ jsi::String NodeApiJsiRuntime::bigintToString(const jsi::BigInt &bigint, int32_t
 
   napi_value value = getNodeApiValue(bigint);
   size_t wordCount{};
-  CHECK_NAPI(jsrApi_->napi_get_value_bigint_words(env_, value, nullptr, &wordCount, nullptr));
+  CHECK_NAPI(jsrApi_->napi_get_value_bigint_words(
+      env_, value, nullptr, &wordCount, nullptr));
   uint64_t stackWords[8]{};
   std::unique_ptr<uint64_t[]> heapWords;
   uint64_t *words = stackWords;
@@ -1497,7 +1554,8 @@ jsi::String NodeApiJsiRuntime::bigintToString(const jsi::BigInt &bigint, int32_t
     words = heapWords.get();
   }
   int32_t signBit{};
-  CHECK_NAPI(jsrApi_->napi_get_value_bigint_words(env_, value, &signBit, &wordCount, words));
+  CHECK_NAPI(jsrApi_->napi_get_value_bigint_words(
+      env_, value, &signBit, &wordCount, words));
 
   if (wordCount == 0) {
     return createStringFromAscii("0", 1);
@@ -1572,26 +1630,23 @@ jsi::String NodeApiJsiRuntime::bigintToString(const jsi::BigInt &bigint, int32_t
 }
 #endif
 
-jsi::String NodeApiJsiRuntime::createStringFromAscii(const char *str, size_t length) {
+jsi::String NodeApiJsiRuntime::createStringFromAscii(
+    const char *str,
+    size_t length) {
   NodeApiScope scope{*this};
   return makeJsiPointer<jsi::String>(createStringLatin1({str, length}));
 }
 
-jsi::String NodeApiJsiRuntime::createStringFromUtf8(const uint8_t *str, size_t length) {
+jsi::String NodeApiJsiRuntime::createStringFromUtf8(
+    const uint8_t *str,
+    size_t length) {
   NodeApiScope scope{*this};
   return makeJsiPointer<jsi::String>(createStringUtf8(str, length));
 }
 
-#if JSI_VERSION >= 19
-jsi::String NodeApiJsiRuntime::createStringFromUtf16(const char16_t *utf16, size_t length) {
-  NodeApiScope scope{*this};
-  return makeJsiPointer<jsi::String>(createStringUtf16({utf16, length}));
-}
-#endif
-
 std::string NodeApiJsiRuntime::utf8(const jsi::String &str) {
   NodeApiScope scope{*this};
-  return stringToStdBasicString<char>(getNodeApiValue(str));
+  return stringToStdString(getNodeApiValue(str));
 }
 
 jsi::Object NodeApiJsiRuntime::createObject() {
@@ -1599,56 +1654,65 @@ jsi::Object NodeApiJsiRuntime::createObject() {
   return makeJsiPointer<jsi::Object>(createNodeApiObject());
 }
 
-jsi::Object NodeApiJsiRuntime::createObject(std::shared_ptr<jsi::HostObject> hostObject) {
+jsi::Object NodeApiJsiRuntime::createObject(
+    std::shared_ptr<jsi::HostObject> hostObject) {
   NodeApiScope scope{*this};
   // The hostObjectHolder keeps the hostObject as external data.
-  // Then, the hostObjectHolder is wrapped up by a Proxy object to provide access
-  // to the hostObject's get, set, and getPropertyNames methods.
-  // There is a special symbol property ID, 'hostObjectSymbol', used to access the hostObjectWrapper from the Proxy.
-  napi_value hostObjectHolder =
-      createExternalObject(std::make_unique<std::shared_ptr<jsi::HostObject>>(std::move(hostObject)));
+  // Then, the hostObjectHolder is wrapped up by a Proxy object to provide
+  // access to the hostObject's get, set, and getPropertyNames methods. There is
+  // a special symbol property ID, 'hostObjectSymbol', used to access the
+  // hostObjectWrapper from the Proxy.
+  napi_value hostObjectHolder = createExternalObject(
+      std::make_unique<std::shared_ptr<jsi::HostObject>>(
+          std::move(hostObject)));
   napi_value obj = createNodeApiObject();
-  setProperty(obj, getNodeApiValue(propertyId_.hostObjectSymbol), hostObjectHolder);
+  setProperty(
+      obj, getNodeApiValue(propertyId_.hostObjectSymbol), hostObjectHolder);
   if (!cachedValue_.ProxyConstructor) {
     cachedValue_.ProxyConstructor = makeNodeApiRef(
-        getProperty(getNodeApiValue(cachedValue_.Global), getNodeApiValue(propertyId_.Proxy)),
+        getProperty(
+            getNodeApiValue(cachedValue_.Global),
+            getNodeApiValue(propertyId_.Proxy)),
         NodeApiPointerValueKind::Object);
   }
   napi_value args[] = {obj, getHostObjectProxyHandler()};
-  napi_value proxy = constructObject(getNodeApiValue(cachedValue_.ProxyConstructor), args);
+  napi_value proxy =
+      constructObject(getNodeApiValue(cachedValue_.ProxyConstructor), args);
   return makeJsiPointer<jsi::Object>(proxy);
 }
 
-std::shared_ptr<jsi::HostObject> NodeApiJsiRuntime::getHostObject(const jsi::Object &obj) {
+std::shared_ptr<jsi::HostObject> NodeApiJsiRuntime::getHostObject(
+    const jsi::Object &obj) {
   NodeApiScope scope{*this};
   return getJsiHostObject(getNodeApiValue(obj));
 }
 
-jsi::HostFunctionType &NodeApiJsiRuntime::getHostFunction(const jsi::Function &func) {
+jsi::HostFunctionType &NodeApiJsiRuntime::getHostFunction(
+    const jsi::Function &func) {
   NodeApiScope scope{*this};
-  napi_value hostFunctionHolder = getProperty(getNodeApiValue(func), getNodeApiValue((propertyId_.hostFunctionSymbol)));
+  napi_value hostFunctionHolder = getProperty(
+      getNodeApiValue(func), getNodeApiValue((propertyId_.hostFunctionSymbol)));
   if (typeOf(hostFunctionHolder) == napi_valuetype::napi_external) {
-    return static_cast<HostFunctionWrapper *>(getExternalData(hostFunctionHolder))->hostFunction();
+    return static_cast<HostFunctionWrapper *>(
+               getExternalData(hostFunctionHolder))
+        ->hostFunction();
   } else {
-    throw jsi::JSINativeException("getHostFunction() can only be called with HostFunction.");
+    throw jsi::JSINativeException(
+        "getHostFunction() can only be called with HostFunction.");
   }
 }
-
-#if JSI_VERSION >= 18
-jsi::Object NodeApiJsiRuntime::createObjectWithPrototype(const jsi::Value &prototype) {
-  return Runtime::createObjectWithPrototype(prototype);
-}
-#endif
 
 #if JSI_VERSION >= 7
 bool NodeApiJsiRuntime::hasNativeState(const jsi::Object &obj) {
   NodeApiScope scope{*this};
   void *nativeState{};
-  napi_status status = jsrApi_->napi_unwrap(env_, getNodeApiValue(obj), &nativeState);
+  napi_status status =
+      jsrApi_->napi_unwrap(env_, getNodeApiValue(obj), &nativeState);
   return status == napi_ok && nativeState != nullptr;
 }
 
-std::shared_ptr<jsi::NativeState> NodeApiJsiRuntime::getNativeState(const jsi::Object &obj) {
+std::shared_ptr<jsi::NativeState> NodeApiJsiRuntime::getNativeState(
+    const jsi::Object &obj) {
   NodeApiScope scope{*this};
   void *nativeState{};
   CHECK_NAPI(jsrApi_->napi_unwrap(env_, getNodeApiValue(obj), &nativeState));
@@ -1659,14 +1723,17 @@ std::shared_ptr<jsi::NativeState> NodeApiJsiRuntime::getNativeState(const jsi::O
   }
 }
 
-void NodeApiJsiRuntime::setNativeState(const jsi::Object &obj, std::shared_ptr<jsi::NativeState> state) {
+void NodeApiJsiRuntime::setNativeState(
+    const jsi::Object &obj,
+    std::shared_ptr<jsi::NativeState> state) {
   NodeApiScope scope{*this};
   if (hasNativeState(obj)) {
     void *nativeState{};
-    CHECK_NAPI(jsrApi_->napi_remove_wrap(env_, getNodeApiValue(obj), &nativeState));
+    CHECK_NAPI(
+        jsrApi_->napi_remove_wrap(env_, getNodeApiValue(obj), &nativeState));
     if (nativeState != nullptr) {
-      std::shared_ptr<jsi::NativeState> oldState{
-          std::move(*reinterpret_cast<std::shared_ptr<jsi::NativeState> *>(nativeState))};
+      std::shared_ptr<jsi::NativeState> oldState{std::move(
+          *reinterpret_cast<std::shared_ptr<jsi::NativeState> *>(nativeState))};
     }
   }
 
@@ -1676,8 +1743,8 @@ void NodeApiJsiRuntime::setNativeState(const jsi::Object &obj, std::shared_ptr<j
         getNodeApiValue(obj),
         new std::shared_ptr<jsi::NativeState>(std::move(state)),
         [](node_api_nogc_env /*env*/, void *data, void * /*finalize_hint*/) {
-          std::shared_ptr<jsi::NativeState> oldState{
-              std::move(*reinterpret_cast<std::shared_ptr<jsi::NativeState> *>(data))};
+          std::shared_ptr<jsi::NativeState> oldState{std::move(
+              *reinterpret_cast<std::shared_ptr<jsi::NativeState> *>(data))};
         },
         nullptr,
         nullptr));
@@ -1685,45 +1752,59 @@ void NodeApiJsiRuntime::setNativeState(const jsi::Object &obj, std::shared_ptr<j
 }
 #endif
 
-#if JSI_VERSION >= 17
-void NodeApiJsiRuntime::setPrototypeOf(const jsi::Object &object, const jsi::Value &prototype) {
-  Runtime::setPrototypeOf(object, prototype);
+jsi::Value NodeApiJsiRuntime::getProperty(
+    const jsi::Object &obj,
+    const jsi::PropNameID &name) {
+  NodeApiScope scope{*this};
+  return toJsiValue(getProperty(getNodeApiValue(obj), getNodeApiValue(name)));
 }
 
-jsi::Value NodeApiJsiRuntime::getPrototypeOf(const jsi::Object &object) {
+jsi::Value NodeApiJsiRuntime::getProperty(
+    const jsi::Object &obj,
+    const jsi::String &name) {
   NodeApiScope scope{*this};
-  napi_value prototype{};
-  CHECK_NAPI(jsrApi_->napi_get_prototype(env_, getNodeApiValue(object), &prototype));
-  return toJsiValue(prototype);
+  return toJsiValue(getProperty(getNodeApiValue(obj), getNodeApiValue(name)));
+}
+
+#if JSI_VERSION >= 21
+jsi::Value NodeApiJsiRuntime::getProperty(
+    const jsi::Object &obj,
+    const jsi::Value &name) {
+  NodeApiScope scope{*this};
+  return toJsiValue(getProperty(getNodeApiValue(obj), getNodeApiValue(name)));
 }
 #endif
 
-jsi::Value NodeApiJsiRuntime::getProperty(const jsi::Object &obj, const jsi::PropNameID &name) {
-  NodeApiScope scope{*this};
-  return toJsiValue(getProperty(getNodeApiValue(obj), getNodeApiValue(name)));
-}
-
-jsi::Value NodeApiJsiRuntime::getProperty(const jsi::Object &obj, const jsi::String &name) {
-  NodeApiScope scope{*this};
-  return toJsiValue(getProperty(getNodeApiValue(obj), getNodeApiValue(name)));
-}
-
-bool NodeApiJsiRuntime::hasProperty(const jsi::Object &obj, const jsi::PropNameID &name) {
+bool NodeApiJsiRuntime::hasProperty(
+    const jsi::Object &obj,
+    const jsi::PropNameID &name) {
   NodeApiScope scope{*this};
   return hasProperty(getNodeApiValue(obj), getNodeApiValue(name));
 }
 
-bool NodeApiJsiRuntime::hasProperty(const jsi::Object &obj, const jsi::String &name) {
+bool NodeApiJsiRuntime::hasProperty(
+    const jsi::Object &obj,
+    const jsi::String &name) {
   NodeApiScope scope{*this};
   return hasProperty(getNodeApiValue(obj), getNodeApiValue(name));
 }
+
+#if JSI_VERSION >= 21
+bool NodeApiJsiRuntime::hasProperty(
+    const jsi::Object &obj,
+    const jsi::Value &name) {
+  NodeApiScope scope{*this};
+  return hasProperty(getNodeApiValue(obj), getNodeApiValue(name));
+}
+#endif
 
 void NodeApiJsiRuntime::setPropertyValue(
     JSI_CONST_10 jsi::Object &obj,
     const jsi::PropNameID &name,
     const jsi::Value &value) {
   NodeApiScope scope{*this};
-  setProperty(getNodeApiValue(obj), getNodeApiValue(name), getNodeApiValue(value));
+  setProperty(
+      getNodeApiValue(obj), getNodeApiValue(name), getNodeApiValue(value));
 }
 
 void NodeApiJsiRuntime::setPropertyValue(
@@ -1731,8 +1812,50 @@ void NodeApiJsiRuntime::setPropertyValue(
     const jsi::String &name,
     const jsi::Value &value) {
   NodeApiScope scope{*this};
-  setProperty(getNodeApiValue(obj), getNodeApiValue(name), getNodeApiValue(value));
+  setProperty(
+      getNodeApiValue(obj), getNodeApiValue(name), getNodeApiValue(value));
 }
+
+#if JSI_VERSION >= 21
+void NodeApiJsiRuntime::setPropertyValue(
+    const jsi::Object &obj,
+    const jsi::Value &name,
+    const jsi::Value &value) {
+  NodeApiScope scope{*this};
+  setProperty(
+      getNodeApiValue(obj), getNodeApiValue(name), getNodeApiValue(value));
+}
+
+void NodeApiJsiRuntime::deleteProperty(
+    const jsi::Object &obj,
+    const jsi::PropNameID &name) {
+  NodeApiScope scope{*this};
+  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  if (!res) {
+    throw jsi::JSError(*this, "Failed to delete property");
+  }
+}
+
+void NodeApiJsiRuntime::deleteProperty(
+    const jsi::Object &obj,
+    const jsi::String &name) {
+  NodeApiScope scope{*this};
+  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  if (!res) {
+    throw jsi::JSError(*this, "Failed to delete property");
+  }
+}
+
+void NodeApiJsiRuntime::deleteProperty(
+    const jsi::Object &obj,
+    const jsi::Value &name) {
+  NodeApiScope scope{*this};
+  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  if (!res) {
+    throw jsi::JSError(*this, "Failed to delete property");
+  }
+}
+#endif
 
 bool NodeApiJsiRuntime::isArray(const jsi::Object &obj) const {
   NodeApiScope scope{*this};
@@ -1753,7 +1876,8 @@ bool NodeApiJsiRuntime::isFunction(const jsi::Object &obj) const {
 
 bool NodeApiJsiRuntime::isHostObject(const jsi::Object &obj) const {
   NodeApiScope scope{*this};
-  napi_value hostObjectHolder = getProperty(getNodeApiValue(obj), getNodeApiValue(propertyId_.hostObjectSymbol));
+  napi_value hostObjectHolder = getProperty(
+      getNodeApiValue(obj), getNodeApiValue(propertyId_.hostObjectSymbol));
   if (typeOf(hostObjectHolder) == napi_valuetype::napi_external) {
     return getExternalData(hostObjectHolder) != nullptr;
   } else {
@@ -1763,7 +1887,8 @@ bool NodeApiJsiRuntime::isHostObject(const jsi::Object &obj) const {
 
 bool NodeApiJsiRuntime::isHostFunction(const jsi::Function &func) const {
   NodeApiScope scope{*this};
-  napi_value hostFunctionHolder = getProperty(getNodeApiValue(func), getNodeApiValue(propertyId_.hostFunctionSymbol));
+  napi_value hostFunctionHolder = getProperty(
+      getNodeApiValue(func), getNodeApiValue(propertyId_.hostFunctionSymbol));
   if (typeOf(hostFunctionHolder) == napi_valuetype::napi_external) {
     return getExternalData(hostFunctionHolder) != nullptr;
   } else {
@@ -1786,13 +1911,15 @@ jsi::Array NodeApiJsiRuntime::getPropertyNames(const jsi::Object &obj) {
 
 jsi::WeakObject NodeApiJsiRuntime::createWeakObject(const jsi::Object &obj) {
   NodeApiScope scope{*this};
-  return make<jsi::WeakObject>(
-      NodeApiRefCountedPointerValue::make(
-          *const_cast<NodeApiJsiRuntime *>(this), getNodeApiValue(obj), NodeApiPointerValueKind::WeakObject)
-          .release());
+  return make<jsi::WeakObject>(NodeApiRefCountedPointerValue::make(
+                                   *const_cast<NodeApiJsiRuntime *>(this),
+                                   getNodeApiValue(obj),
+                                   NodeApiPointerValueKind::WeakObject)
+                                   .release());
 }
 
-jsi::Value NodeApiJsiRuntime::lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObject) {
+jsi::Value NodeApiJsiRuntime::lockWeakObject(
+    JSI_NO_CONST_3 JSI_CONST_10 jsi::WeakObject &weakObject) {
   NodeApiScope scope{*this};
   napi_value value = getNodeApiValue(weakObject);
   if (value) {
@@ -1808,7 +1935,8 @@ jsi::Array NodeApiJsiRuntime::createArray(size_t length) {
 }
 
 #if JSI_VERSION >= 9
-jsi::ArrayBuffer NodeApiJsiRuntime::createArrayBuffer(std::shared_ptr<jsi::MutableBuffer> buffer) {
+jsi::ArrayBuffer NodeApiJsiRuntime::createArrayBuffer(
+    std::shared_ptr<jsi::MutableBuffer> buffer) {
   NodeApiScope scope{*this};
   napi_value result{};
   void *data = buffer->data();
@@ -1819,7 +1947,8 @@ jsi::ArrayBuffer NodeApiJsiRuntime::createArrayBuffer(std::shared_ptr<jsi::Mutab
       size,
       [](node_api_nogc_env /*env*/, void * /*data*/, void *finalizeHint) {
         std::shared_ptr<jsi::MutableBuffer> buffer{
-            std::move(*reinterpret_cast<std::shared_ptr<jsi::MutableBuffer> *>(finalizeHint))};
+            std::move(*reinterpret_cast<std::shared_ptr<jsi::MutableBuffer> *>(
+                finalizeHint))};
       },
       new std::shared_ptr<jsi::MutableBuffer>{std::move(buffer)},
       &result));
@@ -1835,26 +1964,38 @@ size_t NodeApiJsiRuntime::size(const jsi::Array &arr) {
 size_t NodeApiJsiRuntime::size(const jsi::ArrayBuffer &arrBuf) {
   NodeApiScope scope{*this};
   size_t result{};
-  CHECK_NAPI(jsrApi_->napi_get_arraybuffer_info(env_, getNodeApiValue(arrBuf), nullptr, &result));
+  CHECK_NAPI(jsrApi_->napi_get_arraybuffer_info(
+      env_, getNodeApiValue(arrBuf), nullptr, &result));
   return result;
 }
 
 uint8_t *NodeApiJsiRuntime::data(const jsi::ArrayBuffer &arrBuf) {
   NodeApiScope scope{*this};
   uint8_t *result{};
-  CHECK_NAPI(
-      jsrApi_->napi_get_arraybuffer_info(env_, getNodeApiValue(arrBuf), reinterpret_cast<void **>(&result), nullptr));
+  CHECK_NAPI(jsrApi_->napi_get_arraybuffer_info(
+      env_,
+      getNodeApiValue(arrBuf),
+      reinterpret_cast<void **>(&result),
+      nullptr));
   return result;
 }
 
-jsi::Value NodeApiJsiRuntime::getValueAtIndex(const jsi::Array &arr, size_t index) {
+jsi::Value NodeApiJsiRuntime::getValueAtIndex(
+    const jsi::Array &arr,
+    size_t index) {
   NodeApiScope scope{*this};
   return toJsiValue(getElement(getNodeApiValue(arr), index));
 }
 
-void NodeApiJsiRuntime::setValueAtIndexImpl(JSI_CONST_10 jsi::Array &arr, size_t index, const jsi::Value &value) {
+void NodeApiJsiRuntime::setValueAtIndexImpl(
+    JSI_CONST_10 jsi::Array &arr,
+    size_t index,
+    const jsi::Value &value) {
   NodeApiScope scope{*this};
-  setElement(getNodeApiValue(arr), static_cast<uint32_t>(index), getNodeApiValue(value));
+  setElement(
+      getNodeApiValue(arr),
+      static_cast<uint32_t>(index),
+      getNodeApiValue(value));
 }
 
 jsi::Function NodeApiJsiRuntime::createFunctionFromHostFunction(
@@ -1862,11 +2003,16 @@ jsi::Function NodeApiJsiRuntime::createFunctionFromHostFunction(
     unsigned int paramCount,
     jsi::HostFunctionType func) {
   NodeApiScope scope{*this};
-  auto hostFunctionWrapper = std::make_unique<HostFunctionWrapper>(std::move(func), *this);
+  auto hostFunctionWrapper =
+      std::make_unique<HostFunctionWrapper>(std::move(func), *this);
   napi_value function = createExternalFunction(
-      getNodeApiValue(name), static_cast<int32_t>(paramCount), jsiHostFunctionCallback, hostFunctionWrapper.get());
+      getNodeApiValue(name),
+      static_cast<int32_t>(paramCount),
+      jsiHostFunctionCallback,
+      hostFunctionWrapper.get());
 
-  const napi_value hostFunctionHolder = createExternalObject(std::move(hostFunctionWrapper));
+  const napi_value hostFunctionHolder =
+      createExternalObject(std::move(hostFunctionWrapper));
   setProperty(
       function,
       getNodeApiValue(propertyId_.hostFunctionSymbol),
@@ -1875,17 +2021,26 @@ jsi::Function NodeApiJsiRuntime::createFunctionFromHostFunction(
   return makeJsiPointer<jsi::Object>(function).getFunction(*this);
 }
 
-jsi::Value
-NodeApiJsiRuntime::call(const jsi::Function &func, const jsi::Value &jsThis, const jsi::Value *args, size_t count) {
+jsi::Value NodeApiJsiRuntime::call(
+    const jsi::Function &func,
+    const jsi::Value &jsThis,
+    const jsi::Value *args,
+    size_t count) {
   NodeApiScope scope{*this};
   return toJsiValue(callFunction(
-      getNodeApiValue(jsThis), getNodeApiValue(func), NodeApiValueArgs(*this, span<const jsi::Value>(args, count))));
+      getNodeApiValue(jsThis),
+      getNodeApiValue(func),
+      NodeApiValueArgs(*this, span<const jsi::Value>(args, count))));
 }
 
-jsi::Value NodeApiJsiRuntime::callAsConstructor(const jsi::Function &func, const jsi::Value *args, size_t count) {
+jsi::Value NodeApiJsiRuntime::callAsConstructor(
+    const jsi::Function &func,
+    const jsi::Value *args,
+    size_t count) {
   NodeApiScope scope{*this};
-  return toJsiValue(
-      constructObject(getNodeApiValue(func), NodeApiValueArgs(*this, span<jsi::Value const>(args, count))));
+  return toJsiValue(constructObject(
+      getNodeApiValue(func),
+      NodeApiValueArgs(*this, span<jsi::Value const>(args, count))));
 }
 
 jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
@@ -1897,67 +2052,48 @@ jsi::Runtime::ScopeState *NodeApiJsiRuntime::pushScope() {
 
 void NodeApiJsiRuntime::popScope(jsi::Runtime::ScopeState *state) {
   popPointerValueScope();
-  CHECK_NAPI(jsrApi_->napi_close_handle_scope(env_, reinterpret_cast<napi_handle_scope>(state)));
+  CHECK_NAPI(jsrApi_->napi_close_handle_scope(
+      env_, reinterpret_cast<napi_handle_scope>(state)));
 }
 
-bool NodeApiJsiRuntime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b) const {
+bool NodeApiJsiRuntime::strictEquals(const jsi::Symbol &a, const jsi::Symbol &b)
+    const {
   NodeApiScope scope{*this};
   return strictEquals(getNodeApiValue(a), getNodeApiValue(b));
 }
 
 #if JSI_VERSION >= 6
-bool NodeApiJsiRuntime::strictEquals(const jsi::BigInt &a, const jsi::BigInt &b) const {
+bool NodeApiJsiRuntime::strictEquals(const jsi::BigInt &a, const jsi::BigInt &b)
+    const {
   NodeApiScope scope{*this};
   return strictEquals(getNodeApiValue(a), getNodeApiValue(b));
 }
 #endif
 
-bool NodeApiJsiRuntime::strictEquals(const jsi::String &a, const jsi::String &b) const {
+bool NodeApiJsiRuntime::strictEquals(const jsi::String &a, const jsi::String &b)
+    const {
   NodeApiScope scope{*this};
   return strictEquals(getNodeApiValue(a), getNodeApiValue(b));
 }
 
-bool NodeApiJsiRuntime::strictEquals(const jsi::Object &a, const jsi::Object &b) const {
+bool NodeApiJsiRuntime::strictEquals(const jsi::Object &a, const jsi::Object &b)
+    const {
   NodeApiScope scope{*this};
   return strictEquals(getNodeApiValue(a), getNodeApiValue(b));
 }
 
-bool NodeApiJsiRuntime::instanceOf(const jsi::Object &obj, const jsi::Function &func) {
+bool NodeApiJsiRuntime::instanceOf(
+    const jsi::Object &obj,
+    const jsi::Function &func) {
   NodeApiScope scope{*this};
   return instanceOf(getNodeApiValue(obj), getNodeApiValue(func));
 }
 
 #if JSI_VERSION >= 11
-void NodeApiJsiRuntime::setExternalMemoryPressure(const jsi::Object & /*obj*/, size_t /*amount*/) {
+void NodeApiJsiRuntime::setExternalMemoryPressure(
+    const jsi::Object & /*obj*/,
+    size_t /*amount*/) {
   // TODO: implement
-}
-#endif
-
-#if JSI_VERSION >= 14
-std::u16string NodeApiJsiRuntime::utf16(const jsi::String &str) {
-  NodeApiScope scope{*this};
-  return stringToStdBasicString<char16_t>(getNodeApiValue(str));
-}
-
-std::u16string NodeApiJsiRuntime::utf16(const jsi::PropNameID &sym) {
-  NodeApiScope scope{*this};
-  return propertyIdToStdBasicString<char16_t>(getNodeApiValue(sym));
-}
-#endif
-
-#if JSI_VERSION >= 16
-void NodeApiJsiRuntime::getStringData(
-    const jsi::String &str,
-    void *ctx,
-    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
-  return Runtime::getStringData(str, ctx, cb);
-}
-
-void NodeApiJsiRuntime::getPropNameIdData(
-    const jsi::PropNameID &sym,
-    void *ctx,
-    void (*cb)(void *ctx, bool ascii, const void *data, size_t num)) {
-  return Runtime::getPropNameIdData(sym, ctx, cb);
 }
 #endif
 
@@ -1965,11 +2101,15 @@ void NodeApiJsiRuntime::getPropNameIdData(
 // NodeApiJsiRuntime::NodeApiScope implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::NodeApiScope::NodeApiScope(const NodeApiJsiRuntime &runtime) noexcept
+NodeApiJsiRuntime::NodeApiScope::NodeApiScope(
+    const NodeApiJsiRuntime &runtime) noexcept
     : NodeApiScope(const_cast<NodeApiJsiRuntime &>(runtime)) {}
 
-NodeApiJsiRuntime::NodeApiScope::NodeApiScope(NodeApiJsiRuntime &runtime) noexcept
-    : runtime_(runtime), envScope_(runtime_.getEnv()), scopeState_(runtime_.pushScope()) {
+NodeApiJsiRuntime::NodeApiScope::NodeApiScope(
+    NodeApiJsiRuntime &runtime) noexcept
+    : runtime_(runtime),
+      envScope_(runtime_.getEnv()),
+      scopeState_(runtime_.pushScope()) {
   runtime_.pushPointerValueScope();
 }
 
@@ -1982,12 +2122,14 @@ NodeApiJsiRuntime::NodeApiScope::~NodeApiScope() noexcept {
 // NodeApiJsiRuntime::NodeApiPointerValueScope implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::NodeApiPointerValueScope::NodeApiPointerValueScope(NodeApiJsiRuntime &runtime) noexcept
+NodeApiJsiRuntime::NodeApiPointerValueScope::NodeApiPointerValueScope(
+    NodeApiJsiRuntime &runtime) noexcept
     : runtime_(runtime) {
   runtime_.pushPointerValueScope();
 }
 
-NodeApiJsiRuntime::NodeApiPointerValueScope::~NodeApiPointerValueScope() noexcept {
+NodeApiJsiRuntime::NodeApiPointerValueScope::
+    ~NodeApiPointerValueScope() noexcept {
   runtime_.popPointerValueScope();
 }
 
@@ -2016,16 +2158,20 @@ NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::NodeApiStackOnlyPointerValue(
 // Intentionally do nothing since the value is allocated on the stack.
 void NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::invalidate() noexcept {}
 
-NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::clone(
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue *
+NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::clone(
     NodeApiJsiRuntime &runtime) const noexcept {
-  return NodeApiRefCountedPointerValue::make(runtime, value_, pointerKind_).release();
+  return NodeApiRefCountedPointerValue::make(runtime, value_, pointerKind_)
+      .release();
 }
 
-napi_value NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::getValue(NodeApiJsiRuntime & /*runtime*/) noexcept {
+napi_value NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::getValue(
+    NodeApiJsiRuntime & /*runtime*/) noexcept {
   return value_;
 }
 
-NodeApiJsiRuntime::NodeApiPointerValueKind NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::getKind() const noexcept {
+NodeApiJsiRuntime::NodeApiPointerValueKind
+NodeApiJsiRuntime::NodeApiStackOnlyPointerValue::getKind() const noexcept {
   return pointerKind_;
 }
 
@@ -2043,17 +2189,22 @@ NodeApiJsiRuntime::NodeApiRefCountedPointerValue::NodeApiRefCountedPointerValue(
       refCount_(initialRefCount),
       pointerKind_(pointerKind) {}
 
-/*static*/ NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::NodeApiRefCountedPointerValue::make(
+/*static*/ NodeApiJsiRuntime::NodeApiRefHolder
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue::make(
     NodeApiJsiRuntime &runtime,
     napi_value value,
     NodeApiJsiRuntime::NodeApiPointerValueKind pointerKind,
     int32_t initialRefCount) {
-  NodeApiRefHolder result{new NodeApiRefCountedPointerValue(runtime, value, pointerKind, initialRefCount), attachTag};
+  NodeApiRefHolder result{
+      new NodeApiRefCountedPointerValue(
+          runtime, value, pointerKind, initialRefCount),
+      attachTag};
   runtime.addStackValue(NodeApiStackValuePtr{result.get()});
   return result;
 }
 
-/*static*/ NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::NodeApiRefCountedPointerValue::makeNodeApiRef(
+/*static*/ NodeApiJsiRuntime::NodeApiRefHolder
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue::makeNodeApiRef(
     NodeApiJsiRuntime &runtime,
     napi_value value,
     NodeApiPointerValueKind pointerKind,
@@ -2067,13 +2218,15 @@ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::invalidate() noexcept {
   decRefCount();
 }
 
-NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiRefCountedPointerValue::clone(
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue *
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue::clone(
     NodeApiJsiRuntime & /*runtime*/) const noexcept {
   incRefCount();
   return const_cast<NodeApiRefCountedPointerValue *>(this);
 }
 
-napi_value NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getValue(NodeApiJsiRuntime &runtime) noexcept {
+napi_value NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getValue(
+    NodeApiJsiRuntime &runtime) noexcept {
   if (value_ != nullptr) {
     return value_;
   }
@@ -2083,13 +2236,17 @@ napi_value NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getValue(NodeApiJsi
   }
 
   JSRuntimeApi *jsrApi = JSRuntimeApi::current();
-  if (pointerKind_ == NodeApiPointerValueKind::Object || pointerKind_ == NodeApiPointerValueKind::WeakObject) {
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_reference_value(runtime.getEnv(), ref_, &value_));
+  if (pointerKind_ == NodeApiPointerValueKind::Object ||
+      pointerKind_ == NodeApiPointerValueKind::WeakObject) {
+    CHECK_NAPI_ELSE_CRASH(
+        jsrApi->napi_get_reference_value(runtime.getEnv(), ref_, &value_));
   } else {
     napi_value obj{};
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_reference_value(runtime.getEnv(), ref_, &obj));
+    CHECK_NAPI_ELSE_CRASH(
+        jsrApi->napi_get_reference_value(runtime.getEnv(), ref_, &obj));
     // TODO: Should we use an interned property key?
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_named_property(runtime.getEnv(), obj, kPrimitivePropertyName, &value_));
+    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_get_named_property(
+        runtime.getEnv(), obj, kPrimitivePropertyName, &value_));
   }
 
   if (value_ != nullptr) {
@@ -2099,18 +2256,22 @@ napi_value NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getValue(NodeApiJsi
   return value_;
 }
 
-NodeApiJsiRuntime::NodeApiPointerValueKind NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getKind() const noexcept {
+NodeApiJsiRuntime::NodeApiPointerValueKind
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue::getKind() const noexcept {
   return pointerKind_;
 }
 
-bool NodeApiJsiRuntime::NodeApiRefCountedPointerValue::usedByJsiPointer() const noexcept {
+bool NodeApiJsiRuntime::NodeApiRefCountedPointerValue::usedByJsiPointer()
+    const noexcept {
   return !NodeApiRefCount::isZero(refCount_);
 }
 
-void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteStackValue(NodeApiJsiRuntime &runtime) noexcept {
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteStackValue(
+    NodeApiJsiRuntime &runtime) noexcept {
   CHECK_ELSE_CRASH(value_, "value_ must not be null");
   if (canBeDeletedFromStack_) {
     delete this;
+    return;
   }
 
   if (usedByJsiPointer() && ref_ == nullptr) {
@@ -2120,9 +2281,11 @@ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteStackValue(NodeApiJ
   value_ = nullptr;
 }
 
-void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(NodeApiJsiRuntime &runtime) noexcept {
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(
+    NodeApiJsiRuntime &runtime) noexcept {
   if (ref_ != nullptr) {
-    CHECK_NAPI_ELSE_CRASH(JSRuntimeApi::current()->napi_delete_reference(runtime.getEnv(), ref_));
+    CHECK_NAPI_ELSE_CRASH(
+        JSRuntimeApi::current()->napi_delete_reference(runtime.getEnv(), ref_));
     ref_ = nullptr;
   }
 
@@ -2133,7 +2296,8 @@ void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::deleteNodeApiRef(NodeApiJ
   }
 }
 
-void NodeApiJsiRuntime::NodeApiStackValueDeleter::operator()(NodeApiRefCountedPointerValue *ptr) const noexcept {
+void NodeApiJsiRuntime::NodeApiStackValueDeleter::operator()(
+    NodeApiRefCountedPointerValue *ptr) const noexcept {
   if (ptr == nullptr) {
     return;
   }
@@ -2144,7 +2308,8 @@ void NodeApiJsiRuntime::NodeApiStackValueDeleter::operator()(NodeApiRefCountedPo
   }
 }
 
-void NodeApiJsiRuntime::NodeApiRefDeleter::operator()(NodeApiRefCountedPointerValue *ptr) const noexcept {
+void NodeApiJsiRuntime::NodeApiRefDeleter::operator()(
+    NodeApiRefCountedPointerValue *ptr) const noexcept {
   if (ptr == nullptr) {
     return;
   }
@@ -2156,30 +2321,38 @@ void NodeApiJsiRuntime::NodeApiRefDeleter::operator()(NodeApiRefCountedPointerVa
   }
 }
 
-void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::incRefCount() const noexcept {
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::incRefCount()
+    const noexcept {
   NodeApiRefCount::incRefCount(refCount_);
 }
 
-void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::decRefCount() const noexcept {
+void NodeApiJsiRuntime::NodeApiRefCountedPointerValue::decRefCount()
+    const noexcept {
   if (NodeApiRefCount::decRefCount(refCount_)) {
-    pendingDeletions_->addPointerValueToDelete(NodeApiRefPtr(const_cast<NodeApiRefCountedPointerValue *>(this)));
+    pendingDeletions_->addPointerValueToDelete(
+        NodeApiRefPtr(const_cast<NodeApiRefCountedPointerValue *>(this)));
   }
 }
 
-NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiRefCountedPointerValue::createNodeApiRef(
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue *
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue::createNodeApiRef(
     NodeApiJsiRuntime &runtime) {
   JSRuntimeApi *jsrApi = JSRuntimeApi::current();
   CHECK_ELSE_CRASH(value_ != nullptr, "value_ must not be null");
   CHECK_ELSE_CRASH(ref_ == nullptr, "ref_ must be null");
   if (pointerKind_ == NodeApiPointerValueKind::Object) {
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_create_reference(runtime.getEnv(), value_, 1, &ref_));
+    CHECK_NAPI_ELSE_CRASH(
+        jsrApi->napi_create_reference(runtime.getEnv(), value_, 1, &ref_));
   } else if (pointerKind_ != NodeApiPointerValueKind::WeakObject) {
     napi_value obj{};
     CHECK_NAPI_ELSE_CRASH(jsrApi->napi_create_object(runtime.getEnv(), &obj));
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_set_named_property(runtime.getEnv(), obj, kPrimitivePropertyName, value_));
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_create_reference(runtime.getEnv(), obj, 1, &ref_));
+    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_set_named_property(
+        runtime.getEnv(), obj, kPrimitivePropertyName, value_));
+    CHECK_NAPI_ELSE_CRASH(
+        jsrApi->napi_create_reference(runtime.getEnv(), obj, 1, &ref_));
   } else {
-    CHECK_NAPI_ELSE_CRASH(jsrApi->napi_create_reference(runtime.getEnv(), value_, 0, &ref_));
+    CHECK_NAPI_ELSE_CRASH(
+        jsrApi->napi_create_reference(runtime.getEnv(), value_, 0, &ref_));
   }
   return this;
 }
@@ -2189,8 +2362,10 @@ NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::NodeApiRefC
 //=====================================================================================================================
 
 template <typename T, size_t InplaceSize>
-NodeApiJsiRuntime::SmallBuffer<T, InplaceSize>::SmallBuffer(size_t size) noexcept
-    : size_{size}, heapData_{size_ > InplaceSize ? std::make_unique<T[]>(size_) : nullptr} {}
+NodeApiJsiRuntime::SmallBuffer<T, InplaceSize>::SmallBuffer(
+    size_t size) noexcept
+    : size_{size},
+      heapData_{size_ > InplaceSize ? std::make_unique<T[]>(size_) : nullptr} {}
 
 template <typename T, size_t InplaceSize>
 T *NodeApiJsiRuntime::SmallBuffer<T, InplaceSize>::data() noexcept {
@@ -2206,7 +2381,9 @@ size_t NodeApiJsiRuntime::SmallBuffer<T, InplaceSize>::size() const noexcept {
 // NodeApiJsiRuntime::NodeApiValueArgs implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::NodeApiValueArgs::NodeApiValueArgs(NodeApiJsiRuntime &runtime, span<const jsi::Value> args)
+NodeApiJsiRuntime::NodeApiValueArgs::NodeApiValueArgs(
+    NodeApiJsiRuntime &runtime,
+    span<const jsi::Value> args)
     : args_{args.size()} {
   napi_value *jsArgs = args_.data();
   for (size_t i = 0; i < args.size(); ++i) {
@@ -2222,15 +2399,19 @@ NodeApiJsiRuntime::NodeApiValueArgs::operator span<napi_value>() {
 // NodeApiJsiRuntime::JsiValueView implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::JsiValueView::JsiValueView(NodeApiJsiRuntime *runtime, napi_value jsValue)
+NodeApiJsiRuntime::JsiValueView::JsiValueView(
+    NodeApiJsiRuntime *runtime,
+    napi_value jsValue)
     : value_{initValue(runtime, jsValue, std::addressof(pointerStore_))} {}
 
 NodeApiJsiRuntime::JsiValueView::operator const jsi::Value &() const noexcept {
   return value_;
 }
 
-/*static*/ jsi::Value
-NodeApiJsiRuntime::JsiValueView::initValue(NodeApiJsiRuntime *runtime, napi_value value, StoreType *store) {
+/*static*/ jsi::Value NodeApiJsiRuntime::JsiValueView::initValue(
+    NodeApiJsiRuntime *runtime,
+    napi_value value,
+    StoreType *store) {
   switch (runtime->typeOf(value)) {
     case napi_valuetype::napi_undefined:
       return jsi::Value::undefined();
@@ -2241,16 +2422,20 @@ NodeApiJsiRuntime::JsiValueView::initValue(NodeApiJsiRuntime *runtime, napi_valu
     case napi_valuetype::napi_number:
       return jsi::Value{runtime->getValueDouble(value)};
     case napi_valuetype::napi_string:
-      return make<jsi::String>(new (store) NodeApiStackOnlyPointerValue(value, NodeApiPointerValueKind::String));
+      return make<jsi::String>(new (store) NodeApiStackOnlyPointerValue(
+          value, NodeApiPointerValueKind::String));
     case napi_valuetype::napi_symbol:
-      return make<jsi::Symbol>(new (store) NodeApiStackOnlyPointerValue(value, NodeApiPointerValueKind::Symbol));
+      return make<jsi::Symbol>(new (store) NodeApiStackOnlyPointerValue(
+          value, NodeApiPointerValueKind::Symbol));
     case napi_valuetype::napi_object:
     case napi_valuetype::napi_function:
     case napi_valuetype::napi_external:
-      return make<jsi::Object>(new (store) NodeApiStackOnlyPointerValue(value, NodeApiPointerValueKind::Object));
+      return make<jsi::Object>(new (store) NodeApiStackOnlyPointerValue(
+          value, NodeApiPointerValueKind::Object));
 #if JSI_VERSION >= 8
     case napi_valuetype::napi_bigint:
-      return make<jsi::BigInt>(new (store) NodeApiStackOnlyPointerValue(value, NodeApiPointerValueKind::BigInt));
+      return make<jsi::BigInt>(new (store) NodeApiStackOnlyPointerValue(
+          value, NodeApiPointerValueKind::BigInt));
 #endif
     default:
       throw jsi::JSINativeException("Unexpected value type");
@@ -2261,12 +2446,15 @@ NodeApiJsiRuntime::JsiValueView::initValue(NodeApiJsiRuntime *runtime, napi_valu
 // NodeApiJsiRuntime::JsiValueViewArgs implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::JsiValueViewArgs::JsiValueViewArgs(NodeApiJsiRuntime *runtime, span<napi_value> args) noexcept
+NodeApiJsiRuntime::JsiValueViewArgs::JsiValueViewArgs(
+    NodeApiJsiRuntime *runtime,
+    span<napi_value> args) noexcept
     : pointerStore_{args.size()}, args_{args.size()} {
   JsiValueView::StoreType *pointerStore = pointerStore_.data();
   jsi::Value *jsiArgs = args_.data();
   for (size_t i = 0; i < args_.size(); ++i) {
-    jsiArgs[i] = JsiValueView::initValue(runtime, args[i], std::addressof(pointerStore[i]));
+    jsiArgs[i] = JsiValueView::initValue(
+        runtime, args[i], std::addressof(pointerStore[i]));
   }
 }
 
@@ -2283,11 +2471,16 @@ size_t NodeApiJsiRuntime::JsiValueViewArgs::size() const noexcept {
 //=====================================================================================================================
 
 // TODO: account for symbol
-NodeApiJsiRuntime::PropNameIDView::PropNameIDView(NodeApiJsiRuntime * /*runtime*/, napi_value propertyId) noexcept
-    : propertyId_{make<jsi::PropNameID>(new(std::addressof(
-          pointerStore_)) NodeApiStackOnlyPointerValue(propertyId, NodeApiPointerValueKind::StringPropNameID))} {}
+NodeApiJsiRuntime::PropNameIDView::PropNameIDView(
+    NodeApiJsiRuntime * /*runtime*/,
+    napi_value propertyId) noexcept
+    : propertyId_{make<jsi::PropNameID>(
+          new (std::addressof(pointerStore_)) NodeApiStackOnlyPointerValue(
+              propertyId,
+              NodeApiPointerValueKind::StringPropNameID))} {}
 
-NodeApiJsiRuntime::PropNameIDView::operator jsi::PropNameID const &() const noexcept {
+NodeApiJsiRuntime::PropNameIDView::operator jsi::PropNameID const &()
+    const noexcept {
   return propertyId_;
 }
 
@@ -2295,10 +2488,13 @@ NodeApiJsiRuntime::PropNameIDView::operator jsi::PropNameID const &() const noex
 // NodeApiJsiRuntime::HostFunctionWrapper implementation
 //=====================================================================================================================
 
-NodeApiJsiRuntime::HostFunctionWrapper::HostFunctionWrapper(jsi::HostFunctionType &&type, NodeApiJsiRuntime &runtime)
+NodeApiJsiRuntime::HostFunctionWrapper::HostFunctionWrapper(
+    jsi::HostFunctionType &&type,
+    NodeApiJsiRuntime &runtime)
     : hostFunction_{std::move(type)}, runtime_{runtime} {}
 
-jsi::HostFunctionType &NodeApiJsiRuntime::HostFunctionWrapper::hostFunction() noexcept {
+jsi::HostFunctionType &
+NodeApiJsiRuntime::HostFunctionWrapper::hostFunction() noexcept {
   return hostFunction_;
 }
 
@@ -2317,28 +2513,94 @@ jsi::JSError NodeApiJsiRuntime::makeJSError(Args &&...args) {
   return jsi::JSError(*this, errorStream.str());
 }
 
-// Throws jsi::JSError or jsi::JSINativeException from Node-API error.
-[[noreturn]] void NodeApiJsiRuntime::throwJSException(napi_status status) const {
+[[noreturn]] void NodeApiJsiRuntime::throwJSException(
+    napi_status status) const {
+  auto formatStatusError = [](napi_status status) -> std::string {
+    // TODO: (vmoroz) use a more sophisticated error formatting.
+    std::ostringstream errorStream;
+    errorStream << "A call to Node-API returned error code 0x" << std::hex
+                << static_cast<int>(status) << '.';
+    return errorStream.str();
+  };
+
+  NodeApiScope scope{*this};
+  // Retrieve the exception value and clear as we will rethrow it as a C++
+  // exception.
   napi_value jsError{};
-  CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_get_and_clear_last_exception(env_, &jsError));
+  CHECK_NAPI_ELSE_CRASH(
+      jsrApi_->napi_get_and_clear_last_exception(env_, &jsError));
   napi_valuetype jsErrorType;
   CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_typeof(env_, jsError, &jsErrorType));
-
-  if (!hasPendingJSError_ && (status == napi_pending_exception || jsErrorType != napi_undefined)) {
-    AutoRestore<bool> setValue(const_cast<NodeApiJsiRuntime *>(this)->hasPendingJSError_, true);
-    if (jsErrorType == napi_object) {
-      rewriteErrorMessage(jsError);
-    }
-    throw jsi::JSError(*const_cast<NodeApiJsiRuntime *>(this), toJsiValue(jsError));
-  } else {
-    std::ostringstream errorStream;
-    errorStream << "A call to Node-API returned error code 0x" << std::hex << status << '.';
-    throw jsi::JSINativeException(errorStream.str().c_str());
+  if (jsErrorType == napi_undefined) {
+    throw jsi::JSINativeException(formatStatusError(status).c_str());
   }
+  jsi::Value jsiJSError = toJsiValue(jsError);
+
+  std::string msg = "No message";
+  std::string stack = "No stack";
+  if (jsErrorType == napi_string) {
+    // If the exception is a string, use it as the message.
+    msg = stringToStdString(jsError);
+  } else if (jsErrorType == napi_object) {
+    // If the exception is an object try to retrieve its message and stack
+    // properties.
+
+    /// Attempt to retrieve a string property \p sym from \c jsError and store
+    /// it in \p out. Ignore any catchable errors and non-string properties.
+    auto getStrProp = [this, jsError](const char *sym, std::string &out) {
+      napi_value value{};
+      napi_status propStatus =
+          jsrApi_->napi_get_named_property(env_, jsError, sym, &value);
+      if (propStatus != napi_ok) {
+        // An exception was thrown while retrieving the property, if it is
+        // catchable, suppress it. Otherwise, rethrow this exception without
+        // trying to invoke any more JavaScript.
+        napi_value newJSError{};
+        CHECK_NAPI_ELSE_CRASH(
+            jsrApi_->napi_get_and_clear_last_exception(env_, &newJSError));
+        napi_valuetype newJSErrorType;
+        CHECK_NAPI_ELSE_CRASH(
+            jsrApi_->napi_typeof(env_, newJSError, &newJSErrorType));
+
+        if (propStatus != napi_cannot_run_js)
+          return;
+
+        // An uncatchable error occurred, it is unsafe to do anything that
+        // might execute more JavaScript.
+        if (newJSErrorType != napi_undefined) {
+          throw jsi::JSError(
+              toJsiValue(newJSError),
+              "Uncatchable exception thrown while creating error",
+              "No stack");
+        } else {
+          std::ostringstream errorStream;
+          errorStream << "A call to Node-API returned error code 0x" << std::hex
+                      << propStatus << '.';
+          throw jsi::JSINativeException(errorStream.str().c_str());
+        }
+      }
+
+      // If the property is a string, update out. Otherwise ignore it.
+      napi_valuetype valueType;
+      CHECK_NAPI_ELSE_CRASH(jsrApi_->napi_typeof(env_, value, &valueType));
+      if (valueType == napi_string) {
+        out = stringToStdString(value);
+      }
+    };
+
+    getStrProp("message", msg);
+    getStrProp("stack", stack);
+  }
+
+  // Use the constructor of jsi::JSError that cannot run additional
+  // JS, since that may then result in additional exceptions and infinite
+  // recursion.
+  throw jsi::JSError(std::move(jsiJSError), msg, stack);
 }
 
 // Throws jsi::JSINativeException with a message.
-[[noreturn]] void NodeApiJsiRuntime::throwNativeException(char const *errorMessage) const {
+[[noreturn]] void NodeApiJsiRuntime::throwNativeException(
+    char const *errorMessage) const {
   throw jsi::JSINativeException(errorMessage);
 }
 
@@ -2347,14 +2609,18 @@ void NodeApiJsiRuntime::rewriteErrorMessage(napi_value jsError) const {
   // The code below must work correctly even if the 'message' getter throws.
   // In case when it throws, we ignore that exception.
   napi_value message{};
-  napi_status status = jsrApi_->napi_get_property(env_, jsError, getNodeApiValue(propertyId_.message), &message);
+  napi_status status = jsrApi_->napi_get_property(
+      env_, jsError, getNodeApiValue(propertyId_.message), &message);
   if (status != napi_ok) {
-    // If the 'message' property getter throws, then we clear the exception and ignore it.
+    // If the 'message' property getter throws, then we clear the exception and
+    // ignore it.
     napi_value ignoreJSError{};
     jsrApi_->napi_get_and_clear_last_exception(env_, &ignoreJSError);
   } else if (typeOf(message) == napi_string) {
     // JSI unit tests expect V8- or JSC-like messages for the stack overflow.
-    if (stringToStdBasicString<char>(message) == "Out of stack space") {
+    std::string messageStr = stringToStdString(message);
+    if (messageStr == "Out of stack space" ||
+        messageStr.find("Maximum call stack") != std::string::npos) {
       setProperty(
           jsError,
           getNodeApiValue(propertyId_.message),
@@ -2365,17 +2631,22 @@ void NodeApiJsiRuntime::rewriteErrorMessage(napi_value jsError) const {
   // Make sure that the call stack has the current URL
   if (!sourceURL_.empty()) {
     napi_value stack{};
-    status = jsrApi_->napi_get_property(env_, jsError, getNodeApiValue(propertyId_.stack), &stack);
+    status = jsrApi_->napi_get_property(
+        env_, jsError, getNodeApiValue(propertyId_.stack), &stack);
     if (status != napi_ok) {
-      // If the 'stack' property getter throws, then we clear the exception and ignore it.
+      // If the 'stack' property getter throws, then we clear the exception and
+      // ignore it.
       napi_value ignoreJSError{};
       jsrApi_->napi_get_and_clear_last_exception(env_, &ignoreJSError);
     } else if (typeOf(message) == napi_string) {
       // JSI unit tests expect URL to be part of the call stack.
-      std::string stackStr = stringToStdBasicString<char>(stack);
+      std::string stackStr = stringToStdString(stack);
       if (stackStr.find(sourceURL_) == std::string::npos) {
         stackStr += sourceURL_ + '\n' + stackStr;
-        setProperty(jsError, getNodeApiValue(propertyId_.stack), createStringUtf8(stackStr.c_str()));
+        setProperty(
+            jsError,
+            getNodeApiValue(propertyId_.stack),
+            createStringUtf8(stackStr.c_str()));
       }
     }
   }
@@ -2383,21 +2654,26 @@ void NodeApiJsiRuntime::rewriteErrorMessage(napi_value jsError) const {
 
 // Evaluates lambda and augments exception messages with the method's name.
 template <typename TLambda>
-auto NodeApiJsiRuntime::runInMethodContext(char const *methodName, TLambda lambda) {
+auto NodeApiJsiRuntime::runInMethodContext(
+    char const *methodName,
+    TLambda lambda) {
   try {
     return lambda();
   } catch (jsi::JSError const &) {
     throw; // do not augment the JSError exceptions.
   } catch (std::exception const &ex) {
-    throwNativeException((std::string{"Exception in "} + methodName + ": " + ex.what()).c_str());
+    throwNativeException(
+        (std::string{"Exception in "} + methodName + ": " + ex.what()).c_str());
   } catch (...) {
-    throwNativeException((std::string{"Exception in "} + methodName + ": <unknown>").c_str());
+    throwNativeException(
+        (std::string{"Exception in "} + methodName + ": <unknown>").c_str());
   }
 }
 
 // Evaluates lambda and converts all exceptions to Node-API errors.
 template <typename TLambda>
-napi_value NodeApiJsiRuntime::handleCallbackExceptions(TLambda lambda) const noexcept {
+napi_value NodeApiJsiRuntime::handleCallbackExceptions(
+    TLambda lambda) const noexcept {
   try {
     try {
       return lambda();
@@ -2423,7 +2699,8 @@ bool NodeApiJsiRuntime::setException(napi_value error) const noexcept {
 // Throws JavaScript error exception with the provided message using Node-API.
 bool NodeApiJsiRuntime::setException(std::string_view message) const noexcept {
   // This method must not throw. We return false in case of error.
-  return jsrApi_->napi_throw_error(env_, "Unknown", message.data()) == napi_status::napi_ok;
+  return jsrApi_->napi_throw_error(env_, "Unknown", message.data()) ==
+      napi_status::napi_ok;
 }
 
 // Gets type of the napi_value.
@@ -2470,7 +2747,7 @@ napi_value NodeApiJsiRuntime::getBoolean(bool value) const {
 
 // Gets value of the Boolean napi_value.
 bool NodeApiJsiRuntime::getValueBool(napi_value value) const {
-  bool result{nullptr};
+  bool result{false};
   CHECK_NAPI(jsrApi_->napi_get_value_bool(env_, value, &result));
   return result;
 }
@@ -2503,12 +2780,13 @@ double NodeApiJsiRuntime::getValueDouble(napi_value value) const {
   return result;
 }
 
-// Creates a napi_value string from the extended ASCII symbols that correspond to the Latin1 encoding.
-// Each character is a byte-sized value from 0 to 255.
+// Creates a napi_value string from the extended ASCII symbols that correspond
+// to the Latin1 encoding. Each character is a byte-sized value from 0 to 255.
 napi_value NodeApiJsiRuntime::createStringLatin1(std::string_view value) const {
   CHECK_ELSE_THROW(value.data(), "Cannot convert a nullptr to a JS string.");
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_create_string_latin1(env_, value.data(), value.size(), &result));
+  CHECK_NAPI(jsrApi_->napi_create_string_latin1(
+      env_, value.data(), value.size(), &result));
   return result;
 }
 
@@ -2516,64 +2794,49 @@ napi_value NodeApiJsiRuntime::createStringLatin1(std::string_view value) const {
 napi_value NodeApiJsiRuntime::createStringUtf8(std::string_view value) const {
   CHECK_ELSE_THROW(value.data(), "Cannot convert a nullptr to a JS string.");
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_create_string_utf8(env_, value.data(), value.size(), &result));
+  CHECK_NAPI(jsrApi_->napi_create_string_utf8(
+      env_, value.data(), value.size(), &result));
   return result;
 }
 
-// Creates a napi_value string from a UTF-8 string. Use data and length instead of string_view.
-napi_value NodeApiJsiRuntime::createStringUtf8(const uint8_t *data, size_t length) const {
+// Creates a napi_value string from a UTF-8 string. Use data and length instead
+// of string_view.
+napi_value NodeApiJsiRuntime::createStringUtf8(
+    const uint8_t *data,
+    size_t length) const {
   return createStringUtf8({reinterpret_cast<const char *>(data), length});
 }
 
-// Creates a napi_value string from a UTF-16 string.
-napi_value NodeApiJsiRuntime::createStringUtf16(std::u16string_view value) const {
-  CHECK_ELSE_THROW(value.data(), "Cannot convert a nullptr to a JS string.");
-  napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_create_string_utf16(env_, value.data(), value.size(), &result));
-  return result;
-}
-
 // Gets std::string from the napi_value string.
-template <>
-std::string NodeApiJsiRuntime::stringToStdBasicString<char>(napi_value stringValue) const {
+std::string NodeApiJsiRuntime::stringToStdString(napi_value stringValue) const {
   std::string result;
   CHECK_ELSE_THROW(
       typeOf(stringValue) == napi_valuetype::napi_string,
       "Cannot convert a non JS string Node-API Value to a std::string.");
   size_t strLength{};
-  CHECK_NAPI(jsrApi_->napi_get_value_string_utf8(env_, stringValue, nullptr, 0, &strLength));
+  CHECK_NAPI(jsrApi_->napi_get_value_string_utf8(
+      env_, stringValue, nullptr, 0, &strLength));
   result.assign(strLength, '\0');
   size_t copiedLength{};
-  CHECK_NAPI(jsrApi_->napi_get_value_string_utf8(env_, stringValue, &result[0], result.length() + 1, &copiedLength));
-  CHECK_ELSE_THROW(result.length() == copiedLength, "Unexpected string length");
-  return result;
-}
-
-// Gets std::u16string from the napi_value string.
-template <>
-std::u16string NodeApiJsiRuntime::stringToStdBasicString<char16_t>(napi_value stringValue) const {
-  std::u16string result;
-  CHECK_ELSE_THROW(
-      typeOf(stringValue) == napi_valuetype::napi_string,
-      "Cannot convert a non JS string Node-API Value to a std::u16string.");
-  size_t strLength{};
-  CHECK_NAPI(jsrApi_->napi_get_value_string_utf16(env_, stringValue, nullptr, 0, &strLength));
-  result.assign(strLength, '\0');
-  size_t copiedLength{};
-  CHECK_NAPI(jsrApi_->napi_get_value_string_utf16(env_, stringValue, &result[0], result.length() + 1, &copiedLength));
+  CHECK_NAPI(jsrApi_->napi_get_value_string_utf8(
+      env_, stringValue, &result[0], result.length() + 1, &copiedLength));
   CHECK_ELSE_THROW(result.length() == copiedLength, "Unexpected string length");
   return result;
 }
 
 // Gets or creates a unique string value from an UTF-8 string_view.
-napi_value NodeApiJsiRuntime::getPropertyIdFromName(std::string_view value) const {
+napi_value NodeApiJsiRuntime::getPropertyIdFromName(
+    std::string_view value) const {
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_create_string_utf8(env_, value.data(), value.size(), &result));
+  CHECK_NAPI(jsrApi_->napi_create_string_utf8(
+      env_, value.data(), value.size(), &result));
   return result;
 }
 
 // Gets or creates a unique string value from an UTF-8 data/length range.
-napi_value NodeApiJsiRuntime::getPropertyIdFromName(const uint8_t *data, size_t length) const {
+napi_value NodeApiJsiRuntime::getPropertyIdFromName(
+    const uint8_t *data,
+    size_t length) const {
   return getPropertyIdFromName({reinterpret_cast<const char *>(data), length});
 }
 
@@ -2587,53 +2850,65 @@ napi_value NodeApiJsiRuntime::getPropertyIdFromSymbol(napi_value sym) const {
   return sym;
 }
 
-// Converts property id value to std::basic_string<TChar>.
-template <typename TChar>
-std::basic_string<TChar> NodeApiJsiRuntime::propertyIdToStdBasicString(napi_value propertyId) {
+// Converts property id value to std::string.
+std::string NodeApiJsiRuntime::propertyIdToStdString(napi_value propertyId) {
   if (typeOf(propertyId) == napi_symbol) {
-    return symbolToStdBasicString<TChar>(propertyId);
+    return symbolToStdString(propertyId);
   }
 
-  return stringToStdBasicString<TChar>(propertyId);
+  return stringToStdString(propertyId);
 }
 
 // Creates a JavaScript symbol napi_value.
-napi_value NodeApiJsiRuntime::createSymbol(std::string_view symbolDescription) const {
+napi_value NodeApiJsiRuntime::createSymbol(
+    std::string_view symbolDescription) const {
   napi_value result{};
   napi_value description = createStringUtf8(symbolDescription);
   CHECK_NAPI(jsrApi_->napi_create_symbol(env_, description, &result));
   return result;
 }
 
-// Calls Symbol.toString() and returns it as std::basic_string<TChar>.
-template <typename TChar>
-std::basic_string<TChar> NodeApiJsiRuntime::symbolToStdBasicString(napi_value symbolValue) {
+// Calls Symbol.toString() and returns it as std::string.
+std::string NodeApiJsiRuntime::symbolToStdString(napi_value symbolValue) {
   if (!cachedValue_.SymbolToString) {
-    napi_value symbolCtor = getProperty(getNodeApiValue(cachedValue_.Global), getNodeApiValue(propertyId_.Symbol));
-    napi_value symbolPrototype = getProperty(symbolCtor, getNodeApiValue(propertyId_.prototype));
+    napi_value symbolCtor = getProperty(
+        getNodeApiValue(cachedValue_.Global),
+        getNodeApiValue(propertyId_.Symbol));
+    napi_value symbolPrototype =
+        getProperty(symbolCtor, getNodeApiValue(propertyId_.prototype));
     cachedValue_.SymbolToString = makeNodeApiRef(
-        getProperty(symbolPrototype, getNodeApiValue(propertyId_.toString)), NodeApiPointerValueKind::Object);
+        getProperty(symbolPrototype, getNodeApiValue(propertyId_.toString)),
+        NodeApiPointerValueKind::Object);
   }
-  napi_value jsString = callFunction(symbolValue, getNodeApiValue(cachedValue_.SymbolToString), {});
-  return stringToStdBasicString<TChar>(jsString);
+  napi_value jsString = callFunction(
+      symbolValue, getNodeApiValue(cachedValue_.SymbolToString), {});
+  return stringToStdString(jsString);
 }
 
 // Calls a JavaScript function.
-napi_value NodeApiJsiRuntime::callFunction(napi_value thisArg, napi_value function, span<napi_value> args) const {
+napi_value NodeApiJsiRuntime::callFunction(
+    napi_value thisArg,
+    napi_value function,
+    span<napi_value> args) const {
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_call_function(env_, thisArg, function, args.size(), args.data(), &result));
+  CHECK_NAPI(jsrApi_->napi_call_function(
+      env_, thisArg, function, args.size(), args.data(), &result));
   return result;
 }
 
 // Constructs a new JavaScript Object using a constructor function.
-napi_value NodeApiJsiRuntime::constructObject(napi_value constructor, span<napi_value> args) const {
+napi_value NodeApiJsiRuntime::constructObject(
+    napi_value constructor,
+    span<napi_value> args) const {
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_new_instance(env_, constructor, args.size(), args.data(), &result));
+  CHECK_NAPI(jsrApi_->napi_new_instance(
+      env_, constructor, args.size(), args.data(), &result));
   return result;
 }
 
 // Returns true if object was constructed using the provided constructor.
-bool NodeApiJsiRuntime::instanceOf(napi_value object, napi_value constructor) const {
+bool NodeApiJsiRuntime::instanceOf(napi_value object, napi_value constructor)
+    const {
   bool result{false};
   CHECK_NAPI(jsrApi_->napi_instanceof(env_, object, constructor, &result));
   return result;
@@ -2647,25 +2922,40 @@ napi_value NodeApiJsiRuntime::createNodeApiObject() const {
 }
 
 // Returns true if the object has a property with the provided property ID.
-bool NodeApiJsiRuntime::hasProperty(napi_value object, napi_value propertyId) const {
+bool NodeApiJsiRuntime::hasProperty(napi_value object, napi_value propertyId)
+    const {
   bool result{};
   CHECK_NAPI(jsrApi_->napi_has_property(env_, object, propertyId, &result));
   return result;
 }
 
 // Gets object property value.
-napi_value NodeApiJsiRuntime::getProperty(napi_value object, napi_value propertyId) const {
+napi_value NodeApiJsiRuntime::getProperty(
+    napi_value object,
+    napi_value propertyId) const {
   napi_value result{};
   CHECK_NAPI(jsrApi_->napi_get_property(env_, object, propertyId, &result));
   return result;
 }
 
 // Sets object property value.
-void NodeApiJsiRuntime::setProperty(napi_value object, napi_value propertyId, napi_value value) const {
+void NodeApiJsiRuntime::setProperty(
+    napi_value object,
+    napi_value propertyId,
+    napi_value value) const {
   CHECK_NAPI(jsrApi_->napi_set_property(env_, object, propertyId, value));
 }
 
-// Sets object property value with the provided property accessibility attributes.
+// Deletes object property value.
+bool NodeApiJsiRuntime::deleteProperty(napi_value object, napi_value propertyId)
+    const {
+  bool result{};
+  CHECK_NAPI(jsrApi_->napi_delete_property(env_, object, propertyId, &result));
+  return result;
+}
+
+// Sets object property value with the provided property accessibility
+// attributes.
 void NodeApiJsiRuntime::setProperty(
     napi_value object,
     napi_value propertyId,
@@ -2699,16 +2989,21 @@ size_t NodeApiJsiRuntime::getArrayLength(napi_value value) const {
 
 napi_value NodeApiJsiRuntime::getElement(napi_value arr, size_t index) const {
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_get_element(env_, arr, static_cast<int32_t>(index), &result));
+  CHECK_NAPI(jsrApi_->napi_get_element(
+      env_, arr, static_cast<int32_t>(index), &result));
   return result;
 }
 
 // Sets array element.
-void NodeApiJsiRuntime::setElement(napi_value array, uint32_t index, napi_value value) const {
+void NodeApiJsiRuntime::setElement(
+    napi_value array,
+    uint32_t index,
+    napi_value value) const {
   CHECK_NAPI(jsrApi_->napi_set_element(env_, array, index, value));
 }
 
-// The Node-API external function callback used for the JSI host function implementation.
+// The Node-API external function callback used for the JSI host function
+// implementation.
 /*static*/ napi_value __cdecl NodeApiJsiRuntime::jsiHostFunctionCallback(
     napi_env env,
     napi_callback_info info) noexcept {
@@ -2716,25 +3011,35 @@ void NodeApiJsiRuntime::setElement(napi_value array, uint32_t index, napi_value 
   size_t argc{};
   CHECK_NAPI_ELSE_CRASH(
       JSRuntimeApi::current()->napi_get_cb_info(
-          env, info, &argc, nullptr, nullptr, reinterpret_cast<void **>(&hostFuncWrapper)));
+          env,
+          info,
+          &argc,
+          nullptr,
+          nullptr,
+          reinterpret_cast<void **>(&hostFuncWrapper)));
   CHECK_ELSE_CRASH(hostFuncWrapper, "Cannot find the host function");
   NodeApiJsiRuntime &runtime = hostFuncWrapper->runtime();
   NodeApiPointerValueScope scope{runtime};
 
-  return runtime.handleCallbackExceptions([&env, &info, &argc, &runtime, &hostFuncWrapper]() {
-    SmallBuffer<napi_value, MaxStackArgCount> napiArgs(argc);
-    napi_value thisArg{};
-    CHECK_NAPI_ELSE_CRASH(
-        JSRuntimeApi::current()->napi_get_cb_info(env, info, &argc, napiArgs.data(), &thisArg, nullptr));
-    CHECK_ELSE_CRASH(napiArgs.size() == argc, "Wrong argument count");
-    const JsiValueView jsiThisArg{&runtime, thisArg};
-    JsiValueViewArgs jsiArgs(&runtime, span<napi_value>(napiArgs.data(), napiArgs.size()));
+  return runtime.handleCallbackExceptions(
+      [&env, &info, &argc, &runtime, &hostFuncWrapper]() {
+        SmallBuffer<napi_value, MaxStackArgCount> napiArgs(argc);
+        napi_value thisArg{};
+        CHECK_NAPI_ELSE_CRASH(
+            JSRuntimeApi::current()->napi_get_cb_info(
+                env, info, &argc, napiArgs.data(), &thisArg, nullptr));
+        CHECK_ELSE_CRASH(napiArgs.size() == argc, "Wrong argument count");
+        const JsiValueView jsiThisArg{&runtime, thisArg};
+        JsiValueViewArgs jsiArgs(
+            &runtime, span<napi_value>(napiArgs.data(), napiArgs.size()));
 
-    const jsi::HostFunctionType &hostFunc = hostFuncWrapper->hostFunction();
-    return runtime.runInMethodContext("HostFunction", [&hostFunc, &runtime, &jsiThisArg, &jsiArgs]() {
-      return runtime.getNodeApiValue(hostFunc(runtime, jsiThisArg, jsiArgs.data(), jsiArgs.size()));
-    });
-  });
+        const jsi::HostFunctionType &hostFunc = hostFuncWrapper->hostFunction();
+        return runtime.runInMethodContext(
+            "HostFunction", [&hostFunc, &runtime, &jsiThisArg, &jsiArgs]() {
+              return runtime.getNodeApiValue(hostFunc(
+                  runtime, jsiThisArg, jsiArgs.data(), jsiArgs.size()));
+            });
+      });
 }
 
 // Creates an external function.
@@ -2743,27 +3048,41 @@ napi_value NodeApiJsiRuntime::createExternalFunction(
     int32_t paramCount,
     napi_callback callback,
     void *callbackData) {
-  std::string funcName = stringToStdBasicString<char>(name);
+  std::string funcName = stringToStdString(name);
   napi_value function{};
-  CHECK_NAPI(
-      jsrApi_->napi_create_function(env_, funcName.data(), funcName.length(), callback, callbackData, &function));
+  CHECK_NAPI(jsrApi_->napi_create_function(
+      env_,
+      funcName.data(),
+      funcName.length(),
+      callback,
+      callbackData,
+      &function));
   setProperty(
-      function, getNodeApiValue(propertyId_.length), createInt32(paramCount), napi_property_attributes::napi_default);
+      function,
+      getNodeApiValue(propertyId_.length),
+      createInt32(paramCount),
+      napi_property_attributes::napi_default);
 
   return function;
 }
 
 // Creates an object that wraps up external data.
-napi_value NodeApiJsiRuntime::createExternalObject(void *data, node_api_nogc_finalize finalizeCallback) const {
+napi_value NodeApiJsiRuntime::createExternalObject(
+    void *data,
+    node_api_nogc_finalize finalizeCallback) const {
   napi_value result{};
-  CHECK_NAPI(jsrApi_->napi_create_external(env_, data, finalizeCallback, nullptr, &result));
+  CHECK_NAPI(jsrApi_->napi_create_external(
+      env_, data, finalizeCallback, nullptr, &result));
   return result;
 }
 
 // Wraps up std::unique_ptr as an external object.
 template <typename T>
-napi_value NodeApiJsiRuntime::createExternalObject(std::unique_ptr<T> &&data) const {
-  node_api_nogc_finalize finalize = [](node_api_nogc_env /*env*/, void *dataToDestroy, void * /*finalizerHint*/) {
+napi_value NodeApiJsiRuntime::createExternalObject(
+    std::unique_ptr<T> &&data) const {
+  node_api_nogc_finalize finalize = [](node_api_nogc_env /*env*/,
+                                       void *dataToDestroy,
+                                       void * /*finalizerHint*/) {
     // We wrap dataToDestroy in a unique_ptr to avoid calling delete explicitly.
     std::unique_ptr<T> dataDeleter{static_cast<T *>(dataToDestroy)};
   };
@@ -2784,8 +3103,10 @@ void *NodeApiJsiRuntime::getExternalData(napi_value object) const {
 }
 
 // Gets JSI host object wrapped into a napi_value object.
-const std::shared_ptr<jsi::HostObject> &NodeApiJsiRuntime::getJsiHostObject(napi_value obj) {
-  const napi_value hostObjectHolder = getProperty(obj, getNodeApiValue(propertyId_.hostObjectSymbol));
+const std::shared_ptr<jsi::HostObject> &NodeApiJsiRuntime::getJsiHostObject(
+    napi_value obj) {
+  const napi_value hostObjectHolder =
+      getProperty(obj, getNodeApiValue(propertyId_.hostObjectSymbol));
 
   if (typeOf(hostObjectHolder) == napi_valuetype::napi_external) {
     if (void *data = getExternalData(hostObjectHolder)) {
@@ -2800,35 +3121,54 @@ const std::shared_ptr<jsi::HostObject> &NodeApiJsiRuntime::getJsiHostObject(napi
 napi_value NodeApiJsiRuntime::getHostObjectProxyHandler() {
   if (!cachedValue_.HostObjectProxyHandler) {
     const napi_value handler = createNodeApiObject();
-    setProxyTrap<&NodeApiJsiRuntime::hostObjectHasTrap, 2>(handler, getNodeApiValue(propertyId_.has));
-    setProxyTrap<&NodeApiJsiRuntime::hostObjectGetTrap, 3>(handler, getNodeApiValue(propertyId_.get));
-    setProxyTrap<&NodeApiJsiRuntime::hostObjectSetTrap, 4>(handler, getNodeApiValue(propertyId_.set));
-    setProxyTrap<&NodeApiJsiRuntime::hostObjectOwnKeysTrap, 1>(handler, getNodeApiValue(propertyId_.ownKeys));
+    setProxyTrap<&NodeApiJsiRuntime::hostObjectHasTrap, 2>(
+        handler, getNodeApiValue(propertyId_.has));
+    setProxyTrap<&NodeApiJsiRuntime::hostObjectGetTrap, 3>(
+        handler, getNodeApiValue(propertyId_.get));
+    setProxyTrap<&NodeApiJsiRuntime::hostObjectSetTrap, 4>(
+        handler, getNodeApiValue(propertyId_.set));
+    setProxyTrap<&NodeApiJsiRuntime::hostObjectOwnKeysTrap, 1>(
+        handler, getNodeApiValue(propertyId_.ownKeys));
     setProxyTrap<&NodeApiJsiRuntime::hostObjectGetOwnPropertyDescriptorTrap, 2>(
         handler, getNodeApiValue(propertyId_.getOwnPropertyDescriptor));
-    cachedValue_.HostObjectProxyHandler = makeNodeApiRef(handler, NodeApiPointerValueKind::Object);
+    cachedValue_.HostObjectProxyHandler =
+        makeNodeApiRef(handler, NodeApiPointerValueKind::Object);
   }
 
   return getNodeApiValue(cachedValue_.HostObjectProxyHandler);
 }
 
 // Sets Proxy trap method as a pointer to NodeApiJsiRuntime instance method.
-template <napi_value (NodeApiJsiRuntime::*trapMethod)(span<napi_value>), size_t argCount>
-void NodeApiJsiRuntime::setProxyTrap(napi_value handler, napi_value propertyName) {
+template <
+    napi_value (NodeApiJsiRuntime::*trapMethod)(span<napi_value>),
+    size_t argCount>
+void NodeApiJsiRuntime::setProxyTrap(
+    napi_value handler,
+    napi_value propertyName) {
   napi_callback proxyTrap = [](napi_env env, napi_callback_info info) noexcept {
     NodeApiJsiRuntime *runtime{};
     napi_value args[argCount]{};
     size_t actualArgCount{argCount};
     CHECK_NAPI_ELSE_CRASH(
         JSRuntimeApi::current()->napi_get_cb_info(
-            env, info, &actualArgCount, args, nullptr, reinterpret_cast<void **>(&runtime)));
-    CHECK_ELSE_CRASH(actualArgCount == argCount, "proxy trap requires argCount arguments.");
+            env,
+            info,
+            &actualArgCount,
+            args,
+            nullptr,
+            reinterpret_cast<void **>(&runtime)));
+    CHECK_ELSE_CRASH(
+        actualArgCount == argCount, "proxy trap requires argCount arguments.");
     NodeApiPointerValueScope scope{*runtime};
-    return runtime->handleCallbackExceptions(
-        [&runtime, &args]() { return (runtime->*trapMethod)(span<napi_value>(args, argCount)); });
+    return runtime->handleCallbackExceptions([&runtime, &args]() {
+      return (runtime->*trapMethod)(span<napi_value>(args, argCount));
+    });
   };
 
-  setProperty(handler, propertyName, createExternalFunction(propertyName, argCount, proxyTrap, this));
+  setProperty(
+      handler,
+      propertyName,
+      createExternalFunction(propertyName, argCount, proxyTrap, this));
 }
 
 // The host object Proxy 'has' trap implementation.
@@ -2837,15 +3177,17 @@ napi_value NodeApiJsiRuntime::hostObjectHasTrap(span<napi_value> args) {
   // args[1] - the name of the property to check.
   napi_value propertyName = args[1];
   const auto &hostObject = getJsiHostObject(args[0]);
-  return runInMethodContext("HostObject::has", [&hostObject, &propertyName, this]() {
-    // std::vector<jsi::PropNameID> ownKeys = hostObject->getPropertyNames(*this);
-    // for (jsi::PropNameID &ownKey : ownKeys) {
-    //   if (strictEquals(propertyName, getNodeApiValue(ownKey))) {
-    return getBoolean(true);
-    //   }
-    // }
-    // return getBoolean(false);
-  });
+  return runInMethodContext(
+      "HostObject::has", [&hostObject, &propertyName, this]() {
+        // std::vector<jsi::PropNameID> ownKeys =
+        // hostObject->getPropertyNames(*this); for (jsi::PropNameID &ownKey :
+        // ownKeys) {
+        //   if (strictEquals(propertyName, getNodeApiValue(ownKey))) {
+        return getBoolean(true);
+        //   }
+        // }
+        // return getBoolean(false);
+      });
 }
 
 // The host object Proxy 'get' trap implementation.
@@ -2856,15 +3198,17 @@ napi_value NodeApiJsiRuntime::hostObjectGetTrap(span<napi_value> args) {
   napi_value target = args[0];
   napi_value propertyName = args[1];
   bool isTargetOwnProp{};
-  CHECK_NAPI(jsrApi_->napi_has_own_property(env_, target, propertyName, &isTargetOwnProp));
+  CHECK_NAPI(jsrApi_->napi_has_own_property(
+      env_, target, propertyName, &isTargetOwnProp));
   if (isTargetOwnProp) {
     return getProperty(target, propertyName);
   }
   const auto &hostObject = getJsiHostObject(args[0]);
   PropNameIDView propertyId{this, propertyName};
-  return runInMethodContext("HostObject::get", [&hostObject, &propertyId, this]() {
-    return getNodeApiValue(hostObject->get(*this, propertyId));
-  });
+  return runInMethodContext(
+      "HostObject::get", [&hostObject, &propertyId, this]() {
+        return getNodeApiValue(hostObject->get(*this, propertyId));
+      });
 }
 
 // The host object Proxy 'set' trap implementation.
@@ -2877,7 +3221,9 @@ napi_value NodeApiJsiRuntime::hostObjectSetTrap(span<napi_value> args) {
   PropNameIDView propertyId{this, args[1]};
   JsiValueView value{this, args[2]};
   runInMethodContext(
-      "HostObject::set", [&hostObject, &propertyId, &value, this]() { hostObject->set(*this, propertyId, value); });
+      "HostObject::set", [&hostObject, &propertyId, &value, this]() {
+        hostObject->set(*this, propertyId, value);
+      });
   return getUndefined();
 }
 
@@ -2888,13 +3234,19 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
 
   napi_value targetOwnKeys{};
   CHECK_NAPI(jsrApi_->napi_get_all_property_names(
-      env_, target, napi_key_own_only, napi_key_all_properties, napi_key_numbers_to_strings, &targetOwnKeys));
+      env_,
+      target,
+      napi_key_own_only,
+      napi_key_all_properties,
+      napi_key_numbers_to_strings,
+      &targetOwnKeys));
   CHECK_ELSE_THROW(isArray(targetOwnKeys), "Expected an array");
   size_t targetOwnKeysLength = getArrayLength(targetOwnKeys);
 
   const auto &hostObject = getJsiHostObject(target);
   std::vector<jsi::PropNameID> hostOwnKeys = runInMethodContext(
-      "HostObject::getPropertyNames", [&hostObject, this]() { return hostObject->getPropertyNames(*this); });
+      "HostObject::getPropertyNames",
+      [&hostObject, this]() { return hostObject->getPropertyNames(*this); });
 
   std::vector<jsi::PropNameID> ownKeys;
   std::unordered_set<const PointerValue *> uniqueOwnKeys;
@@ -2904,23 +3256,26 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
 
   // Read all target own keys.
   if (targetOwnKeysLength > 1) {
-    auto addPropNameId = [this, &uniqueOwnKeys, &ownKeys](jsi::PropNameID &&propNameId) {
-      const PointerValue *pv = getPointerValue(propNameId);
-      auto inserted = uniqueOwnKeys.insert(pv);
-      CHECK_ELSE_THROW(inserted.second, "Target has non-unique keys");
-      ownKeys.push_back(std::move(propNameId));
-    };
+    auto addPropNameId =
+        [this, &uniqueOwnKeys, &ownKeys](jsi::PropNameID &&propNameId) {
+          const PointerValue *pv = getPointerValue(propNameId);
+          auto inserted = uniqueOwnKeys.insert(pv);
+          CHECK_ELSE_THROW(inserted.second, "Target has non-unique keys");
+          ownKeys.push_back(std::move(propNameId));
+        };
     for (size_t i = 0; i < targetOwnKeysLength; ++i) {
       napi_value key = getElement(targetOwnKeys, i);
       napi_valuetype keyType = typeOf(key);
       if (keyType == napi_string) {
-        addPropNameId(createPropNameIDFromString(makeJsiPointer<jsi::String>(key)));
+        addPropNameId(
+            createPropNameIDFromString(makeJsiPointer<jsi::String>(key)));
 #if JSI_VERSION >= 8
       } else if (keyType == napi_symbol) {
         if (strictEquals(key, getNodeApiValue(propertyId_.hostObjectSymbol))) {
           continue;
         }
-        addPropNameId(createPropNameIDFromSymbol(makeJsiPointer<jsi::Symbol>(key)));
+        addPropNameId(
+            createPropNameIDFromSymbol(makeJsiPointer<jsi::Symbol>(key)));
 #endif
       } else {
         throwNativeException("Unexpected key type");
@@ -2949,8 +3304,9 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
     napi_value napiKey = getNodeApiValue(key);
     napi_valuetype valueType = typeOf(napiKey);
     if (valueType == napi_string) {
-      std::string keyStr = stringToStdBasicString<char>(napiKey);
-      std::optional<uint32_t> indexKey = toArrayIndex(keyStr.begin(), keyStr.end());
+      std::string keyStr = stringToStdString(napiKey);
+      std::optional<uint32_t> indexKey =
+          toArrayIndex(keyStr.begin(), keyStr.end());
       if (indexKey.has_value()) {
         indexKeys.push_back(Index{indexKey.value(), napiKey});
         continue;
@@ -2959,9 +3315,12 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
     nonIndexKeys.push_back(napiKey);
   }
 
-  std::sort(indexKeys.begin(), indexKeys.end(), [](const Index &left, const Index &right) {
-    return left.index < right.index;
-  });
+  std::sort(
+      indexKeys.begin(),
+      indexKeys.end(),
+      [](const Index &left, const Index &right) {
+        return left.index < right.index;
+      });
 
   napi_value ownKeyArray = createNodeApiArray(0);
   uint32_t index = 0;
@@ -2976,27 +3335,42 @@ napi_value NodeApiJsiRuntime::hostObjectOwnKeysTrap(span<napi_value> args) {
 }
 
 // The host object Proxy 'getOwnPropertyDescriptor' trap implementation.
-napi_value NodeApiJsiRuntime::hostObjectGetOwnPropertyDescriptorTrap(span<napi_value> args) {
+napi_value NodeApiJsiRuntime::hostObjectGetOwnPropertyDescriptorTrap(
+    span<napi_value> args) {
   // args[0] - the Proxy target object.
   // args[1] - the property
   const auto &hostObject = getJsiHostObject(args[0]);
   PropNameIDView propertyId{this, args[1]};
 
-  return runInMethodContext("HostObject::getOwnPropertyDescriptor", [&hostObject, &propertyId, this]() {
-    auto getPropDescriptor = [](napi_value name, napi_value value) {
-      return napi_property_descriptor{
-          nullptr, name, nullptr, nullptr, nullptr, value, napi_default_jsproperty, nullptr};
-    };
-    napi_value trueValue = getBoolean(true);
-    napi_property_descriptor properties[]{
-        getPropDescriptor(getNodeApiValue(propertyId_.value), getNodeApiValue(hostObject->get(*this, propertyId))),
-        getPropDescriptor(getNodeApiValue(propertyId_.writable), trueValue),
-        getPropDescriptor(getNodeApiValue(propertyId_.enumerable), trueValue),
-        getPropDescriptor(getNodeApiValue(propertyId_.configurable), trueValue)};
-    napi_value descriptor = createNodeApiObject();
-    CHECK_NAPI(jsrApi_->napi_define_properties(env_, descriptor, std::size(properties), properties));
-    return descriptor;
-  });
+  return runInMethodContext(
+      "HostObject::getOwnPropertyDescriptor",
+      [&hostObject, &propertyId, this]() {
+        auto getPropDescriptor = [](napi_value name, napi_value value) {
+          return napi_property_descriptor{
+              nullptr,
+              name,
+              nullptr,
+              nullptr,
+              nullptr,
+              value,
+              napi_default_jsproperty,
+              nullptr};
+        };
+        napi_value trueValue = getBoolean(true);
+        napi_property_descriptor properties[]{
+            getPropDescriptor(
+                getNodeApiValue(propertyId_.value),
+                getNodeApiValue(hostObject->get(*this, propertyId))),
+            getPropDescriptor(getNodeApiValue(propertyId_.writable), trueValue),
+            getPropDescriptor(
+                getNodeApiValue(propertyId_.enumerable), trueValue),
+            getPropDescriptor(
+                getNodeApiValue(propertyId_.configurable), trueValue)};
+        napi_value descriptor = createNodeApiObject();
+        CHECK_NAPI(jsrApi_->napi_define_properties(
+            env_, descriptor, std::size(properties), properties));
+        return descriptor;
+      });
 }
 
 // Converts jsi::Bufer to span.
@@ -3042,14 +3416,18 @@ napi_value NodeApiJsiRuntime::getNodeApiValue(const jsi::Value &value) const {
   } else if (value.isNumber()) {
     return createDouble(value.getNumber());
   } else if (value.isSymbol()) {
-    return getNodeApiValue(value.getSymbol(*const_cast<NodeApiJsiRuntime *>(this)));
+    return getNodeApiValue(
+        value.getSymbol(*const_cast<NodeApiJsiRuntime *>(this)));
   } else if (value.isString()) {
-    return getNodeApiValue(value.getString(*const_cast<NodeApiJsiRuntime *>(this)));
+    return getNodeApiValue(
+        value.getString(*const_cast<NodeApiJsiRuntime *>(this)));
   } else if (value.isObject()) {
-    return getNodeApiValue(value.getObject(*const_cast<NodeApiJsiRuntime *>(this)));
+    return getNodeApiValue(
+        value.getObject(*const_cast<NodeApiJsiRuntime *>(this)));
 #if JSI_VERSION >= 8
   } else if (value.isBigInt()) {
-    return getNodeApiValue(value.getBigInt(*const_cast<NodeApiJsiRuntime *>(this)));
+    return getNodeApiValue(
+        value.getBigInt(*const_cast<NodeApiJsiRuntime *>(this)));
 #endif
   } else {
     throw jsi::JSINativeException("Unexpected jsi::Value type");
@@ -3057,16 +3435,18 @@ napi_value NodeApiJsiRuntime::getNodeApiValue(const jsi::Value &value) const {
 }
 
 napi_value NodeApiJsiRuntime::getNodeApiValue(const jsi::Pointer &ptr) const {
-  return const_cast<NodeApiPointerValue *>(static_cast<const NodeApiPointerValue *>(getPointerValue(ptr)))
+  return const_cast<NodeApiPointerValue *>(
+             static_cast<const NodeApiPointerValue *>(getPointerValue(ptr)))
       ->getValue(*const_cast<NodeApiJsiRuntime *>(this));
 }
 
-napi_value NodeApiJsiRuntime::getNodeApiValue(const NodeApiRefHolder &ref) const {
+napi_value NodeApiJsiRuntime::getNodeApiValue(
+    const NodeApiRefHolder &ref) const {
   return ref->getValue(*const_cast<NodeApiJsiRuntime *>(this));
 }
 
-NodeApiJsiRuntime::NodeApiRefCountedPointerValue *NodeApiJsiRuntime::cloneNodeApiPointerValue(
-    const PointerValue *pointerValue) {
+NodeApiJsiRuntime::NodeApiRefCountedPointerValue *
+NodeApiJsiRuntime::cloneNodeApiPointerValue(const PointerValue *pointerValue) {
   return static_cast<const NodeApiPointerValue *>(pointerValue)->clone(*this);
 }
 
@@ -3110,21 +3490,27 @@ std::optional<uint32_t> NodeApiJsiRuntime::toArrayIndex(
 template <typename T, std::enable_if_t<std::is_same_v<jsi::Object, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Object)
+                     *const_cast<NodeApiJsiRuntime *>(this),
+                     value,
+                     NodeApiPointerValueKind::Object)
                      .release());
 }
 
 template <typename T, std::enable_if_t<std::is_same_v<jsi::String, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::String)
+                     *const_cast<NodeApiJsiRuntime *>(this),
+                     value,
+                     NodeApiPointerValueKind::String)
                      .release());
 }
 
 template <typename T, std::enable_if_t<std::is_same_v<jsi::Symbol, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::Symbol)
+                     *const_cast<NodeApiJsiRuntime *>(this),
+                     value,
+                     NodeApiPointerValueKind::Symbol)
                      .release());
 }
 
@@ -3132,7 +3518,9 @@ T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
 template <typename T, std::enable_if_t<std::is_same_v<jsi::BigInt, T>, int>>
 T NodeApiJsiRuntime::makeJsiPointer(napi_value value) const {
   return make<T>(NodeApiRefCountedPointerValue::make(
-                     *const_cast<NodeApiJsiRuntime *>(this), value, NodeApiPointerValueKind::BigInt)
+                     *const_cast<NodeApiJsiRuntime *>(this),
+                     value,
+                     NodeApiPointerValueKind::BigInt)
                      .release());
 }
 #endif
@@ -3143,13 +3531,17 @@ template <
     std::enable_if_t<std::is_base_of_v<jsi::Pointer, TTo>, int>,
     std::enable_if_t<std::is_base_of_v<jsi::Pointer, TFrom>, int>>
 TTo NodeApiJsiRuntime::cloneAs(const TFrom &pointer) const {
-  return make<TTo>(static_cast<const NodeApiRefCountedPointerValue *>(getPointerValue(pointer))
+  return make<TTo>(static_cast<const NodeApiRefCountedPointerValue *>(
+                       getPointerValue(pointer))
                        ->clone(*const_cast<NodeApiJsiRuntime *>(this)));
 }
 
-NodeApiJsiRuntime::NodeApiRefHolder
-NodeApiJsiRuntime::makeNodeApiRef(napi_value value, NodeApiPointerValueKind pointerKind, int32_t initialRefCount) {
-  return NodeApiRefCountedPointerValue::make(*this, value, pointerKind, initialRefCount);
+NodeApiJsiRuntime::NodeApiRefHolder NodeApiJsiRuntime::makeNodeApiRef(
+    napi_value value,
+    NodeApiPointerValueKind pointerKind,
+    int32_t initialRefCount) {
+  return NodeApiRefCountedPointerValue::make(
+      *this, value, pointerKind, initialRefCount);
 }
 
 void NodeApiJsiRuntime::addStackValue(NodeApiStackValuePtr stackPointer) {
@@ -3166,7 +3558,9 @@ void NodeApiJsiRuntime::popPointerValueScope() noexcept {
   auto beginIterator = stackValues_.begin() + newStackSize;
   stackScopes_.pop_back();
   std::for_each(
-      beginIterator, stackValues_.end(), [this](NodeApiStackValuePtr &ptr) { ptr.release()->deleteStackValue(*this); });
+      beginIterator, stackValues_.end(), [this](NodeApiStackValuePtr &ptr) {
+        ptr.release()->deleteStackValue(*this);
+      });
   stackValues_.resize(newStackSize);
 
   pendingDeletions_->deletePointerValues(*this);
@@ -3174,8 +3568,10 @@ void NodeApiJsiRuntime::popPointerValueScope() noexcept {
 
 } // namespace
 
-std::unique_ptr<jsi::Runtime>
-makeNodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> onDelete) noexcept {
+std::unique_ptr<jsi::Runtime> makeNodeApiJsiRuntime(
+    napi_env env,
+    JSRuntimeApi *jsrApi,
+    std::function<void()> onDelete) noexcept {
   return std::make_unique<NodeApiJsiRuntime>(env, jsrApi, std::move(onDelete));
 }
 
@@ -3183,85 +3579,67 @@ makeNodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> 
 
 EXTERN_C_START
 
-// Default implementation of jsr_get_description if it is not provided by JS engine.
-// It returns "NodeApiJsiRuntime" string.
-napi_status NAPI_CDECL default_jsr_get_description(napi_env /*env*/, const char **result) {
+// Default implementation of jsr_get_description if it is not provided by JS
+// engine. It returns "NodeApiJsiRuntime" string.
+napi_status NAPI_CDECL
+default_jsr_get_description(napi_env /*env*/, const char **result) {
   if (result != nullptr) {
     *result = "NodeApiJsiRuntime";
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_queue_microtask if it is not provided by JS engine.
-// It does nothing.
-napi_status NAPI_CDECL default_jsr_queue_microtask(napi_env /*env*/, napi_value /*callback*/) {
+// Default implementation of jsr_queue_microtask if it is not provided by JS
+// engine. It does nothing.
+napi_status NAPI_CDECL
+default_jsr_queue_microtask(napi_env /*env*/, napi_value /*callback*/) {
   return napi_generic_failure;
 }
 
-// Default implementation of jsr_drain_microtasks if it is not provided by JS engine.
-// It does nothing.
-napi_status NAPI_CDECL default_jsr_drain_microtasks(napi_env /*env*/, int32_t /*max_count_hint*/, bool *result) {
+// Default implementation of jsr_drain_microtasks if it is not provided by JS
+// engine. It does nothing.
+napi_status NAPI_CDECL default_jsr_drain_microtasks(
+    napi_env /*env*/,
+    int32_t /*max_count_hint*/,
+    bool *result) {
   if (result != nullptr) {
     *result = true; // All tasks are drained
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_is_inspectable if it is not provided by JS engine.
-// It always returns false.
-napi_status NAPI_CDECL default_jsr_is_inspectable(napi_env /*env*/, bool *result) {
+// Default implementation of jsr_is_inspectable if it is not provided by JS
+// engine. It always returns false.
+napi_status NAPI_CDECL
+default_jsr_is_inspectable(napi_env /*env*/, bool *result) {
   if (result != nullptr) {
     *result = false;
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_open_napi_env_scope if it is not provided by JS engine.
-napi_status NAPI_CDECL default_jsr_open_napi_env_scope(napi_env /*env*/, jsr_napi_env_scope * /*scope*/) {
-  return napi_ok;
-}
-
-// Default implementation of jsr_close_napi_env_scope if it is not provided by JS engine.
-napi_status NAPI_CDECL default_jsr_close_napi_env_scope(napi_env /*env*/, jsr_napi_env_scope /*scope*/) {
-  return napi_ok;
-}
-
-napi_status NAPI_CDECL
-default_jsr_instrumentation_get_gc_stats(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
-  return napi_ok;
-}
-
-napi_status NAPI_CDECL default_jsr_instrumentation_get_heap_info(
+// Default implementation of jsr_open_napi_env_scope if it is not provided by JS
+// engine.
+napi_status NAPI_CDECL default_jsr_open_napi_env_scope(
     napi_env /*env*/,
-    bool /*include_expensive*/,
-    jsr_heap_info_cb /*cb*/,
-    void * /*cb_ctx*/) {
+    jsr_napi_env_scope * /*scope*/) {
   return napi_ok;
 }
 
-napi_status NAPI_CDECL default_jsr_instrumentation_collect_garbage(napi_env /*env*/, const char * /*cause*/) {
-  return napi_ok;
-}
-
-napi_status NAPI_CDECL default_jsr_instrumentation_start_heap_sampling(napi_env /*env*/, size_t /*sampling_interval*/) {
-  return napi_ok;
-}
-
-napi_status NAPI_CDECL
-default_jsr_instrumentation_stop_heap_sampling(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
-  return napi_ok;
-}
-
-napi_status NAPI_CDECL default_jsr_instrumentation_create_heap_snapshot(
+// Default implementation of jsr_close_napi_env_scope if it is not provided by
+// JS engine.
+napi_status NAPI_CDECL default_jsr_close_napi_env_scope(
     napi_env /*env*/,
-    bool /*capture_numeric_value*/,
-    jsr_string_output_cb /*cb*/,
-    void * /*cb_ctx*/) {
+    jsr_napi_env_scope /*scope*/) {
   return napi_ok;
 }
 
-// Default implementation of jsr_create_prepared_script if it is not provided by JS engine.
-// It return napi_ref as a jsr_prepared_script that wraps up an object with a "script" property string.
+// TODO: Ensure that we either load all three functions or use their default
+// versions and never mix and match.
+
+// Default implementation of jsr_create_prepared_script if it is not provided by
+// JS engine. It return napi_ref as a jsr_prepared_script that wraps up an
+// object with a "script" property string.
 napi_status NAPI_CDECL default_jsr_create_prepared_script(
     napi_env env,
     const uint8_t *script_data,
@@ -3270,34 +3648,46 @@ napi_status NAPI_CDECL default_jsr_create_prepared_script(
     void *deleter_data,
     const char * /*source_url*/,
     jsr_prepared_script *result) {
-  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
+  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi =
+      Microsoft::NodeApiJsi::JSRuntimeApi::current();
   napi_value script{}, obj{};
-  // Do not use NAPI_CALL - we must finalize the buffer right after we attempted the string creation.
-  napi_status status =
-      jsrApi->napi_create_string_utf8(env, reinterpret_cast<const char *>(script_data), script_length, &script);
+  // Do not use NAPI_CALL - we must finalize the buffer right after we attempted
+  // the string creation.
+  napi_status status = jsrApi->napi_create_string_utf8(
+      env, reinterpret_cast<const char *>(script_data), script_length, &script);
   if (script_delete_cb != nullptr) {
     script_delete_cb(const_cast<uint8_t *>(script_data), deleter_data);
   }
   NAPI_CALL(status);
   NAPI_CALL(jsrApi->napi_create_object(env, &obj));
   NAPI_CALL(jsrApi->napi_set_named_property(env, obj, "script", script));
-  return jsrApi->napi_create_reference(env, obj, 1, reinterpret_cast<napi_ref *>(result));
+  return jsrApi->napi_create_reference(
+      env, obj, 1, reinterpret_cast<napi_ref *>(result));
 }
 
-// Default implementation of jsr_delete_prepared_script if it is not provided by JS engine.
-// It deletes prepared_script as a napi_ref.
-napi_status NAPI_CDECL default_jsr_delete_prepared_script(napi_env env, jsr_prepared_script prepared_script) {
-  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
-  return jsrApi->napi_delete_reference(env, reinterpret_cast<napi_ref>(prepared_script));
+// Default implementation of jsr_delete_prepared_script if it is not provided by
+// JS engine. It deletes prepared_script as a napi_ref.
+napi_status NAPI_CDECL default_jsr_delete_prepared_script(
+    napi_env env,
+    jsr_prepared_script prepared_script) {
+  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi =
+      Microsoft::NodeApiJsi::JSRuntimeApi::current();
+  return jsrApi->napi_delete_reference(
+      env, reinterpret_cast<napi_ref>(prepared_script));
 }
 
-// Default implementation of jsr_prepared_script_run if it is not provided by JS engine.
-// It interprets prepared_script as a napi_ref to an object with a "script" property string.
-napi_status NAPI_CDECL
-default_jsr_prepared_script_run(napi_env env, jsr_prepared_script prepared_script, napi_value *result) {
-  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
+// Default implementation of jsr_prepared_script_run if it is not provided by JS
+// engine. It interprets prepared_script as a napi_ref to an object with a
+// "script" property string.
+napi_status NAPI_CDECL default_jsr_prepared_script_run(
+    napi_env env,
+    jsr_prepared_script prepared_script,
+    napi_value *result) {
+  Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi =
+      Microsoft::NodeApiJsi::JSRuntimeApi::current();
   napi_value obj{}, script{};
-  NAPI_CALL(jsrApi->napi_get_reference_value(env, reinterpret_cast<napi_ref>(prepared_script), &obj));
+  NAPI_CALL(jsrApi->napi_get_reference_value(
+      env, reinterpret_cast<napi_ref>(prepared_script), &obj));
   NAPI_CALL(jsrApi->napi_get_named_property(env, obj, "script", &script));
   return jsrApi->napi_run_script(env, script, result);
 }
