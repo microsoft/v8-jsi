@@ -1830,7 +1830,7 @@ void NodeApiJsiRuntime::deleteProperty(
     const jsi::Object &obj,
     const jsi::PropNameID &name) {
   NodeApiScope scope{*this};
-  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  bool res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
   if (!res) {
     throw jsi::JSError(*this, "Failed to delete property");
   }
@@ -1840,7 +1840,7 @@ void NodeApiJsiRuntime::deleteProperty(
     const jsi::Object &obj,
     const jsi::String &name) {
   NodeApiScope scope{*this};
-  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  bool res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
   if (!res) {
     throw jsi::JSError(*this, "Failed to delete property");
   }
@@ -1850,7 +1850,7 @@ void NodeApiJsiRuntime::deleteProperty(
     const jsi::Object &obj,
     const jsi::Value &name) {
   NodeApiScope scope{*this};
-  auto res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
+  bool res = deleteProperty(getNodeApiValue(obj), getNodeApiValue(name));
   if (!res) {
     throw jsi::JSError(*this, "Failed to delete property");
   }
