@@ -45,3 +45,10 @@ pipelines:
           lastModifiedDate: 2025-04-28
         roslyn:
           lastModifiedDate: 2025-04-28
+  33975:
+    retail:
+      source:
+        eslint:
+          lastModifiedDate: 2025-12-23
+        armory:
+          lastModifiedDate: 2025-12-23
