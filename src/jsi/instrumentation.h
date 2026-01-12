@@ -137,6 +137,11 @@ class JSI_EXPORT Instrumentation {
   virtual void writeBasicBlockProfileTraceToFile(
       const std::string& fileName) const = 0;
 
+#if JSI_VERSION >= 21
+  /// Write the opcode stats to the given stream.
+  virtual void dumpOpcodeStats(std::ostream& os) const = 0;
+#endif
+
   /// Dump external profiler symbols to the given file name.
   virtual void dumpProfilerSymbolsToFile(const std::string& fileName) const = 0;
 };

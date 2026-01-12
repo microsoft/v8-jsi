@@ -112,11 +112,11 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
     return plain_;
   }
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   ICast* castInterface(const UUID& interfaceUUID) override {
     return plain().castInterface(interfaceUUID);
   }
-  #endif
+#endif
 
   Value evaluateJavaScript(
       const std::shared_ptr<const Buffer>& buffer,
@@ -147,10 +147,10 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
   }
   std::string description() override {
     return plain().description();
-  };
+  }
   bool isInspectable() override {
     return plain().isInspectable();
-  };
+  }
   Instrumentation& instrumentation() override {
     return *this;
   }
@@ -174,26 +174,26 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 #endif
   Runtime::PointerValue* cloneString(const Runtime::PointerValue* pv) override {
     return plain_.cloneString(pv);
-  };
+  }
   Runtime::PointerValue* cloneObject(const Runtime::PointerValue* pv) override {
     return plain_.cloneObject(pv);
-  };
+  }
   Runtime::PointerValue* clonePropNameID(
       const Runtime::PointerValue* pv) override {
     return plain_.clonePropNameID(pv);
-  };
+  }
 
   PropNameID createPropNameIDFromAscii(const char* str, size_t length)
       override {
     return plain_.createPropNameIDFromAscii(str, length);
-  };
+  }
   PropNameID createPropNameIDFromUtf8(const uint8_t* utf8, size_t length)
       override {
     return plain_.createPropNameIDFromUtf8(utf8, length);
-  };
+  }
   PropNameID createPropNameIDFromString(const String& str) override {
     return plain_.createPropNameIDFromString(str);
-  };
+  }
 #if JSI_VERSION >= 19
   PropNameID createPropNameIDFromUtf16(const char16_t* utf16, size_t length)
       override {
@@ -203,14 +203,14 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 #if JSI_VERSION >= 5
   PropNameID createPropNameIDFromSymbol(const Symbol& sym) override {
     return plain_.createPropNameIDFromSymbol(sym);
-  };
+  }
 #endif
   std::string utf8(const PropNameID& id) override {
     return plain_.utf8(id);
-  };
+  }
   bool compare(const PropNameID& a, const PropNameID& b) override {
     return plain_.compare(a, b);
-  };
+  }
 
   std::string symbolToString(const Symbol& sym) override {
     return plain_.symbolToString(sym);
@@ -239,10 +239,10 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 
   String createStringFromAscii(const char* str, size_t length) override {
     return plain_.createStringFromAscii(str, length);
-  };
+  }
   String createStringFromUtf8(const uint8_t* utf8, size_t length) override {
     return plain_.createStringFromUtf8(utf8, length);
-  };
+  }
 #if JSI_VERSION >= 19
   String createStringFromUtf16(const char16_t* utf16, size_t length) override {
     return plain_.createStringFromUtf16(utf16, length);
@@ -287,22 +287,22 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 
   Object createObject() override {
     return plain_.createObject();
-  };
+  }
 
   Object createObject(std::shared_ptr<HostObject> ho) override {
     return plain_.createObject(
         std::make_shared<DecoratedHostObject>(*this, std::move(ho)));
-  };
+  }
   std::shared_ptr<HostObject> getHostObject(const jsi::Object& o) override {
     std::shared_ptr<HostObject> dho = plain_.getHostObject(o);
     return static_cast<DecoratedHostObject&>(*dho).plainHO_;
-  };
+  }
   HostFunctionType& getHostFunction(const jsi::Function& f) override {
     HostFunctionType& dhf = plain_.getHostFunction(f);
     // This will fail if a cpp file including this header is not compiled
     // with RTTI.
     return dhf.target<DecoratedHostFunction>()->plainHF_;
-  };
+  }
 
 #if JSI_VERSION >= 7
   bool hasNativeState(const Object& o) override {
@@ -335,80 +335,113 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 
   Value getProperty(const Object& o, const PropNameID& name) override {
     return plain_.getProperty(o, name);
-  };
+  }
   Value getProperty(const Object& o, const String& name) override {
     return plain_.getProperty(o, name);
-  };
+  }
+
+#if JSI_VERSION >= 21
+  Value getProperty(const Object& o, const Value& name) override {
+    return plain_.getProperty(o, name);
+  }
+#endif
+
   bool hasProperty(const Object& o, const PropNameID& name) override {
     return plain_.hasProperty(o, name);
-  };
+  }
   bool hasProperty(const Object& o, const String& name) override {
     return plain_.hasProperty(o, name);
-  };
+  }
+
+#if JSI_VERSION >= 21
+  bool hasProperty(const Object& o, const Value& name) override {
+    return plain_.hasProperty(o, name);
+  }
+#endif
+
   void setPropertyValue(
       JSI_CONST_10 Object& o,
       const PropNameID& name,
       const Value& value) override {
     plain_.setPropertyValue(o, name, value);
-  };
+  }
   void setPropertyValue(
       JSI_CONST_10 Object& o,
       const String& name,
       const Value& value) override {
     plain_.setPropertyValue(o, name, value);
-  };
+  }
+
+#if JSI_VERSION >= 21
+  void setPropertyValue(const Object& o, const Value& name, const Value& value)
+      override {
+    plain_.setPropertyValue(o, name, value);
+  }
+
+  void deleteProperty(const Object& object, const PropNameID& name) override {
+    plain_.deleteProperty(object, name);
+  }
+
+  void deleteProperty(const Object& object, const String& name) override {
+    plain_.deleteProperty(object, name);
+  }
+
+  void deleteProperty(const Object& object, const Value& name) override {
+    plain_.deleteProperty(object, name);
+  }
+#endif
 
   bool isArray(const Object& o) const override {
     return plain_.isArray(o);
-  };
+  }
   bool isArrayBuffer(const Object& o) const override {
     return plain_.isArrayBuffer(o);
-  };
+  }
   bool isFunction(const Object& o) const override {
     return plain_.isFunction(o);
-  };
+  }
   bool isHostObject(const jsi::Object& o) const override {
     return plain_.isHostObject(o);
-  };
+  }
   bool isHostFunction(const jsi::Function& f) const override {
     return plain_.isHostFunction(f);
-  };
+  }
   Array getPropertyNames(const Object& o) override {
     return plain_.getPropertyNames(o);
-  };
+  }
 
   WeakObject createWeakObject(const Object& o) override {
     return plain_.createWeakObject(o);
-  };
+  }
   Value lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 WeakObject& wo) override {
     return plain_.lockWeakObject(wo);
-  };
+  }
 
   Array createArray(size_t length) override {
     return plain_.createArray(length);
-  };
+  }
 #if JSI_VERSION >= 9
   ArrayBuffer createArrayBuffer(
       std::shared_ptr<MutableBuffer> buffer) override {
     return plain_.createArrayBuffer(std::move(buffer));
-  };
+  }
 #endif
   size_t size(const Array& a) override {
     return plain_.size(a);
-  };
+  }
   size_t size(const ArrayBuffer& ab) override {
     return plain_.size(ab);
-  };
+  }
   uint8_t* data(const ArrayBuffer& ab) override {
     return plain_.data(ab);
-  };
+  }
   Value getValueAtIndex(const Array& a, size_t i) override {
     return plain_.getValueAtIndex(a, i);
-  };
+  }
   void setValueAtIndexImpl(JSI_CONST_10 Array& a, size_t i, const Value& value)
       override {
     plain_.setValueAtIndexImpl(a, i, value);
-  };
+  }
 
   Function createFunctionFromHostFunction(
       const PropNameID& name,
@@ -416,20 +449,20 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
       HostFunctionType func) override {
     return plain_.createFunctionFromHostFunction(
         name, paramCount, DecoratedHostFunction(*this, std::move(func)));
-  };
+  }
   Value call(
       const Function& f,
       const Value& jsThis,
       const Value* args,
       size_t count) override {
     return plain_.call(f, jsThis, args, count);
-  };
+  }
   Value callAsConstructor(const Function& f, const Value* args, size_t count)
       override {
     return plain_.callAsConstructor(f, args, count);
-  };
+  }
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   void setRuntimeDataImpl(
       const UUID& uuid,
       const void* data,
@@ -440,7 +473,7 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
   const void* getRuntimeDataImpl(const UUID& uuid) override {
     return plain_.getRuntimeDataImpl(uuid);
   }
-  #endif
+#endif
 
   // Private data for managing scopes.
   Runtime::ScopeState* pushScope() override {
@@ -452,22 +485,22 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
 
   bool strictEquals(const Symbol& a, const Symbol& b) const override {
     return plain_.strictEquals(a, b);
-  };
+  }
 #if JSI_VERSION >= 6
   bool strictEquals(const BigInt& a, const BigInt& b) const override {
     return plain_.strictEquals(a, b);
-  };
+  }
 #endif
   bool strictEquals(const String& a, const String& b) const override {
     return plain_.strictEquals(a, b);
-  };
+  }
   bool strictEquals(const Object& a, const Object& b) const override {
     return plain_.strictEquals(a, b);
-  };
+  }
 
   bool instanceOf(const Object& o, const Function& f) override {
     return plain_.instanceOf(o, f);
-  };
+  }
 
   // jsi::Instrumentation methods
 
@@ -541,6 +574,12 @@ class RuntimeDecorator : public Base, private jsi::Instrumentation {
         .instrumentation()
         .writeBasicBlockProfileTraceToFile(fileName);
   }
+
+#if JSI_VERSION >= 21
+  void dumpOpcodeStats(std::ostream& os) const override {
+    const_cast<Plain&>(plain()).instrumentation().dumpOpcodeStats(os);
+  }
+#endif
 
   /// Dump external profiler symbols to the given file name.
   void dumpProfilerSymbolsToFile(const std::string& fileName) const override {
@@ -639,12 +678,12 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   // the derived class.
   WithRuntimeDecorator(Plain& plain, With& with) : RD(plain), with_(with) {}
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   ICast* castInterface(const UUID& interfaceUUID) override {
     Around around{with_};
     return RD::castInterface(interfaceUUID);
   }
-  #endif
+#endif
 
   Value evaluateJavaScript(
       const std::shared_ptr<const Buffer>& buffer,
@@ -682,11 +721,11 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   std::string description() override {
     Around around{with_};
     return RD::description();
-  };
+  }
   bool isInspectable() override {
     Around around{with_};
     return RD::isInspectable();
-  };
+  }
 
   // The jsi:: prefix is necessary because MSVC compiler complains C2247:
   // Instrumentation is not accessible because RuntimeDecorator uses private
@@ -701,37 +740,37 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   Runtime::PointerValue* cloneSymbol(const Runtime::PointerValue* pv) override {
     Around around{with_};
     return RD::cloneSymbol(pv);
-  };
+  }
 #if JSI_VERSION >= 6
   Runtime::PointerValue* cloneBigInt(const Runtime::PointerValue* pv) override {
     Around around{with_};
     return RD::cloneBigInt(pv);
-  };
+  }
 #endif
   Runtime::PointerValue* cloneString(const Runtime::PointerValue* pv) override {
     Around around{with_};
     return RD::cloneString(pv);
-  };
+  }
   Runtime::PointerValue* cloneObject(const Runtime::PointerValue* pv) override {
     Around around{with_};
     return RD::cloneObject(pv);
-  };
+  }
   Runtime::PointerValue* clonePropNameID(
       const Runtime::PointerValue* pv) override {
     Around around{with_};
     return RD::clonePropNameID(pv);
-  };
+  }
 
   PropNameID createPropNameIDFromAscii(const char* str, size_t length)
       override {
     Around around{with_};
     return RD::createPropNameIDFromAscii(str, length);
-  };
+  }
   PropNameID createPropNameIDFromUtf8(const uint8_t* utf8, size_t length)
       override {
     Around around{with_};
     return RD::createPropNameIDFromUtf8(utf8, length);
-  };
+  }
 #if JSI_VERSION >= 19
   PropNameID createPropNameIDFromUtf16(const char16_t* utf16, size_t length)
       override {
@@ -742,62 +781,62 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   PropNameID createPropNameIDFromString(const String& str) override {
     Around around{with_};
     return RD::createPropNameIDFromString(str);
-  };
+  }
 #if JSI_VERSION >= 5
   PropNameID createPropNameIDFromSymbol(const Symbol& sym) override {
     Around around{with_};
     return RD::createPropNameIDFromSymbol(sym);
-  };
+  }
 #endif
   std::string utf8(const PropNameID& id) override {
     Around around{with_};
     return RD::utf8(id);
-  };
+  }
   bool compare(const PropNameID& a, const PropNameID& b) override {
     Around around{with_};
     return RD::compare(a, b);
-  };
+  }
 
   std::string symbolToString(const Symbol& sym) override {
     Around around{with_};
     return RD::symbolToString(sym);
-  };
+  }
 
 #if JSI_VERSION >= 8
   BigInt createBigIntFromInt64(int64_t i) override {
     Around around{with_};
     return RD::createBigIntFromInt64(i);
-  };
+  }
   BigInt createBigIntFromUint64(uint64_t i) override {
     Around around{with_};
     return RD::createBigIntFromUint64(i);
-  };
+  }
   bool bigintIsInt64(const BigInt& bi) override {
     Around around{with_};
     return RD::bigintIsInt64(bi);
-  };
+  }
   bool bigintIsUint64(const BigInt& bi) override {
     Around around{with_};
     return RD::bigintIsUint64(bi);
-  };
+  }
   uint64_t truncate(const BigInt& bi) override {
     Around around{with_};
     return RD::truncate(bi);
-  };
+  }
   String bigintToString(const BigInt& bi, int i) override {
     Around around{with_};
     return RD::bigintToString(bi, i);
-  };
+  }
 #endif
 
   String createStringFromAscii(const char* str, size_t length) override {
     Around around{with_};
     return RD::createStringFromAscii(str, length);
-  };
+  }
   String createStringFromUtf8(const uint8_t* utf8, size_t length) override {
     Around around{with_};
     return RD::createStringFromUtf8(utf8, length);
-  };
+  }
 #if JSI_VERSION >= 19
   String createStringFromUtf16(const char16_t* utf16, size_t length) override {
     Around around{with_};
@@ -843,7 +882,7 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   Value createValueFromJsonUtf8(const uint8_t* json, size_t length) override {
     Around around{with_};
     return RD::createValueFromJsonUtf8(json, length);
-  };
+  }
 
 #if JSI_VERSION >= 18
   Object createObjectWithPrototype(const Value& prototype) override {
@@ -855,34 +894,34 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   Object createObject() override {
     Around around{with_};
     return RD::createObject();
-  };
+  }
   Object createObject(std::shared_ptr<HostObject> ho) override {
     Around around{with_};
     return RD::createObject(std::move(ho));
-  };
+  }
   std::shared_ptr<HostObject> getHostObject(const jsi::Object& o) override {
     Around around{with_};
     return RD::getHostObject(o);
-  };
+  }
   HostFunctionType& getHostFunction(const jsi::Function& f) override {
     Around around{with_};
     return RD::getHostFunction(f);
-  };
+  }
 
 #if JSI_VERSION >= 7
   bool hasNativeState(const Object& o) override {
     Around around{with_};
     return RD::hasNativeState(o);
-  };
+  }
   std::shared_ptr<NativeState> getNativeState(const Object& o) override {
     Around around{with_};
     return RD::getNativeState(o);
-  };
+  }
   void setNativeState(const Object& o, std::shared_ptr<NativeState> state)
       override {
     Around around{with_};
     RD::setNativeState(o, state);
-  };
+  }
 #endif
 
 #if JSI_VERSION >= 17
@@ -900,99 +939,137 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   Value getProperty(const Object& o, const PropNameID& name) override {
     Around around{with_};
     return RD::getProperty(o, name);
-  };
+  }
   Value getProperty(const Object& o, const String& name) override {
     Around around{with_};
     return RD::getProperty(o, name);
-  };
+  }
+
+#if JSI_VERSION >= 21
+  Value getProperty(const Object& o, const Value& name) override {
+    Around around{with_};
+    return RD::getProperty(o, name);
+  }
+#endif
+
   bool hasProperty(const Object& o, const PropNameID& name) override {
     Around around{with_};
     return RD::hasProperty(o, name);
-  };
+  }
   bool hasProperty(const Object& o, const String& name) override {
     Around around{with_};
     return RD::hasProperty(o, name);
-  };
+  }
+
+#if JSI_VERSION >= 21
+  bool hasProperty(const Object& o, const Value& name) override {
+    Around around{with_};
+    return RD::hasProperty(o, name);
+  }
+#endif
+
   void setPropertyValue(
       JSI_CONST_10 Object& o,
       const PropNameID& name,
       const Value& value) override {
     Around around{with_};
     RD::setPropertyValue(o, name, value);
-  };
+  }
   void setPropertyValue(
       JSI_CONST_10 Object& o,
       const String& name,
       const Value& value) override {
     Around around{with_};
     RD::setPropertyValue(o, name, value);
-  };
+  }
+#if JSI_VERSION >= 21
+  void setPropertyValue(const Object& o, const Value& name, const Value& value)
+      override {
+    Around around{with_};
+    RD::setPropertyValue(o, name, value);
+  }
+
+  void deleteProperty(const Object& object, const PropNameID& name) override {
+    Around around{with_};
+    RD::deleteProperty(object, name);
+  }
+
+  void deleteProperty(const Object& object, const String& name) override {
+    Around around{with_};
+    RD::deleteProperty(object, name);
+  }
+
+  void deleteProperty(const Object& object, const Value& name) override {
+    Around around{with_};
+    RD::deleteProperty(object, name);
+  }
+#endif
 
   bool isArray(const Object& o) const override {
     Around around{with_};
     return RD::isArray(o);
-  };
+  }
   bool isArrayBuffer(const Object& o) const override {
     Around around{with_};
     return RD::isArrayBuffer(o);
-  };
+  }
   bool isFunction(const Object& o) const override {
     Around around{with_};
     return RD::isFunction(o);
-  };
+  }
   bool isHostObject(const jsi::Object& o) const override {
     Around around{with_};
     return RD::isHostObject(o);
-  };
+  }
   bool isHostFunction(const jsi::Function& f) const override {
     Around around{with_};
     return RD::isHostFunction(f);
-  };
+  }
   Array getPropertyNames(const Object& o) override {
     Around around{with_};
     return RD::getPropertyNames(o);
-  };
+  }
 
   WeakObject createWeakObject(const Object& o) override {
     Around around{with_};
     return RD::createWeakObject(o);
-  };
+  }
   Value lockWeakObject(JSI_NO_CONST_3 JSI_CONST_10 WeakObject& wo) override {
     Around around{with_};
     return RD::lockWeakObject(wo);
-  };
+  }
 
   Array createArray(size_t length) override {
     Around around{with_};
     return RD::createArray(length);
-  };
+  }
 #if JSI_VERSION >= 9
   ArrayBuffer createArrayBuffer(
       std::shared_ptr<MutableBuffer> buffer) override {
     return RD::createArrayBuffer(std::move(buffer));
-  };
+  }
 #endif
   size_t size(const Array& a) override {
     Around around{with_};
     return RD::size(a);
-  };
+  }
   size_t size(const ArrayBuffer& ab) override {
     Around around{with_};
     return RD::size(ab);
-  };
+  }
   uint8_t* data(const ArrayBuffer& ab) override {
     Around around{with_};
     return RD::data(ab);
-  };
+  }
   Value getValueAtIndex(const Array& a, size_t i) override {
     Around around{with_};
     return RD::getValueAtIndex(a, i);
-  };
+  }
   void setValueAtIndexImpl(JSI_CONST_10 Array& a, size_t i, const Value& value)
       override {
     Around around{with_};
     RD::setValueAtIndexImpl(a, i, value);
-  };
+  }
 
   Function createFunctionFromHostFunction(
       const PropNameID& name,
@@ -1001,7 +1078,7 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
     Around around{with_};
     return RD::createFunctionFromHostFunction(
         name, paramCount, std::move(func));
-  };
+  }
   Value call(
       const Function& f,
       const Value& jsThis,
@@ -1009,12 +1086,12 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
       size_t count) override {
     Around around{with_};
     return RD::call(f, jsThis, args, count);
-  };
+  }
   Value callAsConstructor(const Function& f, const Value* args, size_t count)
       override {
     Around around{with_};
     return RD::callAsConstructor(f, args, count);
-  };
+  }
 
   // Private data for managing scopes.
   Runtime::ScopeState* pushScope() override {
@@ -1029,38 +1106,38 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
   bool strictEquals(const Symbol& a, const Symbol& b) const override {
     Around around{with_};
     return RD::strictEquals(a, b);
-  };
+  }
 
 #if JSI_VERSION >= 6
   bool strictEquals(const BigInt& a, const BigInt& b) const override {
     Around around{with_};
     return RD::strictEquals(a, b);
-  };
+  }
 #endif
 
   bool strictEquals(const String& a, const String& b) const override {
     Around around{with_};
     return RD::strictEquals(a, b);
-  };
+  }
   bool strictEquals(const Object& a, const Object& b) const override {
     Around around{with_};
     return RD::strictEquals(a, b);
-  };
+  }
 
   bool instanceOf(const Object& o, const Function& f) override {
     Around around{with_};
     return RD::instanceOf(o, f);
-  };
+  }
 
 #if JSI_VERSION >= 11
   void setExternalMemoryPressure(const jsi::Object& obj, size_t amount)
       override {
     Around around{with_};
     RD::setExternalMemoryPressure(obj, amount);
-  };
+  }
 #endif
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   void setRuntimeDataImpl(
       const UUID& uuid,
       const void* data,
@@ -1073,7 +1150,7 @@ class WithRuntimeDecorator : public RuntimeDecorator<Plain, Base> {
     Around around{with_};
     return RD::getRuntimeDataImpl(uuid);
   }
-  #endif
+#endif
 
  private:
   // Wrap an RAII type around With& to guarantee after always happens.

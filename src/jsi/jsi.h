@@ -28,7 +28,7 @@
 
 #ifndef JSI_VERSION
 // Use the latest version by default
-#define JSI_VERSION 20
+#define JSI_VERSION 21
 #endif
 
 #if JSI_VERSION >= 3
@@ -320,9 +320,9 @@ class JSI_EXPORT Runtime {
  public:
   virtual ~Runtime();
 
-  #if JSI_VERSION >= 20
+#if JSI_VERSION >= 20
   ICast* castInterface(const UUID& interfaceUUID) override;
-  #endif
+#endif
 
   /// Evaluates the given JavaScript \c buffer.  \c sourceURL is used
   /// to annotate the stack trace if there is an exception.  The
@@ -421,8 +421,8 @@ class JSI_EXPORT Runtime {
   /// implementation of this function returns an \c Instrumentation instance
   /// which returns no metrics.
   virtual Instrumentation& instrumentation();
-  
-  #if JSI_VERSION >= 20
+
+#if JSI_VERSION >= 20
   /// Stores the pointer \p data with the \p uuid in the runtime. This can be
   /// used to store some custom data within the runtime. When the runtime is
   /// destroyed, or if an entry at an existing key is overwritten, the runtime
@@ -432,7 +432,7 @@ class JSI_EXPORT Runtime {
   /// Returns the data associated with the \p uuid in the runtime. If there's no
   /// data associated with the uuid, return a null pointer.
   std::shared_ptr<void> getRuntimeData(const UUID& uuid);
-  #endif
+#endif
 
  protected:
   friend class Pointer;
@@ -450,8 +450,8 @@ class JSI_EXPORT Runtime {
   friend class Value;
   friend class Scope;
   friend class JSError;
-  
-  #if JSI_VERSION >= 20
+
+#if JSI_VERSION >= 20
   /// Stores the pointer \p data with the \p uuid in the runtime. This can be
   /// used to store some custom data within the runtime. When the runtime is
   /// destroyed, or if an entry at an existing key is overwritten, the runtime
@@ -464,7 +464,7 @@ class JSI_EXPORT Runtime {
   /// Returns the data associated with the \p uuid in the runtime. If there's no
   /// data associated with the uuid, return a null pointer.
   virtual const void* getRuntimeDataImpl(const UUID& uuid);
-  #endif
+#endif
 
   // Potential optimization: avoid the cloneFoo() virtual dispatch,
   // and instead just fix the number of fields, and copy them, since
@@ -553,8 +553,18 @@ class JSI_EXPORT Runtime {
 
   virtual Value getProperty(const Object&, const PropNameID& name) = 0;
   virtual Value getProperty(const Object&, const String& name) = 0;
+
+#if JSI_VERSION >= 21
+  virtual Value getProperty(const Object&, const Value& name);
+#endif
+
   virtual bool hasProperty(const Object&, const PropNameID& name) = 0;
   virtual bool hasProperty(const Object&, const String& name) = 0;
+
+#if JSI_VERSION >= 21
+  virtual bool hasProperty(const Object&, const Value& name);
+#endif
+
   virtual void setPropertyValue(
       JSI_CONST_10 Object&,
       const PropNameID& name,
@@ -563,6 +573,15 @@ class JSI_EXPORT Runtime {
       JSI_CONST_10 Object&,
       const String& name,
       const Value& value) = 0;
+
+#if JSI_VERSION >= 21
+  virtual void
+  setPropertyValue(const Object&, const Value& name, const Value& value);
+
+  virtual void deleteProperty(const Object&, const PropNameID& name);
+  virtual void deleteProperty(const Object&, const String& name);
+  virtual void deleteProperty(const Object&, const Value& name);
+#endif
 
   virtual bool isArray(const Object&) const = 0;
   virtual bool isArrayBuffer(const Object&) const = 0;
@@ -1014,7 +1033,7 @@ class JSI_EXPORT Object : public Pointer {
   Object& operator=(Object&& other) = default;
 
   /// Creates a new Object instance, like '{}' in JS.
-  Object(Runtime& runtime) : Object(runtime.createObject()) {}
+  explicit Object(Runtime& runtime) : Object(runtime.createObject()) {}
 
   static Object createFromHostObject(
       Runtime& runtime,
@@ -1066,6 +1085,14 @@ class JSI_EXPORT Object : public Pointer {
   /// undefined value.
   Value getProperty(Runtime& runtime, const PropNameID& name) const;
 
+#if JSI_VERSION >= 21
+  /// \return the Property of the object with the given JS Value name. If the
+  /// name isn't a property on the object, returns the undefined value.This
+  /// attempts to convert the JS Value to convert to a property key. If the
+  /// conversion fails, this method may throw.
+  Value getProperty(Runtime& runtime, const Value& name) const;
+#endif
+
   /// \return true if and only if the object has a property with the
   /// given ascii name.
   bool hasProperty(Runtime& runtime, const char* name) const;
@@ -1078,6 +1105,12 @@ class JSI_EXPORT Object : public Pointer {
   /// given PropNameID name.
   bool hasProperty(Runtime& runtime, const PropNameID& name) const;
 
+#if JSI_VERSION >= 21
+  /// \return true if and only if the object has a property with the given
+  /// JS Value name. This attempts to convert the JS Value to convert to a
+  /// property key. If the conversion fails, this method may throw.
+  bool hasProperty(Runtime& runtime, const Value& name) const;
+#endif
   /// Sets the property value from a Value or anything which can be
   /// used to make one: nullptr_t, bool, double, int, const char*,
   /// String, or Object.
@@ -1097,6 +1130,32 @@ class JSI_EXPORT Object : public Pointer {
   template <typename T>
   void setProperty(Runtime& runtime, const PropNameID& name, T&& value)
       JSI_CONST_10;
+
+#if JSI_VERSION >= 21
+  /// Sets the property value from a Value or anything which can be
+  /// used to make one: nullptr_t, bool, double, int, const char*,
+  /// String, or Object. This takes a JS Value as the property name, and
+  /// attempts to convert to a property key. If the conversion fails, this
+  /// method may throw.
+  template <typename T>
+  void setProperty(Runtime& runtime, const Value& name, T&& value) const;
+
+  /// Delete the property with the given ascii name. Throws if the deletion
+  /// failed.
+  void deleteProperty(Runtime& runtime, const char* name) const;
+
+  /// Delete the property with the given String name. Throws if the deletion
+  /// failed.
+  void deleteProperty(Runtime& runtime, const String& name) const;
+
+  /// Delete the property with the given PropNameID name. Throws if the deletion
+  /// failed.
+  void deleteProperty(Runtime& runtime, const PropNameID& name) const;
+
+  /// Delete the property with the given Value name. Throws if the deletion
+  /// failed.
+  void deleteProperty(Runtime& runtime, const Value& name) const;
+#endif
 
   /// \return true iff JS \c Array.isArray() would return \c true.  If
   /// so, then \c getArray() will succeed.
@@ -1242,6 +1301,13 @@ class JSI_EXPORT Object : public Pointer {
       const Value& value) JSI_CONST_10 {
     return runtime.setPropertyValue(*this, name, value);
   }
+
+#if JSI_VERSION >= 21
+  void setPropertyValue(Runtime& runtime, const Value& name, const Value& value)
+      const {
+    return runtime.setPropertyValue(*this, name, value);
+  }
+#endif
 
   friend class Runtime;
   friend class Value;
@@ -1942,7 +2008,7 @@ U* castInterface(T* ptr) {
     return static_cast<U*>(ptr->castInterface(U::uuid));
   }
   return nullptr;
-};
+}
 
 /// Helper function to cast the object managed by the shared_ptr \p ptr into an
 /// interface specified by \c U. If the cast is successful, return a shared_ptr

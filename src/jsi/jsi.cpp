@@ -358,6 +358,12 @@ Instrumentation& Runtime::instrumentation() {
       std::abort();
     }
 
+#if JSI_VERSION >= 21
+    void dumpOpcodeStats(std::ostream&) const override {
+      std::abort();
+    }
+#endif
+
     void dumpProfilerSymbolsToFile(const std::string&) const override {
       std::abort();
     }
@@ -465,6 +471,39 @@ Object Runtime::createObjectWithPrototype(const Value& prototype) {
 }
 #endif
 
+#if JSI_VERSION >= 21
+void Runtime::deleteProperty(const Object& object, const PropNameID& name) {
+  auto nameStr = String::createFromUtf16(*this, name.utf16(*this));
+  auto deleteFn = global()
+                      .getPropertyAsObject(*this, "Reflect")
+                      .getPropertyAsFunction(*this, "deleteProperty");
+  auto res = deleteFn.call(*this, object, nameStr).getBool();
+  if (!res) {
+    throw JSError(*this, "Failed to delete property");
+  }
+}
+
+void Runtime::deleteProperty(const Object& object, const String& name) {
+  auto deleteFn = global()
+                      .getPropertyAsObject(*this, "Reflect")
+                      .getPropertyAsFunction(*this, "deleteProperty");
+  auto res = deleteFn.call(*this, object, name).getBool();
+  if (!res) {
+    throw JSError(*this, "Failed to delete property");
+  }
+}
+
+void Runtime::deleteProperty(const Object& object, const Value& name) {
+  auto deleteFn = global()
+                      .getPropertyAsObject(*this, "Reflect")
+                      .getPropertyAsFunction(*this, "deleteProperty");
+  auto res = deleteFn.call(*this, object, name).getBool();
+  if (!res) {
+    throw JSError(*this, "Failed to delete property");
+  }
+}
+#endif
+
 #if JSI_VERSION >= 20
 void Runtime::setRuntimeDataImpl(
     const UUID& uuid,
@@ -520,6 +559,35 @@ const void* Runtime::getRuntimeDataImpl(const UUID& uuid) {
     }
   }
   return nullptr;
+}
+#endif
+
+#if JSI_VERSION >= 21
+Value Runtime::getProperty(const Object& object, const Value& name) {
+  auto getFn = global()
+                   .getPropertyAsObject(*this, "Reflect")
+                   .getPropertyAsFunction(*this, "get");
+  return getFn.call(*this, object, name);
+}
+
+bool Runtime::hasProperty(const Object& object, const Value& name) {
+  auto hasFn = global()
+                   .getPropertyAsObject(*this, "Reflect")
+                   .getPropertyAsFunction(*this, "has");
+  return hasFn.call(*this, object, name).getBool();
+}
+
+void Runtime::setPropertyValue(
+    const Object& object,
+    const Value& name,
+    const Value& value) {
+  auto setFn = global()
+                   .getPropertyAsObject(*this, "Reflect")
+                   .getPropertyAsFunction(*this, "set");
+  auto setResult = setFn.call(*this, object, name, value).getBool();
+  if (!setResult) {
+    throw JSError(*this, "Failed to set the property");
+  }
 }
 #endif
 
