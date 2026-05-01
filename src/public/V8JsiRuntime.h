@@ -72,7 +72,7 @@ struct V8RuntimeArgs {
   // Padded to allow adding boolean flags without breaking the ABI
   union {
     struct {
-      bool trackGCObjectStats : 1;
+      bool trackGCObjectStats : 1; // deprecated, no-op; reserved for ABI stability
       bool enableJitTracing : 1;
       bool enableMessageTracing : 1;
       bool enableGCTracing : 1;
