@@ -118,7 +118,7 @@ extends:
 
             # Sign binaries only for the non-fake CI builds.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+            - task: EsrpCodeSigning@6
               displayName: CodeSign Binaries
               inputs:
                 connectedServiceName: 'ESRP-JSHost3'
@@ -174,7 +174,7 @@ extends:
         - checkout: none
 
           # The substitution tags in the nuspec require that we use at least NuGet 4.6.
-        - task: NuGetToolInstaller@0
+        - task: NuGetToolInstaller@1
           displayName: Install NuGet tools
           inputs:
             versionSpec: ">=4.6.0"
@@ -216,7 +216,7 @@ extends:
 
           # Sign the NuGet packages only for the CI builds.
         - ${{ if parameters.isPublish }}:
-          - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+          - task: EsrpCodeSigning@6
             displayName: CodeSign NuGets
             inputs:
               connectedServiceName: 'ESRP-JSHost3'
