@@ -41,11 +41,13 @@ extends:
 
       jobs:
       - job: ms_react_native_nuget_job
-        displayName: Publish Nuget to ms/react-native
+        displayName: Publish Nuget to ms/react-native-public
         condition: succeeded()
-        timeoutInMinutes: 0
+        timeoutInMinutes: 30
 
         templateContext:
+          type: releaseJob
+          isProduction: true
           inputs:
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci
@@ -53,23 +55,14 @@ extends:
             targetPath: $(Pipeline.Workspace)\published-packages
 
         steps:
-        - script: dir /S $(Pipeline.Workspace)\published-packages
-          displayName: Show directory contents
-
-        - script: dotnet nuget list source
-          displayName: Show Nuget sources
-
-          # TODO: Fix the NuGet name after the service connection approval
-        - task: 1ES.PublishNuGet@1
-          displayName: NuGet push
-          inputs:
-            useDotNetTask: true
+        - template: templates/publish-nuget-to-ado-feed.yml
+          parameters:
+            endpointId: '29e4c04c-ae69-4453-b9f3-bfef7a4c8d32'
+            nugetFeedUrl: 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
             packageParentPath: '$(Pipeline.Workspace)/published-packages'
             packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg'
-            nuGetFeedType: external
             publishFeedCredentials: 'Nuget - ms/react-native-public'
-            externalEndpoint: 'Nuget - ms/react-native-public'
-            publishPackageMetadata: true
+            feedDisplayName: 'ms/react-native-public'
 
       - job: office_nuget_job
         displayName: Publish Nuget to office
