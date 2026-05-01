@@ -67,9 +67,11 @@ extends:
       - job: office_nuget_job
         displayName: Publish Nuget to office
         condition: succeeded()
-        timeoutInMinutes: 0
+        timeoutInMinutes: 30
 
         templateContext:
+          type: releaseJob
+          isProduction: true
           inputs:
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci
