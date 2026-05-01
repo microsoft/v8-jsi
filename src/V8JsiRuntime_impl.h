@@ -34,52 +34,6 @@ namespace v8runtime {
 
 class NativeStateHolder;
 
-// Note : Counter implementation based on d8
-// A single counter in a counter collection.
-class Counter {
- public:
-  static const int kMaxNameSize = 64;
-  int32_t *Bind(const char *name, bool histogram);
-  int32_t *ptr() {
-    return &count_;
-  }
-  int32_t count() {
-    return count_;
-  }
-  int32_t sample_total() {
-    return sample_total_;
-  }
-  bool is_histogram() {
-    return is_histogram_;
-  }
-  void AddSample(int32_t sample);
-
- private:
-  int32_t count_;
-  int32_t sample_total_;
-  bool is_histogram_;
-  uint8_t name_[kMaxNameSize];
-};
-
-// A set of counters and associated information.  An instance of this
-// class is stored directly in the memory-mapped counters file if
-// the --map-counters options is used
-class CounterCollection {
- public:
-  CounterCollection();
-  Counter *GetNextCounter();
-
- private:
-  static const unsigned kMaxCounters = 512;
-  uint32_t magic_number_;
-  uint32_t max_counters_;
-  uint32_t max_name_size_;
-  uint32_t counters_in_use_;
-  Counter counters_[kMaxCounters];
-};
-
-using CounterMap = std::unordered_map<std::string, Counter *>;
-
 // This class is used to hold the V8 platform singleton.
 // It ensures that the platform is initialized and disposed only once.
 // It is thread-safe.
@@ -846,21 +800,6 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
-
-  static CounterMap *counter_map_;
-
-  // We statically allocate a set of local counters to be used if we
-  // don't want to store the stats in a memory-mapped file
-  static CounterCollection local_counters_;
-  static CounterCollection *counters_;
-  static char counters_file_[sizeof(CounterCollection)];
-
-  static void MapCounters(v8::Isolate *isolate, const char *name);
-  static Counter *GetCounter(const char *name, bool is_histogram);
-  static int *LookupCounter(const char *name);
-  static void *CreateHistogram(const char *name, int min, int max, size_t buckets);
-  static void AddHistogramSample(void *histogram, int sample);
-  static void DumpCounters(const char *when);
 
   static void JitCodeEventListener(const v8::JitCodeEvent *event);
 
