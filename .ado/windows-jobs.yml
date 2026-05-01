@@ -187,16 +187,6 @@ extends:
               artifact: ${{ matrix.Name }}
               path: $(Build.StagingDirectory)\out\pkg-staging
 
-          # Publish symbols only for the non-fake CI builds.
-        - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            # Make symbols available through http://symweb.
-          - task: PublishSymbols@2
-            displayName: Publish symbols
-            inputs:
-              UseNetCoreClientTool: true
-              SearchPattern: $(Build.StagingDirectory)\out\pkg-staging\**\*.pdb
-              SymbolServerType: TeamServices
-
         - task: PowerShell@2
           displayName: Set version variables
           inputs:

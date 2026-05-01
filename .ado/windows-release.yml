@@ -97,7 +97,67 @@ extends:
             useDotNetTask: true
             packageParentPath: '$(Pipeline.Workspace)/published-packages'
             packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg'
-            nuGetFeedType: external
+            nuGetFeedType: internal
             publishFeedCredentials: 'ES365-Office-Nuget-Package-Publisher'
-            externalEndpoint: 'ES365-Office-Nuget-Package-Publisher'
             publishPackageMetadata: true
+            publishVstsFeed: 'office'
+
+      - job: publish_symbols_job
+        displayName: Publish PDB Symbols to Symbol Server
+        condition: succeeded()
+        timeoutInMinutes: 30
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: published-packages
+            targetPath: $(Pipeline.Workspace)\published-packages
+
+        steps:
+        - pwsh: |
+            # NuGet packages are zip archives — extract them to harvest the PDBs.
+            $nugetDir   = "$(Pipeline.Workspace)/published-packages"
+            $symbolsDir = "$(Pipeline.Workspace)/symbols"
+            New-Item -ItemType Directory -Path $symbolsDir -Force | Out-Null
+
+            $nupkgs = Get-ChildItem "$nugetDir/*.nupkg"
+            Write-Host "Found $($nupkgs.Count) NuGet packages"
+
+            foreach ($nupkg in $nupkgs) {
+              Write-Host "Extracting PDBs from: $($nupkg.Name)"
+              $extractDir = "$symbolsDir/$($nupkg.BaseName)"
+              $zipPath = "$nugetDir/$($nupkg.BaseName).zip"
+              Copy-Item $nupkg.FullName $zipPath
+              Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+              Remove-Item $zipPath
+            }
+
+            $pdbs = Get-ChildItem "$symbolsDir" -Recurse -Filter "*.pdb"
+            Write-Host "`nFound $($pdbs.Count) PDB files:"
+            foreach ($pdb in $pdbs) {
+              Write-Host "  $($pdb.FullName) ($([math]::Round($pdb.Length / 1MB, 2)) MB)"
+            }
+
+            if ($pdbs.Count -eq 0) {
+              Write-Host "##vso[task.logissue type=warning]No PDB files found in NuGet packages"
+            }
+          displayName: Extract PDBs from NuGet packages
+
+        - task: PublishSymbols@2
+          displayName: Publish Symbols to Microsoft Symbol Server
+          continueOnError: true
+          inputs:
+            UseNetCoreClientTool: true
+            ConnectedServiceName: Office-V8-Jsi-Bot
+            SymbolsFolder: '$(Pipeline.Workspace)/symbols'
+            SearchPattern: '**/*.pdb'
+            SymbolServerType: TeamServices
+            IndexSources: false
+            SymbolsProduct: V8Jsi
+            SymbolsVersion: $(Build.BuildNumber)
+            SymbolsArtifactName: V8Jsi-Symbols-$(Build.BuildId)
+            DetailedLog: true
+            TreatNotIndexedAsWarning: false
