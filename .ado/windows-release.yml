@@ -55,7 +55,7 @@ extends:
             targetPath: $(Pipeline.Workspace)\published-packages
 
         steps:
-        - template: templates/publish-nuget-to-ado-feed.yml
+        - template: .ado/templates/publish-nuget-to-ado-feed.yml@self
           parameters:
             endpointId: '29e4c04c-ae69-4453-b9f3-bfef7a4c8d32'
             nugetFeedUrl: 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
