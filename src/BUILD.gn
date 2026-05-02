@@ -6,6 +6,28 @@ declare_args() {
   v8jsi_enable_node_api = true
 }
 
+# Hybrid CRT: drop the static UCRT pulled in by /MT(d) and use the dynamic
+# system UCRT instead. Result: no MSVCP140.dll / VCRUNTIME140.dll dependency,
+# and no Visual C++ Redistributable required on end-user machines.
+# Skipped on UWP (Store policy forbids static MSVC) and component builds
+# (those keep /MD(d) via :default_crt). See
+# https://github.com/microsoft/WindowsAppSDK/blob/main/docs/Coding-Guidelines/HybridCRT.md
+config("hybrid_crt_swap") {
+  if (is_win && current_os != "winuwp" && !is_component_build) {
+    if (is_debug) {
+      ldflags = [
+        "/NODEFAULTLIB:libucrtd.lib",
+        "/DEFAULTLIB:ucrtd.lib",
+      ]
+    } else {
+      ldflags = [
+        "/NODEFAULTLIB:libucrt.lib",
+        "/DEFAULTLIB:ucrt.lib",
+      ]
+    }
+  }
+}
+
 target("shared_library", "v8jsi") {
   sources = [
     "IsolateData.h",
@@ -102,6 +124,7 @@ target("shared_library", "v8jsi") {
     "//:toolchain",
     "//:internal_config_base",
     "//build/config/compiler:exceptions",
+    ":hybrid_crt_swap",
   ]
   configs -= [ "//build/config/compiler:no_exceptions" ]
 
@@ -147,6 +170,7 @@ target("executable", "jsitests") {
     "//:internal_config_base",
     "//build/config/compiler:exceptions",
     "//build/config/compiler:rtti",
+    ":hybrid_crt_swap",
   ]
   configs -= [
     "//build/config/compiler:no_exceptions",
