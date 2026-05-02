@@ -118,7 +118,7 @@ extends:
 
             # Sign binaries only for the non-fake CI builds.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+            - task: EsrpCodeSigning@6
               displayName: CodeSign Binaries
               inputs:
                 connectedServiceName: 'ESRP-JSHost3'
@@ -174,7 +174,7 @@ extends:
         - checkout: none
 
           # The substitution tags in the nuspec require that we use at least NuGet 4.6.
-        - task: NuGetToolInstaller@0
+        - task: NuGetToolInstaller@1
           displayName: Install NuGet tools
           inputs:
             versionSpec: ">=4.6.0"
@@ -186,16 +186,6 @@ extends:
             inputs:
               artifact: ${{ matrix.Name }}
               path: $(Build.StagingDirectory)\out\pkg-staging
-
-          # Publish symbols only for the non-fake CI builds.
-        - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            # Make symbols available through http://symweb.
-          - task: PublishSymbols@2
-            displayName: Publish symbols
-            inputs:
-              UseNetCoreClientTool: true
-              SearchPattern: $(Build.StagingDirectory)\out\pkg-staging\**\*.pdb
-              SymbolServerType: TeamServices
 
         - task: PowerShell@2
           displayName: Set version variables
@@ -226,7 +216,7 @@ extends:
 
           # Sign the NuGet packages only for the CI builds.
         - ${{ if parameters.isPublish }}:
-          - task: SFP.build-tasks.custom-build-task-1.EsrpCodeSigning@5
+          - task: EsrpCodeSigning@6
             displayName: CodeSign NuGets
             inputs:
               connectedServiceName: 'ESRP-JSHost3'

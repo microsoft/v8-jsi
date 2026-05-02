@@ -154,115 +154,12 @@ void V8Runtime::GCPrologueCallback(v8::Isolate *isolate, v8::GCType type, v8::GC
   std::string prefix("GCPrologue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
   TRACEV8RUNTIME_VERBOSE("V8::GCPrologueCallback", TraceLoggingString(gcTypeString.c_str(), "GCType"));
-  DumpCounters(gcTypeString.c_str());
 }
 
 void V8Runtime::GCEpilogueCallback(v8::Isolate *isolate, v8::GCType type, v8::GCCallbackFlags flags) {
   std::string prefix("GCEpilogue");
   std::string gcTypeString = GCTypeToString(prefix, type, flags);
   TRACEV8RUNTIME_VERBOSE("V8::GCEpilogueCallback", TraceLoggingString(gcTypeString.c_str(), "GCType"));
-
-  DumpCounters(gcTypeString.c_str());
-}
-
-CounterMap *V8Runtime::counter_map_;
-char V8Runtime::counters_file_[sizeof(CounterCollection)];
-CounterCollection V8Runtime::local_counters_;
-CounterCollection *V8Runtime::counters_ = &local_counters_;
-
-int32_t *Counter::Bind(const char *name, bool is_histogram) {
-  int i;
-  for (i = 0; i < kMaxNameSize - 1 && name[i]; i++)
-    name_[i] = static_cast<char>(name[i]);
-  name_[i] = '\0';
-  is_histogram_ = is_histogram;
-  return ptr();
-}
-
-void Counter::AddSample(int32_t sample) {
-  count_++;
-  sample_total_ += sample;
-}
-
-CounterCollection::CounterCollection() {
-  magic_number_ = 0xDEADFACE;
-  max_counters_ = kMaxCounters;
-  max_name_size_ = Counter::kMaxNameSize;
-  counters_in_use_ = 0;
-}
-
-Counter *CounterCollection::GetNextCounter() {
-  if (counters_in_use_ == kMaxCounters)
-    return nullptr;
-  return &counters_[counters_in_use_++];
-}
-
-void V8Runtime::DumpCounters(const char *when) {
-  static int cookie = 0;
-  cookie++;
-#ifdef _WIN32
-  for (std::pair<std::string, Counter *> element : *counter_map_) {
-    TRACEV8RUNTIME_VERBOSE(
-        "V8::PerfCounters",
-        TraceLoggingString(when, "when"),
-        TraceLoggingInt32(cookie, "cookie"),
-        TraceLoggingString(element.first.c_str(), "name"),
-        TraceLoggingInt32(element.second->count(), "count"),
-        TraceLoggingInt32(element.second->sample_total(), "sample_total"),
-        TraceLoggingBool(element.second->is_histogram(), "is_histogram"));
-  }
-#endif
-}
-
-void V8Runtime::MapCounters(v8::Isolate *isolate, const char *name) {
-  // counters_file_ = base::OS::MemoryMappedFile::create(
-  //	name, sizeof(CounterCollection), &local_counters_);
-  // void* memory =
-  //	(counters_file_ == nullptr) ? nullptr : counters_file_->memory();
-  // if (memory == nullptr) {
-  //	printf("Could not map counters file %s\n", name);
-  //	base::OS::ExitProcess(1);
-  //}
-  // counters_ = static_cast<CounterCollection*>(memory);
-  counters_ = reinterpret_cast<CounterCollection *>(&counters_file_);
-  isolate->SetCounterFunction(LookupCounter);
-  isolate->SetCreateHistogramFunction(CreateHistogram);
-  isolate->SetAddHistogramSampleFunction(AddHistogramSample);
-}
-
-Counter *V8Runtime::GetCounter(const char *name, bool is_histogram) {
-  auto map_entry = counter_map_->find(name);
-  Counter *counter = map_entry != counter_map_->end() ? map_entry->second : nullptr;
-
-  if (counter == nullptr) {
-    counter = counters_->GetNextCounter();
-    if (counter != nullptr) {
-      (*counter_map_)[name] = counter;
-      counter->Bind(name, is_histogram);
-    }
-  } else {
-    assert(counter->is_histogram() == is_histogram);
-  }
-  return counter;
-}
-
-int *V8Runtime::LookupCounter(const char *name) {
-  Counter *counter = GetCounter(name, false);
-
-  if (counter != nullptr) {
-    return counter->ptr();
-  } else {
-    return nullptr;
-  }
-}
-
-void *V8Runtime::CreateHistogram(const char *name, int min, int max, size_t buckets) {
-  return GetCounter(name, true);
-}
-
-void V8Runtime::AddHistogramSample(void *histogram, int sample) {
-  Counter *counter = reinterpret_cast<Counter *>(histogram);
-  counter->AddSample(sample);
 }
 
 // This class is used to record the JITed code position info for JIT
@@ -372,13 +269,6 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
     create_params_.constraints = constraints;
   }
 
-  counter_map_ = new CounterMap();
-  if (args_.flags.trackGCObjectStats) {
-    create_params_.counter_lookup_callback = LookupCounter;
-    create_params_.create_histogram_callback = CreateHistogram;
-    create_params_.add_histogram_sample_callback = AddHistogramSample;
-  }
-
   isolate_ = v8::Isolate::Allocate();
   if (isolate_ == nullptr)
     std::abort();
@@ -392,10 +282,6 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
 
   if (!args_.flags.ignoreUnhandledPromises) {
     isolate_->SetPromiseRejectCallback(PromiseRejectCallback);
-  }
-
-  if (args_.flags.trackGCObjectStats) {
-    MapCounters(isolate_, "v8jsi");
   }
 
   if (args_.flags.enableJitTracing) {
@@ -419,7 +305,6 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   isolate_->Enter();
 
   TRACEV8RUNTIME_VERBOSE("CreateNewIsolate", TraceLoggingString("end", "op"));
-  DumpCounters("isolate_created");
 
   return isolate_;
 }
@@ -454,9 +339,6 @@ void V8Runtime::initializeV8() {
     // We are only allowed to set the flags the first time V8 is being initialized
     std::vector<const char *> argv;
     argv.push_back("v8jsi");
-
-    if (args_.flags.trackGCObjectStats)
-      argv.push_back("--track_gc_object_stats");
 
     if (args_.flags.enableGCApi)
       argv.push_back("--expose_gc");
@@ -630,7 +512,6 @@ jsi::Value V8Runtime::evaluateJavaScript(
   jsi::Value result = createValue(ExecuteString(sourceV8String, sourceURL, hash));
 
   TRACEV8RUNTIME_VERBOSE("evaluateJavaScript", TraceLoggingString("end", "op"));
-  DumpCounters("script evaluated");
 
   return result;
 }
@@ -665,7 +546,6 @@ v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
   context->SetAlignedPointerInEmbedderData(1, this);
 
   TRACEV8RUNTIME_VERBOSE("CreateContext", TraceLoggingString("end", "op"));
-  DumpCounters("context_created");
 
   return context;
 }
@@ -1455,7 +1335,7 @@ V8Runtime::call(const jsi::Function &jsiFunc, const jsi::Value &jsThis, const js
   // calls from native. Evaluate !
   std::string functionName = getFunctionName(GetIsolate(), func);
 
-  static uint8_t callCookie = 0;
+  thread_local static uint8_t callCookie = 0;
   if (callCookie > 0) {
     TRACEV8RUNTIME_WARNING(
         "CallFunctionNested",
@@ -1482,7 +1362,6 @@ V8Runtime::call(const jsi::Function &jsiFunc, const jsi::Value &jsThis, const js
 
   TRACEV8RUNTIME_VERBOSE(
       "CallFunction", TraceLoggingString(functionName.c_str(), "name"), TraceLoggingString("end", "op"));
-  DumpCounters("call_completed");
 
   callCookie--;
 
@@ -1521,7 +1400,6 @@ jsi::Value V8Runtime::callAsConstructor(const jsi::Function &jsiFunc, const jsi:
 
   TRACEV8RUNTIME_VERBOSE(
       "CallConstructor", TraceLoggingString(functionName.c_str(), "name"), TraceLoggingString("end", "op"));
-  DumpCounters("callAsConstructor_completed");
 
   return createValue(newObject);
 }

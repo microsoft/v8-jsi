@@ -145,12 +145,6 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   // Tracks the number of contexts added to this Isolate/V8Inspector/Agent
   size_t inspected_contexts_count_{0};
 
-  // This map keeps weak references to Inspector Websocket servers running on a
-  // given port.
-  // This allows us to reuse Websocket servers across inspector agents.
-  static std::mutex g_mutex_server_init_;
-  static std::unordered_map<int, std::weak_ptr<inspector::InspectorSocketServer>> g_servers_;
-
   std::string title_;
   std::string loaded_urls_;
   std::string targetId_;
@@ -298,13 +292,17 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
 
 namespace {
 std::string GenerateID() {
+  static std::mutex mte_mutex;
   static std::random_device rd;
   static std::mt19937 mte(rd());
 
   std::uniform_int_distribution<uint16_t> dist;
 
   std::array<uint16_t, 8> buffer;
-  std::generate(buffer.begin(), buffer.end(), [&]() { return dist(mte); });
+  {
+    std::lock_guard<std::mutex> lock(mte_mutex);
+    std::generate(buffer.begin(), buffer.end(), [&]() { return dist(mte); });
+  }
 
   char uuid[256];
   snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
@@ -421,6 +419,7 @@ class ServerCollection {
   }
 
   void removeServer(int port) {
+    const std::lock_guard<std::mutex> lock(mutex_server_init_);
     servers_.erase(port);
   }
 
@@ -740,6 +739,7 @@ void Agent::addContext(v8::Local<v8::Context> context,
   impl->addContext(context, context_name);
 
   if (impl->getInspectedContextsCount() == 1) {
+    std::lock_guard<std::mutex> lock(agents_s_mutex_);
     agents_s_.insert(impl);
   }
 }
@@ -748,6 +748,7 @@ void Agent::removeContext(v8::Local<v8::Context> context) {
   impl->removeContext(context);
 
   if (impl->getInspectedContextsCount() == 0) {
+    std::lock_guard<std::mutex> lock(agents_s_mutex_);
     agents_s_.erase(impl);
   }
 }
@@ -764,11 +765,24 @@ void Agent::notifyLoadedUrl(const std::string& url) { impl->notifyLoadedUrl(url)
 
 std::shared_ptr<Agent> Agent::getShared() { return shared_from_this(); }
 
-/*static*/ std::unordered_set<std::shared_ptr<inspector::AgentImpl>>
-        Agent::agents_s_;
+/*static*/ std::mutex Agent::agents_s_mutex_;
+/*static*/ std::set<
+    std::weak_ptr<inspector::AgentImpl>,
+    std::owner_less<std::weak_ptr<inspector::AgentImpl>>>
+    Agent::agents_s_;
 
 /*static */void Agent::startAll() {
-  for (auto agent : agents_s_) {
+  std::vector<std::shared_ptr<AgentImpl>> snapshot;
+  {
+    std::lock_guard<std::mutex> lock(agents_s_mutex_);
+    snapshot.reserve(agents_s_.size());
+    for (auto& weak_agent : agents_s_) {
+      if (auto agent = weak_agent.lock()) {
+        snapshot.push_back(std::move(agent));
+      }
+    }
+  }
+  for (auto& agent : snapshot) {
     agent->Start();
   }
 }

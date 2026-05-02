@@ -62,6 +62,22 @@ config("test_module") {
     "..",
     "js-native-api",
   ]
+
+  # Hybrid CRT: keep the test-module DLLs in lockstep with v8jsi.dll —
+  # static C++ runtime + dynamic UCRT. See //jsi:hybrid_crt_swap.
+  if (is_win && current_os != "winuwp" && !is_component_build) {
+    if (is_debug) {
+      ldflags = [
+        "/NODEFAULTLIB:libucrtd.lib",
+        "/DEFAULTLIB:ucrtd.lib",
+      ]
+    } else {
+      ldflags = [
+        "/NODEFAULTLIB:libucrt.lib",
+        "/DEFAULTLIB:ucrt.lib",
+      ]
+    }
+  }
 }
 
 # Test modules
@@ -310,6 +326,7 @@ executable("node_lite") {
     "//:internal_config_base",
     "//build/config/compiler:exceptions",
     "//build/config/compiler:rtti",
+    "//jsi:hybrid_crt_swap",
   ]
   configs -= [
     "//build/config/compiler:no_exceptions",
@@ -390,6 +407,7 @@ executable("node_api_tests") {
     "//:internal_config_base",
     "//build/config/compiler:exceptions",
     "//build/config/compiler:rtti",
+    "//jsi:hybrid_crt_swap",
   ]
   configs -= [
     "//build/config/compiler:no_exceptions",

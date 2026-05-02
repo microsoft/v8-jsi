@@ -5,11 +5,6 @@ trigger: none
 pr: none
 
 variables:
-  - group: V8-Jsi Secrets
-  - name: ArtifactServices.Symbol.AccountName
-    value: microsoft
-  - name: ArtifactServices.Symbol.PAT
-    value: $(pat-symbols-publish-microsoft)
   - name: tags
     value: production,externalfacing
 
