@@ -157,8 +157,10 @@ if (!$FakeBuild) {
         }
 
         # Debugging extension
-        Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
-        Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        # Temporary excluded to address the Nuget package size issues 
+        # TODO: (vmoroz) Resume publishing v8windbg
+        # Copy-Item "$buildoutput\v8windbg.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
+        # Copy-Item "$buildoutput\v8windbg.dll.pdb" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform"
     } else {
         #TODO (#2): .so
     }
@@ -167,8 +169,8 @@ if (!$FakeBuild) {
     Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll"
     Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.lib"
     Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8jsi.dll.pdb"
-    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll"
-    Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll.pdb"
+    # Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll"
+    # Copy-Item "$env:windir\system32\kernel32.dll" -Destination "$OutputPath\lib\$AppPlatform\$Configuration\$Platform\v8windbg.dll.pdb"
 }
 
 if (!$FakeBuild) {
