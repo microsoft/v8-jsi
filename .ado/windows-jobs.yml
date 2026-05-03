@@ -56,9 +56,7 @@ extends:
       ${{ if eq(parameters.isPublish, false) }}:
         skipBuildTagsForGitHubPullRequests: true
     pool:
-      name: Azure-Pipelines-1ESPT-ExDShared
-      image: windows-latest
-      os: windows
+      name: fabric-internal-pool-large
     sdl:
       binskim:
         analyzeTarget: |
@@ -86,7 +84,7 @@ extends:
         - job: V8JsiBuild_${{ matrix.Name }}
           displayName: Build V8-JSI ${{ matrix.Name }}
 
-          timeoutInMinutes: 1800
+          timeoutInMinutes: 1200
 
           variables:
           - name: Packaging.EnableSBOMSigning
