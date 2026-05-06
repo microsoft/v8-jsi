@@ -139,7 +139,16 @@ target("shared_library", "v8jsi") {
     "//:v8_monolith",
   ]
 
-  defines = [ "BUILDING_V8JSI_SHARED" ]
+  defines = [
+    "BUILDING_V8JSI_SHARED",
+
+    # Pin JSI_VERSION explicitly so v8jsi.dll's jsi::Runtime vtable layout is
+    # deterministic and matches consumers that build against the same version.
+    # Without this, jsi.h falls through to its default and a mismatch with the
+    # consumer's JSI_VERSION causes virtual dispatch into the DLL to land on
+    # the wrong method (e.g. createPropNameIDFromAscii hitting cloneSymbol).
+    "JSI_VERSION=11",
+  ]
 
   if (is_win) {
     libs = [

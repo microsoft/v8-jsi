@@ -27,8 +27,11 @@
 #endif
 
 #ifndef JSI_VERSION
-// Use the latest version by default
-#define JSI_VERSION 12
+// Default JSI_VERSION. Consumers may override via <jsi/jsi-version.h> or by
+// defining JSI_VERSION on the compiler command line. Keep this in sync with
+// what v8jsi.dll itself is compiled against to avoid jsi::Runtime vtable
+// layout mismatches across module boundaries.
+#define JSI_VERSION 11
 #endif
 
 #if JSI_VERSION >= 3
