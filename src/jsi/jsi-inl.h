@@ -121,6 +121,12 @@ inline Value Object::getProperty(Runtime& runtime, const PropNameID& name)
   return runtime.getProperty(*this, name);
 }
 
+#if JSI_VERSION >= 21
+inline Value Object::getProperty(Runtime& runtime, const Value& name) const {
+  return runtime.getProperty(*this, name);
+}
+#endif
+
 inline bool Object::hasProperty(Runtime& runtime, const char* name) const {
   return hasProperty(runtime, String::createFromAscii(runtime, name));
 }
@@ -133,6 +139,12 @@ inline bool Object::hasProperty(Runtime& runtime, const PropNameID& name)
     const {
   return runtime.hasProperty(*this, name);
 }
+
+#if JSI_VERSION >= 21
+inline bool Object::hasProperty(Runtime& runtime, const Value& name) const {
+  return runtime.hasProperty(*this, name);
+}
+#endif
 
 template <typename T>
 void Object::setProperty(Runtime& runtime, const char* name, T&& value)
@@ -154,6 +166,31 @@ void Object::setProperty(Runtime& runtime, const PropNameID& name, T&& value)
   setPropertyValue(
       runtime, name, detail::toValue(runtime, std::forward<T>(value)));
 }
+
+#if JSI_VERSION >= 21
+template <typename T>
+void Object::setProperty(Runtime& runtime, const Value& name, T&& value) const {
+  setPropertyValue(
+      runtime, name, detail::toValue(runtime, std::forward<T>(value)));
+}
+
+inline void Object::deleteProperty(Runtime& runtime, const char* name) const {
+  deleteProperty(runtime, String::createFromAscii(runtime, name));
+}
+
+inline void Object::deleteProperty(Runtime& runtime, const String& name) const {
+  runtime.deleteProperty(*this, name);
+}
+
+inline void Object::deleteProperty(Runtime& runtime, const PropNameID& name)
+    const {
+  runtime.deleteProperty(*this, name);
+}
+
+inline void Object::deleteProperty(Runtime& runtime, const Value& name) const {
+  runtime.deleteProperty(*this, name);
+}
+#endif
 
 inline Array Object::getArray(Runtime& runtime) const& {
   assert(runtime.isArray(*this));

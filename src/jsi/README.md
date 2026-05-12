@@ -11,6 +11,9 @@ https://github.com/facebook/hermes repo.
 
 | Version | Commit Hash                                | Commit Description
 |--------:|:-------------------------------------------|------------------------------------------------------
+|      21 | `606a4249fea27b072118c791431e799287cacf7c` | Move dumpOpcodeStats() to jsi::Instrumentation, remove IHermesExtra
+|         | `195afcf8232db8df27f5b2a09c420a6962068c7c` | Add deleteProperty API 
+|         | `7f716de439a5ae83eedc137c6e4f2a1d43a576eb` | Add Value override for has/get/setProperty
 |      20 | `3eeb01121b52dbe6f9fd67c623a87e08ae9d5197` | Add UUID struct to JSI
 |         | `8d1641f1918ed97b2f69e02ec9f420aa70701331` | Add JSI castInterface API  
 |         | `34b807b919c5dacafdf23cd8f855d8f78acf810f` | Adds setRuntimeData and getRuntimeData JSI APIs
