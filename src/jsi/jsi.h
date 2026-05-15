@@ -57,7 +57,7 @@
 #define JSI_EXPORT
 #endif // CREATE_SHARED_LIBRARY
 #else // _MSC_VER
-#define JSI_EXPORT __attribute__((visibility("default")))
+#define JSI_EXPORT __attribute__((visibility("default"), type_visibility("default")))
 #endif // _MSC_VER
 #endif // !defined(JSI_EXPORT)
 

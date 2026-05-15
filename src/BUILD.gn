@@ -124,9 +124,13 @@ target("shared_library", "v8jsi") {
     "//:toolchain",
     "//:internal_config_base",
     "//build/config/compiler:exceptions",
+    "//build/config/compiler:rtti",
     ":hybrid_crt_swap",
   ]
-  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs -= [
+    "//build/config/compiler:no_exceptions",
+    "//build/config/compiler:no_rtti",
+  ]
 
   if (is_win) {
     configs -= [ "//build/config/compiler:cet_shadow_stack" ]
