@@ -59,7 +59,7 @@ private:
   void do_accept();
 
 private:
-  asio::io_service io_service_;
+  asio::io_context io_context_;
   asio::ip::tcp::acceptor acceptor_;
   asio::ip::tcp::socket socket_;
 

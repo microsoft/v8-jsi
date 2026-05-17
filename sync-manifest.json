@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "aiMerge": {
+    "provider": "claude",
+    "model": "haiku"
+  },
+  "dependencies": [
+    {
+      "name": "nodejs",
+      "localPath": "deps/nodejs"
+    },
+    {
+      "name": "asio",
+      "localPath": "deps/asio"
+    }
+  ]
+}
