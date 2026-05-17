@@ -162,3 +162,16 @@
 /.gitpod.yml
 /android-configure
 /android_configure.py
+
+# ── Files flagged by Microsoft Secure Supply Chain Analysis ─────────
+# None of these are read by our build; dropping them clears the SSCA
+# findings without touching any consumed Node.js content.
+#
+# /.npmrc            — Node.js core dev tooling (ignore-scripts=true);
+#                      we don't run npm inside deps/nodejs/.
+# /tools/msvs/msi/   — Node.js MSI installer build; we don't pack it.
+# /deps/openssl/config/Dockerfile — used by upstream OpenSSL maintainers
+#                      to regenerate config; never executed by our build.
+/.npmrc
+/tools/msvs/msi/
+/deps/openssl/config/Dockerfile
