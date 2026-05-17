@@ -1,0 +1,54 @@
+# Sync exclusions for asio.
+#
+# v8-jsi consumes asio as a header-only library via `#include <asio.hpp>` from
+# the inspector code. We keep only headers reachable from <asio.hpp> in the
+# default v8-jsi configuration; anything tied to features we don't enable
+# (SSL, experimental, TS variants, stackful coroutines, Boost.Date_Time timers)
+# is excluded so we don't drag it into the fork.
+
+# Local-only metadata (not present in upstream)
+/sync-config.json
+/.syncignore
+
+# Upstream repo metadata, CI, build system, packaging — not used by v8-jsi
+/.github/
+/.appveyor.yml
+/.cirrus.yml
+/.gitignore
+/Makefile.am
+/configure.ac
+/autogen.sh
+/boostify.pl
+/tsify.pl
+/release.pl
+/asio.manifest
+/boost_asio.manifest
+/asio.pc.in
+/INSTALL
+/README
+
+# Upstream's /asio/ subdirectory is a Boost-layout symlink stub
+# (asio/include -> ../include, asio/src -> ../src). Standalone build doesn't need it.
+/asio/
+
+# /src/ holds documentation, tests, examples, tools, and the .cpp files used
+# only for non-header-only (ASIO_SEPARATE_COMPILATION) builds.
+/src/
+
+# Features we never include from <asio.hpp>
+/include/asio/ssl.hpp
+/include/asio/ssl/
+/include/asio/experimental/
+/include/asio/ts/
+/include/asio/spawn.hpp
+/include/asio/impl/spawn.hpp
+/include/asio/impl/src.hpp
+
+# Boost.Date_Time-based timers — we use chrono-based asio::steady_timer family
+/include/asio/basic_deadline_timer.hpp
+/include/asio/deadline_timer.hpp
+/include/asio/time_traits.hpp
+
+# Stackful-coroutine pseudo-keyword macros — pair with asio::spawn, unused here
+/include/asio/yield.hpp
+/include/asio/unyield.hpp

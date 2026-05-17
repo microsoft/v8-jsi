@@ -10,7 +10,7 @@
 namespace inspector {
 
 tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
-  : io_service_(), acceptor_(io_service_), socket_(io_service_), connectioncallback_(callback), callbackData_(data)
+  : io_context_(), acceptor_(io_context_), socket_(io_context_), connectioncallback_(callback), callbackData_(data)
 {
   asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
   acceptor_.open(endpoint.protocol());
@@ -22,10 +22,10 @@ tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
 
 void tcp_server::run() {
   try {
-    io_service_.run();
+    io_context_.run();
   } catch (std::exception const& e) {
     TRACEV8INSPECTOR_ERROR(
-        "io_service_.run",
+        "io_context_.run",
         TraceLoggingString(
             e.what(), "message"));
   }
@@ -35,7 +35,7 @@ void tcp_server::stop() {
   asio::error_code ec;
   acceptor_.close(ec);
   socket_.close(ec);
-  io_service_.stop();
+  io_context_.stop();
 }
 
 void tcp_server::do_accept()

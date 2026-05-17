@@ -1,0 +1,177 @@
+# Sync exclusions for the nodejs dependency.
+#
+# Strategy: Part A (landed 2026-05-15) narrowed vcbuild.bat so the
+# narrow build skips node.exe / libnode / cctest / embedtest /
+# openssl-cli / fuzz_* / nop / overlapped-checker. Part B (this
+# file) drops on-disk content those targets needed but the v8jsi
+# closure does not — non-Windows OpenSSL arches, V8 test corpus,
+# Node.js JS test corpus, doc/, pure-JS deps, etc.
+#
+# Phase 2 (libnode.dll) may need to un-prune some of these:
+# - ICU if libnode ships with Intl (Phase 3 plan).
+# - Other libnode-graph deps stay pruned because libnode.dll
+#   doesn't need their tests / docs / openssl-cli / fuzz corpora.
+#
+# See design-part-b.md for the rationale and per-line evidence.
+
+# ── CI/CD configurations (already excluded; kept for visibility) ────
+.configurations/
+.devcontainer/
+.github/
+
+# ── Documentation & benchmark trees (no build-step consumer) ────────
+/doc/
+/benchmark/
+/typings/
+/android-patches/
+
+# ── JS test corpus — Node.js test runner, not msbuild ───────────────
+# Post-Part-A the cctest / embedtest / fuzzers / nop / overlapped-
+# checker C++ targets are also skipped. Keeping the 5 subdirs anyway
+# because (a) they're < 1 MB combined and (b) configure.py:1553-1554
+# calls SearchFiles('test/cctest', ...) unconditionally — keeping
+# the dir avoids any risk of configure breakage.
+/test/*
+!/test/cctest/
+!/test/cctest/**
+!/test/fuzzers/
+!/test/fuzzers/**
+!/test/embedding/
+!/test/embedding/**
+!/test/overlapped-checker/
+!/test/overlapped-checker/**
+!/test/nop/
+!/test/nop/**
+
+# ── Pure-JS package-manager assets — never compiled by msbuild ─────
+/deps/npm/
+/deps/corepack/
+
+# ── tools/ — drop non-build subtrees ────────────────────────────────
+/tools/doc/
+/tools/lint-md/
+/tools/eslint/
+/tools/eslint-rules/
+/tools/dep_updaters/
+/tools/actions/
+/tools/clang-format/
+/tools/macos-installer/
+/tools/pip/
+/tools/zos/
+
+# ── deps/openssl/config/archs/ — keep only Windows MSVC + .gypi stubs ─
+# Empirical finding (Part B stage 2): GYP resolves conditional include
+# paths in openssl_{,no_,_avx2}asm.gypi at parse time regardless of
+# target_arch/OS guards, so every arch's <variant>/openssl{,-cl,-fips}.gypi
+# must exist on disk for gyp configure to succeed. The .gypi files are
+# tiny (~0.21 MB per arch); the 9-17 MB bulk is the asm / crypto /
+# include / providers / engines / apps source trees, none of which the
+# Part-A narrow build compiles for non-Windows arches.
+#
+# Pattern uses last-match-wins ordering: drop the variant content
+# universally, re-include .gypi files at variant level, then re-include
+# Windows arches in full at the end so they trump the universal drop.
+/deps/openssl/config/archs/*
+!/deps/openssl/config/archs/*/
+!/deps/openssl/config/archs/*/asm/
+!/deps/openssl/config/archs/*/asm_avx2/
+!/deps/openssl/config/archs/*/no-asm/
+/deps/openssl/config/archs/*/asm/**
+/deps/openssl/config/archs/*/asm_avx2/**
+/deps/openssl/config/archs/*/no-asm/**
+!/deps/openssl/config/archs/*/asm/*.gypi
+!/deps/openssl/config/archs/*/asm_avx2/*.gypi
+!/deps/openssl/config/archs/*/no-asm/*.gypi
+# Windows arches kept fully (x86 / x64 / arm64 build compiles them).
+!/deps/openssl/config/archs/VC-WIN32/
+!/deps/openssl/config/archs/VC-WIN32/**
+!/deps/openssl/config/archs/VC-WIN64A/
+!/deps/openssl/config/archs/VC-WIN64A/**
+!/deps/openssl/config/archs/VC-WIN64-ARM/
+!/deps/openssl/config/archs/VC-WIN64-ARM/**
+
+# ── deps/openssl/openssl/ internals — drop test/doc/cli source ─────
+# These are referenced only by the openssl-cli and fuzz_* targets
+# which Part A excludes from the build.
+/deps/openssl/openssl/apps/
+/deps/openssl/openssl/fuzz/
+/deps/openssl/openssl/doc/
+/deps/openssl/openssl/external/
+/deps/openssl/openssl/tools/
+/deps/openssl/openssl/VMS/
+/deps/openssl/openssl/os-dep/
+
+# ── deps/v8/test/ — V8's own test corpus, not built ────────────────
+# Exception: test/torque/test-torque.tq is referenced as an input to
+# the run_torque codegen step (V8 ships its torque smoke test as part
+# of the codegen input set). Keep that one file; drop everything else.
+/deps/v8/test/*
+!/deps/v8/test/torque/
+!/deps/v8/test/torque/test-torque.tq
+/deps/v8/samples/
+/deps/v8/docs/
+
+# ── deps/v8/third_party/ — drop POSIX-only / unreferenced sub-libs ─
+/deps/v8/third_party/valgrind/
+/deps/v8/third_party/ittapi/
+/deps/v8/third_party/vtune/
+/deps/v8/third_party/glibc/
+/deps/v8/third_party/colorama/
+
+# ── ICU (we ship --without-intl; reversible if Intl returns) ───────
+/deps/icu-small/
+/deps/icu-tmp/
+
+# ── deps/uv/ internals — drop POSIX impl, tests, docs, img ─────────
+/deps/uv/test/
+/deps/uv/docs/
+/deps/uv/img/
+/deps/uv/src/unix/
+
+# ── deps/cares/ — drop docs & autoconf macros ──────────────────────
+/deps/cares/docs/
+/deps/cares/m4/
+
+# ── Unused deps with no .gyp targets (verified by grep of *.gyp*) ──
+# LIEF: single-executable-app packaging tool. No .gyp reference
+#   anywhere in deps/nodejs/; no reference from v8-jsi.
+# amaro / undici / acorn / minimatch: pure-JS bundles referenced
+#   only from node.gyp's deps_files list (lines 64-66) and
+#   config.gypi (lines 489-490) — consumed by node_js2c, which
+#   doesn't run in the post-Part-A narrow build.
+# NOTE: deps/merve/ stays — it has merve.gyp which node.gypi:230
+#   references as a libnode dep. Pruning it would break gyp configure
+#   even though merve never compiles in narrow mode.
+/deps/LIEF/
+/deps/amaro/
+/deps/undici/
+/deps/acorn/
+/deps/minimatch/
+
+# ── Top-level loose files unused by build ───────────────────────────
+/CHANGELOG.md
+/BUILDING.md
+/CODE_OF_CONDUCT.md
+/CONTRIBUTING.md
+/GOVERNANCE.md
+/SECURITY.md
+/README.md
+/glossary.md
+/onboarding.md
+/codecov.yml
+/.gitpod.yml
+/android-configure
+/android_configure.py
+
+# ── Files flagged by Microsoft Secure Supply Chain Analysis ─────────
+# None of these are read by our build; dropping them clears the SSCA
+# findings without touching any consumed Node.js content.
+#
+# /.npmrc            — Node.js core dev tooling (ignore-scripts=true);
+#                      we don't run npm inside deps/nodejs/.
+# /tools/msvs/msi/   — Node.js MSI installer build; we don't pack it.
+# /deps/openssl/config/Dockerfile — used by upstream OpenSSL maintainers
+#                      to regenerate config; never executed by our build.
+/.npmrc
+/tools/msvs/msi/
+/deps/openssl/config/Dockerfile

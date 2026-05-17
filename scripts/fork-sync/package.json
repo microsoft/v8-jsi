@@ -1,0 +1,9 @@
+{
+  "name": "v8jsi-fork-sync",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@rnx-kit/fork-sync": "^0.4.1"
+  }
+}

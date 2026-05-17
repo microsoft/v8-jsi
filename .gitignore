@@ -7,3 +7,13 @@ src/source_link_gen.json
 # outputs
 out
 *.nupkg
+
+# Claude Code - ignore local settings, keep hooks and shared settings
+/.claude/*
+!/.claude/hooks/
+!/.claude/settings.json
+
+# fork-sync work folders
+.sync/
+.logs/
+node_modules/

@@ -6,8 +6,6 @@ param(
     [switch]$NoADO
 )
 
-$ASIO_VERSION = "1-22-1"
-
 $workpath = Join-Path $SourcesPath "build"
 
 if (!(Test-Path -Path $workpath)) {
@@ -33,13 +31,6 @@ if (! $NoSetup) {
         git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
         Pop-Location
     }
-
-    # Download dependencies (ASIO used by Inspector implementation)
-    $asioUrl ="https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-$ASIO_VERSION.zip"
-    $asioDownload = Join-Path $workpath $(Split-Path -Path $asioUrl -Leaf)
-
-    Invoke-WebRequest -Uri $asioUrl -OutFile $asioDownload
-    $asioDownload | Expand-Archive -DestinationPath $workpath -Force
 }
 
 Write-Host "Modifying PATH..."
@@ -57,7 +48,7 @@ else {
 $env:PATH = $path
 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = 0
 $env:GCLIENT_PY3 = 1
-$env:ASIO_ROOT = Join-Path $workpath "asio-asio-$ASIO_VERSION\asio\include"
+$env:ASIO_ROOT = Join-Path $SourcesPath "deps\asio\include"
 
 if (! $NoADO) {
     Write-Host "##vso[task.setvariable variable=PATH;]$path"
