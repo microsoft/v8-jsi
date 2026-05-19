@@ -1,0 +1,376 @@
+{
+  "properties": {
+    "helpUri": "https://eng.ms/docs/microsoft-security/security/azure-security/cloudai-security-fundamentals-engineering/security-integration/guardian-wiki/microsoft-guardian/general/baselines"
+  },
+  "version": "1.0.0",
+  "baselines": {
+    "guardian-baseline": {
+      "name": "guardian-baseline",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "lastUpdatedDate": "2026-05-17 21:46:40Z"
+    }
+  },
+  "results": {
+    "22784013759c64cd05074c67956c148c3492f24909c762b65dab67e0e3a31baa": {
+      "signature": "22784013759c64cd05074c67956c148c3492f24909c762b65dab67e0e3a31baa",
+      "alternativeSignatures": [
+        "6ebf5701df7a73a46d238bcca23bc9c9f58a1b35d7d599e4c92a52087ed2fd01",
+        "ba5db20a489069a029987ce1726b019ffc14c4384450eee872c77822a1d2bb0c",
+        "806980ce5cf8709e4d63614bdb903f52bd03a57e71c0fd764e4dedc0596e4ae4"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/bccache.py",
+      "line": 168,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "fe00e3e31d0143f98036bd1fc992ef9c1f9a3b04762c8124dc7bf20d88772de2": {
+      "signature": "fe00e3e31d0143f98036bd1fc992ef9c1f9a3b04762c8124dc7bf20d88772de2",
+      "alternativeSignatures": [
+        "21e993baf5a26c17ed8f4a1b204891bcb276fd939474a5a450de4940db92ebe9",
+        "2b2b8c40261eaf51a0f58fa04ca9b42cd8f28b94afc4c6eda63f7f9e416f8d27",
+        "ed7818063bbbb9a3e6b57a74483caae53c7abe345907861f09fac65c0f3f86fd"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/bccache.py",
+      "line": 178,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "5607658043b638b7e1291b6e33c714ac032bf2d7cd33148b1a9f4140bff497cc": {
+      "signature": "5607658043b638b7e1291b6e33c714ac032bf2d7cd33148b1a9f4140bff497cc",
+      "alternativeSignatures": [
+        "7bf9c9e169e8fbce9f32f3a0358a75537768460f76cc549cfdc3fed7ffbc533c",
+        "9dfd38e8731cfe7ed0bda0618e4cac1a4e582e4b42fc5636e8ae295277fe69ba",
+        "2c9ed5407952bb64ce3fc71f03f38cf65cc57ee498877177b9b91024213d4bc6"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/compiler.py",
+      "line": 49,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "fcdb6e0c63d2a4a275302ef4a7a7b08ab8a6afcce49506479de5f549d5b523e9": {
+      "signature": "fcdb6e0c63d2a4a275302ef4a7a7b08ab8a6afcce49506479de5f549d5b523e9",
+      "alternativeSignatures": [
+        "25571560b7215c6835dbc1e2c7c317816d06af2aa984121100c6d651d2c480ff",
+        "b316acf673f24dcb2e377bdb88e96db9b22c95730abe8f4cd699f9d5d093638c",
+        "9864f8028e9b2fdf1fcc822e88c1a2ec171af1a6010721b8ed9139203be2a598"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/compiler.py",
+      "line": 56,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "4b40486b262fe2bb736960951a6199047775fd3cdffd5dca3a9523c2607d0145": {
+      "signature": "4b40486b262fe2bb736960951a6199047775fd3cdffd5dca3a9523c2607d0145",
+      "alternativeSignatures": [
+        "6f19f74581ff558d4715972c4801edc1bc1d755514583dd4a9e8faa802237241",
+        "0c54784e47f778b4ca39b40a6bb61c8078d51894b1598aee8c9d65ddbe3878cb",
+        "8bd41529912bb7b41940fb60dc1561744f9ea3bfce865e9a92ffda57fb5843de"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/debug.py",
+      "line": 29,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "225a02795b088130e1b2072e04ab55baf6176e4a4551edfba909028a90c96904": {
+      "signature": "225a02795b088130e1b2072e04ab55baf6176e4a4551edfba909028a90c96904",
+      "alternativeSignatures": [
+        "b3d05bdbb9bc705ed86bf9b0eca98b788aed61554d819368fd885d8af7d54ee5",
+        "ba83d76273b0b8e745dec98aec426cc557a88647b3029ba81b51780a64773533",
+        "0f635aca133b34f36d9a7213f912e8fd73266194c8bbb89d6c8b141186822121"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/debug.py",
+      "line": 289,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "86ef3b2a1bb4fc2c91bc6d41ed8b79f5e8ecfe41934e1e6af58944edfd4039ee": {
+      "signature": "86ef3b2a1bb4fc2c91bc6d41ed8b79f5e8ecfe41934e1e6af58944edfd4039ee",
+      "alternativeSignatures": [
+        "555c7d02f9489b00b3855591eb3c814f718993efd6d60422fdb9b9352ea769dc",
+        "696e8c53ec75843254723103af26add7c267b0aa46c9f1eee5138ab7bbd89ff6",
+        "bfc5273a8fda9f5c5b69ba62f448c7d843345bfacecd9a4648986cd2b52ccf71"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/environment.py",
+      "line": 956,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "5de5bf2eac81622efe2881f9db8e9cae032b677262ae64f87e11014970e405eb": {
+      "signature": "5de5bf2eac81622efe2881f9db8e9cae032b677262ae64f87e11014970e405eb",
+      "alternativeSignatures": [
+        "65a31d6b4d341be66b69b225778a979b02e766ec351b47954114bf48e34751fa",
+        "9ebef5bb62afb11d52a4db0ae1f4162d9aa05c7bc64a44d383717c41f3aec776",
+        "c377d4bfab01cccf6d28de213ceea10395c191c9001554569fecbf31e242b7eb"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/loaders.py",
+      "line": 459,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "a31ae201c65f4a3ef016050c2e9f456c6b5d2d5ed7a54d45ad6ff747c9995def": {
+      "signature": "a31ae201c65f4a3ef016050c2e9f456c6b5d2d5ed7a54d45ad6ff747c9995def",
+      "alternativeSignatures": [
+        "d9798d993331a1881c2a57ec81ef377dfa8188bf9f616cebd8254d36dccb027f",
+        "5b3ccaaf69194d0375aa099428c82545035bbea3d358bae0ac108224f5155fef",
+        "6506de1030683293d0c971528dd54230a7ca5e70b82b3be823a6b537fd19123d"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/utils.py",
+      "line": 640,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "3e585752674e8c10ed599582937f890fe6db3f85bd7c1aa0a34506cd7f282657": {
+      "signature": "3e585752674e8c10ed599582937f890fe6db3f85bd7c1aa0a34506cd7f282657",
+      "alternativeSignatures": [
+        "b213454c9ffe7e9d87f0a66cc81f5e4e44b5e63d36573d00e9407426984f218a",
+        "64d009038523f621656123294ce468cb9d438f9ba5368081f02117af483462f1",
+        "47a513c85877de19b3152fff27ceb89cef8619df527da9a7bb497b741313a0f4"
+      ],
+      "target": "deps/nodejs/tools/inspector_protocol/jinja2/_compat.py",
+      "line": 64,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "4b3b06912fc5a2766c85d0c792da650a8eb3de6aacb7552d1212a94fd0d8f45c": {
+      "signature": "4b3b06912fc5a2766c85d0c792da650a8eb3de6aacb7552d1212a94fd0d8f45c",
+      "alternativeSignatures": [
+        "7836313eec69291da846360fce18fb18ae425f9428f0a0b40e7a4ecc919ef068",
+        "785b059b3867438a176808576e965c978dd67dbc6f68f9249d4914dadc608029",
+        "ed26d1ee2b7c590dcffae92240e4852531a51b1b3a55b56db47f3b4c440c0b01"
+      ],
+      "target": "deps/nodejs/deps/v8/third_party/jinja2/bccache.py",
+      "line": 154,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "b3318fc513ddbbd7c4ba451321ffaf10e5b0f35c6f010e03ca578076a1fa9a67": {
+      "signature": "b3318fc513ddbbd7c4ba451321ffaf10e5b0f35c6f010e03ca578076a1fa9a67",
+      "alternativeSignatures": [
+        "0cb3b17adde32f5d8f716a12b77fba48c450e1dbc727557d70d4ab74932f9681",
+        "7ff28aeca49237ed9c9a5bcb6cc807ecb21309b8d943081333493dca260a440e",
+        "6acb9705f87c9132d860bbc3b7bd532934c55b4b8bde28337ada038b0dde79b8"
+      ],
+      "target": "deps/nodejs/deps/v8/third_party/jinja2/bccache.py",
+      "line": 163,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "40633a04c8a4a6c003599b0ccd66fc6664bf815473474665d8a0d72fa5678fef": {
+      "signature": "40633a04c8a4a6c003599b0ccd66fc6664bf815473474665d8a0d72fa5678fef",
+      "alternativeSignatures": [
+        "45c73263fb45490cbb444008e1583213ad75fe5913dcf4e1d41607e8fd6fcb16",
+        "cdc94d067f147f5be7b2a51f40cb56252a6b4e34368f21c2d4def7fd9d6734be",
+        "aeb42b9a634bbd3f4a345fa13f8a660083a3c4cec3a9fa739ca1c6a33bc11410"
+      ],
+      "target": "deps/nodejs/deps/v8/third_party/jinja2/debug.py",
+      "line": 145,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "43fd113641dd6efbecde7d5a4eb29cf4418cbe505113238ac59222a219bd95e3": {
+      "signature": "43fd113641dd6efbecde7d5a4eb29cf4418cbe505113238ac59222a219bd95e3",
+      "alternativeSignatures": [
+        "cb5a25b8a66ea06e1e46460a3ad88bcc5b3b3e47cb67ce676e103bf9dd2e978d",
+        "199ec04ce5106f3e2f46f5af9eb212ba1a25e4d0774fcadda2724c5fcdfdf3e9",
+        "bce7e314c0b160021ca9c170521eb90b859a19d8409ec1c2d9e1664738bf53d7"
+      ],
+      "target": "deps/nodejs/deps/v8/third_party/jinja2/environment.py",
+      "line": 1228,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "49073b0925e464b1665751de093cfa7d1925ce8c69dd20f2cc1b535d81d68469": {
+      "signature": "49073b0925e464b1665751de093cfa7d1925ce8c69dd20f2cc1b535d81d68469",
+      "alternativeSignatures": [
+        "870dcb0d30f8ec8fb6774fdf4b623b12dc2b5dd550c78725cf957e7f7f41b5b7",
+        "b0e327502d891e1e1f1bc177414b7c886284398687adbd557bd5ca39ec978dce",
+        "6f862affe350735eedabe190a3c3f1c319b656e78fa5c63d5183e3c19b59e5e5"
+      ],
+      "target": "deps/nodejs/deps/v8/third_party/jinja2/loaders.py",
+      "line": 629,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "90bf8e6b3ed01647bb5a1197b23ccff6b381e44dc315c1fed48181f6e4d9a250": {
+      "signature": "90bf8e6b3ed01647bb5a1197b23ccff6b381e44dc315c1fed48181f6e4d9a250",
+      "alternativeSignatures": [
+        "e89cd34bba28456ebed387d17d1d64c2a30d8c02dc604ae8b7acbf4788403fca",
+        "77673b657720337155a00fda293e3746b0759c65c1bc0914d03eba84015fd3a6",
+        "0f6435cd4e67af20468b3f00fcd84866512f93b36c27acb9a6f3f2848c84989d"
+      ],
+      "target": "deps/nodejs/deps/v8/tools/dev/gm.py",
+      "line": 186,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "34be8af6f8b01f267ddce60e28d1f0c44bf10c9d945a6592d11cc5abeeb6eff9": {
+      "signature": "34be8af6f8b01f267ddce60e28d1f0c44bf10c9d945a6592d11cc5abeeb6eff9",
+      "alternativeSignatures": [
+        "30c3d78d9214131f23456d89bebe26d38676cc838700a0afefe017b98e9eed5c",
+        "01d87361ddc8b0acc6fc1acb8220c6587c5e4fbef85844ca124ec42679e2c2fc",
+        "18a2640fd358b9b1b7238af96d630b3f39eabdfb984a47ea7a10b37e3713f4d1"
+      ],
+      "target": "deps/nodejs/deps/v8/tools/dev/setup-reclient.py",
+      "line": 100,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B102",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "3362b86c50a97d3845051bc5ed175e2b01279f6ce473350b85797a08ce4c4008": {
+      "signature": "3362b86c50a97d3845051bc5ed175e2b01279f6ce473350b85797a08ce4c4008",
+      "alternativeSignatures": [
+        "9e0bfee6af6ca0425e7f1fc0b41378362dc82460a2bfa0199f010001f1d16f82",
+        "60a16ec99d4e1abdaf03ce613052744f864124f30149f1bfcde5a54d66bd188c",
+        "8dae6aab7ad6d3f1f66caf6b78893e0a5960cdd32659bbc6a8b175169a296b93"
+      ],
+      "target": "deps/nodejs/deps/v8/tools/snapshot/compare_mksnapshot_output.py",
+      "line": 36,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    },
+    "7cc1745f1e94cf6c159b0869adb57066d454549c367c556e7499c7aa290265fd": {
+      "signature": "7cc1745f1e94cf6c159b0869adb57066d454549c367c556e7499c7aa290265fd",
+      "alternativeSignatures": [
+        "ec1a9854b026407d3a171a6ca1d107919d9e9ebdfd1c7df7d45fa2c6e2cebd40",
+        "c131f5829fdb5db2bad35ad7daddcf413327541acc482d382681e65112bb512d",
+        "aec69b15570b7c01237eaab097a8194147e8bf449be41b1841027dbe6329bc52"
+      ],
+      "target": "deps/nodejs/deps/v8/tools/clusterfuzz/foozzie/v8_foozzie.py",
+      "line": 454,
+      "uriBaseId": "file:///D:/a/_work/1/s/",
+      "memberOf": [
+        "guardian-baseline"
+      ],
+      "tool": "bandit",
+      "ruleId": "B303",
+      "createdDate": "2026-05-17 21:46:40Z",
+      "expirationDate": "2026-11-04 05:22:23Z",
+      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+    }
+  }
+}
