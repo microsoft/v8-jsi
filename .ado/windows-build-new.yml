@@ -19,6 +19,20 @@ parameters:
 
 steps:
 - ${{ if eq(parameters.fakeBuild, false) }}:
+  # OpenSSL (built from the Node.js tree) assembles its crypto with NASM on
+  # x86/x64. Provision NASM and prepend it to PATH for the build step. Not needed
+  # on arm64, where the OpenSSL asm path is skipped.
+  - task: PowerShell@2
+    displayName: Download NASM 2.16.03
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip -OutFile nasm-2.16.03-win64.zip
+        Expand-Archive nasm-2.16.03-win64.zip -DestinationPath nasm -Force
+
   - task: PowerShell@2
     displayName: Build v8jsi.dll via scripts/build.ts
     inputs:
@@ -30,6 +44,8 @@ steps:
             --platform ${{parameters.buildPlatform}} `
             --configuration ${{parameters.buildConfiguration}}
         if ($LASTEXITCODE -ne 0) { throw "scripts/build.ts failed (exit $LASTEXITCODE)" }
+    env:
+      path: $(Build.SourcesDirectory)\nasm\nasm-2.16.03;$(path)
 
   - task: PowerShell@2
     displayName: Run v8jsi_test.exe
