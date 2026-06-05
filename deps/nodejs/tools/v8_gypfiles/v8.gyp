@@ -1999,6 +1999,11 @@
                   }],
                 ],
               }],
+              ['_toolset == "host" and host_arch == "ia32" or _toolset == "target" and target_arch=="ia32"', {
+                'sources': [
+                  '<(V8_ROOT)/src/heap/base/asm/ia32/push_registers_asm.cc',
+                ],
+              }],
             ],
           }, { # 'OS!="win"'
             'conditions': [

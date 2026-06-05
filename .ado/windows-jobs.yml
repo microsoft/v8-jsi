@@ -155,6 +155,44 @@ extends:
                     }
                   ]
 
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - job: V8JsiBuildNew_${{ matrix.Name }}
+          displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
+
+          timeoutInMinutes: 1200
+
+          variables:
+          - name: Packaging.EnableSBOMSigning
+            value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+
+          templateContext:
+            outputs:
+            - output: pipelineArtifact
+              artifactName: ${{ matrix.Name }}-new
+              targetPath: $(Build.StagingDirectory)\out-new
+
+          steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python 3.x
+            inputs:
+              versionSpec: '3.x'
+              addToPath: true
+              architecture: 'x64'
+
+          - task: NodeTool@0
+            displayName: Use Node.js 24.x
+            inputs:
+              versionSpec: '24.x'
+
+          - template: /.ado/windows-build-new.yml@self
+            parameters:
+              outputPath: $(Build.StagingDirectory)\out-new
+              appPlatform: ${{ matrix.AppPlatform }}
+              buildConfiguration: ${{ matrix.BuildConfiguration }}
+              buildPlatform: ${{ matrix.BuildPlatform }}
+              isPublish: ${{ parameters.isPublish }}
+              fakeBuild: ${{ parameters.fakeBuild }}
+
       - job: V8JsiCreateNuget
         dependsOn:
         - ${{ each matrix in parameters.BuildMatrix }}:

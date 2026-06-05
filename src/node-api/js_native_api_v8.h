@@ -2,7 +2,14 @@
 #define SRC_JS_NATIVE_API_V8_H_
 
 #include "js_native_api_types.h"
+
+#ifdef JSI_ABI_BUILDING
+// New v8jsi.dll build (no legacy V8Runtime class). PR 3 collapses the fork by
+// deleting js_native_api_v8_internals.h and renaming the _abi.h file in.
+#include "js_native_api_v8_internals_abi.h"
+#else
 #include "js_native_api_v8_internals.h"
+#endif
 
 inline napi_status napi_clear_last_error(node_api_nogc_env env);
 

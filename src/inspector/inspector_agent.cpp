@@ -23,7 +23,7 @@
 
 #include "V8Windows.h"
 
-#include "../IsolateData.h"
+#include "../v8_core.h"
 
 namespace inspector {
 
@@ -160,7 +160,7 @@ void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
 }
 
-class DispatchOnInspectorBackendTask : public v8runtime::JSITask {
+class DispatchOnInspectorBackendTask : public v8rt::TaskRunner::Task {
  public:
   explicit DispatchOnInspectorBackendTask(AgentImpl& agent) : agent_(agent) {}
 
@@ -315,12 +315,12 @@ std::string GenerateID() {
 AgentImpl::AgentImpl(
     v8::Isolate *isolate,
     int port)
-    : isolate_(isolate),
-      port_(port),
+    : port_(port),
       wait_(false),
       shutting_down_(false),
       state_(State::kNew),
       inspector_(nullptr),
+      isolate_(isolate),
       dispatching_messages_(false),
       session_id_(0),
       targetId_(GenerateID()) {
@@ -357,13 +357,13 @@ void InspectorConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &info) {
         config_object->Set(context, in_call_key, v8::True(isolate)).FromJust());
     CHECK(
         !inspector_method.As<v8::Function>()
-             ->Call(context, info.Holder(), static_cast<int>(call_args.size()), call_args.data())
+             ->Call(context, info.This(), static_cast<int>(call_args.size()), call_args.data())
              .IsEmpty());
   }
 
   v8::TryCatch try_catch(info.GetIsolate());
   static_cast<void>(node_method.As<v8::Function>()->Call(
-      context, info.Holder(), static_cast<int>(call_args.size()), call_args.data()));
+      context, info.This(), static_cast<int>(call_args.size()), call_args.data()));
   CHECK(config_object->Delete(context, in_call_key).FromJust());
   if (try_catch.HasCaught())
     try_catch.ReThrow();
@@ -585,9 +585,15 @@ void AgentImpl::PostIncomingMessage(
     const std::string &message) {
 
   if (AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message))) {
-    // Need to get the foreground runner from the isolate data slot
-    v8runtime::IsolateData* isolate_data = reinterpret_cast<v8runtime::IsolateData*>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
-    isolate_data->foreground_task_runner_->postTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
+    // Need to get the foreground runner from the isolate data slot.
+    // Both legacy V8Runtime and the ABI runtime store a v8rt::IsolateData
+    // here (the legacy path also uses kIsolateDataSlot==0 with the same
+    // layout via v8_core.h after W4); the inspector code is a shared
+    // consumer of that engine-internal task-runner interface.
+    auto runner = v8rt::IsolateData::fromIsolate(isolate_)->taskRunner();
+    if (runner) {
+      runner->postTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
+    }
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
 
@@ -664,7 +670,6 @@ void AgentImpl::Write(
   MessageQueue outgoing_messages;
   SwapBehindLock(&outgoing_message_queue_, &outgoing_messages);
   for (const MessageQueue::value_type& outgoing : outgoing_messages) {
-    v8_inspector::StringView view = outgoing.second->string();
     std::string message = StringViewToUtf8(outgoing.second->string());
     TRACEV8INSPECTOR_VERBOSE("OutMessage",
                              TraceLoggingString(message.c_str(), "message"));
@@ -737,20 +742,10 @@ bool Agent::IsStarted() {
 void Agent::addContext(v8::Local<v8::Context> context,
   const char* context_name) {
   impl->addContext(context, context_name);
-
-  if (impl->getInspectedContextsCount() == 1) {
-    std::lock_guard<std::mutex> lock(agents_s_mutex_);
-    agents_s_.insert(impl);
-  }
 }
 
 void Agent::removeContext(v8::Local<v8::Context> context) {
   impl->removeContext(context);
-
-  if (impl->getInspectedContextsCount() == 0) {
-    std::lock_guard<std::mutex> lock(agents_s_mutex_);
-    agents_s_.erase(impl);
-  }
 }
 
 bool Agent::IsConnected() {
@@ -764,28 +759,6 @@ void Agent::WaitForDisconnect() {
 void Agent::notifyLoadedUrl(const std::string& url) { impl->notifyLoadedUrl(url); }
 
 std::shared_ptr<Agent> Agent::getShared() { return shared_from_this(); }
-
-/*static*/ std::mutex Agent::agents_s_mutex_;
-/*static*/ std::set<
-    std::weak_ptr<inspector::AgentImpl>,
-    std::owner_less<std::weak_ptr<inspector::AgentImpl>>>
-    Agent::agents_s_;
-
-/*static */void Agent::startAll() {
-  std::vector<std::shared_ptr<AgentImpl>> snapshot;
-  {
-    std::lock_guard<std::mutex> lock(agents_s_mutex_);
-    snapshot.reserve(agents_s_.size());
-    for (auto& weak_agent : agents_s_) {
-      if (auto agent = weak_agent.lock()) {
-        snapshot.push_back(std::move(agent));
-      }
-    }
-  }
-  for (auto& agent : snapshot) {
-    agent->Start();
-  }
-}
 
 void Agent::FatalException(
     v8::Local<v8::Value> error,

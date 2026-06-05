@@ -50,6 +50,67 @@ To build the specific platform and flavor, use appropriate build flags:
 powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release 
 ```
 
+##### Building v8jsi.dll from Node.js sources (new build, in development)
+
+A second build path is being developed that compiles v8jsi.dll from a
+vendored copy of Node.js (under [`deps/nodejs/`](deps/nodejs/)) without
+`depot_tools` / `gclient`. It produces its own `v8jsi.dll`,
+`v8jsi_test.exe`, and `node_api_tests.exe` into
+`deps/nodejs/out/{Release,Debug}/` — the legacy build's outputs in
+`out/{Release,Debug}/` are unaffected and continue to be the canonical
+artifacts shipped in the `ReactNative.V8Jsi.Windows` NuGet today.
+
+The two builds will coexist until downstream consumers migrate to the
+new `Microsoft.JavaScript.V8` NuGet, at which point the legacy build
+above is removed.
+
+###### Additional prerequisites
+
+In addition to the prerequisites listed under *Initial Windows Build
+Setup*, the new build also needs:
+
+1. **Python 3.x** on PATH (required by the Node.js `configure` step).
+1. **Node.js v24+** on PATH (required by [`scripts/build.ts`](scripts/build.ts)).
+
+###### Developer task runner: `dev.ps1`
+
+[`dev.ps1`](dev.ps1) at the repo root is the canonical entry point for
+the new build. Run `.\dev` with no arguments to see available commands.
+
+**Build** (Release x64 by default):
+```PowerShell
+.\dev build
+```
+
+**Other configurations**:
+```PowerShell
+.\dev build --configuration debug
+.\dev build --platform x86
+.\dev build --platform arm64
+```
+
+**Build + run tests**:
+```PowerShell
+.\dev build --test
+```
+
+**Run the fork-sync tool** (sync vendored Node.js / asio from upstream):
+```PowerShell
+.\dev fork-sync --dep nodejs --status
+```
+
+See `.\dev build --help` and `.\dev fork-sync --help` for the full
+option set. The `build` command forwards to
+[`scripts/build.ts`](scripts/build.ts), which drives
+[`deps/nodejs/vcbuild.bat`](deps/nodejs/vcbuild.bat) with narrow-build
+flags (skips `node.exe`, `cctest`, `embedtest`, etc.). See
+[`CLAUDE.md`](CLAUDE.md) for the underlying details.
+
+`.\dev build` also runs a version-sync check that compares
+`config.json.nodejs_version` against the vendored Node.js version in
+`deps/nodejs/src/node_version.h`, and fails fast on mismatch. See
+[`docs/versioning.md`](docs/versioning.md) for the `24.x.y` policy.
+
 ##### [EXPERIMENTAL!] Building with WSL2 on Windows 10/11
 * [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux
 * Install debian: `wsl --install -d Debian`

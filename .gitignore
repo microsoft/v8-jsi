@@ -17,3 +17,16 @@ out
 .sync/
 .logs/
 node_modules/
+
+# test-harness (real-consumer smoke build) — build outputs + NuGet restore.
+# Source files (main.cpp, consumer.vcxproj, run-smoke.ps1, packages.config,
+# *.ps1 helpers) stay tracked.
+test-harness/bin/
+test-harness/obj/
+test-harness/packages/
+
+# gyp-generated stub .sln files under src/ — gyp emits a per-gyp-file .sln
+# alongside the .vcxproj files, but the only solution we actually build
+# against is deps/nodejs/node.sln (which aggregates everything). These
+# stubs have no Project() entries and aren't referenced by anything.
+src/**/*.sln

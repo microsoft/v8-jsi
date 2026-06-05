@@ -28,8 +28,6 @@ private:
   void do_write(bool cont);
 
 private:
-  int port_;
-
   asio::ip::tcp::socket socket_;
   std::string message_;
 

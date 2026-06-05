@@ -6,13 +6,22 @@
 
 #include "js_native_api.h"
 
+// W8: jsi_runtime forward declaration for jsr_runtime_get_jsi_runtime.
+// The full opaque type is declared in jsi_abi/jsi_abi.h; forward-declared
+// here so consumers do not need to pull in the JSI ABI header just to use
+// jsr_runtime_get_jsi_runtime.
+struct jsi_runtime;
+
 //
 // Node-API extensions required for JavaScript engine hosting.
 //
-// It is a very early version of the APIs which we consider to be experimental.
-// These APIs are not stable yet and are subject to change while we continue
-// their development. After some time we will stabilize the APIs and make them
-// "officially stable".
+// EXPERIMENTAL - NOT YET ABI-STABLE.
+// This is a very early version of the APIs, which we consider experimental.
+// They are not stable yet and are subject to change while we continue their
+// development. Although they are C-based, they are NOT ABI-safe yet:
+// signatures, struct fields, and enum values may change without notice. Do not
+// depend on binary compatibility across builds. After some time we will
+// stabilize the APIs, make them ABI-stable, and mark them "officially stable".
 //
 
 #define JSR_API NAPI_EXTERN napi_status NAPI_CDECL
@@ -33,6 +42,13 @@ typedef void(NAPI_CDECL* jsr_data_delete_cb)(void* data, void* deleter_data);
 JSR_API jsr_create_runtime(jsr_config config, jsr_runtime* runtime);
 JSR_API jsr_delete_runtime(jsr_runtime runtime);
 JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env);
+
+// W8: dual-API accessor. Returns the underlying jsi_runtime so a consumer
+// that started with jsr_create_runtime can also build a jsi::Runtime over
+// the same V8 isolate (via JsiAbiRuntime). Output borrows from the
+// jsr_runtime; do not call jsi_release on it.
+JSR_API jsr_runtime_get_jsi_runtime(jsr_runtime runtime,
+                                     struct jsi_runtime** abi_runtime);
 
 //=============================================================================
 // jsr_config

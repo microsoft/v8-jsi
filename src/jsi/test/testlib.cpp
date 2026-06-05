@@ -6,6 +6,7 @@
  */
 
 #include <jsi/test/testlib.h>
+#include <jsi/test/testlib_abi.h>
 
 #include <gtest/gtest.h>
 #include <jsi/decorator.h>
