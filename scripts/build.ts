@@ -327,16 +327,14 @@ Examples:
 function runBuild(platform: string, configuration: string): void {
   console.log(`\n=== Building v8jsi (${platform} ${configuration}) ===\n`);
 
-  if (platform !== "x64") {
-    console.log(
-      `WARNING: vcbuild.bat currently only supports x64 builds. Skipping ${platform}.`,
-    );
-    return;
-  }
-
+  // vcbuild.bat accepts x86 / x64 / arm64 as order-independent target-arch
+  // tokens and writes the binaries to out\<Config>\ regardless of arch, so
+  // we forward the platform straight through. x64 is vcbuild's default, but
+  // passing it explicitly is harmless and keeps the call uniform.
   const vcbuildArgs = [
     ".\\vcbuild.bat",
     configuration,
+    platform,
     "v8jsi",
     "without-intl",
     "no-node",
