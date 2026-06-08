@@ -406,7 +406,12 @@ async function runBuild(
   const env = { ...process.env };
   if (!platform.startsWith("arm")) {
     const nasmDir = await ensureNasm(toolsPath);
-    env.PATH = `${nasmDir};${env.PATH ?? ""}`;
+    // Update the EXISTING path variable in place. Windows stores it as "Path";
+    // assigning env.PATH would add a second, conflicting key that shadows the
+    // real one (dropping System32, so cmd.exe/vcbuild can't be found).
+    const pathKey =
+      Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path";
+    env[pathKey] = `${nasmDir};${env[pathKey] ?? ""}`;
   }
 
   run("cmd.exe", ["/c", ...vcbuildArgs], { cwd: nodejsDir, env });
