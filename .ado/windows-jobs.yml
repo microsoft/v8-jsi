@@ -167,9 +167,16 @@ extends:
 
           templateContext:
             outputs:
-            - output: pipelineArtifact
-              artifactName: ${{ matrix.Name }}-new
-              targetPath: $(Build.StagingDirectory)\out-new
+              # Only Release cells stage a NuGet artifact: build.ts --pack lays
+              # out-new/pkg-staging for the V8JsiCreateNugetNew aggregator. Debug
+              # cells just build + run gtests (no NuGet ships from Debug), so the
+              # outputs list is empty for them. Publishing only pkg-staging (not
+              # the whole out-new) keeps the per-cell artifact to the binaries +
+              # headers the aggregator needs — it omits the unused per-cell .nupkg.
+            - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
+              - output: pipelineArtifact
+                artifactName: ${{ matrix.Name }}-new
+                targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
 
           steps:
           - task: UsePythonVersion@0
@@ -264,6 +271,107 @@ extends:
               folderPath: $(Build.StagingDirectory)\out\pkg
               pattern: |
                 ReactNative.V8Jsi.Windows.*.nupkg
+              useMinimatch: true
+              signConfigType: inlineSignParams
+              inlineOperation: |
+                [
+                  {
+                    "KeyCode" : "CP-401405",
+                    "OperationCode" : "NuGetSign",
+                    "Parameters" : {},
+                    "ToolName" : "sign",
+                    "ToolVersion" : "1.0"
+                  },
+                  {
+                    "KeyCode" : "CP-401405",
+                    "OperationCode" : "NuGetVerify",
+                    "Parameters" : {},
+                    "ToolName" : "sign",
+                    "ToolVersion" : "1.0"
+                  }
+                ]
+
+        # =====================================================================
+        # New (Node.js-source) NuGet aggregator: Microsoft.JavaScript.V8.
+        # Additive sibling of V8JsiCreateNuget above — that job keeps packing
+        # the legacy ReactNative.V8Jsi.Windows package unchanged. This one
+        # collects the per-RID pkg-staging that each Release V8JsiBuildNew_*
+        # cell uploaded and runs scripts/build.ts --pack to emit the 4-pack
+        # (3 per-RID Microsoft.JavaScript.V8.<rid>.nupkg + 1 meta
+        # Microsoft.JavaScript.V8.nupkg). It publishes a separate
+        # published-packages-new artifact so the release pipeline can push the
+        # new package alongside the old one during the migration window.
+        # =====================================================================
+      - job: V8JsiCreateNugetNew
+        dependsOn:
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
+            - V8JsiBuildNew_${{ matrix.Name }}
+        displayName: Create Nuget (Node.js source)
+
+        templateContext:
+          outputs:
+          - output: pipelineArtifact
+            targetPath: $(Build.StagingDirectory)\out\pkg
+            artifactName: published-packages-new
+
+        steps:
+          # Aggregator needs source: scripts/build.ts:packNuGet stages shared
+          # headers + consumer source TUs from src/, and runs the 4-pack flow
+          # (3 per-RID + 1 meta) for Microsoft.JavaScript.V8.
+        - checkout: self
+
+        - task: NodeTool@0
+          displayName: Use Node.js 24.x
+          inputs:
+            versionSpec: '24.x'
+
+        - task: NuGetToolInstaller@1
+          displayName: Install NuGet tools
+          inputs:
+            versionSpec: ">=4.6.0"
+
+          # Download each Release cell's pkg-staging (build/native/<rid>/ with
+          # v8jsi.dll + import lib + PDB, plus the shared headers/TUs). Each
+          # artifact is the cell's pkg-staging content, so it lands directly
+          # under out/pkg-staging; merging all three gives packNuGet a complete
+          # per-RID staging so the meta package's <dependencies> resolve.
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
+            - task: DownloadPipelineArtifact@2
+              displayName: Download ${{ matrix.Name }}-new pkg-staging
+              inputs:
+                artifact: ${{ matrix.Name }}-new
+                path: $(Build.StagingDirectory)\out\pkg-staging
+
+          # Pack: 3 per-RID Microsoft.JavaScript.V8.<rid>.nupkg + meta
+          # Microsoft.JavaScript.V8.nupkg, plus the per-RID PDBs staged under
+          # pkg/symbols/<rid>/ for the release pipeline's symbol publish. No
+          # local build needed — packNuGet's pre-staged binary fallback reuses
+          # the matrix-uploaded build/native/<rid>/ content. A successful pack
+          # with all three platforms guarantees the 4-pack, so there is no
+          # separate verify step.
+        - pwsh: |
+            node scripts/build.ts --no-build --no-test --pack `
+                --platform x86 --platform x64 --platform arm64 `
+                --output-path $(Build.StagingDirectory)\out
+          displayName: NuGet Pack (3 per-RID + meta + symbols)
+          workingDirectory: $(Build.SourcesDirectory)
+
+          # Sign the NuGet packages only for the CI builds.
+        - ${{ if parameters.isPublish }}:
+          - task: EsrpCodeSigning@6
+            displayName: CodeSign NuGets
+            inputs:
+              connectedServiceName: 'ESRP-JSHost3'
+              appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+              appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+              authAKVName: 'OGX-JSHost-KV'
+              authCertName: 'OGX-JSHost-Auth4'
+              authSignCertName: 'OGX-JSHost-Sign3'
+              folderPath: $(Build.StagingDirectory)\out\pkg
+              pattern: |
+                Microsoft.JavaScript.V8.*.nupkg
               useMinimatch: true
               signConfigType: inlineSignParams
               inlineOperation: |

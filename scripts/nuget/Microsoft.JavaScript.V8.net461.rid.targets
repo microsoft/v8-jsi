@@ -1,0 +1,12 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Copy the v8jsi.dll file to the output directory for transitive .NET consumers. -->
+  <ItemGroup Condition=" '$(V8JsiCopyDLL)' == 'True' ">
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$v8jsiName$">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>runtimes\$rid$\native\$v8jsiName$</TargetPath>
+      <Pack>false</Pack>
+    </None>
+  </ItemGroup>
+
+</Project>

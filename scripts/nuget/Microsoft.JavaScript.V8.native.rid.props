@@ -1,0 +1,30 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- If V8JsiIncludePublicHeaders == False then don't add include directories for the V8 JSI public headers. -->
+    <V8JsiIncludePublicHeaders Condition=" '$(V8JsiIncludePublicHeaders)' == '' ">True</V8JsiIncludePublicHeaders>
+
+    <!-- If V8JsiIncludeNodeApiHeaders == False then don't add include directories for the Node-API and Node-API-JSI headers. -->
+    <V8JsiIncludeNodeApiHeaders Condition=" '$(V8JsiIncludeNodeApiHeaders)' == '' ">True</V8JsiIncludeNodeApiHeaders>
+
+    <!-- If V8JsiAddLibDependency == False then don't add linker dependency on v8jsi.dll.lib. -->
+    <V8JsiAddLibDependency Condition=" '$(V8JsiAddLibDependency)' == '' ">True</V8JsiAddLibDependency>
+
+    <!-- If V8JsiAddConsumerSourceTUs == False then don't inject the consumer-side <ClCompile> items
+         (jsi.cpp, V8JsiRuntime.cpp, JsiAbiRuntime.cpp). Useful when the consumer ships its own copy. -->
+    <V8JsiAddConsumerSourceTUs Condition=" '$(V8JsiAddConsumerSourceTUs)' == '' ">True</V8JsiAddConsumerSourceTUs>
+
+    <!-- If V8JsiCopyDLL == False then don't copy the native v8jsi.dll to the target output folder. -->
+    <V8JsiCopyDLL Condition=" '$(V8JsiCopyDLL)' == '' ">True</V8JsiCopyDLL>
+  </PropertyGroup>
+
+  <!-- Detect the runtime identifier (RID) for the current platform, if none was specified. -->
+  <PropertyGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '' AND $([MSBuild]::IsOsPlatform('Windows'))">
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'X64' ">win-x64</V8JsiRuntimeIdentifier>
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'X86' ">win-x86</V8JsiRuntimeIdentifier>
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'Win32' ">win-x86</V8JsiRuntimeIdentifier>
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'Arm64' ">win-arm64</V8JsiRuntimeIdentifier>
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'ARM64EC' ">win-arm64</V8JsiRuntimeIdentifier>
+  </PropertyGroup>
+
+</Project>

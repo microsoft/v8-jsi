@@ -19,71 +19,54 @@ parameters:
 
 steps:
 - ${{ if eq(parameters.fakeBuild, false) }}:
-  # OpenSSL (built from the Node.js tree) assembles its crypto with NASM on
-  # x86/x64. Provision NASM and prepend it to PATH for the build step. Not needed
-  # on arm64, where the OpenSSL asm path is skipped.
-  - task: PowerShell@2
-    displayName: Download NASM 2.16.03
-    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
-    inputs:
-      targetType: inline
-      workingDirectory: $(Build.SourcesDirectory)
-      script: |
-        $ErrorActionPreference = 'Stop'
-        Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip -OutFile nasm-2.16.03-win64.zip
-        Expand-Archive nasm-2.16.03-win64.zip -DestinationPath nasm -Force
-
-  - task: PowerShell@2
+    # Every step is a single scripts/build.ts invocation so the whole flow is
+    # reproducible locally. build.ts provisions NASM itself (needed for the
+    # x86/x64 OpenSSL asm), so there is no separate NASM step. The pwsh task
+    # propagates build.ts's exit code, so each step fails on its own.
+  - pwsh: |
+      node scripts/build.ts `
+          --platform ${{parameters.buildPlatform}} `
+          --configuration ${{parameters.buildConfiguration}}
     displayName: Build v8jsi.dll via scripts/build.ts
-    inputs:
-      targetType: inline
-      workingDirectory: $(Build.SourcesDirectory)
-      script: |
-        $ErrorActionPreference = 'Stop'
-        node scripts/build.ts `
+    workingDirectory: $(Build.SourcesDirectory)
+
+    # Runs both gtest binaries (v8jsi_test + node_api_tests). build.ts skips
+    # tests for cross-platform builds (e.g. arm64 on an x64 agent).
+  - pwsh: |
+      node scripts/build.ts --no-build --test `
+          --platform ${{parameters.buildPlatform}} `
+          --configuration ${{parameters.buildConfiguration}}
+    displayName: Run tests via scripts/build.ts
+    workingDirectory: $(Build.SourcesDirectory)
+
+    # ---------------------------------------------------------------------
+    # Release cells: stage the per-RID NuGet content (Microsoft.JavaScript.V8).
+    # scripts/build.ts --pack lays out pkg-staging/build/native/<rid>/ with the
+    # v8jsi.dll, the import lib (renamed v8jsi.dll.lib), and the PDB, plus the
+    # shared headers + consumer-side source TUs, and produces this cell's per-RID
+    # .nupkg under <outputPath>/pkg. The V8JsiCreateNugetNew aggregator downloads
+    # every Release cell's pkg-staging and re-runs --pack to emit the 4-pack
+    # (3 per-RID + 1 meta). Debug v8jsi.dll variants are not packaged (Hybrid CRT
+    # lets a Debug-CRT consumer link the Release DLL), so this runs Release-only.
+    # ---------------------------------------------------------------------
+  - ${{ if eq(parameters.buildConfiguration, 'Release') }}:
+    - pwsh: |
+        node scripts/build.ts --no-build --no-test --pack `
             --platform ${{parameters.buildPlatform}} `
-            --configuration ${{parameters.buildConfiguration}}
-        if ($LASTEXITCODE -ne 0) { throw "scripts/build.ts failed (exit $LASTEXITCODE)" }
-    env:
-      path: $(Build.SourcesDirectory)\nasm\nasm-2.16.03;$(path)
-
-  - task: PowerShell@2
-    displayName: Run v8jsi_test.exe
-    inputs:
-      targetType: inline
+            --configuration ${{parameters.buildConfiguration}} `
+            --output-path '${{parameters.outputPath}}'
+      displayName: Stage pkg-staging + pack per-RID NuGet
       workingDirectory: $(Build.SourcesDirectory)
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $exe = "deps/nodejs/out/${{parameters.buildConfiguration}}/v8jsi_test.exe"
-        if (-not (Test-Path $exe)) { throw "Test executable not found: $exe" }
-        & $exe --gtest_brief=1
-        if ($LASTEXITCODE -ne 0) { throw "v8jsi_test.exe failed (exit $LASTEXITCODE)" }
-    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
 
-  - task: PowerShell@2
-    displayName: Run node_api_tests.exe
-    inputs:
-      targetType: inline
-      workingDirectory: $(Build.SourcesDirectory)
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $exe = "deps/nodejs/out/${{parameters.buildConfiguration}}/node_api_tests.exe"
-        if (-not (Test-Path $exe)) { throw "Test executable not found: $exe" }
-        & $exe --gtest_brief=1
-        if ($LASTEXITCODE -ne 0) { throw "node_api_tests.exe failed (exit $LASTEXITCODE)" }
-    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
-
-  - task: PowerShell@2
-    displayName: Stage v8jsi.dll artifact
-    inputs:
-      targetType: inline
-      workingDirectory: $(Build.SourcesDirectory)
-      script: |
-        $ErrorActionPreference = 'Stop'
-        $src = "deps/nodejs/out/${{parameters.buildConfiguration}}"
-        $dest = '${{parameters.outputPath}}'
-        New-Item -ItemType Directory -Force -Path $dest | Out-Null
-        Copy-Item -Path (Join-Path $src 'v8jsi.dll') -Destination $dest
-        if (Test-Path (Join-Path $src 'v8jsi.dll.pdb')) {
-          Copy-Item -Path (Join-Path $src 'v8jsi.dll.pdb') -Destination $dest
-        }
+      # x64 Release cell smokes the freshly-packed per-RID .nupkg through a real
+      # consumer (test-harness/consumer.vcxproj). build.ts --smoke drives the
+      # x64-only harness in both Release/Release (links the Release Hybrid-CRT
+      # DLL) and Debug/Release (exercises the cross-CRT boundary).
+    - ${{ if eq(parameters.buildPlatform, 'x64') }}:
+      - pwsh: |
+          node scripts/build.ts --no-build --no-test --smoke `
+              --platform ${{parameters.buildPlatform}} `
+              --configuration ${{parameters.buildConfiguration}} `
+              --output-path '${{parameters.outputPath}}'
+        displayName: Smoke via scripts/build.ts (R/R + D/R)
+        workingDirectory: $(Build.SourcesDirectory)
