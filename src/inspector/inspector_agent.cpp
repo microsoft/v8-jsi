@@ -23,7 +23,11 @@
 
 #include "V8Windows.h"
 
+#ifdef JSI_ABI_BUILDING
+#include "../v8_core.h"
+#else
 #include "../IsolateData.h"
+#endif
 
 namespace inspector {
 
@@ -160,7 +164,11 @@ void InterruptCallback(v8::Isolate *, void *agent) {
   static_cast<AgentImpl *>(agent)->DispatchMessages();
 }
 
+#ifdef JSI_ABI_BUILDING
+class DispatchOnInspectorBackendTask : public v8rt::TaskRunner::Task {
+#else
 class DispatchOnInspectorBackendTask : public v8runtime::JSITask {
+#endif
  public:
   explicit DispatchOnInspectorBackendTask(AgentImpl& agent) : agent_(agent) {}
 
@@ -315,12 +323,12 @@ std::string GenerateID() {
 AgentImpl::AgentImpl(
     v8::Isolate *isolate,
     int port)
-    : isolate_(isolate),
-      port_(port),
+    : port_(port),
       wait_(false),
       shutting_down_(false),
       state_(State::kNew),
       inspector_(nullptr),
+      isolate_(isolate),
       dispatching_messages_(false),
       session_id_(0),
       targetId_(GenerateID()) {
@@ -357,13 +365,13 @@ void InspectorConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &info) {
         config_object->Set(context, in_call_key, v8::True(isolate)).FromJust());
     CHECK(
         !inspector_method.As<v8::Function>()
-             ->Call(context, info.Holder(), static_cast<int>(call_args.size()), call_args.data())
+             ->Call(context, info.This(), static_cast<int>(call_args.size()), call_args.data())
              .IsEmpty());
   }
 
   v8::TryCatch try_catch(info.GetIsolate());
   static_cast<void>(node_method.As<v8::Function>()->Call(
-      context, info.Holder(), static_cast<int>(call_args.size()), call_args.data()));
+      context, info.This(), static_cast<int>(call_args.size()), call_args.data()));
   CHECK(config_object->Delete(context, in_call_key).FromJust());
   if (try_catch.HasCaught())
     try_catch.ReThrow();
@@ -585,9 +593,19 @@ void AgentImpl::PostIncomingMessage(
     const std::string &message) {
 
   if (AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message))) {
-    // Need to get the foreground runner from the isolate data slot
+    // Need to get the foreground runner from the isolate data slot.
+#ifdef JSI_ABI_BUILDING
+    // The ABI runtime stores a v8rt::IsolateData in the slot; the inspector is
+    // a shared consumer of that engine-internal task-runner interface.
+    auto runner = v8rt::IsolateData::fromIsolate(isolate_)->taskRunner();
+    if (runner) {
+      runner->postTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
+    }
+#else
+    // The legacy V8Runtime stores a v8runtime::IsolateData in the slot.
     v8runtime::IsolateData* isolate_data = reinterpret_cast<v8runtime::IsolateData*>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
     isolate_data->foreground_task_runner_->postTask(std::make_unique<DispatchOnInspectorBackendTask>(*this));
+#endif
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
 
@@ -664,7 +682,6 @@ void AgentImpl::Write(
   MessageQueue outgoing_messages;
   SwapBehindLock(&outgoing_message_queue_, &outgoing_messages);
   for (const MessageQueue::value_type& outgoing : outgoing_messages) {
-    v8_inspector::StringView view = outgoing.second->string();
     std::string message = StringViewToUtf8(outgoing.second->string());
     TRACEV8INSPECTOR_VERBOSE("OutMessage",
                              TraceLoggingString(message.c_str(), "message"));

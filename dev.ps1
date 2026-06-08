@@ -10,6 +10,8 @@
   Run without arguments or with -? to see available commands.
 
 .EXAMPLE
+  .\dev build --help
+  .\dev build --configuration debug
   .\dev fork-sync --dep nodejs --status
 #>
 
@@ -45,9 +47,13 @@ function Show-Help {
     Write-Host '  v8-jsi developer tasks'
     Write-Host '  ======================'
     Write-Host ''
+    Write-Host '  .\dev build [args]              Build v8jsi'
     Write-Host '  .\dev fork-sync [args]          Run fork-sync tool'
     Write-Host ''
     Write-Host '  Examples:'
+    Write-Host '    .\dev build --help'
+    Write-Host '    .\dev build --configuration debug'
+    Write-Host '    .\dev build --no-build --test'
     Write-Host '    .\dev fork-sync --dep nodejs --status'
     Write-Host ''
 }
@@ -57,6 +63,10 @@ function Show-Help {
 # =============================================================================
 
 switch ($Command) {
+    'build' {
+        & node (Join-Path $ScriptDir 'scripts\build.ts') @Args
+    }
+
     'fork-sync' {
         Ensure-ScriptDeps
         & node (Join-Path $ScriptDir 'scripts\fork-sync\node_modules\@rnx-kit\fork-sync\lib\sync.js') @Args

@@ -10,7 +10,7 @@
 namespace inspector {
 
 tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
-  : io_context_(), acceptor_(io_context_), socket_(io_context_), connectioncallback_(callback), callbackData_(data)
+  : io_context_(), acceptor_(io_context_), socket_(io_context_), callbackData_(data), connectioncallback_(callback)
 {
   asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
   acceptor_.open(endpoint.protocol());
@@ -137,7 +137,7 @@ void tcp_connection::do_write(bool cont) {
   std::transform(messageToWrite_.begin(), messageToWrite_.end(), std::back_inserter(str), [](char c) { return c; });
 
   socket_.async_send(asio::buffer(messageToWrite_),
-    [this, self](asio::error_code ec, std::size_t bytes_transferred)
+    [self](asio::error_code ec, std::size_t bytes_transferred)
   {
     if (!ec)
     {

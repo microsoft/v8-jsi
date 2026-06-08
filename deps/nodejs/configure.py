@@ -1018,6 +1018,12 @@ parser.add_argument('--shared',
     help='compile shared library for embedding node in another project. ' +
          '(This mode is not officially supported for regular applications)')
 
+parser.add_argument('--build-v8jsi',
+    action='store_true',
+    dest='build_v8jsi',
+    default=None,
+    help='build v8jsi shared library (v8jsi.dll) using V8 from Node.js')
+
 parser.add_argument('--libdir',
     action='store',
     dest='libdir',
@@ -1465,6 +1471,7 @@ def host_arch_win():
 
   matchup = {
     'AMD64'  : 'x64',
+    'x86'    : 'ia32',
     'arm'    : 'arm',
     'mips'   : 'mips',
     'ARM64'  : 'arm64'
@@ -2432,6 +2439,9 @@ for builtin, value in shareable_builtins.items():
 
 # Forward OSS-Fuzz settings
 output['variables']['ossfuzz'] = b(options.ossfuzz)
+
+# Forward v8jsi build settings
+output['variables']['build_v8jsi'] = 1 if options.build_v8jsi else 0
 
 # variables should be a root level element,
 # move everything else to target_defaults

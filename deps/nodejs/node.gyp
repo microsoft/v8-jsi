@@ -37,6 +37,7 @@
     'node_v8_options%': '',
     'node_write_snapshot_as_string_literals': 'true',
     'ossfuzz' : 'false',
+    'build_v8jsi%': 0,
     'linked_module_files': [
     ],
     # We list the deps/ files out instead of globbing them in js2c.cc since we
@@ -525,6 +526,13 @@
                   'cflags': ['-mbranch-protection=standard'],
               }],
           ],
+      }],
+      ['target_arch=="ia32"', {
+        'msvs_settings': {
+          'VCLinkerTool': {
+            'ImageHasSafeExceptionHandlers': 'false',
+          },
+        },
       }],
       ['OS in "aix os400"', {
         'ldflags': [
@@ -1631,5 +1639,15 @@
        },
      ],
    }], # end win section
+    # v8jsi shared library target
+    # The v8jsi.gyp file is in the v8-jsi repo src folder (../../src from here)
+    ['build_v8jsi==1', {
+      'includes': [
+        '../../src/v8jsi.gyp',
+        # Node-API conformance test rig (W7) -> 34 addon DLLs + node_lite.exe
+        # + node_api_tests.exe + JS-file copy. Built alongside v8jsi.dll.
+        '../../src/node-api/test/node_api_tests.gyp',
+      ],
+    }],
   ], # end conditions block
 }

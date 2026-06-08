@@ -1,0 +1,89 @@
+parameters:
+- name: appPlatform
+  type: string
+- name: outputPath
+  type: string
+  # isPublish is `true` for CI builds and `false` for PR validation.
+- name: isPublish
+  type: boolean
+  default: false
+- name: buildConfiguration
+  type: string
+- name: buildPlatform
+  type: string
+  # To fake building v8-jsi for faster debugging.
+- name: fakeBuild
+  type: boolean
+  default: false
+
+
+steps:
+- ${{ if eq(parameters.fakeBuild, false) }}:
+  # OpenSSL (built from the Node.js tree) assembles its crypto with NASM on
+  # x86/x64. Provision NASM and prepend it to PATH for the build step. Not needed
+  # on arm64, where the OpenSSL asm path is skipped.
+  - task: PowerShell@2
+    displayName: Download NASM 2.16.03
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        Invoke-WebRequest -Uri https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip -OutFile nasm-2.16.03-win64.zip
+        Expand-Archive nasm-2.16.03-win64.zip -DestinationPath nasm -Force
+
+  - task: PowerShell@2
+    displayName: Build v8jsi.dll via scripts/build.ts
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        node scripts/build.ts `
+            --platform ${{parameters.buildPlatform}} `
+            --configuration ${{parameters.buildConfiguration}}
+        if ($LASTEXITCODE -ne 0) { throw "scripts/build.ts failed (exit $LASTEXITCODE)" }
+    env:
+      path: $(Build.SourcesDirectory)\nasm\nasm-2.16.03;$(path)
+
+  - task: PowerShell@2
+    displayName: Run v8jsi_test.exe
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $exe = "deps/nodejs/out/${{parameters.buildConfiguration}}/v8jsi_test.exe"
+        if (-not (Test-Path $exe)) { throw "Test executable not found: $exe" }
+        & $exe --gtest_brief=1
+        if ($LASTEXITCODE -ne 0) { throw "v8jsi_test.exe failed (exit $LASTEXITCODE)" }
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
+
+  - task: PowerShell@2
+    displayName: Run node_api_tests.exe
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $exe = "deps/nodejs/out/${{parameters.buildConfiguration}}/node_api_tests.exe"
+        if (-not (Test-Path $exe)) { throw "Test executable not found: $exe" }
+        & $exe --gtest_brief=1
+        if ($LASTEXITCODE -ne 0) { throw "node_api_tests.exe failed (exit $LASTEXITCODE)" }
+    condition: and(succeeded(), not(startsWith('${{parameters.buildPlatform}}', 'arm')))
+
+  - task: PowerShell@2
+    displayName: Stage v8jsi.dll artifact
+    inputs:
+      targetType: inline
+      workingDirectory: $(Build.SourcesDirectory)
+      script: |
+        $ErrorActionPreference = 'Stop'
+        $src = "deps/nodejs/out/${{parameters.buildConfiguration}}"
+        $dest = '${{parameters.outputPath}}'
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        Copy-Item -Path (Join-Path $src 'v8jsi.dll') -Destination $dest
+        if (Test-Path (Join-Path $src 'v8jsi.dll.pdb')) {
+          Copy-Item -Path (Join-Path $src 'v8jsi.dll.pdb') -Destination $dest
+        }

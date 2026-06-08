@@ -564,6 +564,16 @@
           'V8_TARGET_OS_WIN',
         ]
       }],
+      ['OS=="win" and v8_target_arch=="ia32"', {
+        'msvs_settings': {
+          'VCCLCompilerTool': {
+            'AdditionalOptions': ['/arch:SSE2'],
+          },
+          'VCLinkerTool': {
+            'ImageHasSafeExceptionHandlers': 'false',
+          },
+        },
+      }],
       ['OS in "linux freebsd openbsd solaris netbsd mac android qnx openharmony" and v8_target_arch=="ia32"', {
         'cflags': [
           '-msse2',

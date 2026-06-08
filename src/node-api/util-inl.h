@@ -204,7 +204,7 @@ struct OnScopeLeaveImpl {
 //   // ... run some code ...
 // });
 template <typename Fn>
-inline MUST_USE_RESULT OnScopeLeaveImpl<Fn> OnScopeLeave(Fn&& fn) {
+[[nodiscard]] inline OnScopeLeaveImpl<Fn> OnScopeLeave(Fn&& fn) {
   return OnScopeLeaveImpl<Fn>{std::move(fn)};
 }
 

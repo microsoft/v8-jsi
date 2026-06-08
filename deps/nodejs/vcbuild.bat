@@ -67,6 +67,12 @@ set nghttp2_debug=
 set link_module=
 set no_cctest=
 set cctest=
+set no_node=
+set no_embedtest=
+set no_openssl_cli=
+set no_fuzzers=
+set no_nop=
+set no_overlapped_checker=
 set openssl_no_asm=
 set no_shared_roheap=
 set doc=
@@ -155,6 +161,13 @@ if /i "%1"=="doc"           set doc=1&goto arg-ok
 if /i "%1"=="binlog"        set extra_msbuild_args=/binaryLogger:out\%config%\node.binlog&goto arg-ok
 if /i "%1"=="compile-commands" set compile_commands=1&goto arg-ok
 if /i "%1"=="cfg"           set cfg=1&goto arg-ok
+if /i "%1"=="v8jsi"         set build_v8jsi=1&goto arg-ok
+if /i "%1"=="no-node"             set no_node=1&goto arg-ok
+if /i "%1"=="no-embedtest"        set no_embedtest=1&goto arg-ok
+if /i "%1"=="no-openssl-cli"      set no_openssl_cli=1&goto arg-ok
+if /i "%1"=="no-fuzzers"          set no_fuzzers=1&goto arg-ok
+if /i "%1"=="no-nop"              set no_nop=1&goto arg-ok
+if /i "%1"=="no-overlapped-checker" set no_overlapped_checker=1&goto arg-ok
 
 echo Error: invalid command line option `%1`.
 exit /b 1
@@ -218,11 +231,9 @@ if defined ccache_path      set configure_flags=%configure_flags% --use-ccache-w
 if defined compile_commands set configure_flags=%configure_flags% -C
 if defined cfg              set configure_flags=%configure_flags% --control-flow-guard
 if defined v8windbg         set configure_flags=%configure_flags% --enable-v8windbg
+if defined build_v8jsi      set configure_flags=%configure_flags% --build-v8jsi
 
-if "%target_arch%"=="x86" (
-  echo "32-bit Windows builds are not supported anymore."
-  exit /b 1
-)
+if "%target_arch%"=="x86" if "%PROCESSOR_ARCHITECTURE%"=="AMD64" set configure_flags=%configure_flags% --no-cross-compiling
 
 if not exist "%~dp0deps\icu" goto no-depsicu
 if "%target%"=="Clean" echo deleting %~dp0deps\icu
@@ -239,7 +250,7 @@ if "%target%"=="TestClean" (
 call tools\msvs\find_python.cmd
 if errorlevel 1 goto :exit
 
-REM NASM is only needed on x86_64.
+REM NASM is only needed on IA32 and x86_64.
 if not defined openssl_no_asm if "%target_arch%" NEQ "arm64" call tools\msvs\find_nasm.cmd
 if errorlevel 1 echo Could not find NASM, install it or build with openssl-no-asm. See BUILDING.md.
 
@@ -263,7 +274,9 @@ if defined noprojgen if defined nobuild goto :after-build
 
 @rem Set environment for msbuild
 
-set msvs_host_arch=amd64
+set msvs_host_arch=x86
+if _%PROCESSOR_ARCHITECTURE%_==_AMD64_ set msvs_host_arch=amd64
+if _%PROCESSOR_ARCHITEW6432%_==_AMD64_ set msvs_host_arch=amd64
 if _%PROCESSOR_ARCHITECTURE%_==_ARM64_ set msvs_host_arch=arm64
 @rem usually vcvarsall takes an argument: host + '_' + target
 set vcvarsall_arg=%msvs_host_arch%_%target_arch%
@@ -371,6 +384,9 @@ if not exist node.sln goto run-configure
 if not exist .gyp_configure_stamp goto run-configure
 echo %configure_flags% > .tmp_gyp_configure_stamp
 where /R . /T *.gyp* >> .tmp_gyp_configure_stamp
+@rem v8-jsi: also watch gyp files in <repo>/src so that edits to
+@rem src/v8jsi.gyp and src/node-api/test/node_api_tests.gyp trigger reconfigure.
+where /R ..\..\src /T *.gyp* >> .tmp_gyp_configure_stamp 2>NUL
 fc .gyp_configure_stamp .tmp_gyp_configure_stamp >NUL 2>&1
 if errorlevel 1 goto run-configure
 
@@ -400,8 +416,41 @@ if defined nobuild goto :after-build
 @rem Build the sln with msbuild.
 set "msbcpu=/m:2"
 if "%NUMBER_OF_PROCESSORS%"=="1" set "msbcpu=/m:1"
-set "msbplatform=x64"
+set "msbplatform=Win32"
+if "%target_arch%"=="x64" set "msbplatform=x64"
 if "%target_arch%"=="arm64" set "msbplatform=ARM64"
+@rem --- Additive target-list mode ----------------------------------
+@rem
+@rem When any `no-X` flag is set, switch from MSBuild's solution-level
+@rem "Build" meta-target to an explicit list of user-facing targets,
+@rem and skip whichever ones the caller opted out of. Transitive
+@rem dependencies (libnode, V8 intermediates, addon DLLs, etc.) are
+@rem pulled in automatically by MSBuild's dep walk.
+@rem
+@rem No `no-X` flags -> use_target_list stays unset -> fall through to
+@rem the legacy block below, byte-for-byte unchanged.
+@rem
+set target_list=
+set use_target_list=
+
+if defined no_node               (set use_target_list=1) else (set "target_list=%target_list%;node")
+if defined no_cctest             (set use_target_list=1) else (set "target_list=%target_list%;cctest")
+if defined no_embedtest          (set use_target_list=1) else (set "target_list=%target_list%;embedtest")
+if defined no_openssl_cli        (set use_target_list=1) else (set "target_list=%target_list%;openssl-cli")
+if defined no_fuzzers            (set use_target_list=1) else (set "target_list=%target_list%;fuzz_env;fuzz_ClientHelloParser;fuzz_strings")
+if defined no_nop                (set use_target_list=1) else (set "target_list=%target_list%;nop")
+if defined no_overlapped_checker (set use_target_list=1) else (set "target_list=%target_list%;overlapped-checker")
+
+@rem v8jsi-side targets only exist in the .sln when gyp pulled them in.
+@rem build_v8jsi adds v8jsi_test + node_api_tests as a unit (v8jsi.dll is
+@rem a transitive dep of v8jsi_test).
+if defined build_v8jsi set "target_list=%target_list%;v8jsi_test;node_api_tests"
+
+@rem strip leading ';' (flattened to top-level so each %target_list% re-expands fresh)
+if defined use_target_list if "%target_list:~0,1%"==";" set "target_list=%target_list:~1%"
+if defined use_target_list if "%target_list%"=="" echo Error: every target filtered out by 'no-*' flags -- nothing to build.&exit /b 1
+if defined use_target_list set "target=%target_list%"
+
 if "%target%"=="Build" (
   if defined no_cctest set target=node
   if "%test_args%"=="" set target=node
