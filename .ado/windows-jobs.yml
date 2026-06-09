@@ -36,6 +36,14 @@ parameters:
         BuildPlatform: arm64
         AppPlatform: win32
 
+variables:
+    # Guardian/SDL tools cannot run on builds from forked GitHub repositories
+    # (e.g. external PR validation), where they are skipped. Suppress the
+    # informational "not supported for forked repositories" warning; it has no
+    # effect on the official (non-fork) CI, where Guardian runs normally.
+  - name: GDN_SUPPRESS_FORKED_BUILD_WARNING
+    value: true
+
 resources:
   repositories:
     # The repo for the Office compliant build pipeline templates.
@@ -206,10 +214,10 @@ extends:
               addToPath: true
               architecture: 'x64'
 
-          - task: NodeTool@0
+          - task: UseNode@1
             displayName: Use Node.js 24.x
             inputs:
-              versionSpec: '24.x'
+              version: '24.x'
 
             # The Release cells pack (build.ts --pack) and smoke (run-smoke.ps1)
             # both need nuget.exe on PATH.
@@ -348,10 +356,10 @@ extends:
           # (3 per-RID + 1 meta) for Microsoft.JavaScript.V8.
         - checkout: self
 
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: Use Node.js 24.x
           inputs:
-            versionSpec: '24.x'
+            version: '24.x'
 
         - task: NuGetToolInstaller@1
           displayName: Install NuGet tools
