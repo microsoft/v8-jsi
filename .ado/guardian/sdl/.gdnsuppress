@@ -21,7 +21,40 @@
       "tool": "binskim",
       "ruleId": "BA2014",
       "createdDate": "2026-06-09 00:00:00Z",
-      "justification": "BinSkim BA2014 fires on three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 -- v8::platform::DefaultPlatform, v8::CpuProfilingOptions, and v8::SnapshotCreator -- emitted into the vendored V8 static libs v8_base_without_compiler.lib / v8_libplatform.lib. These thunks carry no stack buffers, so /GS inserts no cookie and there is nothing for the stack protector to guard; BinSkim reports them as having stack protection disabled, but this is a false positive, not disabled protection in v8-jsi code. The symbols are produced by V8's own compilation (not by src/v8jsi.gyp), so v8-jsi cannot annotate or reflag them without patching vendored V8; /sdl applied to V8 did not clear them and would impose an engine-wide performance cost. Accepted as a residual finding. The genuinely-actionable BinSkim rules (CFG/BA2008, ASLR/BA2009, NX/BA2016, Spectre/BA2024, secure source hashing/BA2004) are enabled and pass via src/v8jsi_settings.gypi."
+      "justification": "BinSkim BA2014 fires on three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 -- v8::platform::DefaultPlatform, v8::CpuProfilingOptions, and v8::SnapshotCreator -- emitted into the vendored V8 static libs v8_base_without_compiler.lib / v8_libplatform.lib. These thunks carry no stack buffers, so /GS inserts no cookie and there is nothing for the stack protector to guard; BinSkim reports them as having stack protection disabled, but this is a false positive, not disabled protection in v8-jsi code. The symbols are produced by V8's own compilation (not by src/v8jsi.gyp), so v8-jsi cannot annotate or reflag them without patching vendored V8; /sdl applied to V8 did not clear them and would impose an engine-wide performance cost. Accepted as a residual finding. The genuinely-actionable BinSkim rules (CFG/BA2008, ASLR/BA2009, NX/BA2016, Spectre/BA2024, secure source hashing/BA2004) are enabled and pass via src/v8jsi_settings.gypi. The BA2014 signature is per-RID, so each architecture's v8jsi.dll has its own entry."
+    },
+    "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f": {
+      "signature": "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2014 on win-x86 v8jsi.dll. Same root cause as the win-x64 entry: three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 (v8::platform::DefaultPlatform, v8::CpuProfilingOptions, v8::SnapshotCreator) emitted into the vendored V8 static libs. Buffer-less thunks with no stack cookie -- a BinSkim false positive, not disabled protection in v8-jsi code, and not fixable without patching vendored V8. Per-RID signature, hence a separate entry from win-x64."
+    },
+    "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7": {
+      "signature": "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BinSkim BA2018 (EnableSafeSEH) on win-x86 v8jsi.dll. SafeSEH (/SAFESEH) is an x86-only image mitigation requiring every linked object to register safe exception handlers (.sxdata). The Node.js >= 24 build compiles v8jsi with clang-cl, which does not emit the SafeSEH handler table for x86, and V8's x86 build links hand-written assembly (e.g. push_registers_asm.obj) that is not SafeSEH-aware -- so the linker cannot produce a /SAFESEH image. This is a clang-cl-on-x86 toolchain limitation, not a v8-jsi code defect, and is x86-only (x64/arm64 do not use 32-bit SEH). Accepted as a residual finding."
+    },
+    "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9": {
+      "signature": "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9",
+      "target": "out-new/pkg-staging/build/native/win-arm64/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2014 on win-arm64 v8jsi.dll. Same root cause as the win-x64 and win-x86 entries: three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 (v8::platform::DefaultPlatform, v8::CpuProfilingOptions, v8::SnapshotCreator) emitted into the vendored V8 static libs. Buffer-less thunks with no stack cookie -- a BinSkim false positive, not disabled protection in v8-jsi code, and not fixable without patching vendored V8. Per-RID signature, hence a separate entry from win-x64 / win-x86."
     }
   }
 }

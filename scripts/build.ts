@@ -21,6 +21,22 @@ const srcDir = path.join(repoRoot, "src");
 const binskimPackageName = "Microsoft.CodeAnalysis.BinSkim";
 const binskimVersion = "4.4.9";
 const binskimNuGetSource = "https://api.nuget.org/v3/index.json";
+
+// BinSkim rules accepted as residuals on v8jsi.dll. Keep this in sync with the
+// per-RID signature suppressions in .ado/guardian/sdl/.gdnsuppress (which the
+// official-CI 1ES Guardian post-analysis consumes). This list lets the
+// build.ts --binskim PR gate agree with that verdict: it fails the build on any
+// error/warning whose rule is NOT listed here, so a real regression (e.g. CFG,
+// ASLR, or Spectre dropping off) breaks a PR, while the known upstream/toolchain
+// residuals do not. Rationale per rule lives in the .gdnsuppress justifications.
+//   BA2004 - MD5 source hashing in vendored V8 static libs (clang-cl; below M365
+//            threshold; v8jsi's own objs are SHA-256 via /ZH:SHA_256).
+//   BA2014 - stack-protector "disabled" on 3 buffer-less V8 default-ctor-closure
+//            thunks (false positive; upstream V8).
+//   BA2018 - SafeSEH absent on x86 (clang-cl emits no .sxdata; V8 x86 asm).
+//   BA2025 - CET shadow stack off (intentionally reverted; crashes V8 heap
+//            snapshot; below M365 threshold).
+const acceptedBinSkimRules = new Set(["BA2004", "BA2014", "BA2018", "BA2025"]);
 const nugetDownloadUrl =
   "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
 
@@ -512,19 +528,96 @@ async function runBinSkim(
   }
 
   const fileArgs = filesToScan.map((f) => `"${f}"`).join(" ");
-  run(binskimExe, [
+  const sarifPath = path.join(outDir, "v8jsi.binskim.sarif");
+  if (fs.existsSync(sarifPath)) {
+    fs.rmSync(sarifPath);
+  }
+
+  // BinSkim exits non-zero when it reports any failing result, so capture the
+  // SARIF and decide pass/fail ourselves against the accepted-residuals list.
+  const cmdLine = [
+    `"${binskimExe}"`,
     "analyze",
     "--config",
     "default",
+    "--output",
+    `"${sarifPath}"`,
     "--ignorePdbLoadError",
     "--ignorePELoadErrors",
     "True",
     "--hashes",
-    "--statistics",
     "--disable-telemetry",
     "True",
     fileArgs,
-  ]);
+  ].join(" ");
+  console.log(`> ${cmdLine}`);
+  try {
+    execSync(cmdLine, { stdio: "inherit" });
+  } catch {
+    // Non-zero exit means findings were reported; the SARIF below is the source
+    // of truth for whether any are unaccepted.
+  }
+
+  if (!fs.existsSync(sarifPath)) {
+    console.error(`BinSkim produced no SARIF output at ${sarifPath}`);
+    process.exit(1);
+  }
+
+  const sarif = JSON.parse(fs.readFileSync(sarifPath, "utf-8"));
+  const breaking: string[] = [];
+  const accepted: string[] = [];
+  for (const sarifRun of sarif.runs ?? []) {
+    // Rule default levels, used when a result omits an explicit level.
+    const ruleLevels = new Map<string, string>();
+    for (const rule of sarifRun.tool?.driver?.rules ?? []) {
+      if (rule.id && rule.defaultConfiguration?.level) {
+        ruleLevels.set(rule.id, rule.defaultConfiguration.level);
+      }
+    }
+    for (const result of sarifRun.results ?? []) {
+      const ruleId: string = result.ruleId ?? "<unknown>";
+      // BinSkim only emits failing results by default; treat absent level via
+      // the rule default, then SARIF's "warning" default.
+      const level: string =
+        result.level ?? ruleLevels.get(ruleId) ?? "warning";
+      const where =
+        result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ??
+        path.basename(dllPath);
+      const line = `${ruleId} (${level}) - ${where}`;
+      if (acceptedBinSkimRules.has(ruleId)) {
+        accepted.push(line);
+      } else if (level === "error" || level === "warning") {
+        breaking.push(line);
+      }
+    }
+  }
+
+  if (accepted.length > 0) {
+    console.log(
+      `\nBinSkim: ${accepted.length} accepted residual finding(s) (see ` +
+        `.ado/guardian/sdl/.gdnsuppress):`,
+    );
+    for (const a of accepted) {
+      console.log(`  - ${a}`);
+    }
+  }
+  if (breaking.length > 0) {
+    console.error(
+      `\nBinSkim FAILED: ${breaking.length} unaccepted finding(s):`,
+    );
+    for (const b of breaking) {
+      console.error(`  - ${b}`);
+    }
+    console.error(
+      "\nIf a finding is a genuine fix, address it in src/v8jsi_settings.gypi; " +
+        "if it is a vetted residual, add it to .ado/guardian/sdl/.gdnsuppress " +
+        "and to acceptedBinSkimRules in build.ts.",
+    );
+    process.exit(1);
+  }
+  console.log(
+    `\nBinSkim OK (${platform} ${configuration}): no unaccepted findings.`,
+  );
 }
 
 // =============================================================================
