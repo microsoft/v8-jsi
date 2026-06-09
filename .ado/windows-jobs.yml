@@ -52,12 +52,32 @@ extends:
     template: v1/Office.Unofficial.PipelineTemplate.yml@OfficePipelineTemplates
 
   parameters:
+    # PREfast (MSVC /analyze) is fundamentally incompatible with the clang-cl
+    # toolset that the Node.js-source v8jsi build requires (clang-cl is mandatory
+    # for Node.js >= 24). On official builds, 1ES auto-injects a PREfast ruleset
+    # into every MSBuild vcxproj compile via "/analyze:ruleset<path>", which
+    # clang-cl rejects ("no such file or directory: '/analyze:ruleset…'"),
+    # failing the build. That injection is gated ONLY by
+    # featureFlags.autoEnablePREfastWithNewRuleset (see 1ESPipelineTemplates
+    # v1/Stages/Stage.yml -> prefast.autoEnableWithNewRuleset), NOT by
+    # sdl.prefast.enabled — so it must be turned off here. Compiled static
+    # analysis is still covered by CodeQL below, which works with clang-cl.
+    # (The legacy gn/ninja V8 build never ran PREfast either, since those
+    # compiles are outside MSBuild.)
+    featureFlags:
+      autoEnablePREfastWithNewRuleset: false
     settings:
       ${{ if eq(parameters.isPublish, false) }}:
         skipBuildTagsForGitHubPullRequests: true
     pool:
       name: fabric-internal-pool-large
     sdl:
+      # Belt-and-suspenders: also disable the PREfast scan itself (the injection
+      # above is the actual build-breaker; this keeps the post-build PREfast scan
+      # from running clang-cl-incompatible /analyze where we control it).
+      prefast:
+        enabled: false
+        justificationForDisabling: "Build uses clang-cl (required by Node.js >= 24); MSVC PREfast /analyze is incompatible. Compiled static analysis is covered by CodeQL."
       binskim:
         analyzeTarget: |
           $(Build.StagingDirectory)\out\pkg-staging\**\*.dll
