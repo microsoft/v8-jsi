@@ -191,6 +191,13 @@ extends:
             inputs:
               versionSpec: '24.x'
 
+            # The Release cells pack (build.ts --pack) and smoke (run-smoke.ps1)
+            # both need nuget.exe on PATH.
+          - task: NuGetToolInstaller@1
+            displayName: Install NuGet tools
+            inputs:
+              versionSpec: ">=4.6.0"
+
           - template: /.ado/windows-build-new.yml@self
             parameters:
               outputPath: $(Build.StagingDirectory)\out-new
