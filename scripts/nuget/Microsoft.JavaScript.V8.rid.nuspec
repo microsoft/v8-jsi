@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.JavaScript.V8.$rid$</id>
+    <version>$version$</version>
+    <description>JavaScript Interface (JSI) implementation backed by Google V8 — $rid$ runtime. Ships v8jsi native binary, import library, public headers, and consumer-side C++ adapter sources.</description>
+    <title>Microsoft V8 JSI ($rid$)</title>
+    <authors>Microsoft</authors>
+    <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <copyright>&#169; Microsoft Corporation. All rights reserved.</copyright>
+    <repository type="git" url="$repoUrl$" branch="$repoBranch$" commit="$repoCommit$" />
+    <language>en-US</language>
+    <readme>README.md</readme>
+    <tags>native JavaScript JS V8 JSI library Microsoft react-native</tags>
+    <!-- The per-RID package ships only build/native/ and runtimes/ content;
+         no real dependencies. The empty netstandard2.0 group exists to
+         silence NU5128 (lib/netstandard2.0/_._ placeholder requires a
+         matching dependency group declaration). -->
+    <dependencies>
+      <group targetFramework="netstandard2.0" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="$nugetroot$\build\native\include\**\*.*"
+          target="build\native\include" />
+    <file src="$nugetroot$\build\native\jsi\**\*.*"
+          target="build\native\jsi" />
+    <!-- The v8jsi.dll.lib is Windows-only. We use the *.lib pattern to copy the optional file. -->
+    <file src="$nugetroot$\build\native\$rid$\*.lib"
+          target="build\native\$rid$\" />
+    <file src="$nugetroot$\Microsoft.JavaScript.V8.native.$rid$.props"
+          target="build\native\Microsoft.JavaScript.V8.$rid$.props" />
+    <file src="$nugetroot$\Microsoft.JavaScript.V8.native.$rid$.targets"
+          target="build\native\Microsoft.JavaScript.V8.$rid$.targets" />
+    <file src="$nugetroot$\Microsoft.JavaScript.V8.net461.$rid$.props"
+          target="buildTransitive\net461\Microsoft.JavaScript.V8.$rid$.props" />
+    <file src="$nugetroot$\Microsoft.JavaScript.V8.net461.$rid$.targets"
+          target="buildTransitive\net461\Microsoft.JavaScript.V8.$rid$.targets" />
+    <file src="$nugetroot$\_._" target="lib\netstandard2.0\" />
+    <file src="$nugetroot$\build\native\$rid$\$v8jsiName$"
+          target="runtimes\$rid$\native\$v8jsiName$" />
+    <!-- PDB is optional. The *.pdb pattern lets the file silently absent itself
+         from release/no-symbols builds without failing pack. -->
+    <file src="$nugetroot$\build\native\$rid$\*.pdb"
+          target="runtimes\$rid$\native\" />
+    <file src="$nugetroot$\LICENSE" target="LICENSE" />
+    <file src="$nugetroot$\NOTICE.txt" target="" />
+    <file src="$nugetroot$\README.md" target="" />
+  </files>
+</package>

@@ -1,0 +1,46 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Add include paths to header files. -->
+  <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' ">
+    <ClCompile>
+      <AdditionalIncludeDirectories Condition="'$(V8JsiIncludePublicHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include;$(MSBuildThisFileDirectory)jsi</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(V8JsiIncludeNodeApiHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\node-api;$(MSBuildThisFileDirectory)include\node-api-jsi</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Add v8jsi.dll.lib dependency required for MSVC C++ linker if it is part of this package. -->
+  <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(V8JsiAddLibDependency)' == 'True' AND Exists('$(MSBuildThisFileDirectory)$rid$\v8jsi.dll.lib') ">
+    <Link>
+      <AdditionalDependencies>v8jsi.dll.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)$rid$;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <DelayLoadDLLs>v8jsi.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- Consumer-side translation units.
+       jsi.cpp ships the JSI base-class implementations (Buffer/Value/JSError/
+       Runtime destructors and virtual default impls). v8jsi.dll does not export
+       these symbols (JSI_EXPORT is a no-op unless CREATE_SHARED_LIBRARY is set,
+       which v8jsi.gyp doesn't define), so every consumer compiles jsi.cpp
+       locally.
+       V8JsiRuntime.cpp holds makeV8Runtime + the V8ScriptCache and V8TaskRunner
+       adapters. JsiAbiRuntime.cpp is the C++ wrapper that implements
+       jsi::Runtime over the JSI ABI vtable. Both compile against v8jsi.dll's
+       stable C exports (v8_jsi_config_*, get_jsi_abi_v8_vtable, etc.). -->
+  <ItemGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(V8JsiAddConsumerSourceTUs)' == 'True' ">
+    <ClCompile Include="$(MSBuildThisFileDirectory)jsi\jsi\jsi.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)jsi\public\V8JsiRuntime.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)jsi\jsi_abi\JsiAbiRuntime.cpp" />
+  </ItemGroup>
+
+  <!-- Copy v8jsi.dll (and PDB if shipped) to the output directory. -->
+  <ItemGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(V8JsiCopyDLL)' == 'True' ">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$v8jsiName$" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$v8jsiName$" CopyToOutputDirectory="PreserveNewest" />
+    <!-- PDB is optional. Stage B2 / C-onward release packs include it; the
+         Exists() guard lets consumer builds pass when no PDB ships. -->
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsi.dll.pdb"
+                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsi.dll.pdb')" />
+  </ItemGroup>
+
+</Project>

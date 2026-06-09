@@ -24,6 +24,9 @@ const binskimNuGetSource = "https://api.nuget.org/v3/index.json";
 const nugetDownloadUrl =
   "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
 
+const nasmVersion = "2.16.03";
+const nasmDownloadUrl = `https://www.nasm.us/pub/nasm/releasebuilds/${nasmVersion}/win64/nasm-${nasmVersion}-win64.zip`;
+
 // =============================================================================
 // CLI Parsing
 // =============================================================================
@@ -33,7 +36,10 @@ const options = {
   build: { type: "boolean" as const, default: true },
   test: { type: "boolean" as const, default: false },
   pack: { type: "boolean" as const, default: false },
+  smoke: { type: "boolean" as const, default: false },
   binskim: { type: "boolean" as const, default: false },
+  "check-crt": { type: "boolean" as const, default: false },
+  "count-exports": { type: "boolean" as const, default: false },
   "clean-all": { type: "boolean" as const, default: false },
   "clean-build": { type: "boolean" as const, default: false },
   "clean-pkg": { type: "boolean" as const, default: false },
@@ -175,6 +181,43 @@ async function ensureNuGet(toolsPath: string): Promise<string> {
   return localNuget;
 }
 
+// Ensure NASM is available and return the directory containing nasm.exe.
+// The Node.js OpenSSL build assembles its crypto with NASM on x86/x64 (the
+// arm64 build skips that asm path). Mirrors ensureNuGet: prefer PATH, else a
+// cached copy under toolsPath, else download + extract the official zip.
+async function ensureNasm(toolsPath: string): Promise<string> {
+  try {
+    const onPath = execSync("where nasm.exe", { encoding: "utf-8" })
+      .split(/\r?\n/)
+      .find((l: string) => l.trim().length > 0)
+      ?.trim();
+    if (onPath) return path.dirname(onPath);
+  } catch {
+    // Not on PATH; fall through to the cached/download path.
+  }
+
+  const nasmDir = path.join(toolsPath, "nasm", `nasm-${nasmVersion}`);
+  if (fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
+    return nasmDir;
+  }
+
+  console.log(`Downloading NASM ${nasmVersion}...`);
+  const zipPath = path.join(toolsPath, `nasm-${nasmVersion}-win64.zip`);
+  await downloadFile(nasmDownloadUrl, zipPath);
+  const extractDir = path.join(toolsPath, "nasm");
+  ensureDir(extractDir);
+  run("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    `"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`,
+  ]);
+  if (!fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
+    throw new Error(`NASM not found after extraction at ${nasmDir}`);
+  }
+  console.log(`NASM ready at ${nasmDir}`);
+  return nasmDir;
+}
+
 function configDir(configuration: string): string {
   return configuration.charAt(0).toUpperCase() + configuration.slice(1);
 }
@@ -299,7 +342,11 @@ Boolean flags (all support --no- prefix):
   --build             Build v8jsi.dll (default: true)
   --test              Run v8jsi_test.exe
   --pack              Create NuGet package
+  --smoke             Build the real-consumer test-harness against the packed
+                      .nupkg (x64; Release/Release + Debug/Release)
   --binskim           Run BinSkim security validation
+  --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
+  --count-exports     Report v8jsi.dll's exported symbol counts by API family
   --clean-all         Delete entire output folder
   --clean-build       Delete build outputs for targeted configs
   --clean-pkg         Delete pkg and pkg-staging folders
@@ -324,7 +371,11 @@ Examples:
 // Build Operation
 // =============================================================================
 
-function runBuild(platform: string, configuration: string): void {
+async function runBuild(
+  platform: string,
+  configuration: string,
+  toolsPath: string,
+): Promise<void> {
   console.log(`\n=== Building v8jsi (${platform} ${configuration}) ===\n`);
 
   // vcbuild.bat accepts x86 / x64 / arm64 as order-independent target-arch
@@ -351,7 +402,19 @@ function runBuild(platform: string, configuration: string): void {
     process.env.V8JSI_FILE_VERSION = args["file-version"];
   }
 
-  run("cmd.exe", ["/c", ...vcbuildArgs], { cwd: nodejsDir });
+  // The x86/x64 OpenSSL build needs NASM on PATH; arm64 skips the asm path.
+  const env = { ...process.env };
+  if (!platform.startsWith("arm")) {
+    const nasmDir = await ensureNasm(toolsPath);
+    // Update the EXISTING path variable in place. Windows stores it as "Path";
+    // assigning env.PATH would add a second, conflicting key that shadows the
+    // real one (dropping System32, so cmd.exe/vcbuild can't be found).
+    const pathKey =
+      Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path";
+    env[pathKey] = `${nasmDir};${env[pathKey] ?? ""}`;
+  }
+
+  run("cmd.exe", ["/c", ...vcbuildArgs], { cwd: nodejsDir, env });
 }
 
 // =============================================================================
@@ -368,13 +431,16 @@ function runTests(platform: string, configuration: string): void {
     return;
   }
 
-  const testExe = path.join(buildOutputDir(configuration), "v8jsi_test.exe");
-  if (!fs.existsSync(testExe)) {
-    console.error(`Test executable not found: ${testExe}`);
-    process.exit(1);
+  // Run both gtest binaries: the JSI suite and the Node-API conformance suite.
+  const outDir = buildOutputDir(configuration);
+  for (const exeName of ["v8jsi_test.exe", "node_api_tests.exe"]) {
+    const testExe = path.join(outDir, exeName);
+    if (!fs.existsSync(testExe)) {
+      console.error(`Test executable not found: ${testExe}`);
+      process.exit(1);
+    }
+    run(testExe, ["--gtest_brief=1"]);
   }
-
-  run(testExe, []);
 }
 
 // =============================================================================
@@ -462,6 +528,126 @@ async function runBinSkim(
 }
 
 // =============================================================================
+// DLL Reports (dumpbin)
+// =============================================================================
+
+// Locate dumpbin.exe via vswhere (works across VS editions/versions), falling
+// back to PATH. Cached after the first lookup.
+let cachedDumpbin: string | undefined;
+function findDumpbin(): string {
+  if (cachedDumpbin) return cachedDumpbin;
+
+  const programFilesX86 =
+    process.env["ProgramFiles(x86)"] ??
+    process.env["ProgramFiles"] ??
+    "C:\\Program Files (x86)";
+  const vswhere = path.join(
+    programFilesX86,
+    "Microsoft Visual Studio",
+    "Installer",
+    "vswhere.exe",
+  );
+  if (fs.existsSync(vswhere)) {
+    try {
+      const out = execSync(
+        `"${vswhere}" -latest -products * -find "**\\Hostx64\\x64\\dumpbin.exe"`,
+        { encoding: "utf-8" },
+      ).trim();
+      const first = out.split(/\r?\n/).find((l) => l.trim().length > 0)?.trim();
+      if (first && fs.existsSync(first)) {
+        cachedDumpbin = first;
+        return first;
+      }
+    } catch {
+      // Fall through to the PATH lookup.
+    }
+  }
+
+  try {
+    const onPath = execSync("where dumpbin.exe", { encoding: "utf-8" })
+      .split(/\r?\n/)
+      .find((l: string) => l.trim().length > 0)
+      ?.trim();
+    if (onPath && fs.existsSync(onPath)) {
+      cachedDumpbin = onPath;
+      return onPath;
+    }
+  } catch {
+    // Not on PATH either.
+  }
+
+  throw new Error(
+    "dumpbin.exe not found (install the Visual Studio C++ tools or run from a VS developer prompt).",
+  );
+}
+
+function builtDllPath(configuration: string): string {
+  const dll = path.join(buildOutputDir(configuration), "v8jsi.dll");
+  if (!fs.existsSync(dll)) {
+    console.error(`v8jsi.dll not found: ${dll}`);
+    process.exit(1);
+  }
+  return dll;
+}
+
+// Report v8jsi.dll's C/C++ runtime imports. The Hybrid CRT contract means the
+// only shared runtime should be the UCRT (api-ms-win-crt-* / ucrtbase.dll) —
+// there must be no vcruntime140 / msvcp140 (App-CRT is statically private).
+function reportCrtDependencies(platform: string, configuration: string): void {
+  console.log(`\n=== CRT dependencies (${platform} ${configuration}) ===\n`);
+  const dll = builtDllPath(configuration);
+  const dumpbin = findDumpbin();
+  const out = execSync(`"${dumpbin}" /DEPENDENTS "${dll}"`, {
+    encoding: "utf-8",
+  });
+  const crtRe = /vcruntime|msvcp|ucrtbase|api-ms-win-crt|ucrt/i;
+  const crtLines = out
+    .split(/\r?\n/)
+    .map((l: string) => l.trim())
+    .filter((l: string) => crtRe.test(l));
+
+  console.log(`dumpbin: ${dumpbin}`);
+  console.log(`==== ${dll} ====`);
+  for (const l of crtLines) console.log(`  ${l}`);
+
+  const violations = crtLines.filter((l: string) => /vcruntime|msvcp/i.test(l));
+  if (violations.length) {
+    console.log(
+      `\nWARNING: Hybrid CRT contract broken — non-UCRT shared runtime present: ${violations.join(", ")}`,
+    );
+  } else {
+    console.log(
+      "\nHybrid CRT OK: only the UCRT (api-ms-win-crt-* / ucrtbase) is shared.",
+    );
+  }
+}
+
+// Report v8jsi.dll's exported symbol counts by API family. Handy for spotting
+// an unexpected change in the export surface.
+function reportExports(platform: string, configuration: string): void {
+  console.log(`\n=== Export counts (${platform} ${configuration}) ===\n`);
+  const dll = builtDllPath(configuration);
+  const dumpbin = findDumpbin();
+  const out = execSync(`"${dumpbin}" /EXPORTS "${dll}"`, { encoding: "utf-8" });
+
+  // Export-table rows look like: "    1    0 00001000 napi_foo".
+  const rowRe = /^\s+\d+\s+\w+\s+\w+\s+(\S+)/;
+  const names: string[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    const m = rowRe.exec(line);
+    if (m) names.push(m[1]);
+  }
+  const count = (prefix: string): number =>
+    names.filter((n: string) => n.startsWith(prefix)).length;
+
+  console.log(`napi_*:     ${count("napi_")}`);
+  console.log(`jsr_*:      ${count("jsr_")}`);
+  console.log(`node_api_*: ${count("node_api_")}`);
+  console.log(`v8_*:       ${count("v8_")}`);
+  console.log(`total:      ${names.length}`);
+}
+
+// =============================================================================
 // Pack Operation
 // =============================================================================
 
@@ -527,7 +713,20 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
         );
       }
       // PDB is optional (Q2 decision: ship in per-RID .nupkg when present).
-      copyFile("v8jsi.dll.pdb", outDir, ridDir, true);
+      // Like the import lib, the GYP build names it v8jsi.pdb while the
+      // MSBuild legacy emitted v8jsi.dll.pdb; stage it as v8jsi.dll.pdb either
+      // way so the .targets copy rule and the symbol-publish staging resolve.
+      if (fs.existsSync(path.join(outDir, "v8jsi.dll.pdb"))) {
+        copyFile("v8jsi.dll.pdb", outDir, ridDir);
+      } else if (fs.existsSync(path.join(outDir, "v8jsi.pdb"))) {
+        ensureDir(ridDir);
+        fs.copyFileSync(
+          path.join(outDir, "v8jsi.pdb"),
+          path.join(ridDir, "v8jsi.dll.pdb"),
+        );
+      } else {
+        console.log("Skipping copy of v8jsi.dll.pdb (file not found, optional)");
+      }
     }
   }
 
@@ -669,7 +868,14 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // RIDs are present (aggregator-pack scenario). Local single-arch builds
   // produce 1 per-RID .nupkg; the aggregator job produces 4 (meta + 3).
   // ---------------------------------------------------------------------
-  const version = args["semantic-version"] || configJson.version;
+  // The Node.js-source v8jsi NuGet (Microsoft.JavaScript.V8) versions on the
+  // Node.js-aligned 24.x.y scheme carried in config.json.v8jsi_version, which
+  // is distinct from config.json.version (the legacy ReactNative.V8Jsi.Windows
+  // scheme that the old NuGet still ships on). Prefer v8jsi_version; an
+  // explicit --semantic-version always wins, and config.json.version remains
+  // the last-resort fallback.
+  const version =
+    args["semantic-version"] || configJson.v8jsi_version || configJson.version;
   const repoUrl = "https://github.com/microsoft/v8-jsi";
 
   let repoCommit = "unknown";
@@ -736,6 +942,29 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   );
   if (allRidsPresent) {
     packOne("Microsoft.JavaScript.V8.nuspec");
+
+    // Stage each RID's PDB next to the .nupkgs under pkg/symbols/<rid>/ so the
+    // release pipeline can publish them to the Symbol Server directly (no
+    // extracting from inside the .nupkg). The PDB also ships inside each per-RID
+    // .nupkg at runtimes/<rid>/native/ for consumer convenience (Stage-D Q2).
+    // Only done for the full RID set — i.e. the release aggregate; a single-arch
+    // per-cell pack skips it (the symbols are reproduced by the aggregator pack),
+    // which keeps the per-cell CI artifact from carrying a duplicate ~422 MB PDB.
+    for (const rid of stagedRids) {
+      const pdbSrc = path.join(
+        pkgStagingPath,
+        "build",
+        "native",
+        rid,
+        "v8jsi.dll.pdb",
+      );
+      if (fs.existsSync(pdbSrc)) {
+        const symbolsDir = path.join(pkgPath, "symbols", rid);
+        ensureDir(symbolsDir);
+        fs.copyFileSync(pdbSrc, path.join(symbolsDir, "v8jsi.dll.pdb"));
+        console.log(`Staged ${rid} PDB under pkg/symbols/${rid}/.`);
+      }
+    }
   } else {
     const missing = ALL_WINDOWS_RIDS.filter(
       (r) =>
@@ -749,6 +978,43 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   }
 
   console.log(`\nNuGet packages created in ${pkgPath}`);
+}
+
+// =============================================================================
+// Smoke Operation
+// =============================================================================
+
+// Build the real-consumer test-harness against the freshly-packed per-RID
+// .nupkg via test-harness/run-smoke.ps1. The harness is x64-only; it builds an
+// x64 consumer in both Release and Debug against the Release v8jsi.dll (the
+// Debug/Release leg exercises the Hybrid CRT cross-CRT boundary).
+function runSmoke(outputPath: string, platforms: string[]): void {
+  console.log("\n=== Smoke (real-consumer) ===\n");
+
+  if (!platforms.includes("x64")) {
+    console.log(
+      "Skipping smoke: the harness is x64-only and x64 was not targeted.",
+    );
+    return;
+  }
+
+  const smokeScript = path.join(repoRoot, "test-harness", "run-smoke.ps1");
+  const pkgDir = path.join(outputPath, "pkg");
+  for (const consumerConfig of ["Release", "Debug"]) {
+    run("powershell.exe", [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      `"${smokeScript}"`,
+      "-Configuration",
+      consumerConfig,
+      "-Platform",
+      "x64",
+      "-PkgDir",
+      `"${pkgDir}"`,
+    ]);
+  }
 }
 
 // =============================================================================
@@ -831,7 +1097,7 @@ async function main(): Promise<void> {
         cleanBuild(configuration);
       }
       if (args.build) {
-        runBuild(platform, configuration);
+        await runBuild(platform, configuration, toolsPath);
       }
       if (args.test) {
         runTests(platform, configuration);
@@ -839,12 +1105,23 @@ async function main(): Promise<void> {
       if (args.binskim) {
         await runBinSkim(platform, configuration, toolsPath);
       }
+      if (args["check-crt"]) {
+        reportCrtDependencies(platform, configuration);
+      }
+      if (args["count-exports"]) {
+        reportExports(platform, configuration);
+      }
     }
   }
 
   // Package operation (after all builds)
   if (args.pack) {
     packNuGet(outputPath, platforms, configurations);
+  }
+
+  // Real-consumer smoke (after packing)
+  if (args.smoke) {
+    runSmoke(outputPath, platforms);
   }
 
   // Report elapsed time

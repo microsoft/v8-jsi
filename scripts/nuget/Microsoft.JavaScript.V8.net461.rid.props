@@ -1,0 +1,8 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- If V8JsiCopyDLL == False then don't copy the native v8jsi.dll. -->
+    <V8JsiCopyDLL Condition=" '$(V8JsiCopyDLL)' == '' ">True</V8JsiCopyDLL>
+  </PropertyGroup>
+
+</Project>

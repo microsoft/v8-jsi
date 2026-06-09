@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.JavaScript.V8</id>
+    <version>$version$</version>
+    <description>JavaScript Interface (JSI) implementation backed by Google V8. Ships an ABI-safe C runtime API plus consumer-side C++ adapters for embedding V8 in native applications.</description>
+    <title>Microsoft V8 JSI</title>
+    <authors>Microsoft</authors>
+    <projectUrl>https://github.com/microsoft/v8-jsi</projectUrl>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <copyright>&#169; Microsoft Corporation. All rights reserved.</copyright>
+    <repository type="git" url="$repoUrl$" branch="$repoBranch$" commit="$repoCommit$" />
+    <language>en-US</language>
+    <readme>README.md</readme>
+    <tags>native JavaScript JS V8 JSI library Microsoft react-native</tags>
+    <!-- Two groups: netstandard2.0 silences NU5128 (paired with the
+         lib/netstandard2.0/_._ placeholder) and serves PackageReference /
+         .NET consumers; native serves packages.config consumers (NuGet's
+         framework-matching falls through to "native" for C++ projects). -->
+    <dependencies>
+      <group targetFramework="netstandard2.0">
+        <dependency id="Microsoft.JavaScript.V8.win-x86" version="$version$" />
+        <dependency id="Microsoft.JavaScript.V8.win-x64" version="$version$" />
+        <dependency id="Microsoft.JavaScript.V8.win-arm64" version="$version$" />
+      </group>
+      <group targetFramework="native">
+        <dependency id="Microsoft.JavaScript.V8.win-x86" version="$version$" />
+        <dependency id="Microsoft.JavaScript.V8.win-x64" version="$version$" />
+        <dependency id="Microsoft.JavaScript.V8.win-arm64" version="$version$" />
+      </group>
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="$nugetroot$\_._" target="lib\netstandard2.0\" />
+    <file src="$nugetroot$\LICENSE" target="LICENSE" />
+    <file src="$nugetroot$\NOTICE.txt" target="" />
+    <file src="$nugetroot$\README.md" target="" />
+  </files>
+</package>
