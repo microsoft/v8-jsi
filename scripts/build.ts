@@ -20,32 +20,22 @@ const srcDir = path.join(repoRoot, "src");
 
 const binskimPackageName = "Microsoft.CodeAnalysis.BinSkim";
 const binskimVersion = "4.4.9";
-// BinSkim is installed from the ms/react-native-public Azure DevOps feed, which
-// proxies nuget.org through an authenticated upstream. The locked-down CI pools
-// blackhole api.nuget.org, so the BinSkim gate authenticates to this feed via
-// NuGetAuthenticate@1 + the 'Nuget - ms/react-native-public' service connection
-// (see .ado/windows-build-new.yml). Anonymous reads only see versions already
-// saved to the feed; the first authenticated install pulls BinSkim from the
-// upstream and caches it. Override with BINSKIM_NUGET_SOURCE for a local run
-// against a different feed (e.g. https://api.nuget.org/v3/index.json directly).
+// Install BinSkim from the ms/react-native-public ADO feed, not nuget.org, which
+// the locked-down CI pools blackhole. The feed proxies nuget.org via an
+// authenticated upstream, so reaching it needs NuGetAuthenticate + the
+// 'Nuget - ms/react-native-public' service connection. Override for local runs.
 const binskimNuGetSource =
   process.env.BINSKIM_NUGET_SOURCE ??
   "https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json";
 
-// BinSkim rules accepted as residuals on v8jsi.dll. Keep this in sync with the
-// per-RID signature suppressions in .ado/guardian/sdl/.gdnsuppress (which the
-// official-CI 1ES Guardian post-analysis consumes). This list lets the
-// build.ts --binskim PR gate agree with that verdict: it fails the build on any
-// error/warning whose rule is NOT listed here, so a real regression (e.g. CFG,
-// ASLR, or Spectre dropping off) breaks a PR, while the known upstream/toolchain
-// residuals do not. Rationale per rule lives in the .gdnsuppress justifications.
-//   BA2004 - MD5 source hashing in vendored V8 static libs (clang-cl; below M365
-//            threshold; v8jsi's own objs are SHA-256 via /ZH:SHA_256).
-//   BA2014 - stack-protector "disabled" on 3 buffer-less V8 default-ctor-closure
-//            thunks (false positive; upstream V8).
-//   BA2018 - SafeSEH absent on x86 (clang-cl emits no .sxdata; V8 x86 asm).
-//   BA2025 - CET shadow stack off (intentionally reverted; crashes V8 heap
-//            snapshot; below M365 threshold).
+// BinSkim rules accepted as residuals on v8jsi.dll (full rationale in the
+// per-RID suppressions in .ado/guardian/sdl/.gdnsuppress -- keep in sync). The
+// --binskim gate fails on any finding whose rule is NOT listed, so a real
+// regression (CFG/ASLR/Spectre dropping off) still breaks the build.
+//   BA2004 - MD5 source hashing in vendored V8 libs (our objs are SHA-256).
+//   BA2014 - false-positive stack-protector flag on buffer-less V8 thunks.
+//   BA2018 - x86 SafeSEH unsupported by clang-cl.
+//   BA2025 - CET shadow stack off (reverted; crashed V8 snapshot).
 const acceptedBinSkimRules = new Set(["BA2004", "BA2014", "BA2018", "BA2025"]);
 const nugetDownloadUrl =
   "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";

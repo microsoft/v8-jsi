@@ -92,16 +92,9 @@
         # /Qspectre  -- Spectre v1 mitigation (BA2024). Auto-pulls
         #               Spectre-mitigated runtime libs when the VS
         #               "Spectre Mitigations" component is installed.
-        # /ZH:SHA_256 -- secure source-code hashing (BA2004). clang-cl 19.1.5
-        #               defaults to MD5 source hashes in CodeView (an insecure
-        #               checksum); /ZH:SHA_256 switches them to SHA-256.
-        #               Verified clang-cl honors it (ChecksumKind MD5 -> SHA256).
-        #               Mirrors hermes-windows' MSVC flag set. This clears the
-        #               BA2004 *error* on v8jsi.dll's own directly-linked .obj
-        #               files; the vendored V8/abseil/zlib static libs are
-        #               compiled by Node's gyp (outside this gypi) and remain
-        #               MD5 -- that residual is a BA2004 *Note* (below the M365
-        #               Warning threshold), so it does not break the build.
+        # /ZH:SHA_256 -- secure source hashing (BA2004). clang-cl defaults to
+        #               MD5 in CodeView; this switches to SHA-256. (Vendored V8
+        #               libs stay MD5 -- a sub-threshold BA2004 Note, not error.)
         'AdditionalOptions': [ '/guard:cf', '/Qspectre', '/ZH:SHA_256' ],
         # /GS -- buffer security cookies (BA2011). Already true via
         # common.gypi globally; pinned here for clarity.
@@ -146,18 +139,12 @@
         },
       },
     },
-    # Spectre-mitigated CRT (BA2024). BinSkim flags the *static MSVC CRT*
-    # objects (libcmt / libcpmt / libvcruntime) linked into v8jsi.dll as
-    # lacking Spectre mitigation -- our own code is clang-cl-compiled and not
-    # flagged, only the MSVC runtime is. clang-cl ignores /Qspectre's
-    # auto-link of the Spectre CRT (that is an MSVC cl/link behavior driven by
-    # the MSBuild SpectreMitigation property, which the Node.js gyp path does
-    # not set), so the regular CRT gets linked. Prepending the toolset's
-    # `lib\spectre\<arch>` directory to the linker's library search path makes
-    # the linker resolve the same-named CRT libs from the Spectre-mitigated
-    # variants instead. Requires the VS "C++ Spectre-mitigated libs" component
-    # on the build image (present on the CI pool). $(VCToolsInstallDir) is the
-    # standard MSBuild macro for the active MSVC toolset root.
+    # Link the Spectre-mitigated MSVC CRT (BA2024). BinSkim flags the static CRT
+    # objects (libcmt/libcpmt/libvcruntime) -- not our clang-cl code -- as lacking
+    # Spectre mitigation, and clang-cl does not auto-link the Spectre CRT the way
+    # cl/link does. Prepending lib\spectre\<arch> makes the linker pick the
+    # mitigated variants of the same-named CRT libs. Needs the VS
+    # "C++ Spectre-mitigated libs" component (present on the CI pool).
     'conditions': [
       ['target_arch=="x64"', {
         'msvs_settings': {
