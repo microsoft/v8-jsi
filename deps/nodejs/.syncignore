@@ -111,6 +111,17 @@
 /deps/v8/samples/
 /deps/v8/docs/
 
+# ── deps/v8/tools/ — drop V8 dev/debug JS tooling, not built ────────
+# turbolizer (IR visualizer) and clusterfuzz/js_fuzzer (fuzzing harness)
+# are developer tools, never compiled into v8jsi.dll. Their npm deps —
+# and the root tools/package.json — raise Component Governance CVE alerts
+# for code we never ship. The rest of tools/ (torque inputs, testrunner)
+# stays.
+/deps/v8/tools/turbolizer/
+/deps/v8/tools/clusterfuzz/
+/deps/v8/tools/package.json
+/deps/v8/tools/package-lock.json
+
 # ── deps/v8/third_party/ — drop POSIX-only / unreferenced sub-libs ─
 /deps/v8/third_party/valgrind/
 /deps/v8/third_party/ittapi/
@@ -127,6 +138,13 @@
 /deps/uv/docs/
 /deps/uv/img/
 /deps/uv/src/unix/
+
+# ── deps/zlib/google/test/ — Chromium zip wrapper test corpus ──────
+# Node's deps/zlib/google/ (zip.cc, compression_utils, …) is unused by
+# our build — no .gyp references it; V8 uses its own zlib copy under
+# deps/v8/third_party/zlib. The test/ data is deliberately-malformed
+# "evil" zips that trip the supply-chain scanner (Phalanx/Armory).
+/deps/zlib/google/test/
 
 # ── deps/cares/ — drop docs & autoconf macros ──────────────────────
 /deps/cares/docs/
