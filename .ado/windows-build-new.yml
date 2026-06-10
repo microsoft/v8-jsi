@@ -50,35 +50,6 @@ steps:
     # lets a Debug-CRT consumer link the Release DLL), so this runs Release-only.
     # ---------------------------------------------------------------------
   - ${{ if eq(parameters.buildConfiguration, 'Release') }}:
-      # BinSkim security gate on the shipping v8jsi.dll. build.ts --binskim runs
-      # BinSkim, parses the SARIF, and fails only on findings whose rule is not an
-      # accepted residual (acceptedBinSkimRules in build.ts, kept in sync with
-      # .ado/guardian/sdl/.gdnsuppress) -- so a real regression (CFG/ASLR/Spectre
-      # dropping off, stack protection genuinely disabled in our code, ...) breaks
-      # the build, while the known upstream/toolchain residuals (BA2014/BA2018/
-      # BA2004/BA2025) do not. This brings the BinSkim check to PR validation; the
-      # official-CI 1ES Guardian post-analysis still runs its own BinSkim with the
-      # .gdnsuppress as the compliance source of truth. Release-only (the Debug DLL
-      # does not ship).
-      #
-      # build.ts installs BinSkim from the ms/react-native-public ADO feed (the
-      # locked-down pools blackhole api.nuget.org). That feed is cross-org, so
-      # NuGetAuthenticate wires the credential provider to it via the same
-      # 'Nuget - ms/react-native-public' service connection used to publish in
-      # windows-release.yml; the first authenticated install pulls BinSkim from
-      # the feed's nuget.org upstream and caches it.
-    - task: NuGetAuthenticate@1
-      displayName: Authenticate to ms/react-native-public (BinSkim feed)
-      inputs:
-        nuGetServiceConnections: 'Nuget - ms/react-native-public'
-
-    - pwsh: |
-        node scripts/build.ts --no-build --no-test --binskim `
-            --platform ${{parameters.buildPlatform}} `
-            --configuration ${{parameters.buildConfiguration}}
-      displayName: BinSkim gate via scripts/build.ts
-      workingDirectory: $(Build.SourcesDirectory)
-
     - pwsh: |
         node scripts/build.ts --no-build --no-test --pack `
             --platform ${{parameters.buildPlatform}} `
