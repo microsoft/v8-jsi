@@ -73,8 +73,6 @@ extends:
         analyzeTarget: |
           $(Build.StagingDirectory)\out\pkg-staging\**\*.dll
           $(Build.StagingDirectory)\out\pkg-staging\**\*.exe
-      componentgovernance:
-        ignoreDirectories: $(Build.SourcesDirectory)\website
       eslint:
         enableExclusions: true
         # This repo does not ship any JavaScript code. But it has many test cases for
@@ -232,7 +230,12 @@ extends:
             artifactName: published-packages
 
         steps:
-        - checkout: none
+          # Packing itself only needs the downloaded artifacts, but the 1ES SDL
+          # auto-baselining pre-check needs the repo (.git + guardian_baselines.
+          # gdnbaselines) on disk. With `checkout: none` it can't find them and
+          # warns "repo is not checked out". Check out source so the pre-check
+          # behaves like the V8JsiCreateNugetNew job below.
+        - checkout: self
 
           # The substitution tags in the nuspec require that we use at least NuGet 4.6.
         - task: NuGetToolInstaller@1
