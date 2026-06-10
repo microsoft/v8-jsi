@@ -60,6 +60,18 @@ steps:
       # official-CI 1ES Guardian post-analysis still runs its own BinSkim with the
       # .gdnsuppress as the compliance source of truth. Release-only (the Debug DLL
       # does not ship).
+      #
+      # build.ts installs BinSkim from the ms/react-native-public ADO feed (the
+      # locked-down pools blackhole api.nuget.org). That feed is cross-org, so
+      # NuGetAuthenticate wires the credential provider to it via the same
+      # 'Nuget - ms/react-native-public' service connection used to publish in
+      # windows-release.yml; the first authenticated install pulls BinSkim from
+      # the feed's nuget.org upstream and caches it.
+    - task: NuGetAuthenticate@1
+      displayName: Authenticate to ms/react-native-public (BinSkim feed)
+      inputs:
+        nuGetServiceConnections: 'Nuget - ms/react-native-public'
+
     - pwsh: |
         node scripts/build.ts --no-build --no-test --binskim `
             --platform ${{parameters.buildPlatform}} `

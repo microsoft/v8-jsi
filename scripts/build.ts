@@ -20,7 +20,17 @@ const srcDir = path.join(repoRoot, "src");
 
 const binskimPackageName = "Microsoft.CodeAnalysis.BinSkim";
 const binskimVersion = "4.4.9";
-const binskimNuGetSource = "https://api.nuget.org/v3/index.json";
+// BinSkim is installed from the ms/react-native-public Azure DevOps feed, which
+// proxies nuget.org through an authenticated upstream. The locked-down CI pools
+// blackhole api.nuget.org, so the BinSkim gate authenticates to this feed via
+// NuGetAuthenticate@1 + the 'Nuget - ms/react-native-public' service connection
+// (see .ado/windows-build-new.yml). Anonymous reads only see versions already
+// saved to the feed; the first authenticated install pulls BinSkim from the
+// upstream and caches it. Override with BINSKIM_NUGET_SOURCE for a local run
+// against a different feed (e.g. https://api.nuget.org/v3/index.json directly).
+const binskimNuGetSource =
+  process.env.BINSKIM_NUGET_SOURCE ??
+  "https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json";
 
 // BinSkim rules accepted as residuals on v8jsi.dll. Keep this in sync with the
 // per-RID signature suppressions in .ado/guardian/sdl/.gdnsuppress (which the
@@ -488,6 +498,7 @@ async function runBinSkim(
       `"${binskimNuGetSource}"`,
       "-OutputDirectory",
       `"${binskimDir}"`,
+      "-NonInteractive",
     ]);
   }
 
