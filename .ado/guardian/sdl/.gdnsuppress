@@ -1,0 +1,60 @@
+{
+  "hydrated": true,
+  "properties": {
+    "helpUri": "https://eng.ms/docs/microsoft-security/security/azure-security/cloudai-security-fundamentals-engineering/security-integration/guardian-wiki/microsoft-guardian/general/suppressions"
+  },
+  "version": "1.0.0",
+  "suppressionSets": {
+    "default": {
+      "name": "default",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "lastUpdatedDate": "2026-06-09 00:00:00Z"
+    }
+  },
+  "results": {
+    "ed4c23a4255e855c80890390f7876daf8065011da61af9c56ea1456fb73a95a8": {
+      "signature": "ed4c23a4255e855c80890390f7876daf8065011da61af9c56ea1456fb73a95a8",
+      "target": "out-new/pkg-staging/build/native/win-x64/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2014 fires on three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 (DefaultPlatform, CpuProfilingOptions, SnapshotCreator), emitted into the vendored V8 static libs. The thunks carry no stack buffers, so /GS inserts no cookie and there is nothing to guard -- a false positive, not disabled protection in v8-jsi code. They come from V8's own compilation, so we cannot reflag them without patching vendored V8 (/sdl on V8 did not clear them and costs engine-wide perf). Accepted as a residual; the actionable rules (CFG, ASLR, NX, Spectre, secure hashing) are enabled via src/v8jsi_settings.gypi. Signature is per-RID."
+    },
+    "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f": {
+      "signature": "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2014 on win-x86 v8jsi.dll -- same root cause as the win-x64 entry: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
+    },
+    "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7": {
+      "signature": "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on win-x86 v8jsi.dll. SafeSEH is x86-only and needs every linked object to register safe handlers (.sxdata). clang-cl (required by Node.js >= 24) emits none, and V8's x86 build links hand-written asm (push_registers_asm.obj) that is not SafeSEH-aware, so the linker can't produce a /SAFESEH image. A clang-cl/x86 toolchain limitation, not a v8-jsi defect; x86-only. Accepted as a residual."
+    },
+    "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9": {
+      "signature": "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9",
+      "target": "out-new/pkg-staging/build/native/win-arm64/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-06-09 00:00:00Z",
+      "justification": "BA2014 on win-arm64 v8jsi.dll -- same root cause as the win-x64/win-x86 entries: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
+    }
+  }
+}

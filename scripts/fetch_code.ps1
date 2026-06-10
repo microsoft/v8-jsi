@@ -78,7 +78,7 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
 if ($env:BUILD_BUILDNUMBER) {
     $buildVersion = $env:BUILD_BUILDNUMBER
     if (!$buildVersion.EndsWith($v8Version.Replace('.', '_'))) {
-        $buildVersion = $buildVersion + " - " + $version.Major + "." + $version.Minor + "." + $version.Build + "." + $v8Version.Replace('.', '_')
+        $buildVersion = $buildVersion + " - " + $config.v8jsi_version + " - " + $version.Major + "." + $version.Minor + "." + $version.Build + "." + $v8Version.Replace('.', '_')
         Write-Host "##vso[build.updateBuildNumber]$buildVersion"
     }
 }

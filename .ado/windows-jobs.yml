@@ -52,12 +52,23 @@ extends:
     template: v1/Office.Unofficial.PipelineTemplate.yml@OfficePipelineTemplates
 
   parameters:
+    # 1ES auto-injects PREfast (/analyze) into every MSBuild C++ compile, but the
+    # Node.js >= 24 build uses clang-cl, which rejects /analyze and fails. Only
+    # this flag gates the injection (sdl.prefast.enabled does not). CodeQL still
+    # covers compiled static analysis.
+    featureFlags:
+      autoEnablePREfastWithNewRuleset: false
     settings:
       ${{ if eq(parameters.isPublish, false) }}:
         skipBuildTagsForGitHubPullRequests: true
     pool:
       name: fabric-internal-pool-large
     sdl:
+      # Also disable the PREfast scan itself -- clang-cl can't run /analyze. (The
+      # injection above is the actual build-breaker; this is belt-and-suspenders.)
+      prefast:
+        enabled: false
+        justificationForDisabling: "Build uses clang-cl (required by Node.js >= 24); MSVC PREfast /analyze is incompatible. Compiled static analysis is covered by CodeQL."
       binskim:
         analyzeTarget: |
           $(Build.StagingDirectory)\out\pkg-staging\**\*.dll
@@ -186,10 +197,10 @@ extends:
               addToPath: true
               architecture: 'x64'
 
-          - task: NodeTool@0
+          - task: UseNode@1
             displayName: Use Node.js 24.x
             inputs:
-              versionSpec: '24.x'
+              version: '24.x'
 
             # The Release cells pack (build.ts --pack) and smoke (run-smoke.ps1)
             # both need nuget.exe on PATH.
@@ -328,10 +339,10 @@ extends:
           # (3 per-RID + 1 meta) for Microsoft.JavaScript.V8.
         - checkout: self
 
-        - task: NodeTool@0
+        - task: UseNode@1
           displayName: Use Node.js 24.x
           inputs:
-            versionSpec: '24.x'
+            version: '24.x'
 
         - task: NuGetToolInstaller@1
           displayName: Install NuGet tools
