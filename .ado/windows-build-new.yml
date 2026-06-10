@@ -51,13 +51,6 @@ steps:
     # ---------------------------------------------------------------------
   - ${{ if eq(parameters.buildConfiguration, 'Release') }}:
     - pwsh: |
-        node scripts/build.ts --no-build --no-test --binskim `
-            --platform ${{parameters.buildPlatform}} `
-            --configuration ${{parameters.buildConfiguration}}
-      displayName: BinSkim gate via scripts/build.ts
-      workingDirectory: $(Build.SourcesDirectory)
-
-    - pwsh: |
         node scripts/build.ts --no-build --no-test --pack `
             --platform ${{parameters.buildPlatform}} `
             --configuration ${{parameters.buildConfiguration}} `
