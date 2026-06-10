@@ -5,6 +5,16 @@ pr:
   - master
   - "*-stable"
 
+variables:
+    # ADO treats GitHub-sourced builds as external, so Guardian emits an
+    # informational "not supported for forked repositories" warning; suppress it
+    # (matches RNW, which sets this globally; 1ES already auto-suppresses it for
+    # the SDL Sources Analysis job, but not the other Guardian tasks). Declared on
+    # the entry pipeline because a root `variables` block is not valid in the
+    # windows-jobs.yml extends-template.
+  - name: GDN_SUPPRESS_FORKED_BUILD_WARNING
+    value: true
+
 extends:
   template: windows-jobs.yml@self
   parameters:

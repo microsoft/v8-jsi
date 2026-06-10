@@ -7,6 +7,11 @@ pr: none
 variables:
   - name: tags
     value: production,externalfacing
+    # ADO treats GitHub-sourced builds as external, so Guardian emits an
+    # informational "not supported for forked repositories" warning; suppress it
+    # (matches RNW; 1ES auto-suppresses it only for the SDL Sources Analysis job).
+  - name: GDN_SUPPRESS_FORKED_BUILD_WARNING
+    value: true
 
 extends:
   template: windows-jobs.yml@self

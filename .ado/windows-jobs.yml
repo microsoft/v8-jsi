@@ -36,14 +36,6 @@ parameters:
         BuildPlatform: arm64
         AppPlatform: win32
 
-variables:
-    # Guardian/SDL tools cannot run on builds from forked GitHub repositories
-    # (e.g. external PR validation), where they are skipped. Suppress the
-    # informational "not supported for forked repositories" warning; it has no
-    # effect on the official (non-fork) CI, where Guardian runs normally.
-  - name: GDN_SUPPRESS_FORKED_BUILD_WARNING
-    value: true
-
 resources:
   repositories:
     # The repo for the Office compliant build pipeline templates.
