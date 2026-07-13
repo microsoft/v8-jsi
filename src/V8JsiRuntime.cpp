@@ -269,6 +269,19 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
     create_params_.constraints = constraints;
   }
 
+  // If the embedder supplied a startup snapshot, point the isolate at it so the
+  // heap is materialized from the blob instead of the built-in startup data. The
+  // blob bytes are owned by args_.startupSnapshotBlob (kept alive for the runtime
+  // lifetime); snapshot_startup_data_ is the descriptor V8 references.
+  if (args_.startupSnapshotBlob && args_.startupSnapshotBlob->size() > 0) {
+    snapshot_startup_data_.data = reinterpret_cast<const char *>(args_.startupSnapshotBlob->data());
+    snapshot_startup_data_.raw_size = static_cast<int>(args_.startupSnapshotBlob->size());
+    create_params_.snapshot_blob = &snapshot_startup_data_;
+    // The snapshot captures only pure-JS state; no native callbacks are reachable
+    // from the serialized heap, so no external-reference table is needed.
+    create_params_.external_references = nullptr;
+  }
+
   isolate_ = v8::Isolate::Allocate();
   if (isolate_ == nullptr)
     std::abort();
@@ -540,9 +553,18 @@ v8::Local<v8::Context> V8Runtime::CreateContext(v8::Isolate *isolate) {
 
   TRACEV8RUNTIME_VERBOSE("CreateContext", TraceLoggingString("start", "op"));
 
-  v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
-
-  v8::Local<v8::Context> context = v8::Context::New(isolate, NULL, global);
+  v8::Local<v8::Context> context;
+  if (args_.startupSnapshotBlob && args_.startupSnapshotBlob->size() > 0) {
+    // The isolate was created from a custom startup snapshot whose DEFAULT
+    // context carries the baked-in globalThis state. Cloning it with a plain
+    // Context::New(isolate) — crucially WITHOUT a global template, which would
+    // make V8 build a fresh global and drop that state — restores the globals
+    // so the embedded script need not be re-run.
+    context = v8::Context::New(isolate);
+  } else {
+    v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
+    context = v8::Context::New(isolate, NULL, global);
+  }
   context->SetAlignedPointerInEmbedderData(1, this);
 
   TRACEV8RUNTIME_VERBOSE("CreateContext", TraceLoggingString("end", "op"));

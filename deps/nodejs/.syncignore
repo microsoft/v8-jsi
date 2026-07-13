@@ -7,12 +7,10 @@
 # closure does not — non-Windows OpenSSL arches, V8 test corpus,
 # Node.js JS test corpus, doc/, pure-JS deps, etc.
 #
-# Phase 2 (libnode.dll) may need to un-prune some of these:
-# - ICU if libnode ships with Intl (Phase 3 plan).
+# A future libnode.dll build may need to un-prune some of these:
+# - ICU if libnode ships with Intl.
 # - Other libnode-graph deps stay pruned because libnode.dll
 #   doesn't need their tests / docs / openssl-cli / fuzz corpora.
-#
-# See design-part-b.md for the rationale and per-line evidence.
 
 # ── CI/CD configurations (already excluded; kept for visibility) ────
 .configurations/

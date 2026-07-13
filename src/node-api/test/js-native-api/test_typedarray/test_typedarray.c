@@ -100,13 +100,28 @@ static napi_value External(napi_env env, napi_callback_info info) {
   externalData[2] = 2;
 
   napi_value output_buffer;
-  NODE_API_CALL(env,
-                napi_create_external_arraybuffer(env,
-                                                 externalData,
-                                                 nElem * sizeof(int8_t),
-                                                 FinalizeCallback,
-                                                 NULL,  // finalize_hint
-                                                 &output_buffer));
+  napi_status status =
+      napi_create_external_arraybuffer(env,
+                                       externalData,
+                                       nElem * sizeof(int8_t),
+                                       FinalizeCallback,
+                                       NULL,  // finalize_hint
+                                       &output_buffer);
+  if (status == napi_no_external_buffers_allowed) {
+    // Under the V8 sandbox external backing stores are disallowed
+    // (napi_create_external_* returns this status). Mirror the node-addon-api
+    // Buffer::NewOrCopy fallback: copy into an in-cage ArrayBuffer and release
+    // the source immediately.
+    void* copy = NULL;
+    NODE_API_CALL(
+        env,
+        napi_create_arraybuffer(
+            env, nElem * sizeof(int8_t), &copy, &output_buffer));
+    memcpy(copy, externalData, nElem * sizeof(int8_t));
+    FinalizeCallback(env, externalData, NULL);
+  } else {
+    NODE_API_CALL(env, status);
+  }
 
   napi_value output_array;
   NODE_API_CALL(
@@ -120,9 +135,18 @@ static napi_value External(napi_env env, napi_callback_info info) {
 static napi_value NullArrayBuffer(napi_env env, napi_callback_info info) {
   static void* data = NULL;
   napi_value arraybuffer;
-  NODE_API_CALL(
-      env,
-      napi_create_external_arraybuffer(env, data, 0, NULL, NULL, &arraybuffer));
+  napi_status status =
+      napi_create_external_arraybuffer(env, data, 0, NULL, NULL, &arraybuffer);
+  if (status == napi_no_external_buffers_allowed) {
+    // Sandbox: the external path (which would create a detached buffer for a
+    // NULL pointer) is unavailable; produce an equivalent detached,
+    // zero-length ArrayBuffer.
+    void* copy = NULL;
+    NODE_API_CALL(env, napi_create_arraybuffer(env, 0, &copy, &arraybuffer));
+    NODE_API_CALL(env, napi_detach_arraybuffer(env, arraybuffer));
+  } else {
+    NODE_API_CALL(env, status);
+  }
   return arraybuffer;
 }
 

@@ -29,6 +29,7 @@
 #include "jsi_abi/jsi_abi.h"
 #include "jsi_abi/jsi_abi_helpers.h"
 #include "jsi_abi/v8_jsi_config.h"
+#include "jsi_abi/v8_snapshot_container.h"
 #include "jsi_abi/jsi_abi_v8_internal.h"
 #include "../v8_core.h"
 #include "../MurmurHash.h"
@@ -43,6 +44,7 @@
 #include <vector>
 #include <memory>
 #include <cstring>
+#include <cstdlib>
 #include <cstdio>
 #include <list>
 #include <optional>
@@ -60,7 +62,7 @@ namespace abi = jsi::abi;
 // jsi_config`. The struct definition lives here in the V8 implementation —
 // only setter functions cross the DLL boundary.
 //
-// Mirrors v8runtime::V8RuntimeArgs field-for-field so a future W2
+// Mirrors v8runtime::V8RuntimeArgs field-for-field so a future revision
 // applyArgs() helper can simply call the setters one-to-one.
 struct jsi_config_s {
   // Heap / threading
@@ -68,7 +70,7 @@ struct jsi_config_s {
   size_t maximum_heap_size_in_bytes{0};
   uint8_t thread_pool_size{0};
 
-  // Inspector / debugger (W5 — wired into JsiRuntimeState::create).
+  // Inspector / debugger settings applied by JsiRuntimeState::create.
   std::string debugger_runtime_name;
   uint16_t inspector_port{9223};
   bool enable_inspector{false};
@@ -81,10 +83,10 @@ struct jsi_config_s {
   // GC
   bool enable_gc_api{false};
 
-  // Concurrency (stored for future W6; currently inert)
+  // Concurrency (stored for future revision; currently inert)
   bool enable_multi_thread{false};
 
-  // Tracing (stored for future W6; currently inert except for system instr)
+  // Tracing (stored for future revision; currently inert except for system instr)
   bool enable_jit_tracing{false};
   bool enable_message_tracing{false};
   bool enable_gc_tracing{false};
@@ -95,7 +97,7 @@ struct jsi_config_s {
   // config — they are set via the process-level v8_jsi_set_v8_flags before the
   // first runtime. See v8_jsi_config.h.
 
-  // Script cache (W3) — null callbacks mean "no cache".
+  // Script cache — null callbacks mean "no cache".
   // The config takes ownership of script_cache_data when the setter is called.
   // On v8_create_runtime the runtime takes over (we clear these pointers so
   // ~jsi_config_s does not double-delete). If the config is destroyed before
@@ -106,7 +108,7 @@ struct jsi_config_s {
   jsi_data_delete_cb script_cache_data_delete_cb{nullptr};
   void *script_cache_deleter_data{nullptr};
 
-  // Task runner (W4) — null callbacks mean "no task runner".
+  // Task runner — null callbacks mean "no task runner".
   // Same lifetime contract as the script-cache fields above: config takes
   // ownership at setter time; on v8_create_runtime the runtime takes over
   // (these pointers are cleared); the deleter runs exactly once via the
@@ -118,12 +120,26 @@ struct jsi_config_s {
   jsi_data_delete_cb task_runner_data_delete_cb{nullptr};
   void *task_runner_deleter_data{nullptr};
 
+  // Startup-snapshot blob — null means none. Same lifetime contract as the
+  // fields above: config owns it at setter time; on v8_create_runtime the
+  // runtime takes over (these are cleared); ~jsi_config_s fires the deleter only
+  // if no runtime claimed it.
+  const uint8_t *startup_snapshot_blob{nullptr};
+  size_t startup_snapshot_blob_size{0};
+  jsi_data_delete_cb startup_snapshot_delete_cb{nullptr};
+  void *startup_snapshot_deleter_data{nullptr};
+
   ~jsi_config_s() {
     if (script_cache_data_delete_cb) {
       script_cache_data_delete_cb(script_cache_data, script_cache_deleter_data);
     }
     if (task_runner_data_delete_cb) {
       task_runner_data_delete_cb(task_runner_data, task_runner_deleter_data);
+    }
+    if (startup_snapshot_delete_cb) {
+      startup_snapshot_delete_cb(
+          const_cast<uint8_t *>(startup_snapshot_blob),
+          startup_snapshot_deleter_data);
     }
   }
 };
@@ -139,7 +155,7 @@ struct AbiHostObjectProxy;
 struct HostFunctionContext;
 
 //==============================================================================
-// W4: TaskRunner adapter (C-callbacks → v8rt::TaskRunner)
+// TaskRunner adapter (C-callbacks → v8rt::TaskRunner)
 //==============================================================================
 //
 // Internal-only adapter held inside v8rt::IsolateData via shared_ptr. The
@@ -434,13 +450,20 @@ struct JsiRuntimeState : public jsi_runtime {
   // Read by V8Scope to construct an optional Locker before entering scope.
   bool enableMultiThread{false};
 
-  // Script cache (W3) — copied from the config in create(). Runtime owns
+  // Script cache — copied from the config in create(). Runtime owns
   // script_cache_data after handoff: the deleter runs in ~JsiRuntimeState.
   void *script_cache_data{nullptr};
   v8_jsi_script_cache_load_cb script_cache_load_cb{nullptr};
   v8_jsi_script_cache_store_cb script_cache_store_cb{nullptr};
   jsi_data_delete_cb script_cache_data_delete_cb{nullptr};
   void *script_cache_deleter_data{nullptr};
+
+  // Startup-snapshot blob — copied from the config in create(). The runtime
+  // owns the bytes after handoff: V8 references them for the isolate's whole
+  // lifetime, so the deleter runs in ~JsiRuntimeState AFTER isolate disposal.
+  const uint8_t *startup_snapshot_blob{nullptr};
+  jsi_data_delete_cb startup_snapshot_delete_cb{nullptr};
+  void *startup_snapshot_deleter_data{nullptr};
 
   // Error state (v2 pattern)
   jsi_value pendingJSError{}; // JS exception value (inline tagged union)
@@ -455,21 +478,21 @@ struct JsiRuntimeState : public jsi_runtime {
   v8::Persistent<v8::Private> hostFunctionKey;
   std::list<HostFunctionContext *> hostFunctionContexts;
 
-  // W8: unhandled-promise tracking. Migrated from the legacy V8Runtime so the
+  // unhandled-promise tracking. Migrated from the legacy V8Runtime so the
   // Node-API path (jsr_has_unhandled_promise_rejection /
   // jsr_get_and_clear_last_unhandled_promise_rejection) keeps working.
   // The PromiseRejectCallback finds the runtime via context embedder slot 0.
   bool ignore_unhandled_promises{false};
   std::unique_ptr<v8rt::UnhandledPromiseRejection> last_unhandled_promise;
 
-  // W8: optional attached-owner hook. v8_attach_node_api stores the
+  // optional attached-owner hook. v8_attach_node_api stores the
   // V8RuntimeEnv pointer and a destroy callback here so the Node-API surface
   // is torn down before V8 state is disposed in ~JsiRuntimeState.
   void *attached_owner{nullptr};
   v8rt_internal::RuntimeAttachedDestroyCb attached_owner_destroy{nullptr};
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  // W5: per-runtime inspector agent. nullptr when enable_inspector is false.
+  // per-runtime inspector agent. nullptr when enable_inspector is false.
   // Held by shared_ptr so multiple JsiRuntimeStates on the same isolate
   // share one Agent (matches the legacy V8Runtime behavior; see slot 1).
   std::shared_ptr<inspector::Agent> inspector_agent;
@@ -772,7 +795,7 @@ private:
 
 JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
   // Legacy default behavior (config==nullptr): match what the ABI runtime
-  // shipped before W1 — --expose_gc, kExplicit microtasks, enable_gc_api=true.
+  // shipped earlier — --expose_gc, kExplicit microtasks, enable_gc_api=true.
   // This preserves the existing test corpus (117/117) since JsiAbiRuntime's
   // C++ constructor passes config=nullptr by default.
   const bool useDefaults = (config == nullptr);
@@ -818,7 +841,14 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
         : v8::MicrotasksPolicy::kAuto;
     isolateConfig.enable_gc_api = config->enable_gc_api;
 
-    // W4: take ownership of the task runner from the config. The shared_ptr
+    // Borrow the startup-snapshot blob for createIsolate (the config still owns
+    // the bytes here; ownership is transferred to the runtime state after the
+    // isolate is built, below). createIsolate references the bytes during
+    // Isolate::Initialize, so they must be alive now — and they are.
+    isolateConfig.startup_snapshot_blob = config->startup_snapshot_blob;
+    isolateConfig.startup_snapshot_blob_size = config->startup_snapshot_blob_size;
+
+    // take ownership of the task runner from the config. The shared_ptr
     // is handed to IsolateData by createIsolate; once IsolateData is freed in
     // ~JsiRuntimeState, the shared_ptr drops and the CTaskRunner destructor
     // runs the consumer's deleter exactly once. We clear the config fields
@@ -843,7 +873,10 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
 
   v8::Isolate::Scope isolate_scope(isolate);
   v8::HandleScope handle_scope(isolate);
-  v8::Local<v8::Context> context = v8rt::createContext(isolate);
+  const bool fromSnapshot =
+      isolateConfig.startup_snapshot_blob != nullptr &&
+      isolateConfig.startup_snapshot_blob_size > 0;
+  v8::Local<v8::Context> context = v8rt::createContext(isolate, fromSnapshot);
 
   // Forward-declare the vtable (defined below)
   extern const jsi_runtime_vtable g_vtable;
@@ -857,7 +890,7 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
   state->ignore_unhandled_promises =
       !useDefaults && config->ignore_unhandled_promises;
 
-  // W8: stamp the context with a back-pointer to this runtime + the v8jsi
+  // stamp the context with a back-pointer to this runtime + the v8jsi
   // marker tag. The PromiseRejectCallback (and any future static V8 callback
   // that only has a context handle) walks slot 0 to recover the runtime.
   context->SetAlignedPointerInEmbedderData(
@@ -865,14 +898,14 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
   context->SetAlignedPointerInEmbedderData(
       v8rt::ContextEmbedderIndex::kContextTag, v8rt::RuntimeContextTagPtr);
 
-  // W8: install the unhandled-promise-rejection tracker unless the consumer
+  // install the unhandled-promise-rejection tracker unless the consumer
   // explicitly opted out. Mirrors legacy V8Runtime behavior — Node-API's
   // jsr_has_unhandled_promise_rejection depends on this.
   if (!state->ignore_unhandled_promises) {
     isolate->SetPromiseRejectCallback(JsiRuntimeState::PromiseRejectCallback);
   }
 
-  // W3: take ownership of the script cache from the config. After this
+  // take ownership of the script cache from the config. After this
   // handoff the config no longer owns script_cache_data, so freeing the
   // config does not invoke the deleter — only ~JsiRuntimeState does.
   if (!useDefaults) {
@@ -888,6 +921,19 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
     mutableConfig->script_cache_store_cb = nullptr;
     mutableConfig->script_cache_data_delete_cb = nullptr;
     mutableConfig->script_cache_deleter_data = nullptr;
+
+    // take ownership of the startup-snapshot blob from the config. The runtime
+    // now keeps the bytes alive for the isolate's lifetime and fires the
+    // deleter once in ~JsiRuntimeState (after isolate disposal). Clearing the
+    // config fields prevents ~jsi_config_s from double-freeing.
+    state->startup_snapshot_blob = mutableConfig->startup_snapshot_blob;
+    state->startup_snapshot_delete_cb = mutableConfig->startup_snapshot_delete_cb;
+    state->startup_snapshot_deleter_data =
+        mutableConfig->startup_snapshot_deleter_data;
+    mutableConfig->startup_snapshot_blob = nullptr;
+    mutableConfig->startup_snapshot_blob_size = 0;
+    mutableConfig->startup_snapshot_delete_cb = nullptr;
+    mutableConfig->startup_snapshot_deleter_data = nullptr;
   }
 
   state->pendingJSError = abi::create_undefined_value();
@@ -1024,7 +1070,7 @@ struct HostFunctionContext {
 // Deferred definition — requires HostFunctionContext and AbiHostObjectProxy
 // to be complete types.
 JsiRuntimeState::~JsiRuntimeState() {
-  // W8: tear down the attached Node-API surface (if any) before disposing
+  // tear down the attached Node-API surface (if any) before disposing
   // V8 state. The destroy callback owns deleting the attached object.
   if (attached_owner_destroy) {
     auto cb = attached_owner_destroy;
@@ -1072,11 +1118,19 @@ JsiRuntimeState::~JsiRuntimeState() {
     isolate->Dispose();
   }
 
-  // W3: release the consumer-supplied script cache after the isolate is gone
+  // release the consumer-supplied script cache after the isolate is gone
   // (no more cache calls can be in flight). Runs in the consumer's CRT
   // because the consumer also supplied the deleter callback.
   if (script_cache_data_delete_cb) {
     script_cache_data_delete_cb(script_cache_data, script_cache_deleter_data);
+  }
+
+  // release the startup-snapshot blob only after isolate disposal — V8 keeps a
+  // pointer to these bytes for the whole isolate lifetime.
+  if (startup_snapshot_delete_cb) {
+    startup_snapshot_delete_cb(
+        const_cast<uint8_t *>(startup_snapshot_blob),
+        startup_snapshot_deleter_data);
   }
 }
 
@@ -1414,7 +1468,7 @@ jsi_prepared_javascript_or_error JSI_CDECL jsi_prepare_javascript(
   v8::Isolate *isolate = state->isolate;
   TryCatch try_catch(state);
 
-  // W3: compute MurmurHash3 over the source bytes for the cache key. Must
+  // compute MurmurHash3 over the source bytes for the cache key. Must
   // happen before buf->release() since the buffer pointer becomes invalid.
   uint64_t source_hash = 0;
   if (state->script_cache_load_cb || state->script_cache_store_cb) {
@@ -1448,14 +1502,14 @@ jsi_prepared_javascript_or_error JSI_CDECL jsi_prepare_javascript(
 
   v8::ScriptOrigin origin(urlV8Str);
 
-  // W3: cache_tag = "perf" matches the legacy V8Runtime convention.
+  // cache_tag = "perf" matches the legacy V8Runtime convention.
   // runtime_name = "V8" likewise — preserves cache keys for deployed
   // consumers whose stores already contain entries under that name.
   static constexpr const char *kCacheTag = "perf";
   static constexpr const char *kRuntimeName = "V8";
   const uint64_t runtime_version = v8::ScriptCompiler::CachedDataVersionTag();
 
-  // W3: try cache load.
+  // try cache load.
   v8::ScriptCompiler::CompileOptions options =
       v8::ScriptCompiler::CompileOptions::kNoCompileOptions;
   v8::ScriptCompiler::CachedData *cached_data = nullptr;
@@ -1505,7 +1559,7 @@ jsi_prepared_javascript_or_error JSI_CDECL jsi_prepare_javascript(
 
   v8::Local<v8::UnboundScript> unbound = compiled->GetUnboundScript();
 
-  // W3: cache miss → produce code cache and hand it to the consumer.
+  // cache miss → produce code cache and hand it to the consumer.
   if (state->script_cache_store_cb &&
       options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
     v8::ScriptCompiler::CachedData *codeCache =
@@ -2101,6 +2155,21 @@ jsi_arraybuffer_or_error JSI_CDECL jsi_create_arraybuffer_from_external_data(
   V8Scope scope(state);
   v8::Isolate *isolate = state->isolate;
 
+#ifdef V8_ENABLE_SANDBOX
+  // Under the V8 sandbox, backing stores must live inside the cage, so we cannot
+  // hand V8 an external pointer (it is a fatal error). Allocate an in-cage
+  // ArrayBuffer, copy the caller's bytes in, and release the source buffer
+  // immediately. This mirrors the node-addon-api Buffer::NewOrCopy fallback;
+  // JS<->native aliasing of the original buffer is not supported under the
+  // sandbox.
+  v8::Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, buf->size);
+  if (buf->size != 0)
+    std::memcpy(ab->Data(), buf->data, buf->size);
+  if (buf->vtable && buf->vtable->release)
+    buf->vtable->release(buf);
+  return abi::create_arraybuffer_or_error(
+      static_cast<jsi_pointer *>(new ObjectHandle(isolate, ab)));
+#else
   struct BufRef {
     jsi_mutable_buffer *buf;
   };
@@ -2121,6 +2190,7 @@ jsi_arraybuffer_or_error JSI_CDECL jsi_create_arraybuffer_from_external_data(
       v8::ArrayBuffer::New(isolate, std::move(backing_store));
   return abi::create_arraybuffer_or_error(
       static_cast<jsi_pointer *>(new ObjectHandle(isolate, ab)));
+#endif  // V8_ENABLE_SANDBOX
 }
 
 jsi_uint8_ptr_or_error JSI_CDECL jsi_get_arraybuffer_data(jsi_runtime *rt,
@@ -2821,7 +2891,157 @@ JSI_API void JSI_CDECL v8_jsi_set_v8_flags(
   *argc = n < 0 ? 0u : static_cast<size_t>(n);
 }
 
-// W5 inspector entry point. Pure-C replacement for the legacy
+// Startup-snapshot creation. See v8_jsi_config.h for the contract. Builds a
+// blob with v8::SnapshotCreator (its own isolate), running the builder script
+// in a fresh context and serializing it as the default context. Exception-free.
+JSI_API jsi_error_code JSI_CDECL v8_create_startup_snapshot(
+    const char *script_utf8,
+    size_t script_size,
+    const char *source_url,
+    bool jitless,
+    uint8_t **out_blob,
+    size_t *out_blob_size) {
+  (void)source_url;
+  if (!script_utf8 || !out_blob || !out_blob_size)
+    return jsi_error_native;
+  *out_blob = nullptr;
+  *out_blob_size = 0;
+
+  // Ensure the V8 platform is initialized (idempotent). Set process-global
+  // flags inside the one-time init so they match the eventual consumer engine.
+  v8rt::V8PlatformHolder::initializePlatform(0, [jitless]() {
+    if (jitless)
+      v8::V8::SetFlagsFromString("--jitless");
+  });
+
+  // A non-null, null-terminated external-reference table (empty here — our
+  // snapshots reach no native callbacks) must be supplied to BOTH the creator
+  // and the consumer for V8 to recognize the serialized context table.
+  static const intptr_t kNoExternalRefs[] = {0};
+
+  v8::StartupData blob{nullptr, 0};
+  v8::ArrayBuffer::Allocator *allocator =
+      v8::ArrayBuffer::Allocator::NewDefaultAllocator();
+  bool ok = true;
+  {
+    v8::Isolate::CreateParams params;
+    params.array_buffer_allocator = allocator;
+    params.external_references = kNoExternalRefs;
+
+    // SnapshotCreator allocates, owns, and enters its own isolate; its
+    // destructor exits and disposes it.
+    v8::SnapshotCreator creator(params);
+    v8::Isolate *isolate = creator.GetIsolate();
+    {
+      v8::HandleScope handle_scope(isolate);
+
+      // A SnapshotCreator needs a default context (its global proxy is NOT
+      // serialized). Our builder state lives in a SEPARATE *added* context whose
+      // global proxy IS serialized — so the consumer restores it (and all
+      // globalThis state) verbatim via Context::FromSnapshot(isolate, 0). This
+      // is the same pattern Node uses for its main context.
+      v8::Local<v8::Context> default_context = v8::Context::New(isolate);
+      v8::Local<v8::Context> builder_context = v8::Context::New(isolate);
+      {
+        v8::Context::Scope context_scope(builder_context);
+
+        v8::Local<v8::String> source;
+        if (!v8::String::NewFromUtf8(
+                 isolate, script_utf8, v8::NewStringType::kNormal,
+                 static_cast<int>(script_size))
+                 .ToLocal(&source)) {
+          ok = false;
+        }
+
+        v8::Local<v8::Script> script;
+        if (ok && !v8::Script::Compile(builder_context, source).ToLocal(&script))
+          ok = false;
+
+        v8::Local<v8::Value> result;
+        if (ok && !script->Run(builder_context).ToLocal(&result))
+          ok = false;
+
+        // The builder script's load is synchronous + microtasks; drain them so
+        // the serialized heap reflects fully-settled state.
+        if (ok)
+          isolate->PerformMicrotaskCheckpoint();
+      }
+      if (ok) {
+        creator.SetDefaultContext(default_context);
+        creator.AddContext(builder_context); // index 0 (FromSnapshot target)
+      }
+    } // close HandleScope before CreateBlob (required)
+
+    if (ok)
+      blob = creator.CreateBlob(
+          v8::SnapshotCreator::FunctionCodeHandling::kClear);
+  } // creator destroyed: isolate exited + disposed
+
+  jsi_error_code rc = jsi_no_error;
+  if (ok && blob.data && blob.raw_size > 0) {
+    // Prefix the raw StartupData with the self-describing container header so a
+    // stale/cross-engine blob is rejected at load time rather than crashing V8.
+    // The version tag is final here: the SnapshotCreator isolate above was
+    // initialized (flag implications enforced) before CreateBlob.
+    const size_t raw = static_cast<size_t>(blob.raw_size);
+    const size_t total = v8rt_snapshot::kHeaderSize + raw;
+    uint8_t *bytes = static_cast<uint8_t *>(std::malloc(total));
+    if (bytes) {
+      v8rt_snapshot::writeHeader(bytes, static_cast<uint64_t>(raw));
+      std::memcpy(bytes + v8rt_snapshot::kHeaderSize, blob.data, raw);
+      *out_blob = bytes;
+      *out_blob_size = total;
+    } else {
+      rc = jsi_error_native;
+    }
+  } else {
+    rc = jsi_error_native;
+  }
+
+  // CreateBlob hands ownership of blob.data to us (allocated with new[]).
+  delete[] blob.data;
+  delete allocator;
+  return rc;
+}
+
+JSI_API void JSI_CDECL v8_free_startup_snapshot(uint8_t *blob) {
+  std::free(blob);
+}
+
+JSI_API int JSI_CDECL
+v8_startup_snapshot_compatible(const uint8_t *blob, size_t blob_size) {
+  // Initialize V8 (idempotent) so CachedDataVersionTag is read in its final,
+  // flag-implication-enforced state — matching the create path. Any process-
+  // global engine flags (e.g. --jitless) must already be set by the caller.
+  v8rt::V8PlatformHolder::initializePlatform(0, []() {});
+  return v8rt_snapshot::validate(blob, blob_size);
+}
+
+JSI_API const char *JSI_CDECL v8_startup_snapshot_compat_string(int code) {
+  return v8rt_snapshot::compatString(code);
+}
+
+JSI_API void JSI_CDECL v8_jsi_config_set_startup_snapshot(
+    jsi_config config,
+    const uint8_t *blob,
+    size_t blob_size,
+    jsi_data_delete_cb blob_delete_cb,
+    void *deleter_data) {
+  if (!config)
+    return;
+  // Free any previously-set blob the config still owns.
+  if (config->startup_snapshot_delete_cb) {
+    config->startup_snapshot_delete_cb(
+        const_cast<uint8_t *>(config->startup_snapshot_blob),
+        config->startup_snapshot_deleter_data);
+  }
+  config->startup_snapshot_blob = blob;
+  config->startup_snapshot_blob_size = blob_size;
+  config->startup_snapshot_delete_cb = blob_delete_cb;
+  config->startup_snapshot_deleter_data = deleter_data;
+}
+
+// inspector entry point. Pure-C replacement for the legacy
 // openInspector(jsi::Runtime &) and openInspectors_toberemoved() exports.
 // Starts a previously-quiet Agent (e.g. when enable_inspector was set on the
 // config but inspector_break_on_start was false). Safe to call multiple times.
@@ -2837,7 +3057,7 @@ JSI_API void JSI_CDECL v8_open_inspector(jsi_runtime *runtime) {
 #endif
 }
 
-// W4 test-only hook: post a synthetic task to the runtime's foreground task
+// test-only hook: post a synthetic task to the runtime's foreground task
 // runner. Gated behind JSI_TESTING_ONLY (gyp variable v8jsi_test_hooks) so
 // release builds can drop it. Not declared in any public header; the test
 // forward-declares it inline.

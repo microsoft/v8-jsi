@@ -790,6 +790,11 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   v8::Isolate::CreateParams create_params_;
 
+  // Descriptor for an optional startup-snapshot blob (args_.startupSnapshotBlob).
+  // Points into the args_ buffer; create_params_.snapshot_blob references this.
+  // Kept as a member so it outlives Isolate::Initialize and the isolate.
+  v8::StartupData snapshot_startup_data_{nullptr, 0};
+
   v8::Persistent<v8::Function> host_object_constructor_;
 
   std::list<std::shared_ptr<HostObjectLifetimeTracker>> host_object_lifetime_tracker_list_;

@@ -1,0 +1,62 @@
+# The following appear to fail with imperceptible pixel differences.
+-DelegatedInkWithPredictionTest.DelegatedInkTrailAfterBatchedQuads/SkiaGraphiteDawn
+-DelegatedInkWithPredictionTest.DrawOneTrailAndErase/SkiaGraphiteDawn
+-DelegatedInkWithPredictionTest.DrawTrailsWithDifferentPointerIds/SkiaGraphiteDawn
+-DelegatedInkWithPredictionTest.DrawTwoTrailsAndErase/SkiaGraphiteDawn
+-DelegatedInkWithPredictionTest.IdenticalTrailDrawnAfterSameMetadataReceived/SkiaGraphiteDawn
+-DelegatedInkWithPredictionTest.TrailExtendsBeyondPresentationArea/SkiaGraphiteDawn
+-RendererPixelTest.BypassableRenderPassQuad_BackdropFilter_Extents/SkiaGL
+-RendererPixelTest.BypassableRenderPassQuad_BackdropFilter_Extents/SkiaGraphiteDawn
+-SurfaceAggregatorPixelTest.DrawAndEraseDelegatedInkTrail/SkiaGraphiteDawn
+
+# TODO(crbug.com/40256189): This test has been failing with pixel differences
+# since https://crrev.com/c/4966062.
+-VideoRendererPixelHiLoColorSpaceTest.SimpleYUVRect/5
+-VideoRendererPixelHiLoColorSpaceTest.SimpleYUVRect/6
+-VideoRendererPixelHiLoColorSpaceTest.SimpleYUVRect/7
+-VideoRendererPixelHiLoColorSpaceTest.SimpleYUVRect/8
+-VideoRendererPixelHiLoColorSpaceTest.SimpleYUVRect/9
+-VideoRendererPixelHiLoTest.SimpleYUVRect/1
+
+# Spot checking seems to show that the following fail with errors similar to:
+# dawn_context_provider.cc(448) First instance (1) must be zero.
+# - While encoding [RenderPassEncoder].DrawIndexed(69, 1, 0, 0, 1).
+-GPURendererPixelTest.AntiAliasing/SkiaGraphiteDawn
+-GPURendererPixelTest.AntiAliasingPerspective/SkiaGraphiteDawn
+-GPURendererPixelTest.AxisAligned/SkiaGraphiteDawn
+-GPURendererPixelTest.BlendingWithoutAntiAliasing/SkiaGraphiteDawn
+-GPURendererPixelTest.CheckReadbackSubset/SkiaGraphiteDawn
+-GPURendererPixelTest.OverlayHintRequiredFallback/SkiaGraphiteDawn
+-GPURendererPixelTest.RenderPassDrawQuadForceAntiAliasingOff/SkiaGraphiteDawn
+-GPURendererPixelTest.SolidColorDrawQuadForceAntiAliasingOff/SkiaGraphiteDawn
+-GPURendererPixelTest.TextureQuadBatching/SkiaGraphiteDawn
+-IntersectingMultiplanarVideoQuadPixelTest.Y16VideoQuads/SkiaGraphiteDawn
+-IntersectingMultiplanarVideoQuadPixelTest.YUVVideoQuads/SkiaGraphiteDawn
+-IntersectingQuadPixelTest.FlippedTexturedQuads/SkiaGraphiteDawn
+-IntersectingQuadPixelTest.NonFlippedTexturedQuads/SkiaGraphiteDawn
+-IntersectingQuadPixelTest.RenderPassQuads/SkiaGraphiteDawn
+-IntersectingQuadPixelTest.SolidColorQuads/SkiaGraphiteDawn
+-IntersectingQuadPixelTest.TexturedQuads/SkiaGraphiteDawn
+-RendererPixelTest.BlurExpandsBounds/SkiaGraphiteDawn
+-RendererPixelTest.EnlargedRenderPassTexture/SkiaGraphiteDawn
+-RendererPixelTest.EnlargedRenderPassTextureWithAntiAliasing/SkiaGraphiteDawn
+-RendererPixelTest.FastPassColorFilterAlpha/SkiaGraphiteDawn
+-RendererPixelTest.FastPassColorFilterAlphaTranslation/SkiaGraphiteDawn
+-RendererPixelTest.FastPassFilterChain/SkiaGraphiteDawn
+-RendererPixelTest.FastPassSaturateFilter/SkiaGraphiteDawn
+-RendererPixelTest.RoundedCornerOnRenderPass/SkiaGraphiteDawn
+-RendererPixelTestWithBackdropFilter.InvertFilter/SkiaGraphiteDawn
+-RendererPixelTestWithBackdropFilter.OffsetFilter/SkiaGraphiteDawn
+-RendererPixelTestWithBackdropFilter.ZoomFilter/SkiaGraphiteDawn
+-RendererPixelTestWithFlippedOutputSurface.CheckChildPassUnflipped/SkiaGraphiteDawn
+-RendererPixelTestWithFlippedOutputSurface.ExplicitFlipTest/SkiaGraphiteDawn
+-SurfaceAggregatorPixelTest.DrawAggregatedFrameWithSurfaceTransforms/SkiaGraphiteDawn
+-SurfaceAggregatorPixelTest.DrawSimpleAggregatedFrame/SkiaGraphiteDawn
+
+# This test has been failing since https://crrev.com/c/5492042 reduced back the
+# limits to the original.(50.0f -> 0.50f)
+-IntersectingMultiplanarVideoQuadPixelTest.YUVVideoQuads/SkiaGL
+
+# TODO(crbug.com/383593269): These tests are failing on the ios-blink-rel-fyi
+# bot.
+-GPURendererPixelTest.TrilinearFiltering/SkiaGraphiteDawn

@@ -12,6 +12,10 @@
     {
       "name": "asio",
       "localPath": "deps/asio"
+    },
+    {
+      "name": "chromium",
+      "localPath": "deps/chromium"
     }
   ]
 }

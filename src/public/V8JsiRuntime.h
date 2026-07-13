@@ -43,6 +43,16 @@ struct V8RuntimeArgs {
   std::shared_ptr<JSITaskRunner> foreground_task_runner; // foreground === js_thread => sequential
   std::shared_ptr<facebook::jsi::PreparedScriptStore> preparedScriptStore;
 
+  // Optional V8 startup-snapshot blob. When set, the isolate is created from it
+  // (Isolate::CreateParams::snapshot_blob) instead of the engine's built-in
+  // startup data, so the heap is pre-populated and the embedded script need not
+  // be parsed or executed. The buffer MUST remain valid for the runtime's
+  // lifetime; the runtime keeps this shared_ptr to guarantee that. Build the blob
+  // with v8jsi_create_snapshot(). Note: V8's shared read-only heap requires that,
+  // within a single process, all isolates use the same snapshot — so a custom
+  // snapshot must be the only snapshot used in its process.
+  std::shared_ptr<const facebook::jsi::Buffer> startupSnapshotBlob;
+
   // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to
   // the runtime.
   // {

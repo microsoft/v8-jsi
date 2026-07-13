@@ -1,0 +1,44 @@
+# TODO(crbug.com/335001216): These tests are failing due to the duplicate
+# resource assertion.
+-DistilledPageJsTest.AddClassesToYTIFramesTest
+-DistilledPageJsTest.IdentifyEmptySVGsTest
+-DistilledPageJsTest.ImageClassifierTest
+-DistilledPageJsTest.ListClassifierTest
+-DistilledPageJsTest.SettingsDialogTest
+-DistilledPageJsTest.WrapTablesTest
+-DistillerPageWebContentsTest.BasicDistillationWorks
+-DistillerPageWebContentsTest.DistillerContentsIgnoreRedirects
+-DistillerPageWebContentsTest.HandlesRelativeImages
+-DistillerPageWebContentsTest.HandlesRelativeLinks
+-DistillerPageWebContentsTest.HandlesRelativeVideos
+-DistillerPageWebContentsTest.MarkupInfo
+-DistillerPageWebContentsTest.PageDestroyedBeforeFinishDistillation
+-DistillerPageWebContentsTest.TestNoContentDoesNotCrash
+-DistillerPageWebContentsTest.UsingCurrentWebContentsNotFinishedLoadingYet
+-DistillerPageWebContentsTest.UsingCurrentWebContentsReadyForDistillation
+-DistillerPageWebContentsTest.UsingCurrentWebContentsWrongUrl
+-DistillerPageWebContentsTest.VisibilityDetection
+-DomDistillerDistillablePageUtilsTest.TestIsDistillablePage
+-DomDistillerDistillablePageUtilsTest.TestIsNotDistillablePage
+-DomDistillerJsTest.RunJsTests
+-ViewerJsTest.SanitizeLinks
+
+# These tests are hitting a NOTREACHED() in WebContentsImpl::GetSize().
+-All/PageContentProtoProviderBrowserTestMultiProcess.*
+-All/PageContentProtoProviderBrowserTestSiteIsolation.*
+-PageContentProtoProviderBrowserTest.*
+-PageContentProtoProviderBrowserTestActionableElements.AIPageContent
+-PageContentProtoProviderBrowserTestFencedFrame.AIPageContentFencedFrame
+-PageContentProtoProviderBrowserTestPaidContentDisabled.PaidContentDisabled
+-ScaledPageContentProtoProviderBrowserTest.ScaleSizes
+
+# TODO(crbug.com/460416951): The test is flaky on the bot. It occurs in Andriod
+# and Linux as well.
+-PageContentMetadataObserverBrowserTest.NoMetaTags
+
+# TODO(crbug.com/503810632): These tests have been failing since
+# https://crrev.com/c/7539316 and httpc://crrev.com/c/7763951 on the bot.
+-SurfaceEmbedBrowserTest.EmbedMultipleTagsCreatesMultiplePlugins
+-SurfaceEmbedBrowserTest.EmbedPixelTest
+-SurfaceEmbedBrowserTest.EmbedTagCreatesPlugin
+-SurfaceEmbedBrowserTest.EmbedTagInvalidContentId

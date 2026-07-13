@@ -28,6 +28,22 @@
           target="build\native\include" />
     <file src="$nugetroot$\build\native\jsi\**\*.*"
           target="build\native\jsi" />
+    <!-- Sandbox runtime payloads, per RID: the jitless sandbox engine
+         v8jsisb.dll (Untrusted tier; degraded no-cage variant on win-x86), the
+         V8-agnostic Chromium sandbox sbox.dll, the sandbox target host
+         v8host.exe, and mkv8snapshot.exe (the offline startup-snapshot builder —
+         it LoadLibrary's the engine in this same dir). Globbed (not literal) so a
+         RID that didn't build the sandbox binaries still packs — and excluding
+         v8jsi.dll, which has its own entry below. test_app.exe (the test
+         harness) is never staged into build\native\<rid>\, so *.exe matches only
+         v8host.exe + mkv8snapshot.exe. The import lib (sbox.dll.lib) + PDBs ride
+         the *.lib / *.pdb globs; the sbox C-ABI headers ship under include\sbox
+         via the include\**\*.* rule above. -->
+    <file src="$nugetroot$\build\native\$rid$\*.dll"
+          exclude="$nugetroot$\build\native\$rid$\v8jsi.dll"
+          target="runtimes\$rid$\native\" />
+    <file src="$nugetroot$\build\native\$rid$\*.exe"
+          target="runtimes\$rid$\native\" />
     <!-- The v8jsi.dll.lib is Windows-only. We use the *.lib pattern to copy the optional file. -->
     <file src="$nugetroot$\build\native\$rid$\*.lib"
           target="build\native\$rid$\" />

@@ -5,7 +5,21 @@
     <ClCompile>
       <AdditionalIncludeDirectories Condition="'$(V8JsiIncludePublicHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include;$(MSBuildThisFileDirectory)jsi</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories Condition="'$(V8JsiIncludeNodeApiHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\node-api;$(MSBuildThisFileDirectory)include\node-api-jsi</AdditionalIncludeDirectories>
+      <!-- The sbox C-ABI headers (sbox.h / sbox_harden.h) for a broker host. -->
+      <AdditionalIncludeDirectories Condition="'$(UseV8Sandbox)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\sbox</AdditionalIncludeDirectories>
     </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Link the sbox.dll import lib for a broker host (opt-in + present). The
+       broker delay-loads sbox.dll so a non-sandbox code path never forces the
+       load; v8jsisb.dll has no import lib (v8host LoadLibrary's the engine by
+       name). -->
+  <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' AND Exists('$(MSBuildThisFileDirectory)$rid$\sbox.dll.lib') ">
+    <Link>
+      <AdditionalDependencies>sbox.dll.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)$rid$;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <DelayLoadDLLs>sbox.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+    </Link>
   </ItemDefinitionGroup>
 
   <!-- Add v8jsi.dll.lib dependency required for MSVC C++ linker if it is part of this package. -->
@@ -41,6 +55,19 @@
          Exists() guard lets consumer builds pass when no PDB ships. -->
     <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsi.dll.pdb"
                              Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsi.dll.pdb')" />
+  </ItemGroup>
+
+  <!-- Copy the sandbox binaries (v8jsisb.dll + sbox.dll + v8host.exe, ~19 MB)
+       to the consumer output ONLY when UseV8Sandbox=True. Each is Exists()-guarded
+       so a RID without sandbox binaries (or a v8host-less consumer) still builds.
+      test_app.exe is the test harness and is not in the package. -->
+  <ItemGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' ">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll"
+                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll')" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.dll"
+                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.dll')" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.exe"
+                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.exe')" />
   </ItemGroup>
 
 </Project>

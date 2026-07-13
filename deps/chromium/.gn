@@ -1,0 +1,15 @@
+# Minimal GN dotfile for the v8-jsi sandbox POC.
+#
+# The GN source root is this vendored Chromium subset (deps/chromium), so
+# Chromium's own BUILD.gn files resolve their absolute labels (//base,
+# //build/..., //sandbox/...). Unlike upstream's .gn, this avoids importing
+# angle/v8/vulkan dotfile settings for components we do not build.
+
+buildconfig = "//build/config/BUILDCONFIG.gn"
+
+# GN runs action() scripts with this interpreter. Resolve it from PATH so the
+# build is portable across dev machines and CI (which provisions Python on PATH).
+# Use "python.exe" rather than "python3": on Windows the "python3" command is
+# often the Microsoft Store alias stub, whereas "python.exe" resolves to a real
+# CPython install. Ensure such an install is on PATH ahead of the Store aliases.
+script_executable = "python.exe"

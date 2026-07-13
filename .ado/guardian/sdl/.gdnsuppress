@@ -55,6 +55,50 @@
       "ruleId": "BA2014",
       "createdDate": "2026-06-09 00:00:00Z",
       "justification": "BA2014 on win-arm64 v8jsi.dll -- same root cause as the win-x64/win-x86 entries: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
+    },
+    "b6b6540615630dc8bc8ebee414c9f9a04fd4a279ef1132fe35cb87edfa9cc6d2": {
+      "signature": "b6b6540615630dc8bc8ebee414c9f9a04fd4a279ef1132fe35cb87edfa9cc6d2",
+      "target": "sandbox/build/native/win-x64/v8jsisb.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-07-10 00:00:00Z",
+      "justification": "BA2014 on win-x64 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
+    },
+    "a1bc12756530869e7186acc8671389ad1170fb9ab0fddce8ef050a11b1f4c564": {
+      "signature": "a1bc12756530869e7186acc8671389ad1170fb9ab0fddce8ef050a11b1f4c564",
+      "target": "sandbox/build/native/win-x86/v8jsisb.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-07-10 00:00:00Z",
+      "justification": "BA2014 on win-x86 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
+    },
+    "d7f6e42a78a3ea32bfe4ec47753e9b5ffbdf4d8ea23a450d228ab7d150333a5f": {
+      "signature": "d7f6e42a78a3ea32bfe4ec47753e9b5ffbdf4d8ea23a450d228ab7d150333a5f",
+      "target": "sandbox/build/native/win-x86/v8jsisb.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-07-10 00:00:00Z",
+      "justification": "BA2018 on win-x86 v8jsisb.dll -- same clang-cl and V8 hand-written assembly limitation as the existing x86 v8jsi.dll suppression. The complete engine object closure cannot produce a SafeSEH image. Per-binary signature."
+    },
+    "841f3dfe44c37db30f1bd8877414d2740ef2c50d93f928ca3dda50596dca87ae": {
+      "signature": "841f3dfe44c37db30f1bd8877414d2740ef2c50d93f928ca3dda50596dca87ae",
+      "target": "sandbox/build/native/win-arm64/v8jsisb.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-07-10 00:00:00Z",
+      "justification": "BA2014 on win-arm64 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
     }
   }
 }

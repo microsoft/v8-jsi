@@ -20,6 +20,13 @@
     # Path to v8-jsi repo root relative to deps/nodejs
     'v8jsi_root': '../..',
 
+    # The sandbox build variant (--build-v8jsisb / configure.py). When 1, the
+    # v8jsi target is emitted as v8jsisb.dll and is compiled with the V8
+    # in-process sandbox + pointer-compression shared cage + jitless/lite mode
+    # (the v8_enable_* variables are set in configure.py). Defaulted here so the
+    # condition below is valid even on a mainline (v8jsi.dll) build.
+    'build_v8jsisb%': 0,
+
     # Enable inspector support (sets V8JSI_ENABLE_INSPECTOR).
     # v8-jsi must always ship with inspector ON — Office's enableDebugging and
     # RNW's useDirectDebugger both depend on it. Setting this to 0 is only
@@ -40,7 +47,7 @@
       '<(v8jsi_root)/src/v8_core.cpp',
     ],
 
-    # Core v8jsi sources. After W8 there is no legacy V8Runtime class — only
+    # Core v8jsi sources. Now there is no legacy V8Runtime class — only
     # JSI core, V8 instrumentation, MurmurHash, and the public C++ headers
     # consumers depend on.
     'v8jsi_sources': [
@@ -73,10 +80,11 @@
       '<(v8jsi_root)/src/jsi_abi/jsi_abi_v8.cpp',
       '<(v8jsi_root)/src/jsi_abi/jsi_abi_v8_internal.h',
       '<(v8jsi_root)/src/jsi_abi/v8_jsi_config.h',
+      '<(v8jsi_root)/src/jsi_abi/v8_snapshot_container.h',
       '<(v8jsi_root)/src/jsi_abi/v8_node_api_attach.h',
     ],
 
-    # Node-API sources (W6) — restored to the GYP build after being lost in the
+    # Node-API sources — restored to the GYP build after being lost in the
     # GN→GYP migration. Always-on; v8jsi.dll ships with Node-API support.
     # Office, RNW, and other consumers depend on the napi_* / jsr_* exports.
     'v8jsi_node_api_sources': [
@@ -99,7 +107,9 @@
       '<(v8jsi_root)/src/jsi/jsilib-windows.cpp',
       '<(v8jsi_root)/src/etw/tracing.cpp',
       '<(v8jsi_root)/src/etw/tracing.h',
-      '<(v8jsi_root)/src/version_gen.rc',
+      # New-package VERSIONINFO (Microsoft.JavaScript.V8). The legacy
+      # ReactNative.V8Jsi.Windows build uses src/version.rc and is untouched.
+      '<(v8jsi_root)/src/version_info.rc',
     ],
 
     # Inspector sources (Windows only, when v8jsi_enable_inspector is set)
@@ -132,21 +142,19 @@
       'type': 'none',
       'actions': [
         {
-          'action_name': 'generate_version_rc',
+          'action_name': 'generate_version_info',
           'inputs': [
             '<(v8jsi_root)/config.json',
-            '<(v8jsi_root)/src/version.rc',
-            '<(v8jsi_root)/src/generate_version_rc.ts',
+            '<(v8jsi_root)/src/generate_version_info.ts',
           ],
           'outputs': [
-            '<(v8jsi_root)/src/version_gen.rc',
+            '<(v8jsi_root)/src/version_info_gen.h',
           ],
           'action': [
             'node',
-            '<(v8jsi_root)/src/generate_version_rc.ts',
+            '<(v8jsi_root)/src/generate_version_info.ts',
             '--config', '<(v8jsi_root)/config.json',
-            '--template', '<(v8jsi_root)/src/version.rc',
-            '--output', '<(v8jsi_root)/src/version_gen.rc',
+            '--output', '<(v8jsi_root)/src/version_info_gen.h',
           ],
         },
       ],
@@ -190,6 +198,27 @@
       ],
 
       'conditions': [
+        # Sandbox variant: emit v8jsisb.dll instead of v8jsi.dll. The gyp target
+        # name stays 'v8jsi' so v8jsi_test / node_api_tests keep depending on it
+        # (gyp links them against the renamed import library automatically); only
+        # the output product name changes. The V8 sandbox/lite preprocessor
+        # defines (V8_ENABLE_SANDBOX, V8_COMPRESS_POINTERS, ...) reach these
+        # sources via common.gypi from configure.py's v8_enable_* variables.
+        ['build_v8jsisb==1', {
+          'product_name': 'v8jsisb',
+          # VER_BINARY selects the per-binary strings in version_info.rc.
+          'msvs_settings': {
+            'VCResourceCompilerTool': {
+              'PreprocessorDefinitions': ['VER_BINARY=2'],
+            },
+          },
+        }, {  # build_v8jsisb==0 -> mainline v8jsi.dll
+          'msvs_settings': {
+            'VCResourceCompilerTool': {
+              'PreprocessorDefinitions': ['VER_BINARY=1'],
+            },
+          },
+        }],
         ['v8jsi_test_hooks==1', {
           'defines': [
             'JSI_TESTING_ONLY',
@@ -306,7 +335,7 @@
         '<(v8jsi_root)/src/jsi_abi/jsi_abi.h',
         '<(v8jsi_root)/src/jsi_abi/jsi_abi_helpers.h',
         '<(v8jsi_root)/src/jsi_abi/v8_jsi_config.h',
-        # Consumer-side definition of makeV8Runtime (W2). Ships as source in
+        # Consumer-side definition of makeV8Runtime. Ships as source in
         # the NuGet; compiled here to prove the round-trip works end-to-end.
         '<(v8jsi_root)/src/public/V8JsiRuntime.cpp',
       ],
@@ -364,5 +393,53 @@
         }],
       ],
     },  # v8jsi_test target
+    {
+      'target_name': 'mkv8snapshot',
+      'type': 'executable',
+
+      # Offline startup-snapshot builder. It LoadLibrary's the engine DLL
+      # (v8jsi.dll / v8jsisb.dll) and resolves v8_create_startup_snapshot at
+      # runtime, so it links NO V8 and has NO build dependency on the v8jsi
+      # target: the SAME exe drives either engine, and using the actual shipped
+      # DLL guarantees the blob matches that engine's V8 build flags. Built
+      # alongside the engine (rather than the gn sandbox tree) so it ships in the
+      # same per-RID package and is available wherever the engine is. Windows-
+      # only (Win32 LoadLibrary); the snapshot scenario is Windows-only.
+      #
+      # Depends on v8jsi_version_gen only to order the version header generation;
+      # it does not link anything from it (a 'none' target).
+      'dependencies': [
+        'v8jsi_version_gen',
+      ],
+
+      'sources': [
+        '<(v8jsi_root)/tools/mksnapshot/mkv8snapshot.cpp',
+      ],
+
+      'conditions': [
+        ['OS=="win"', {
+          'sources': [
+            '<(v8jsi_root)/src/version_info.rc',
+          ],
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'SubSystem': '1',  # console (main + fprintf diagnostics)
+            },
+            'VCResourceCompilerTool': {
+              'PreprocessorDefinitions': ['VER_BINARY=3'],
+            },
+          },
+        }],
+        ['OS=="win" and target_arch=="ia32"', {
+          # Unlike the V8 DLL, this standalone tool links no V8 or hand-written
+          # assembly, so its complete object closure supports x86 SafeSEH.
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'ImageHasSafeExceptionHandlers': 'true',
+            },
+          },
+        }],
+      ],
+    },  # mkv8snapshot target
   ],
 }

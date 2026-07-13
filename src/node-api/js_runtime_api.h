@@ -6,7 +6,7 @@
 
 #include "js_native_api.h"
 
-// W8: jsi_runtime forward declaration for jsr_runtime_get_jsi_runtime.
+// jsi_runtime forward declaration for jsr_runtime_get_jsi_runtime.
 // The full opaque type is declared in jsi_abi/jsi_abi.h; forward-declared
 // here so consumers do not need to pull in the JSI ABI header just to use
 // jsr_runtime_get_jsi_runtime.
@@ -43,7 +43,7 @@ JSR_API jsr_create_runtime(jsr_config config, jsr_runtime* runtime);
 JSR_API jsr_delete_runtime(jsr_runtime runtime);
 JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env);
 
-// W8: dual-API accessor. Returns the underlying jsi_runtime so a consumer
+// dual-API accessor. Returns the underlying jsi_runtime so a consumer
 // that started with jsr_create_runtime can also build a jsi::Runtime over
 // the same V8 isolate (via JsiAbiRuntime). Output borrows from the
 // jsr_runtime; do not call jsi_release on it.

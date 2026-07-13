@@ -4,7 +4,7 @@
  *
  * v8_attach_node_api — attach a Node-API surface (napi_env) onto an existing
  * jsi_runtime that was created via v8_create_runtime. This is the seam that
- * preserves the dual-API contract after W8: a consumer can hold one V8
+ * preserves the dual-API contract now: a consumer can hold one V8
  * isolate exposed simultaneously through JSI (jsi_runtime / JsiAbiRuntime)
  * and Node-API (napi_env). Internally jsr_create_runtime is now a thin
  * wrapper that calls v8_create_runtime + v8_attach_node_api.

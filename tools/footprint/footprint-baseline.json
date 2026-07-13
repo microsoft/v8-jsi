@@ -1,0 +1,27 @@
+{
+  "_comment": "Checked-in footprint baseline for the CI regression gate. Compared against a freshly produced footprint-results.json by `node tools/footprint/footprint.ts --check`. RAM/startup only; binary-size ceilings live in the build --check gates (sbox-build.ts / build.ts). Re-baseline on any V8/Node bump (per-instance heap + image both shift). Absolute MB are machine-dependent — they are a hard floor on a FIXED agent SKU; the portable signal is the regression delta vs this file and the WebView2 ratio (informational).",
+  "source": "tools/footprint/footprint-results.json, median of 3, measured 2026-06-22",
+  "machine": "Intel Core Ultra 9 285K (24 CPU) / 127.5 GB / Windows 11 10.0.26310, x64 Release",
+  "regressionThreshold": 0.15,
+  "absoluteBudgetsMB": {
+    "engineOnlyPrivWS": 12,
+    "engineOnlyPrivCommit": 22,
+    "fullPrivWS": 14,
+    "startupMs": 150,
+    "wv2RatioMin": 5
+  },
+  "cases": {
+    "sandbox-v8jsisb-untrusted-1": {
+      "fullPrivWS_MB": 6.9,
+      "fullPrivCommit_MB": 13.6,
+      "engineOnlyPrivWS_MB": 5.6,
+      "engineOnlyPrivCommit_MB": 11.6,
+      "ready_ms": 58
+    },
+    "sandbox-v8jsisb-untrusted-2": {
+      "fullPrivWS_MB": 12.5,
+      "fullPrivCommit_MB": 28.7,
+      "ready_ms": 71
+    }
+  }
+}

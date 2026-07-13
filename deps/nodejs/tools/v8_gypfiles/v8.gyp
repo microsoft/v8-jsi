@@ -865,6 +865,15 @@
       'direct_dependent_settings': {
         'sources': ['<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "v8_compiler_sources = ")'],
         'conditions': [
+          # v8jsisb.dll (jitless): turbolev (the Maglev->Turboshaft frontend) is
+          # the only compiler source that references maglev internals. It optimizes
+          # JS functions, NOT the CSA builtins snapshot, so drop it for the jitless
+          # variant. Gated on turbofan (off only for v8jsisb), NOT maglev: the
+          # mainline x86 build has turbofan on but maglev off (V8 excludes Maglev on
+          # ia32), and must keep the stock compiler source list to match upstream.
+          ['v8_enable_turbofan==0', {
+            'sources/': [['exclude', 'turbolev-graph-builder\\.cc']],
+          }],
           ['v8_target_arch=="ia32"', {
             'sources': [
               '<!@pymod_do_main(GN-scraper "<(V8_ROOT)/BUILD.gn"  "v8_compiler_sources =.*?v8_current_cpu == \\"x86\\".*?v8_compiler_sources \\+= ")',
@@ -941,7 +950,15 @@
         ['v8_enable_turbofan==1', {
           'dependencies': ['v8_compiler_sources'],
         }, {
-          'sources': ['<(V8_ROOT)/src/compiler/turbofan-disabled.cc'],
+          # v8jsisb.dll (jitless): mksnapshot ALWAYS needs the full compiler
+          # (CodeStubAssembler) to generate the embedded CSA builtins, even for a
+          # jitless runtime whose shipped DLL uses turbofan-disabled.cc. So pull the
+          # full compiler sources here -- this links into the build-time
+          # mksnapshot.exe, NOT the shipped DLL. fp16/abseil are explicit deps of
+          # those sources; turbolev_phase_stub.cc covers the one maglev symbol
+          # pipeline.cc references (turbolev-graph-builder.cc is dropped above).
+          'dependencies': ['v8_compiler_sources', 'fp16', 'abseil.gyp:abseil'],
+          'sources': ['turbolev_phase_stub.cc'],
         }],
       ],
     },  # v8_compiler_for_mksnapshot_source_set

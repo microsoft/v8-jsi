@@ -108,10 +108,15 @@ static napi_status create_external_latin1(napi_env env,
 
   status = node_api_create_external_string_latin1(
       env, string_copy, length, free_string, NULL, result, &copied);
-  // We do not want the string to be copied.
+#if !defined(V8_ENABLE_SANDBOX)
+  // We do not want the string to be copied. Under the V8 sandbox, external
+  // strings are always copied into the cage (and the finalizer that frees
+  // string_copy has already run), so this invariant only holds off-sandbox.
+  // (Mirrors create_external_utf16, which omits the copied check entirely.)
   if (copied) {
     return napi_generic_failure;
   }
+#endif
   if (status != napi_ok) {
     free(string_copy);
     return status;

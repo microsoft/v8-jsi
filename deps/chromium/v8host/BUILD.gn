@@ -1,0 +1,38 @@
+# v8host.exe — app-defined sandbox target EXE. Loads the generic sbox.dll for
+# the target role and v8jsi.dll (by name, at runtime) for the JS workload.
+
+executable("v8host") {
+  sources = [ "v8host.cc" ]
+
+  # //sandbox_dll for sbox.h; //../../src for the JSI C++ API headers
+  # (jsi/jsi.h, jsi_abi/JsiAbiRuntime.h) + the v8jsi config header
+  # (jsi_abi/v8_jsi_config.h). v8jsi.dll itself is LoadLibrary'd at runtime.
+  include_dirs = [
+    "//sandbox_dll",
+    "//../../src",
+  ]
+
+  # v8host drives v8jsi through the JSI C++ API (jsi::Runtime via JsiAbiRuntime),
+  # not the raw ABI — so it pulls in jsi_cpp and must compile with exceptions
+  # (jsi.h throws jsi::JSError). RTTI stays off (unused).
+  deps = [
+    "//jsi_cpp",
+    "//sandbox_dll:sbox",
+  ]
+  libs = [ "wintrust.lib" ]  # WinVerifyTrust (signature check)
+
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+
+  # /DEPENDENTLOADFLAG: resolve statically-imported DLLs (incl. sbox.dll) only
+  # from System32 + the application directory — neutralizes current-directory /
+  # PATH planting. version_info_v8host.res: the Microsoft.JavaScript.V8
+  # VERSIONINFO (VER_BINARY=5), compiled from src/version_info.rc with the
+  # Windows SDK rc.exe by scripts/sbox-build.ts before ninja and linked here
+  # (the pruned tree lacks the hermetic rc binary GN's rc tool needs). Path is
+  # relative to the out dir; lld-link embeds the resource.
+  ldflags = [
+    "/DEPENDENTLOADFLAG:0xA00",
+    "version_info_v8host.res",
+  ]
+}

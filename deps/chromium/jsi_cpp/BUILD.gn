@@ -1,0 +1,24 @@
+# jsi_cpp — the consumer-side JSI C++ API (facebook::jsi + JsiAbiRuntime),
+# compiled from the sources under //../../src. C++ code (e.g. v8host.exe) talks
+# to v8jsi.dll through this C++ API, NOT through the raw ABI-safe C interface —
+# the C ABI is the binary-stable boundary INSIDE the DLL; consumers use jsi.h +
+# JsiAbiRuntime.h (both shipped in the NuGet package).
+#
+# These TUs use C++ exceptions (jsi throws jsi::JSError; JsiAbiRuntime catches at
+# the ABI boundary), so this target opts into exceptions. RTTI is NOT required
+# (neither source uses dynamic_cast/typeid). Exceptions are ACG-safe: EH is
+# static unwind tables, no runtime codegen.
+
+static_library("jsi_cpp") {
+  sources = [
+    "jsi_abi_runtime_impl.cpp",
+    "jsi_impl.cpp",
+  ]
+
+  # //../../src so the stub TUs resolve "jsi/jsi.cpp", "jsi_abi/JsiAbiRuntime.cpp"
+  # and their <jsi/jsi.h> / "jsi_abi/*.h" includes.
+  include_dirs = [ "//../../src" ]
+
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+}
