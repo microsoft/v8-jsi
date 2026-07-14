@@ -1,0 +1,116 @@
+# Copyright 2015 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# ==============================================================================
+# TEST SETUP
+# ==============================================================================
+
+import("//build/config/chromeos/args.gni")
+import("//build/config/chromeos/ui_mode.gni")
+import("//build/config/devtools.gni")
+import("//build/config/gclient_args.gni")
+import("//build/config/rts.gni")
+import("//build/rust/rust_static_library.gni")
+import("//build_overrides/build.gni")
+
+declare_args() {
+  # Some component repos (e.g. ANGLE) import //testing but do not have
+  # "location_tags.json", and so we don't want to try and upload the tags
+  # for their tests.
+  # And, some build configs may simply turn off generation altogether.
+  tests_have_location_tags = generate_location_tags
+
+  # Build individual_fuzztest_wrapper if use_fuzztest_wrapper is set.
+  # Some projects doesn't have //base and cannot build
+  # individual_fuzztest_wrapper.
+  use_fuzztest_wrapper = true
+}
+
+# On Fuchsia, the test executable has a suffix and is a dependency of the
+# common |target_name| target. For `visibility`, the executable must be
+# specified. Cross-platform targets that include `test` targets in their
+# visibility lists, add `${exec_target_suffix}` immediately after the test
+# target name. This is not necessary when the target is a `source_set`.
+if (is_fuchsia) {
+  exec_target_suffix = "__exec"
+} else {
+  exec_target_suffix = ""
+}
+
+if (is_android) {
+  import("//build/android/test_wrapper/logdog_wrapper.gni")
+  import("//build/config/android/config.gni")
+  import("//build/config/android/create_unwind_table.gni")
+  import("//build/config/android/rules.gni")
+  import("//build/config/sanitizers/sanitizers.gni")
+} else if (is_fuchsia) {
+  import("//build/config/fuchsia/generate_runner_scripts.gni")
+  import("//third_party/fuchsia-gn-sdk/src/cmc.gni")
+  import("//third_party/fuchsia-gn-sdk/src/component.gni")
+  import("//third_party/fuchsia-gn-sdk/src/package.gni")
+} else if (is_chromeos && is_chromeos_device) {
+  import("//build/config/chromeos/rules.gni")
+  import("//build/config/sanitizers/sanitizers.gni")
+  import("//build/util/generate_wrapper.gni")
+} else if (is_ios) {
+  import("//build/config/ios/ios_sdk.gni")
+  import("//build/config/ios/ios_test_runner_wrapper.gni")
+  import("//build/config/ios/rules.gni")
+} else {
+  import("//build/config/sanitizers/sanitizers.gni")
+  import("//build/util/generate_wrapper.gni")
+}
+
+# This template represents the core common functionality of a test target
+# on each platform. It includes:
+# * the ability to generate a rust library that includes all .rs files found
+#   in sources and depends on that from the test target.
+# * the ability to recognize any declare fuzztests and build runners for them.
+template("mixed_test") {
+  # Neutered for the v8-jsi sandbox POC: we never build or parse tests, so this
+  # expands to an empty group and drops invoker deps (which otherwise pull
+  # //sandbox/policy -> //media -> mojo, etc. into GN's parse graph).
+  group(target_name) {
+    not_needed(invoker, "*")
+  }
+}
+template("test") {
+  # Neutered for the v8-jsi sandbox POC: we never build or parse tests, so this
+  # expands to an empty group and drops invoker deps (which otherwise pull
+  # //sandbox/policy -> //media -> mojo, etc. into GN's parse graph).
+  group(target_name) {
+    not_needed(invoker, "*")
+  }
+}
+template("script_test") {
+  # Neutered for the v8-jsi sandbox POC: we never build or parse tests, so this
+  # expands to an empty group and drops invoker deps (which otherwise pull
+  # //sandbox/policy -> //media -> mojo, etc. into GN's parse graph).
+  group(target_name) {
+    not_needed(invoker, "*")
+  }
+}
+template("isolated_script_test") {
+  # Neutered for the v8-jsi sandbox POC: we never build or parse tests, so this
+  # expands to an empty group and drops invoker deps (which otherwise pull
+  # //sandbox/policy -> //media -> mojo, etc. into GN's parse graph).
+  group(target_name) {
+    not_needed(invoker, "*")
+  }
+}
+
+set_defaults("test") {
+  if (is_android) {
+    # Should be kept in sync with set_defaults("cronet_test") in
+    # //components/cronet/android/cronet_test_templates.gni
+    # LINT.IfChange
+    configs = default_shared_library_configs
+    configs -= [ "//build/config/android:hide_all_but_jni_onload" ]
+    configs += [ "//build/config/android:hide_all_but_jni" ]
+
+    # LINT.ThenChange(/components/cronet/android/cronet_test_templates.gni)
+  } else {
+    configs = default_executable_configs
+  }
+}

@@ -181,6 +181,14 @@ struct IsolateData {
   /// Public access to foreground task runner (for backwards compatibility)
   std::shared_ptr<TaskRunner> foreground_task_runner_;
 
+  /// Descriptor for an optional startup-snapshot blob. V8 retains a pointer to
+  /// this struct (via Isolate::CreateParams::snapshot_blob) and deserializes
+  /// contexts from it LAZILY — so it must outlive Isolate::Initialize and live
+  /// for the isolate's lifetime. Holding it here (created before Initialize)
+  /// gives it exactly that lifetime. The .data bytes are owned elsewhere
+  /// (the runtime), kept alive at least as long as this IsolateData.
+  v8::StartupData snapshot_blob_{nullptr, 0};
+
  private:
   v8::Local<v8::Private> getOrCreatePrivateKey(
       v8::Eternal<v8::Private>& key,
@@ -264,7 +272,7 @@ class V8Scope {
 /// one inside the locker is not yet built). Passing the Global lets the
 /// locker derive the Local under its own HandleScope.
 ///
-/// Migrated from V8Runtime::IsolateLocker (W8). Used by Node-API's
+/// Migrated from V8Runtime::IsolateLocker. Used by Node-API's
 /// NodeApiIsolateLocker which extends it with TLS-current tracking.
 class IsolateLocker {
  public:
@@ -345,6 +353,12 @@ struct IsolateConfig {
 
   /// Microtask policy.
   v8::MicrotasksPolicy microtasks_policy = v8::MicrotasksPolicy::kAuto;
+
+  /// Optional V8 startup-snapshot blob (borrowed; caller keeps it alive for the
+  /// isolate's lifetime). When non-null, the isolate is created from it instead
+  /// of the built-in startup data, pre-materializing the embedded script's heap.
+  const uint8_t* startup_snapshot_blob = nullptr;
+  size_t startup_snapshot_blob_size = 0;
 };
 
 /// Create a new V8 isolate with the given configuration.
@@ -354,7 +368,10 @@ v8::Isolate* createIsolate(const IsolateConfig& config);
 
 /// Create a new V8 context in the given isolate.
 /// The isolate must be entered (have an active Isolate::Scope).
-v8::Local<v8::Context> createContext(v8::Isolate* isolate);
+/// When \p from_snapshot is true the isolate was created from a custom startup
+/// snapshot; the context is cloned from the snapshot's default context (no
+/// global template) so the baked-in globalThis state is restored.
+v8::Local<v8::Context> createContext(v8::Isolate* isolate, bool from_snapshot = false);
 
 //==============================================================================
 // Context Embedder Data Indices
@@ -363,7 +380,7 @@ v8::Local<v8::Context> createContext(v8::Isolate* isolate);
 /// Well-known embedder data indices for V8 contexts.
 struct ContextEmbedderIndex {
   /// Slot 0 — back-pointer from a context to the JSI ABI runtime that owns it.
-  /// Set by JsiRuntimeState::create (W8). Read by static callbacks (e.g.
+  /// Set by JsiRuntimeState::create. Read by static callbacks (e.g.
   /// PromiseRejectCallback) that only have a context handle and need to find
   /// the owning runtime.
   static constexpr int kRuntime = 0;

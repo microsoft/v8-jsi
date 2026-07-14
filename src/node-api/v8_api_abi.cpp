@@ -79,7 +79,7 @@ class NodeApiEnv;
 //============================================================================
 // V8RuntimeEnv ΓÇö Node-API surface attached to a jsi_runtime.
 //
-// W8: replaces the legacy `class V8RuntimeEnv : public v8runtime::V8Runtime`.
+// replaces the legacy `class V8RuntimeEnv : public v8runtime::V8Runtime`.
 // Composition over a jsi_runtime *. All V8-state accessors (isolate,
 // context, script cache, unhandled-promise tracking) reach into the
 // underlying JsiRuntimeState via the v8rt_internal:: free functions.
@@ -221,7 +221,7 @@ class V8RuntimeEnv {
 //============================================================================
 // NodeApiPreparedScript ΓÇö Node-API's opaque jsr_prepared_script payload.
 //
-// W8: was a heap-allocated shared_ptr<facebook::jsi::PreparedJavaScript> in
+// was a heap-allocated shared_ptr<facebook::jsi::PreparedJavaScript> in
 // the legacy code (because V8Runtime::prepareJavaScript2 returned that
 // type). Now the script-cache plumbing happens directly in V8RuntimeEnv;
 // the prepared-script payload is just a v8::Global<v8::UnboundScript> the
@@ -234,7 +234,7 @@ struct NodeApiPreparedScript {
 //============================================================================
 // NodeApiEnv ΓÇö concrete napi_env implementation backed by V8RuntimeEnv.
 //
-// W8: composition over V8RuntimeEnv (no V8Runtime inheritance). The
+// composition over V8RuntimeEnv (no V8Runtime inheritance). The
 // destruction flow is owned by V8RuntimeEnv: its destructor Unrefs the
 // root env which cascades through any module envs. NodeApiEnv::DeleteMe
 // no longer deletes the runtime ΓÇö V8RuntimeEnv lifetime is managed by the
@@ -422,7 +422,7 @@ class NodeApiEnv : public napi_env__ {
     return GET_RETURN_STATUS(env);
   }
 
-  // W8: prepare/run prepared scripts directly via V8 + the runtime's
+  // prepare/run prepared scripts directly via V8 + the runtime's
   // script-cache callbacks. Replaces the legacy V8Runtime::prepareJavaScript2
   // / evaluatePreparedJavaScript2 round-trip through facebook::jsi types.
   napi_status createPreparedScript(const uint8_t* scriptData,
@@ -723,7 +723,7 @@ class RuntimeWrapper {
 //============================================================================
 // V8TaskRunner / V8ScriptCache ΓÇö local config helpers
 //
-// W8: these own the consumer-supplied task runner / script cache C
+// these own the consumer-supplied task runner / script cache C
 // callback bundles. ConfigWrapper holds them; on jsr_create_runtime they
 // are translated into v8_jsi_config setters that hand a C-callback pair to
 // the JSI ABI. The wrapper lifetime is governed by the ABI's deleter
@@ -803,7 +803,7 @@ class V8ScriptCache {
 //============================================================================
 // ConfigWrapper ΓÇö backs the public jsr_config opaque type.
 //
-// W8: stores the consumer-facing values directly (no V8RuntimeArgs round
+// stores the consumer-facing values directly (no V8RuntimeArgs round
 // trip). On jsr_create_runtime the values are pushed into a jsi_config via
 // v8_jsi_config_set_* setters, then v8_create_runtime + v8_attach_node_api
 // build the final jsr_runtime.
@@ -1216,6 +1216,14 @@ napi_create_external_buffer(napi_env env,
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, result);
 
+#ifdef V8_ENABLE_SANDBOX
+  // The V8 sandbox requires every ArrayBuffer backing store to live inside the
+  // cage, so external backing stores are disallowed (mirrors upstream Node.js
+  // node_api.cc). Consumers using the node-addon-api C++ wrapper get an
+  // automatic copy fallback (Buffer::NewOrCopy); raw C-API callers must handle
+  // this status. The JSI createArrayBuffer paths copy in-cage instead.
+  return napi_set_last_error(env, napi_no_external_buffers_allowed);
+#else
   struct DeleterData {
     napi_env env;
     node_api_nogc_finalize finalize_cb;
@@ -1257,6 +1265,7 @@ napi_create_external_buffer(napi_env env,
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);
+#endif  // V8_ENABLE_SANDBOX
 }
 
 //=============================================================================

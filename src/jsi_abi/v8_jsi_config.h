@@ -163,6 +163,100 @@ JSI_API void JSI_CDECL
 v8_jsi_set_v8_flags(size_t *argc, char **argv, bool remove_flags);
 
 /*============================================================================
+ * Startup-snapshot creation (offline build-step API)
+ *
+ * Builds a V8 startup-snapshot blob from a pure-JS builder script: a dedicated
+ * SnapshotCreator isolate runs the script in a fresh context, drains
+ * microtasks, serializes the context as the default context, and returns the
+ * blob bytes. Feed the blob back at runtime via a future config setter (or, on
+ * the legacy path, V8RuntimeArgs::startupSnapshotBlob) so the embedded script
+ * is neither parsed nor executed on startup.
+ *
+ * This is a PROCESS-GLOBAL operation intended for a DEDICATED tool process: the
+ * blob is only loadable by an engine built with identical V8 flags
+ * (pointer-compression / cage / lite-mode / CachedDataVersionTag). `jitless`
+ * forwards --jitless so the creator matches a jitless consumer.
+ * FunctionCodeHandling::kClear is always used (no machine code is serialized —
+ * the interpreter bytecode lives in the heap).
+ *
+ * The returned bytes are a self-describing CONTAINER: a small fixed-width header
+ * (magic, format version, V8 CachedDataVersionTag, engine build-flag bits, blob
+ * size) followed by the raw v8::StartupData. The header lets a stale or
+ * cross-engine blob be rejected at load time instead of crashing V8 (a startup
+ * blob is only loadable by an engine with the identical V8 version and cage /
+ * pointer-compression / lite build). Callers (e.g. mkv8snapshot) write the
+ * container verbatim; v8_jsi_config_set_startup_snapshot / the runtime strip and
+ * validate it. Use v8_startup_snapshot_compatible to pre-check a blob read back
+ * from disk.
+ *
+ * On success returns jsi_no_error and sets *out_blob to a freshly allocated
+ * container of *out_blob_size bytes (free it with v8_free_startup_snapshot).
+ * Returns jsi_error_native on failure (*out_blob left NULL).
+ *============================================================================*/
+JSI_API jsi_error_code JSI_CDECL v8_create_startup_snapshot(
+    const char *script_utf8,
+    size_t script_size,
+    const char *source_url,
+    bool jitless,
+    uint8_t **out_blob,        /* out, owned by caller */
+    size_t *out_blob_size);    /* out */
+
+JSI_API void JSI_CDECL v8_free_startup_snapshot(uint8_t *blob);
+
+/* Supply a V8 startup-snapshot blob (built with v8_create_startup_snapshot) to a
+ * runtime. The isolate is created from it (Isolate::CreateParams::snapshot_blob)
+ * so the embedded script's heap is pre-materialized — neither parsed nor run.
+ *
+ * Lifetime: the config takes ownership of `blob` when the setter is called; on
+ * v8_create_runtime the runtime takes over (the config's pointer is cleared so
+ * it isn't freed twice). The runtime keeps the bytes alive for the isolate's
+ * lifetime and calls blob_delete_cb(blob, deleter_data) exactly once on destroy.
+ * If configure aborts before the runtime is built, ~jsi_config fires the deleter.
+ * blob_delete_cb may be NULL (then the bytes are treated as caller-owned and
+ * outliving the runtime). NULL blob clears any previously set snapshot. */
+JSI_API void JSI_CDECL v8_jsi_config_set_startup_snapshot(
+    jsi_config config,
+    const uint8_t *blob,
+    size_t blob_size,
+    jsi_data_delete_cb blob_delete_cb,
+    void *deleter_data);
+
+/*============================================================================
+ * Startup-snapshot container compatibility check
+ *
+ * A startup blob built by v8_create_startup_snapshot carries a container header
+ * (see that function). Pass the WHOLE container (header + bytes) here to check
+ * whether THIS engine can load it. Use this before handing a blob read from disk
+ * to a runtime, and on a non-zero result skip the snapshot (create a normal
+ * runtime) rather than apply a mismatched blob. The runtime ALSO validates
+ * internally as a safety net, so a bad blob never reaches V8 even if this check
+ * is skipped; this export just lets the consumer choose its fallback up front.
+ *
+ * Ordering: the version check folds in V8's flag hash, so call this only AFTER
+ * any process-global engine flags are set (v8_jsi_set_v8_flags) — the same flags
+ * the snapshot was built with. This call initializes V8 (idempotent) so the tag
+ * is read in its final, flag-implication-enforced state.
+ *
+ * Returns 0 (v8_snapshot_compat_ok) when the container is loadable by this
+ * engine, otherwise one of the v8_snapshot_compat_* reason codes.
+ *============================================================================*/
+typedef enum {
+  v8_snapshot_compat_ok = 0,
+  v8_snapshot_compat_truncated = 1,        /* smaller than the container header */
+  v8_snapshot_compat_bad_magic = 2,        /* not a v8jsi snapshot container */
+  v8_snapshot_compat_bad_format = 3,       /* unknown container format version */
+  v8_snapshot_compat_version_mismatch = 4, /* V8 CachedDataVersionTag differs */
+  v8_snapshot_compat_flags_mismatch = 5,   /* engine build flags differ (cage…) */
+  v8_snapshot_compat_size_mismatch = 6     /* header blob_size != actual bytes */
+} v8_snapshot_compat_code;
+
+JSI_API int JSI_CDECL
+v8_startup_snapshot_compatible(const uint8_t *blob, size_t blob_size);
+
+/* Human-readable description of a v8_snapshot_compat_code (never NULL). */
+JSI_API const char *JSI_CDECL v8_startup_snapshot_compat_string(int code);
+
+/*============================================================================
  * Script cache (prepared-script storage)
  *
  * Mirrors jsr_config_set_script_cache in src/node-api/js_runtime_api.h

@@ -38,7 +38,7 @@
 #
 # BinSkim compliance (Stage B3)
 # -----------------------------
-# Phase-1 master-plan gate #5 requires v8jsi.dll to pass BinSkim with CFG +
+# v8jsi.dll must pass BinSkim with CFG +
 # Spectre verified. PR #233's `:win_msvc_cfg` GN config gives the
 # canonical flag set: `/guard:cf` (compile + link), `/Qspectre` (compile),
 # `/W3` (already common.gypi default).

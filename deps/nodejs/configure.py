@@ -1024,6 +1024,14 @@ parser.add_argument('--build-v8jsi',
     default=None,
     help='build v8jsi shared library (v8jsi.dll) using V8 from Node.js')
 
+parser.add_argument('--build-v8jsisb',
+    action='store_true',
+    dest='build_v8jsisb',
+    default=None,
+    help='build the v8jsi sandbox variant (v8jsisb.dll): the V8 in-process '
+         'sandbox + pointer compression (shared cage) + build-time jitless/lite '
+         'mode. Implies --build-v8jsi. The mainline v8jsi.dll build is unaffected.')
+
 parser.add_argument('--libdir',
     action='store',
     dest='libdir',
@@ -1853,6 +1861,50 @@ def configure_v8(o, configs):
   o['variables']['v8_enable_external_code_space'] = 1 if options.enable_pointer_compression else 0
   o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1 if options.enable_pointer_compression else 0
   o['variables']['v8_enable_extensible_ro_snapshot'] = 0
+  # === v8jsisb.dll: the sandbox build variant (opt-in via --build-v8jsisb). ===
+  # The mainline v8jsi.dll leaves v8_enable_sandbox=0 (set above) and stays
+  # full-JIT with no pointer-compression cage. The sandbox variant turns on the
+  # V8 in-process sandbox, which requires pointer compression + a shared cage +
+  # external code space, and -- to reach the ~17 MB size target and an
+  # interpreter-only attack surface -- build-time jitless/lite mode (no
+  # turbofan/maglev/sparkplug/webassembly).
+  #
+  # Pointer compression is a build-wide property of the produced DLL (4 GB heap
+  # cap + ABI/perf change), which is exactly why this is a SEPARATE artifact
+  # (v8jsisb.dll) rather than a mode of the shared v8jsi.dll: consumers that need
+  # the sandbox link the variant; everyone else keeps the unchanged v8jsi.dll.
+  #
+  # External ArrayBuffer/Buffer backing stores are fatal under the sandbox; the
+  # v8jsi sources rework those sites under #ifdef V8_ENABLE_SANDBOX (Node-API
+  # external-buffer entry points return napi_no_external_buffers_allowed; the JSI
+  # createArrayBuffer paths copy in-cage).
+  if options.build_v8jsisb:
+    # The jitless/lite cuts are arch-independent (size + interpreter-only attack
+    # surface) and apply to every v8jsisb.dll RID.
+    o['variables']['v8_enable_lite_mode'] = 1
+    o['variables']['v8_enable_turbofan'] = 0
+    o['variables']['v8_enable_maglev'] = 0
+    o['variables']['v8_enable_sparkplug'] = 0
+    o['variables']['v8_enable_webassembly'] = 0
+    # The V8 in-process sandbox (pointer-compression shared cage) is a 64-bit-only
+    # feature: v8_enable_sandbox = v8_enable_pointer_compression_shared_cage, and
+    # pointer compression compresses 64-bit pointers into a 4 GB cage that also
+    # reserves TB-scale address space -- structurally impossible in a 32-bit
+    # (ia32 / win-x86) process. So the cage ships only on the 64-bit RIDs
+    # (x64, arm64). The win-x86 v8jsisb.dll is a DELIBERATELY DEGRADED variant:
+    # jitless+lite for OS-lockdown hosts (restricted token + ACG + job) but
+    # WITHOUT the V8 cage.
+    if o['variables']['target_arch'] == 'ia32':
+      o['variables']['v8_enable_pointer_compression'] = 0
+      o['variables']['v8_enable_pointer_compression_shared_cage'] = 0
+      o['variables']['v8_enable_sandbox'] = 0
+    else:
+      o['variables']['v8_enable_pointer_compression'] = 1
+      o['variables']['v8_enable_pointer_compression_shared_cage'] = 1
+      o['variables']['v8_enable_external_code_space'] = 1
+      o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1
+      o['variables']['v8_enable_sandbox'] = 1
+  # === END v8jsisb.dll sandbox variant ===
   o['variables']['v8_trace_maps'] = 1 if options.trace_maps else 0
   o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
   o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
@@ -2440,8 +2492,12 @@ for builtin, value in shareable_builtins.items():
 # Forward OSS-Fuzz settings
 output['variables']['ossfuzz'] = b(options.ossfuzz)
 
-# Forward v8jsi build settings
-output['variables']['build_v8jsi'] = 1 if options.build_v8jsi else 0
+# Forward v8jsi build settings. --build-v8jsisb implies --build-v8jsi: the
+# sandbox variant is the same gyp target (v8jsi), only built with the sandbox/
+# lite V8 variables and emitted as v8jsisb.dll.
+output['variables']['build_v8jsisb'] = 1 if options.build_v8jsisb else 0
+output['variables']['build_v8jsi'] = (
+    1 if (options.build_v8jsi or options.build_v8jsisb) else 0)
 
 # variables should be a root level element,
 # move everything else to target_defaults

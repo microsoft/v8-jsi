@@ -1,0 +1,159 @@
+# Sync exclusions for the vendored Chromium subset.
+#
+# Applied by fork-sync via `git ls-files -i --exclude-per-directory=.syncignore`
+# (identical to .gitignore semantics; `!` negation supported; last match wins;
+# patterns are root-anchored to this file's directory = the vendored root).
+#
+# An excluded path drops from BOTH the upstream and local listings, so it is
+# neither pulled nor deleted. The one-time removal of already-vendored files was
+# done by `git rm` (the source-prune commits); these patterns stop the next
+# `fork-sync` from re-pulling them.
+#
+# IDIOM: exclude directory *contents* with `dir/**` (never a bare `dir/`) so the
+# directory itself stays un-excluded and `!` negations inside it can re-include.
+# Order matters (last match wins): category/library excludes first, then the
+# build-file re-includes, then the submodule + local-only excludes LAST so they
+# override the build-file re-include.
+#
+# Two jobs:
+#   (1) Freeze foreign (git-submodule) third_party content — chromium/src tracks
+#       these as gitlinks, so a chromium/src-only sync would delete our vendored
+#       copies as orphans. Frozen until fork-sync handles submodules.
+#   (2) Keep the native (chromium/src) tree pruned to the build closure: drop
+#       tests / other-platform / docs / unused components; keep all build files.
+
+# =====================================================================
+# (2a) Vestigial native libs — keep only GN/gen build files (so the GN graph
+#      resolves); drop all sources/data.
+# =====================================================================
+/third_party/libxml/**
+/third_party/sqlite/**
+/third_party/closure_compiler/**
+/third_party/ced/**
+/third_party/fuzztest/**
+/third_party/google_benchmark/**
+
+# =====================================================================
+# (2a') NSPR prtime — dropped entirely. Its PR_ParseTimeString backs
+#       base::Time::FromString, which nothing in this build calls; removing it
+#       keeps the shipped binaries free of its MPL-2.0 license (the only
+#       weak-copyleft file in the vendored tree). base/time/time.cc stubs the
+#       now-unused parser (a v8-jsi fork delta).
+# =====================================================================
+/base/third_party/nspr/**
+
+# =====================================================================
+# (2b) protobuf — keep the C++ core; drop language bindings, conformance, docs.
+# =====================================================================
+/third_party/protobuf/csharp/**
+/third_party/protobuf/java/**
+/third_party/protobuf/python/**
+/third_party/protobuf/ruby/**
+/third_party/protobuf/objectivec/**
+/third_party/protobuf/php/**
+/third_party/protobuf/kotlin/**
+/third_party/protobuf/rust/**
+/third_party/protobuf/conformance/**
+/third_party/protobuf/benchmarks/**
+/third_party/protobuf/docs/**
+/third_party/protobuf/examples/**
+
+# =====================================================================
+# (2c) rust crates — dropped ENTIRELY, INCLUDING build files. Because the build
+#      files (*.gn/*.gni/*.py) would be re-added by the `!**/*.gn` build-file
+#      re-include below, the actual `/third_party/rust/**` exclusion is placed
+#      AFTER that re-include (see the "rust: full drop" block) so it wins by
+#      last-match. The sandbox builds with enable_rust=false (Rust toolchain
+#      dropped), so nothing under third_party/rust
+#      is loaded by gn gen.
+# =====================================================================
+
+# =====================================================================
+# (2d) Coarse category drops, tree-wide. Semantic (by-category), so new upstream
+#      files in these categories are auto-excluded on future syncs.
+#      The test rules collide with exactly TWO kept base closure files
+#      (base/check_is_test.cc, base/test/scoped_logging_settings.h), which are
+#      re-included explicitly below; everything else under test/ is junk.
+# =====================================================================
+# tests
+**/test/**
+**/tests/**
+**/*_unittest.cc
+**/*_unittests.cc
+**/*_test.cc
+**/*_browsertest.cc
+**/*_perftest.cc
+# fuzzers / benchmarks (no kept-file collisions)
+**/fuzz/**
+**/fuzzer/**
+**/fuzzing/**
+# other-platform (we build Windows x64 only)
+**/android/**
+**/ios/**
+**/fuchsia/**
+**/cros/**
+**/chromeos/**
+**/mac/**
+**/apple/**
+
+# =====================================================================
+# Re-includes. `!**/` re-includes every directory first (lifts git's
+# parent-directory-exclusion rule so file negations below can take effect),
+# then keep all build files and the wholesale-kept scaffolding dirs.
+# (native dropped set contains ZERO build files, so this never re-adds junk.)
+# =====================================================================
+!**/
+!**/*.gn
+!**/*.gni
+!**/*.py
+!**/.gitignore
+!/build/**
+!/buildtools/**
+!/build_overrides/**
+!/testing/**
+!/tools/**
+# Two base closure files that live under a test/ path or match *_test.cc.
+!/base/check_is_test.cc
+!/base/test/scoped_logging_settings.h
+
+# =====================================================================
+# rust: full drop (INCLUDING *.gn/*.gni/*.py) — placed AFTER the build-file
+# re-includes above so it wins by last-match. enable_rust=false ⇒ nothing under
+# third_party/rust is loaded by gn gen, so even the GN wrappers can go.
+# =====================================================================
+/third_party/rust/**
+/third_party/protobuf-javascript/**
+
+# =====================================================================
+# (1) Foreign repos (git submodules in chromium/src) — freeze whole subtree.
+#     Placed AFTER the build-file re-includes so nothing inside them (incl.
+#     their BUILD.gn, which lives in the submodule, not chromium/src) is
+#     re-included and then deleted as an orphan.
+# =====================================================================
+/third_party/boringssl/src/**
+/third_party/compiler-rt/src/**
+/third_party/googletest/src/**
+/third_party/icu/**
+/third_party/libc++/src/**
+/third_party/libc++abi/src/**
+/third_party/libunwind/src/**
+/third_party/llvm-libc/src/**
+/third_party/nasm/**
+/third_party/perfetto/**
+/third_party/re2/src/**
+
+# =====================================================================
+# Local-only files (not upstream) — protect from both pull and orphan-delete.
+# Placed LAST so the build-file re-include above does not expose their *.gn.
+# =====================================================================
+/sync-config.json
+/.syncignore
+/sync-pr-notes.md
+/.gn
+/BUILD.gn
+/out/**
+/sandbox_dll/**
+/v8host/**
+/test_app/**
+/jsi_cpp/**
+/chrome/**

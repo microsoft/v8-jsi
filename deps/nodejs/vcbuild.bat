@@ -162,6 +162,7 @@ if /i "%1"=="binlog"        set extra_msbuild_args=/binaryLogger:out\%config%\no
 if /i "%1"=="compile-commands" set compile_commands=1&goto arg-ok
 if /i "%1"=="cfg"           set cfg=1&goto arg-ok
 if /i "%1"=="v8jsi"         set build_v8jsi=1&goto arg-ok
+if /i "%1"=="v8jsisb"       set build_v8jsi=1&set build_v8jsisb=1&goto arg-ok
 if /i "%1"=="no-node"             set no_node=1&goto arg-ok
 if /i "%1"=="no-embedtest"        set no_embedtest=1&goto arg-ok
 if /i "%1"=="no-openssl-cli"      set no_openssl_cli=1&goto arg-ok
@@ -232,6 +233,7 @@ if defined compile_commands set configure_flags=%configure_flags% -C
 if defined cfg              set configure_flags=%configure_flags% --control-flow-guard
 if defined v8windbg         set configure_flags=%configure_flags% --enable-v8windbg
 if defined build_v8jsi      set configure_flags=%configure_flags% --build-v8jsi
+if defined build_v8jsisb    set configure_flags=%configure_flags% --build-v8jsisb
 
 if "%target_arch%"=="x86" if "%PROCESSOR_ARCHITECTURE%"=="AMD64" set configure_flags=%configure_flags% --no-cross-compiling
 
@@ -443,8 +445,9 @@ if defined no_overlapped_checker (set use_target_list=1) else (set "target_list=
 
 @rem v8jsi-side targets only exist in the .sln when gyp pulled them in.
 @rem build_v8jsi adds v8jsi_test + node_api_tests as a unit (v8jsi.dll is
-@rem a transitive dep of v8jsi_test).
-if defined build_v8jsi set "target_list=%target_list%;v8jsi_test;node_api_tests"
+@rem a transitive dep of v8jsi_test) plus mkv8snapshot, the offline startup-
+@rem snapshot builder (a standalone exe that links no V8 — see src/v8jsi.gyp).
+if defined build_v8jsi set "target_list=%target_list%;v8jsi_test;node_api_tests;mkv8snapshot"
 
 @rem strip leading ';' (flattened to top-level so each %target_list% re-expands fresh)
 if defined use_target_list if "%target_list:~0,1%"==";" set "target_list=%target_list:~1%"

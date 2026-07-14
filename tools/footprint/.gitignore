@@ -1,0 +1,8 @@
+# Build artifacts + generated measurement data (footprint harness).
+*.exe
+*.obj
+*.pdb
+*.ilk
+footprint-results.json
+footprint-table.md
+engines/

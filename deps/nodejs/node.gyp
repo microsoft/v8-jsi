@@ -38,6 +38,7 @@
     'node_write_snapshot_as_string_literals': 'true',
     'ossfuzz' : 'false',
     'build_v8jsi%': 0,
+    'build_v8jsisb%': 0,
     'linked_module_files': [
     ],
     # We list the deps/ files out instead of globbing them in js2c.cc since we
@@ -1644,7 +1645,7 @@
     ['build_v8jsi==1', {
       'includes': [
         '../../src/v8jsi.gyp',
-        # Node-API conformance test rig (W7) -> 34 addon DLLs + node_lite.exe
+        # Node-API conformance test rig -> 34 addon DLLs + node_lite.exe
         # + node_api_tests.exe + JS-file copy. Built alongside v8jsi.dll.
         '../../src/node-api/test/node_api_tests.gyp',
       ],

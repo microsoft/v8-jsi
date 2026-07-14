@@ -1,0 +1,19 @@
+# The generic, V8-agnostic sandbox DLL (sbox.dll) + its broker/target C ABI.
+# Built with the Chromium toolchain; loaded by the app's host + target EXEs.
+# Build everything: `ninja -C out/sandbox-x64 generic`.
+
+shared_library("sbox") {
+  sources = [ "sbox_dll.cc" ]
+  include_dirs = [ "." ]  # sbox.h
+  deps = [
+    "//base",
+    "//sandbox/win:sandbox",
+  ]
+
+  # Microsoft.JavaScript.V8 VERSIONINFO. The pruned sandbox tree lacks the
+  # hermetic rc binary GN's rc tool needs, so scripts/sbox-build.ts compiles
+  # src/version_info.rc -> version_info_sbox.res (VER_BINARY=4 selects sbox.dll's
+  # strings) with the Windows SDK rc.exe before ninja runs; link the prebuilt
+  # .res (lld-link embeds its resources). Path is relative to the out dir.
+  ldflags = [ "version_info_sbox.res" ]
+}

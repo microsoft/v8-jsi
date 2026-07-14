@@ -1,0 +1,13 @@
+# test_app.exe — generic broker test harness. Consumes only the generic
+# sbox.dll C API; no Chromium internals, no V8.
+
+executable("test_app") {
+  sources = [ "test_app.cc" ]
+  include_dirs = [ "//sandbox_dll" ]  # sbox.h, sbox_harden.h
+  deps = [ "//sandbox_dll:sbox" ]
+  libs = [ "wintrust.lib" ]  # WinVerifyTrust (signature check)
+
+  # Resolve statically-imported DLLs (incl. sbox.dll) only from System32 + the
+  # application directory — neutralizes current-directory / PATH planting.
+  ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+}

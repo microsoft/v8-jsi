@@ -17,13 +17,16 @@
 #include "jsi_abi/v8_jsi_config.h"
 #include "js_runtime_api.h"
 
-// W4 test-only hook (declared in jsi_abi_v8.cpp). Posts a task to the
+// test-only hook (declared in jsi_abi_v8.cpp). Posts a task to the
 // runtime's foreground task runner — used by JsiAbiTaskRunner.LifecycleAndPostTask
 // to exercise the post-task trampoline without an inspector session.
 extern "C" JSI_API void JSI_CDECL v8_jsi_test_post_foreground_task(
     jsi_runtime *runtime,
     void (JSI_CDECL *task_run_cb)(void *),
     void *task_data);
+
+// v8_create_startup_snapshot / v8_free_startup_snapshot are declared in
+// jsi_abi/v8_jsi_config.h (included above).
 
 namespace facebook::jsi {
 
@@ -87,6 +90,74 @@ TEST(Basic, CreateManyRuntimes) {
   }
 }
 
+// Startup-snapshot round-trip. V8's shared read-only heap requires every isolate
+// in a process to use the same snapshot, so creation (a SnapshotCreator isolate)
+// and consumption (a runtime isolate from a custom blob) must NOT share a
+// process. These are therefore two separate tests, each run in its OWN process
+// invocation, exchanging the blob via a file. They are DISABLED_ so they never
+// run as part of the normal in-process suite (where the shared RO heap would
+// make Consume fail); run them explicitly, each in its own process:
+//   v8jsi_test.exe --gtest_also_run_disabled_tests --gtest_filter=*DISABLED_SnapshotCreate
+//   v8jsi_test.exe --gtest_also_run_disabled_tests --gtest_filter=*DISABLED_SnapshotConsume
+// The Consume isolate is then the only isolate in its process, so its custom
+// blob defines the process read-only heap — the real (one-isolate-per-process)
+// deployment shape used by v8host.
+namespace {
+const char *kSnapshotTestBlobPath = "e:\\tmp\\v8jsi_test_snapshot.bin";
+
+class SnapshotBlobBuffer final : public facebook::jsi::Buffer {
+ public:
+  explicit SnapshotBlobBuffer(std::vector<uint8_t> bytes) : bytes_(std::move(bytes)) {}
+  const uint8_t *data() const override { return bytes_.data(); }
+  size_t size() const override { return bytes_.size(); }
+
+ private:
+  std::vector<uint8_t> bytes_;
+};
+} // namespace
+
+TEST(SnapshotRoundtrip, DISABLED_SnapshotCreate) {
+  const std::string builder = "globalThis.snapshotMarker = 41 + 1;";
+
+  uint8_t *blob = nullptr;
+  size_t blobSize = 0;
+  jsi_error_code rc = v8_create_startup_snapshot(
+      builder.data(), builder.size(), "snapshot-builder.js", /*jitless*/ false, &blob, &blobSize);
+  ASSERT_EQ(rc, jsi_no_error) << "v8_create_startup_snapshot failed";
+  ASSERT_NE(blob, nullptr);
+  ASSERT_GT(blobSize, 0u);
+  fprintf(stderr, "[snap-test] created blob = %zu bytes -> %s\n", blobSize, kSnapshotTestBlobPath);
+
+  FILE *f = fopen(kSnapshotTestBlobPath, "wb");
+  ASSERT_NE(f, nullptr) << "cannot open blob file for write";
+  ASSERT_EQ(fwrite(blob, 1, blobSize, f), blobSize);
+  fclose(f);
+  v8_free_startup_snapshot(blob);
+}
+
+TEST(SnapshotRoundtrip, DISABLED_SnapshotConsume) {
+  FILE *f = fopen(kSnapshotTestBlobPath, "rb");
+  ASSERT_NE(f, nullptr) << "run DISABLED_SnapshotCreate first (separate process)";
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  ASSERT_GT(sz, 0);
+  std::vector<uint8_t> bytes(static_cast<size_t>(sz));
+  ASSERT_EQ(fread(bytes.data(), 1, bytes.size(), f), bytes.size());
+  fclose(f);
+  fprintf(stderr, "[snap-test] consuming blob = %ld bytes\n", sz);
+
+  v8runtime::V8RuntimeArgs args;
+  args.flags.enableInspector = false;
+  args.startupSnapshotBlob = std::make_shared<SnapshotBlobBuffer>(std::move(bytes));
+  auto runtime = v8runtime::makeV8Runtime(std::move(args));
+
+  // The global must be present from the snapshot — no script evaluated.
+  facebook::jsi::Value v = runtime->global().getProperty(*runtime, "snapshotMarker");
+  ASSERT_TRUE(v.isNumber()) << "snapshotMarker not restored from snapshot";
+  EXPECT_EQ(v.getNumber(), 42.0);
+}
+
 TEST(Basic, MultiThreadIsolate) {
   v8runtime::V8RuntimeArgs args;
   args.flags.enableMultiThread = true;
@@ -114,7 +185,7 @@ TEST(Basic, MultiThreadIsolate) {
   }
 }
 
-// W1 smoke test: end-to-end exercise of the v8_jsi_config plumbing.
+// smoke test: end-to-end exercise of the v8_jsi_config plumbing.
 // Populates a factory-owned config via the public C setters inside the
 // configure callback, and confirms a basic eval works. Does not (and cannot)
 // verify that V8 actually applied the requested flags — V8 platform-flag state
@@ -128,7 +199,7 @@ TEST(JsiAbiConfig, RuntimeFromConfigEvaluates) {
     v8_jsi_config_set_initial_heap_size(cfg, 0);
     v8_jsi_config_set_maximum_heap_size(cfg, 0);
     v8_jsi_config_set_thread_pool_size(cfg, 0);
-    v8_jsi_config_set_debugger_runtime_name(cfg, "w1-smoke");
+    v8_jsi_config_set_debugger_runtime_name(cfg, "config-smoke");
     v8_jsi_config_enable_inspector(cfg, false);
     v8_jsi_config_set_inspector_port(cfg, 9223);
     v8_jsi_config_set_inspector_break_on_start(cfg, false);
@@ -147,12 +218,12 @@ TEST(JsiAbiConfig, RuntimeFromConfigEvaluates) {
       ::jsi::abi::makeJsiAbiRuntime(&v8_create_runtime, configure);
 
   facebook::jsi::Value result = runtime->evaluateJavaScript(
-      std::make_shared<facebook::jsi::StringBuffer>("1 + 2"), "w1-smoke.js");
+      std::make_shared<facebook::jsi::StringBuffer>("1 + 2"), "config-smoke.js");
   EXPECT_TRUE(result.isNumber());
   EXPECT_EQ(result.getNumber(), 3.0);
 }
 
-// W3 round-trip test: stub PreparedScriptStore wired through V8RuntimeArgs.
+// round-trip test: stub PreparedScriptStore wired through V8RuntimeArgs.
 // Confirms the full chain — consumer's PreparedScriptStore → V8ScriptCache
 // adapter → C callbacks → DLL → V8 code cache → C callbacks → adapter →
 // consumer's persistPreparedScript / tryGetPreparedScript.
@@ -260,7 +331,7 @@ TEST(JsiAbiScriptCache, LoadStoreRoundtrip) {
       << "persistPreparedScript must NOT be called on a cache hit";
 }
 
-// W4 lifecycle + post-task test. Confirms:
+// lifecycle + post-task test. Confirms:
 //   1. A foreground_task_runner supplied via V8RuntimeArgs reaches the runtime.
 //   2. Posting a task through the foreground runner round-trips through both
 //      the consumer-side V8TaskRunner adapter and the DLL-side CTaskRunner
@@ -332,7 +403,7 @@ TEST(JsiAbiTaskRunner, LifecycleAndPostTask) {
       << "runtime destruction must release the task runner exactly once";
 }
 
-// W5 inspector lifecycle smoke test. Builds a runtime with
+// inspector lifecycle smoke test. Builds a runtime with
 // enable_inspector=true, calls v8_open_inspector, evaluates JS, and tears
 // down — all without standing up a real debugger client. The point is to
 // verify the inspector::Agent is created/started/torn down without crashing,
@@ -375,14 +446,14 @@ TEST(JsiAbiInspector, LifecycleAndOpen) {
 #endif
 }
 
-// W6 Node-API revival smoke test. Confirms that the napi_*/jsr_* surface
+// Node-API revival smoke test. Confirms that the napi_*/jsr_* surface
 // compiled into v8jsi.dll works end-to-end:
 //   1. Build a jsr_config and create a jsr_runtime.
 //   2. Obtain the napi_env and open an env scope.
 //   3. Run a trivial JS script via napi_run_script and read back a number.
 //   4. Tear down env scope and runtime.
 // The point is to prove the path is wired, not to exhaustively cover Node-API.
-// Full N-API conformance comes back in W7.
+// Full N-API conformance comes back later.
 TEST(NodeApiSmoke, CreateRuntimeAndRunScript) {
   jsr_config config{};
   ASSERT_EQ(jsr_create_config(&config), napi_ok);
@@ -425,9 +496,9 @@ TEST(NodeApiSmoke, CreateRuntimeAndRunScript) {
   ASSERT_EQ(jsr_delete_runtime(runtime), napi_ok);
 }
 
-// W8 dual-API smoke test. The original reason `V8RuntimeEnv : public V8Runtime`
+// dual-API smoke test. The original reason `V8RuntimeEnv : public V8Runtime`
 // existed was so a consumer could create a runtime via Node-API (jsr_*) and
-// also reach into the same V8 isolate through the JSI APIs. After W8 the
+// also reach into the same V8 isolate through the JSI APIs. Now the
 // inheritance is gone, but the contract is preserved through:
 //   1. v8_create_runtime + v8_attach_node_api as the underlying primitives.
 //   2. jsr_create_runtime as the same convenience entry point, internally
@@ -489,7 +560,7 @@ TEST(DualApi, NodeApiAndJsiShareIsolate) {
   ASSERT_EQ(jsr_delete_runtime(runtime), napi_ok);
 }
 
-// W9 query_interface negative-path test. The ABI currently supports no
+// query_interface negative-path test. The ABI currently supports no
 // optional interfaces, so query_interface always reports not-supported.
 // Confirms it returns jsi_error_native and surfaces "Interface not supported"
 // via the native-exception-message slot. Exercises the only path through which

@@ -1,0 +1,16 @@
+# Root build file for the v8-jsi sandbox.
+#
+# GN requires a //BUILD.gn at the source root. Chromium's own root BUILD.gn is
+# not vendored (it pulls in the whole product), so this minimal one only wires
+# the sandbox targets this project needs.
+
+# Generic packaging (Architecture C): a V8-agnostic sbox.dll + an app-defined
+# target EXE (v8host) + a generic broker test harness (test_app).
+# `ninja -C out/sandbox-x64 generic`.
+group("generic") {
+  deps = [
+    "//sandbox_dll:sbox",
+    "//v8host",
+    "//test_app",
+  ]
+}

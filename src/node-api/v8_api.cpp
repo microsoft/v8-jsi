@@ -967,6 +967,12 @@ napi_create_external_buffer(napi_env env,
   NAPI_PREAMBLE(env);
   CHECK_ARG(env, result);
 
+#ifdef V8_ENABLE_SANDBOX
+  // See v8_api_abi.cpp: external backing stores are disallowed under the V8
+  // sandbox. (NOTE: this file is not currently compiled into v8jsi.dll --
+  // v8jsi.gyp uses v8_api_abi.cpp -- but the guard is kept in sync.)
+  return napi_set_last_error(env, napi_no_external_buffers_allowed);
+#else
   struct DeleterData {
     napi_env env;
     node_api_nogc_finalize finalize_cb;
@@ -1008,6 +1014,7 @@ napi_create_external_buffer(napi_env env,
 
   *result = v8impl::JsValueFromV8LocalValue(buffer);
   return GET_RETURN_STATUS(env);
+#endif  // V8_ENABLE_SANDBOX
 }
 
 //=============================================================================

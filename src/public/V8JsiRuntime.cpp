@@ -250,6 +250,23 @@ void applyArgs(jsi_config cfg, const V8RuntimeArgs &args) {
   if (args.foreground_task_runner) {
     V8TaskRunner::Create(cfg, args.foreground_task_runner);
   }
+  if (args.startupSnapshotBlob && args.startupSnapshotBlob->size() > 0) {
+    // The runtime needs the blob bytes for its whole lifetime, but `args` (and
+    // this shared_ptr) only lives for the synchronous create call. Heap-hold a
+    // copy of the shared_ptr and free it via the deleter the runtime fires on
+    // destroy — mirrors the V8ScriptCache buffer-ownership pattern above.
+    auto *held =
+        new std::shared_ptr<const facebook::jsi::Buffer>(args.startupSnapshotBlob);
+    v8_jsi_config_set_startup_snapshot(
+        cfg,
+        (*held)->data(),
+        (*held)->size(),
+        [](void * /*data*/, void *deleterData) {
+          delete reinterpret_cast<
+              std::shared_ptr<const facebook::jsi::Buffer> *>(deleterData);
+        },
+        held);
+  }
 }
 
 // Configure trampoline: v8_create_runtime hands us a factory-owned config and

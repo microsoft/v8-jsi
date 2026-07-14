@@ -1,0 +1,241 @@
+# NOTE: Please list accessibility flakes and failures at the top of this file,
+# followed by tests which are also flaky on other bots. Tests which are not
+# appropriate for this bot should be placed at the end of this file.
+
+# Flaky on Linux: crbug.com/483413077
+-AccessCodeCastTest.PasscodeInput
+-AccessCodeCastTest.PasscodeInput__PasscodeInputElementTest_cursor_is_rendered_correctly
+
+# Flaky on most bots: crbug.com/460575305
+-ActorToolAgnosticBrowserTest.EnsureFocusSimulatedWhenActing
+
+# Flaky on Linux: crbug.com/483506395
+-ActorTypeToolBrowserTest.TypeTool_FocusMovesFocus
+
+# Flaky on Linux: crbug.com/483651798
+-ActorWindowManagementToolBrowserTest.CloseWindow
+
+# Flaky on multiple bots for all OSes: crbug.com/462585538
+-AdsPageLoadMetricsObserverBrowserTest.AdFrameRecordMediaStatusNotPlayed
+-AdsPageLoadMetricsObserverPrerenderingBrowserTest.NoMetricsInPrerendering
+
+# Flaky on multiple bots for all OSes: crbug.com/40947143
+-All/NetworkRequestMetricsBrowserTest.CancelDuringBody/2
+
+# Flaky on Linux: crbug.com/483413085
+-All/PDFExtensionJSSaveToDriveTest.SaveToDrive/0
+-All/PDFExtensionJSSaveToDriveTest.SaveToDriveBubble/0
+
+# Flaky on Linux: crbug.com/483542948
+-AutocompleteTest.SubmitSimpleValue_Disabled_DoesNotSave
+
+# Flaky on Linux: crbug.com/483918492
+-AutoPictureInPictureTabHelperBrowserTest.PromptResultRecorded_VideoConferencingAllowOnce
+
+# Flaky on most bots: crbug.com/475126748
+-BookmarksTest.List
+-BookmarksTest.List___bookmarks_list__resets_focused_index_if_out_of_bounds
+
+# Flaky on Linux: crbug.com/483506396
+-BrowserTest.OverscrollDisabledInDevToolsWindows
+
+# Recently starting failing on Linux: crbug.com/483514148
+-BrowsingDataRemoverBrowserTest.StorageRemovedFromDisk
+
+# Flaky on multiple bots: crbug.com/479257786, crbug.com/487147580
+-ContextualTasksBrowserTest.App
+
+# Flaky on multiple bots: crbug.com/486274196
+-ContextualTasksBrowserTest.App__ContextualTasksAppTest_sets_basic_mode_when_navigating_from_AI_page
+-ContextualTasksBrowserTest.App__ContextualTasksAppTest_restores_basic_mode_state_after_navigation_when_starting_in_basic_mode
+
+# Flaky on multiple bots: crbug.com/487150533
+-ContextualTasksBrowserTest.App__ContextualTasksAppTest_updates_clip_path_on_post_message
+
+# Flaky on most bots: crbug.com/480689282, crbug.om/485413321
+-ContextualTasksBrowserTest.Composebox
+-ContextualTasksBrowserTest.Composebox__ContextualTasksComposeboxTest_Composebox_upload_disabled_when_uploading_files_with_contextMenu
+
+# Flaky on most bots: crbug.com/483298485
+-CrElementsTest.CrToast
+-CrElementsTest.CrToast__cr_toast_stop_and_restart_auto_hide_depending_when_toast_focus_changes
+
+# Flaky on Linux: crbug.com/483413078
+-CrComponentsSearchboxTest.SearchboxFocusTest
+-CrComponentsSearchboxTest.SearchboxFocusTest__SearchboxFocusTest_tabbing_with_inline_autocompletion
+
+# Flaky on Linux: crbug.com/483855024
+-DataProtectionClipboardBrowserTest.ChromePrintReportsInitiator
+
+# Flaky on multiple bots: crbug.com/476255536
+-DefaultIsolation/TaskManagerOOPIFBrowserTest.LeavePageWithCrossSiteIframes/0
+
+# Flaky on Linux: crbug.com/483506397
+-DiceMigrationServiceBrowserTestWithWebApps.NoDialogShown
+
+# Flaky on Linux: crbug.com/483088604
+-DocumentPictureInPictureWindowControllerBrowserTest.CreateTwice
+-DocumentPictureInPictureWindowControllerBrowserTest.CreationAndVisibilityAndActivation
+
+# Flaky on Linux: crbug.com/483092908
+-DownloadToolbarUIControllerBrowserTest.DialogAutoCloses
+-DownloadToolbarUIControllerBrowserTest.OpenPrimaryDialog
+
+# Flaky on most bots: crbug.com/460267283
+-ExtensionCrxInstallerTest.InstallDelayedUntilNextUpdate
+
+# Flaky on Linux: crbug.com/483088605
+-ExtensionTabsTest.ExecuteScriptOnDevTools
+
+# Flaky on Linux: crbug.com/483855009
+-ExtensionWebRequestApiTest.ExtensionRequestRedirectToServer
+
+# Flaky on most bots: crbug.com/483085067
+-FlagsUiBrowserTest.App
+
+# Flaky on most bots: crbug.com/483506399
+-GlicInstanceCoordinatorBrowserTest.DeactivationWhenSwitchingToUnboundTab
+
+# Flaky on Linux: crbug.com/487897248
+-GlicInstanceCoordinatorBrowserTest.TabContentsDaisyChaining
+
+# Flaky on Linux: crbug.com/350991033, which was closed as a duplicate of restricted-access crbug.com/377951068
+-LensOverlayControllerContextualFeaturesDisabledTest.PreselectionToastOmniboxFocusState
+
+# Flaky on Linux: crbug.com/460308418
+-LensOverlayControllerReinvocationBrowserTest.NotifiesSidePanelOfOverlayVisibilityChanges
+
+# Flaky on most bots: crbug.com/474801547
+-MLPromotionBrowserTest.MLPipelineNoCrashForExistingTracker
+
+# Flaky on Linux: crbug.com/483651796
+-NavigationCapturingBrowserNavigatorBrowserTest.FocusExistingUsesLatestActivatedAppWindow
+
+# Flaky on most bots: crbug.com/483506389
+-NewTabPageAppTest.RealboxNext
+-NewTabPageAppTest.RealboxNext__NewTabPageAppTest_RealboxNext_scrim_is_hidden_after_closing_composebox
+
+# Flaky on most bots: crbug.com/483251794
+-PasswordManagerUITest.AddPasswordDialog
+-PasswordManagerUITest.AddPasswordDialog__AddPasswordDialogTest_url_validation_works
+
+# Flaky on Linux: crbug.com/483542949
+-PermissionRequestManagerBrowserTest.MultipleTabsInSplitView
+
+# Flaky on Linux: crbug.com/40749618
+-PopupTrackerBrowserTest.PopupRedirectsTwice_RedirectCountTwo
+
+# Flaky on some Linux and Mac bots: crbug.com/483651797
+-PrerenderPageLoadMetricsObserverBrowserTest.ResponseBodyReceivedAfterActivation
+
+# Flaky on most bots: crbug.com/485416863
+-ProfilePickerEnterpriseCreationFlowBrowserTest.CreateSignedInProfileWithSuggestedTwoFactorAuthSetup
+
+# Flaky on most bots: crbug.com/375344340
+-PreviewBrowserTest.ErrorOnNonHttpsUrl
+-PreviewBrowserTest.ErrorOnRedirectionToNonHttpsUrl
+-PreviewBrowserTest.MojoCapabilityControl
+-PreviewBrowserTest.PromoteToNewTab
+-PreviewBrowserTest.SecPurposeHeader
+-PreviewBrowserTest.TrivialSessionHistory
+-PreviewBrowserTest.ZoomIsDurableForHost
+-PreviewBrowserTest.ZoomUsageRecordedOnCancel
+-PreviewBrowserTest.ZoomUsageRecordedOnPromoteToNewTab
+
+# Flaky on Linux: crbug.com/487944765
+-ProfileManagementDisclaimerServiceBrowserFocusBrowserTest.Test/Managed_EnforcedByPolicy_Cancel
+
+# Flaky on most bots: crbug.com/483092903
+-RecentActivityBubbleDialogViewActionBrowserTest.HandlesActionFocusTab
+-RecentActivityBubbleDialogViewActionBrowserTest.HandlesActionManageSharing
+-RecentActivityBubbleDialogViewActionBrowserTest.HandlesActionOpenTabGroupEditDialog
+-RecentActivityBubbleDialogViewActionBrowserTest.HandlesActionReopenTab
+
+# Flaky on multiple bots: crbug.com/474642229
+-SBNavigationObserverBrowserTest.VerifyIdentifyReferrerChainByEventURL
+
+# Flaky on Linux: crbug.com/483542961
+-SearchApiTest.Incognito
+
+# Flaky on most bots: crbug.com/483506391
+-SearchPrefetchServiceEnabledBrowserTest.HungRequestCanBeServed
+-SearchPrefetchServiceEnabledBrowserTest.OmniboxEditTriggersPrefetch
+-SearchPrefetchServiceEnabledBrowserTest.OmniboxNavigateToMatchingEntryStreaming
+-SearchPrefetchServiceNavigationPrefetchBrowserTest.NavigationPrefetchIsServedForOmniboxOpenSelection
+
+# Flaky on most bots: crbug.com/483088602
+-SettingsTest.PaymentsSectionCardDialogs
+-SettingsTest.PaymentsSectionCardDialogs__PaymentsSectionCardDialogs_verifyOnlyValidCardNumbersAllowed_InvalidCasesWithNoError
+-SettingsTest.PaymentsSectionIban
+-SettingsTest.PaymentsSectionIban__PaymentsSectionIban_verifyIBANErrorMessage
+
+# Flaky on most bots: crbug.com/483542950
+-SkillsBrowserTest.UserSkillsPage
+-SkillsBrowserTest.UserSkillsPage__UserSkillsPage_CopySkillInstructionsToClipboard
+
+# Flaky on most bots: crbug.com/487944774
+-SkillsInteractiveUiTest.UpdateSkillPreviews
+
+# Flaky on Linux: crbug.com/483092911
+-SSLUITestWithWebApps.InAppTestHTTPSExpiredCertAndPreviouslyProceeded
+
+# Flaky on all bots: crbug.com/484997712
+-StartupBrowserWithListAppsFeature.ListAppsForAllProfiles
+
+# Flaky on Linux: crbug.com/483092912
+-TabRestoreTest.RestoreGroupWithUnloadHandlerRejected
+
+# Flaky on most bots: crbug.com/483855026
+-TabSearchTest.Item
+-TabSearchTest.Item__TabSearchItemTest_CloseButtonPresence
+
+# Flaky on Linux: crbug.com/483903191
+-TranslateBubbleViewBrowserTest.OpeningFindBarClosesTranslateBubble
+
+# Flaky on most bots: crbug.com/486311611
+-UpdaterAppTest.EventListTest
+
+# Flay on most bots: crbug.com/486316383
+-UpdaterAppTest.EventListTest__EventListElement_handles_parse_errors
+
+# Flaky on Linux, skipped on most other bots: crbug.com/483298489
+-WebAppEngagementBrowserTest.CommandLineWindowByAppId
+-WebAppEngagementBrowserTest.CommandLineWindowByUrl
+
+# Flaky on Linux: crbug.com/483088609
+-WebAuthenticationProxyApiTest.RemoteSessionStateChange
+
+# Flaky on multiple bots: crbug.com/483918482
+-WebContentsImplBrowserTest.SetIsOverridingUserAgentNoEntry
+
+# Flaky on multiple bots: crbug.com/476255536
+-WebViewTest.TaskManagerShowAndHide/MPArch
+-WebViewTest.TaskManagerShowAndHide/InnerWebContents
+
+# Flaky on (at least) Linux: crbug.com/483623908
+-WebUiJsTest.TrackedElement
+-WebUiJsTest.TrackedElement__TrackedElementTest_fixed_element_tracking
+
+# These tests are run on the main builders and don't need to also be run here.
+-AccessibilityLabelsMenuObserverTest.*
+-All/DumpAccessibility*
+-AutomationApiTest.*
+
+# These tests require that accessibility is disabled at startup, or that there
+# is some other AXMode during the test, which will not be the case when
+# --force-renderer-accessibility is used.
+-AccessibilityLabelsBrowserTest.NotEnabledWithoutScreenReader
+-All/PdfOcrControllerBrowserTest.NotEnabledWithoutScreenReader/0
+-AXMainNodeAnnotatorControllerBrowserTest.NotEnabledWithoutScreenReader
+-PersistentBackground/AutomationApiTestWithContextType.ImageLabels/0
+-PersistentBackground/AutomationApiTestWithContextType.TestRendererAccessibilityEnabled/0
+-ServiceWorker/AutomationApiTestWithContextType.ImageLabels/0
+-ServiceWorker/AutomationApiTestWithContextType.TestRendererAccessibilityEnabled/0
+
+# WebUI TabStrip tests are not activated in Screen Reader mode.
+-WebUITabStripContainerViewTest.*
+-WebUITabStripDevToolsTest.*
+
+# Flaky at least on Linux: crbug.com/502373073
+-PasswordGenerationInteractiveTest.PopupShownManuallyAndPasswordErased
+-PasswordGenerationInteractiveTest.PopupShownAndPasswordSelected

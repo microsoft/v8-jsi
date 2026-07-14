@@ -16,6 +16,13 @@
 
     <!-- If V8JsiCopyDLL == False then don't copy the native v8jsi.dll to the target output folder. -->
     <V8JsiCopyDLL Condition=" '$(V8JsiCopyDLL)' == '' ">True</V8JsiCopyDLL>
+
+    <!-- Sandbox opt-in. The package ships the sandbox binaries (v8jsisb.dll,
+         sbox.dll, v8host.exe ~19 MB) for every RID, but only consumers that set
+         UseV8Sandbox=true get the sbox include dir, the sbox.dll.lib link
+         dependency, and the three binaries copied to their output. Default
+         False so non-sandbox consumers pay nothing. -->
+    <UseV8Sandbox Condition=" '$(UseV8Sandbox)' == '' ">False</UseV8Sandbox>
   </PropertyGroup>
 
   <!-- Detect the runtime identifier (RID) for the current platform, if none was specified. -->

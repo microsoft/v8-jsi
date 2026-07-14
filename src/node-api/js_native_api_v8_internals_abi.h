@@ -3,7 +3,7 @@
 // ----------------------------------------------------------------------------
 // This file is referenced from js_native_api_v8.cc when compiled into the
 // new v8jsi.dll (JSI_ABI_BUILDING). It replaces V8Runtime-based private-key
-// lookup with the per-isolate IsolateData lookup the W8 architecture
+// lookup with the per-isolate IsolateData lookup this architecture
 // exposes. The legacy js_native_api_v8_internals.h (master state) stays
 // unchanged through PR 1+2; the rename-on-delete collapse happens in PR 3.
 // ----------------------------------------------------------------------------
@@ -57,7 +57,7 @@
 
 #define NAPI_ARRAYSIZE(array) node::arraysize((array))
 
-// W8: napi_type_tag/napi_wrapper private keys live on v8rt::IsolateData
+// napi_type_tag/napi_wrapper private keys live on v8rt::IsolateData
 // (set up by createIsolate via v8_core). The legacy lookup through
 // V8Runtime::GetCurrent(context) is gone — the keys are per-isolate, not
 // per-context, so we read them from the shared struct directly.

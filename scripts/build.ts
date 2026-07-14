@@ -5,30 +5,31 @@
 // Usage: node scripts/build.ts [options]
 
 import { parseArgs } from "node:util";
-import { execSync, type ExecSyncOptions } from "node:child_process";
+import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as https from "node:https";
+
+import {
+  repoRoot,
+  ensureDir,
+  deleteDir,
+  run,
+  copyFile,
+  downloadFile,
+  ensureBinSkimExe,
+  analyzeBinSkim,
+  dumpbinExportNames,
+  crtDependencyLines,
+} from "./build-common.ts";
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const repoRoot = path.resolve(import.meta.dirname, "..");
 const nodejsDir = path.join(repoRoot, "deps", "nodejs");
 const srcDir = path.join(repoRoot, "src");
 
-const binskimPackageName = "Microsoft.CodeAnalysis.BinSkim";
-const binskimVersion = "4.4.9";
-// Install BinSkim from the ms/react-native-public ADO feed, not nuget.org, which
-// the locked-down CI pools blackhole. The feed proxies nuget.org via an
-// authenticated upstream, so reaching it needs NuGetAuthenticate + the
-// 'Nuget - ms/react-native-public' service connection. Override for local runs.
-const binskimNuGetSource =
-  process.env.BINSKIM_NUGET_SOURCE ??
-  "https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json";
-
-// BinSkim rules accepted as residuals on v8jsi.dll (full rationale in the
+// BinSkim rules accepted as residuals on the engine binaries (full rationale in the
 // per-RID suppressions in .ado/guardian/sdl/.gdnsuppress -- keep in sync). The
 // --binskim gate fails on any finding whose rule is NOT listed, so a real
 // regression (CFG/ASLR/Spectre dropping off) still breaks the build.
@@ -37,8 +38,10 @@ const binskimNuGetSource =
 //   BA2018 - x86 SafeSEH unsupported by clang-cl.
 //   BA2025 - CET shadow stack off (reverted; crashed V8 snapshot).
 const acceptedBinSkimRules = new Set(["BA2004", "BA2014", "BA2018", "BA2025"]);
-const nugetDownloadUrl =
-  "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe";
+
+// mkv8snapshot.exe links no V8 code or hand-written assembly. Its x86 target
+// enables SafeSEH, so BA2018 is not an accepted residual for this binary.
+const acceptedSnapshotToolBinSkimRules = new Set(["BA2025"]);
 
 const nasmVersion = "2.16.03";
 const nasmDownloadUrl = `https://www.nasm.us/pub/nasm/releasebuilds/${nasmVersion}/win64/nasm-${nasmVersion}-win64.zip`;
@@ -53,9 +56,12 @@ const options = {
   test: { type: "boolean" as const, default: false },
   pack: { type: "boolean" as const, default: false },
   smoke: { type: "boolean" as const, default: false },
+  "test-e2e": { type: "boolean" as const, default: false },
   binskim: { type: "boolean" as const, default: false },
   "check-crt": { type: "boolean" as const, default: false },
+  "check-size": { type: "boolean" as const, default: false },
   "count-exports": { type: "boolean" as const, default: false },
+  "build-v8jsisb": { type: "boolean" as const, default: false },
   "clean-all": { type: "boolean" as const, default: false },
   "clean-build": { type: "boolean" as const, default: false },
   "clean-pkg": { type: "boolean" as const, default: false },
@@ -78,124 +84,6 @@ const validConfigurations = ["debug", "release"];
 // =============================================================================
 // Utility Functions
 // =============================================================================
-
-function ensureDir(dirPath: string): void {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
-
-function deleteDir(dirPath: string): void {
-  if (fs.existsSync(dirPath)) {
-    fs.rmSync(dirPath, { recursive: true, force: true });
-  }
-}
-
-function run(
-  command: string,
-  args: string[],
-  runOptions?: ExecSyncOptions,
-): void {
-  const cmdLine = [command, ...args].join(" ");
-  console.log(`> ${cmdLine}`);
-  try {
-    execSync(cmdLine, { stdio: "inherit", ...runOptions });
-  } catch (error: unknown) {
-    const exitCode =
-      error && typeof error === "object" && "status" in error
-        ? (error as { status: number }).status
-        : 1;
-    console.error(`Command failed with exit code: ${exitCode}`);
-    process.exit(exitCode || 1);
-  }
-}
-
-function copyFile(
-  fileName: string,
-  sourcePath: string,
-  targetPath: string,
-  optional = false,
-): void {
-  ensureDir(targetPath);
-  const sourceFile = path.join(sourcePath, fileName);
-  const targetFile = path.join(targetPath, fileName);
-
-  if (optional && !fs.existsSync(sourceFile)) {
-    console.log(`Skipping copy of ${fileName} (file not found, optional)`);
-    return;
-  }
-
-  fs.copyFileSync(sourceFile, targetFile);
-}
-
-function downloadFile(url: string, destPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    ensureDir(path.dirname(destPath));
-    const file = fs.createWriteStream(destPath);
-
-    const request = (requestUrl: string) => {
-      https
-        .get(requestUrl, (response) => {
-          // Follow redirects
-          if (
-            response.statusCode &&
-            response.statusCode >= 300 &&
-            response.statusCode < 400 &&
-            response.headers.location
-          ) {
-            file.close();
-            fs.unlinkSync(destPath);
-            request(response.headers.location);
-            return;
-          }
-
-          if (response.statusCode !== 200) {
-            file.close();
-            fs.unlinkSync(destPath);
-            reject(new Error(`Download failed with status ${response.statusCode}`));
-            return;
-          }
-
-          response.pipe(file);
-          file.on("finish", () => {
-            file.close();
-            resolve();
-          });
-        })
-        .on("error", (err) => {
-          file.close();
-          fs.unlinkSync(destPath);
-          reject(err);
-        });
-    };
-
-    request(url);
-  });
-}
-
-async function ensureNuGet(toolsPath: string): Promise<string> {
-  // Check tools directory first
-  const localNuget = path.join(toolsPath, "nuget.exe");
-  if (fs.existsSync(localNuget)) {
-    return localNuget;
-  }
-
-  // Check PATH
-  try {
-    const result = execSync("where nuget.exe", { encoding: "utf-8" }).trim();
-    if (result) {
-      return result.split("\n")[0].trim();
-    }
-  } catch {
-    // Not on PATH
-  }
-
-  // Download
-  console.log("Downloading nuget.exe...");
-  await downloadFile(nugetDownloadUrl, localNuget);
-  console.log(`Downloaded nuget.exe to ${localNuget}`);
-  return localNuget;
-}
 
 // Ensure NASM is available and return the directory containing nasm.exe.
 // The Node.js OpenSSL build assembles its crypto with NASM on x86/x64 (the
@@ -325,6 +213,67 @@ function platformToRid(platform: string): string {
 
 const ALL_WINDOWS_RIDS = ["win-x86", "win-x64", "win-arm64"] as const;
 
+// The Chromium-sandbox gn/ninja output dir for a build platform.
+function sandboxOutDir(platform: string): string {
+  const cpu = platform.toLowerCase();
+  return path.join(repoRoot, "deps", "chromium", "out", `sandbox-${cpu}`);
+}
+
+// Stage the sandbox binaries for one platform into build/native/<rid>/.
+// Everything is optional: a mainline (non-sandbox) build won't have produced
+// them, and the CI aggregator pre-stages them from the `sandbox-binaries`
+// artifact. v8jsisb.dll comes from the vcbuild out dir (engineOutDir, alongside
+// v8jsi.dll); sbox.dll / v8host.exe / sbox.dll.lib from the gn out dir.
+// test_app.exe (the test harness) is deliberately excluded.
+function stageSandboxBinaries(
+  platform: string,
+  engineOutDir: string,
+  ridDir: string,
+): void {
+  const sbxOut = sandboxOutDir(platform);
+  // The jitless sandbox engine (vcbuild output, same dir as v8jsi.dll). On x86
+  // this is the degraded no-cage variant (still product-shipped); on x64/arm64
+  // it carries the V8 in-process cage. Runtime payload only — no import lib
+  // (v8host LoadLibrary's it by name; the JSI C++ consumer links v8jsi.dll.lib).
+  copyFile("v8jsisb.dll", engineOutDir, ridDir, /*optional*/ true);
+  // PDB: the GYP build emits v8jsisb.pdb; stage it as v8jsisb.dll.pdb so the
+  // *.pdb nuspec glob + the symbol-publish staging resolve (mirrors v8jsi.pdb ->
+  // v8jsi.dll.pdb above). Optional — release/no-symbols builds skip it.
+  if (fs.existsSync(path.join(engineOutDir, "v8jsisb.dll.pdb"))) {
+    copyFile("v8jsisb.dll.pdb", engineOutDir, ridDir);
+  } else if (fs.existsSync(path.join(engineOutDir, "v8jsisb.pdb"))) {
+    ensureDir(ridDir);
+    fs.copyFileSync(
+      path.join(engineOutDir, "v8jsisb.pdb"),
+      path.join(ridDir, "v8jsisb.dll.pdb"),
+    );
+  }
+  // The offline startup-snapshot builder (vcbuild output, same dir as the
+  // engine — it links no V8, so it's an engine-build artifact, not a gn one).
+  // Ships per-RID beside the engine it LoadLibrary's. Optional: only the
+  // build_v8jsi/v8jsisb passes produce it.
+  copyFile("mkv8snapshot.exe", engineOutDir, ridDir, /*optional*/ true);
+  if (fs.existsSync(path.join(engineOutDir, "mkv8snapshot.exe.pdb"))) {
+    copyFile("mkv8snapshot.exe.pdb", engineOutDir, ridDir);
+  } else if (fs.existsSync(path.join(engineOutDir, "mkv8snapshot.pdb"))) {
+    ensureDir(ridDir);
+    fs.copyFileSync(
+      path.join(engineOutDir, "mkv8snapshot.pdb"),
+      path.join(ridDir, "mkv8snapshot.exe.pdb"),
+    );
+  }
+  // The Chromium-sandbox binaries (gn output) + sbox's import lib.
+  for (const f of [
+    "sbox.dll",
+    "sbox.dll.pdb",
+    "sbox.dll.lib",
+    "v8host.exe",
+    "v8host.exe.pdb",
+  ]) {
+    copyFile(f, sbxOut, ridDir, /*optional*/ true);
+  }
+}
+
 // Substitute $rid$ and $v8jsiName$ placeholders in a .rid.{props,targets}
 // template. nuget pack does NOT run files through -Properties expansion
 // (only the .nuspec metadata), so .props/.targets must be pre-templated
@@ -358,11 +307,20 @@ Boolean flags (all support --no- prefix):
   --build             Build v8jsi.dll (default: true)
   --test              Run v8jsi_test.exe
   --pack              Create NuGet package
-  --smoke             Build the real-consumer test-harness against the packed
-                      .nupkg (x64; Release/Release + Debug/Release)
+  --smoke             Run the real-consumer smoke (tests/run-smoke.ps1) against
+                      the packed .nupkg (x64; Release + Debug)
+  --test-e2e          Run the full tests/ integration suite against the packed
+                      .nupkg (x64): the consumer smoke + the startup-snapshot
+                      e2e (build a snapshot with packaged mkv8snapshot.exe and
+                      consume it via V8RuntimeArgs::startupSnapshotBlob, both
+                      engines, incl. cross-engine rejection)
   --binskim           Run BinSkim security validation
   --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
+  --check-size        Enforce the binary-size budget (v8jsisb.dll <= 18 MiB)
   --count-exports     Report v8jsi.dll's exported symbol counts by API family
+  --build-v8jsisb     Build the sandbox variant v8jsisb.dll (V8 in-process sandbox
+                      + pointer-compression shared cage + build-time jitless/lite)
+                      instead of the mainline full-JIT v8jsi.dll.
   --clean-all         Delete entire output folder
   --clean-build       Delete build outputs for targeted configs
   --clean-pkg         Delete pkg and pkg-staging folders
@@ -380,6 +338,9 @@ Examples:
   node scripts/build.ts --no-build --test        # Run tests only
   node scripts/build.ts --no-build --pack        # Package only
   node scripts/build.ts --clean-all              # Clean everything
+
+The Chromium sandbox binaries (sbox.dll / v8host.exe / test_app.exe) are built
+by a separate gn/ninja toolchain — see: node scripts/sbox-build.ts --help
 `);
 }
 
@@ -398,11 +359,15 @@ async function runBuild(
   // tokens and writes the binaries to out\<Config>\ regardless of arch, so
   // we forward the platform straight through. x64 is vcbuild's default, but
   // passing it explicitly is harmless and keeps the call uniform.
+  // The sandbox variant uses the `v8jsisb` vcbuild token (which implies the
+  // `v8jsi` target) so configure.py turns on the V8 sandbox + lite variables and
+  // emits v8jsisb.dll. Mainline builds keep the plain `v8jsi` token unchanged.
+  const v8jsiToken = args["build-v8jsisb"] ? "v8jsisb" : "v8jsi";
   const vcbuildArgs = [
     ".\\vcbuild.bat",
     configuration,
     platform,
-    "v8jsi",
+    v8jsiToken,
     "without-intl",
     "no-node",
     "no-cctest",
@@ -470,215 +435,54 @@ async function runBinSkim(
 ): Promise<void> {
   console.log(`\n=== BinSkim (${platform} ${configuration}) ===\n`);
 
-  const nugetExe = await ensureNuGet(toolsPath);
-  const binskimDir = path.join(toolsPath, "binskim");
-
-  // Install BinSkim if not present
-  const binskimPkgDir = path.join(
-    binskimDir,
-    `${binskimPackageName}.${binskimVersion}`,
-  );
-  if (!fs.existsSync(binskimPkgDir)) {
-    run(nugetExe, [
-      "install",
-      binskimPackageName,
-      "-Version",
-      binskimVersion,
-      "-Source",
-      `"${binskimNuGetSource}"`,
-      "-OutputDirectory",
-      `"${binskimDir}"`,
-      "-NonInteractive",
-    ]);
-  }
-
-  // Find BinSkim.exe
-  let binskimExe = "";
-  const toolsDir = path.join(binskimPkgDir, "tools");
-  if (fs.existsSync(toolsDir)) {
-    for (const runtime of fs.readdirSync(toolsDir)) {
-      const candidate = path.join(
-        toolsDir,
-        runtime,
-        "win-x64",
-        "BinSkim.exe",
-      );
-      if (fs.existsSync(candidate)) {
-        binskimExe = candidate;
-        break;
-      }
-    }
-  }
-
-  if (!binskimExe) {
-    console.error("BinSkim.exe not found in installed package");
-    process.exit(1);
-  }
-
-  // Collect files to scan
+  const binskimExe = await ensureBinSkimExe(toolsPath);
   const outDir = buildOutputDir(configuration);
-  const filesToScan: string[] = [];
-  const dllPath = path.join(outDir, "v8jsi.dll");
-  if (fs.existsSync(dllPath)) {
-    filesToScan.push(dllPath);
-  }
-
-  if (filesToScan.length === 0) {
+  const dllName = v8jsiDllName();
+  const dllPath = path.join(outDir, dllName);
+  if (!fs.existsSync(dllPath)) {
     console.log("No binaries found to scan");
     return;
   }
-
-  const fileArgs = filesToScan.map((f) => `"${f}"`).join(" ");
-  const sarifPath = path.join(outDir, "v8jsi.binskim.sarif");
-  if (fs.existsSync(sarifPath)) {
-    fs.rmSync(sarifPath);
-  }
-
-  // BinSkim exits non-zero when it reports any failing result, so capture the
-  // SARIF and decide pass/fail ourselves against the accepted-residuals list.
-  const cmdLine = [
-    `"${binskimExe}"`,
-    "analyze",
-    "--config",
-    "default",
-    "--output",
-    `"${sarifPath}"`,
-    "--ignorePdbLoadError",
-    "--ignorePELoadErrors",
-    "True",
-    "--hashes",
-    "--disable-telemetry",
-    "True",
-    fileArgs,
-  ].join(" ");
-  console.log(`> ${cmdLine}`);
-  try {
-    execSync(cmdLine, { stdio: "inherit" });
-  } catch {
-    // Non-zero exit means findings were reported; the SARIF below is the source
-    // of truth for whether any are unaccepted.
-  }
-
-  if (!fs.existsSync(sarifPath)) {
-    console.error(`BinSkim produced no SARIF output at ${sarifPath}`);
-    process.exit(1);
-  }
-
-  const sarif = JSON.parse(fs.readFileSync(sarifPath, "utf-8"));
-  const breaking: string[] = [];
-  const accepted: string[] = [];
-  for (const sarifRun of sarif.runs ?? []) {
-    // Rule default levels, used when a result omits an explicit level.
-    const ruleLevels = new Map<string, string>();
-    for (const rule of sarifRun.tool?.driver?.rules ?? []) {
-      if (rule.id && rule.defaultConfiguration?.level) {
-        ruleLevels.set(rule.id, rule.defaultConfiguration.level);
-      }
-    }
-    for (const result of sarifRun.results ?? []) {
-      const ruleId: string = result.ruleId ?? "<unknown>";
-      // BinSkim only emits failing results by default; treat absent level via
-      // the rule default, then SARIF's "warning" default.
-      const level: string =
-        result.level ?? ruleLevels.get(ruleId) ?? "warning";
-      const where =
-        result.locations?.[0]?.physicalLocation?.artifactLocation?.uri ??
-        path.basename(dllPath);
-      const line = `${ruleId} (${level}) - ${where}`;
-      if (acceptedBinSkimRules.has(ruleId)) {
-        accepted.push(line);
-      } else if (level === "error" || level === "warning") {
-        breaking.push(line);
-      }
-    }
-  }
-
-  if (accepted.length > 0) {
-    console.log(
-      `\nBinSkim: ${accepted.length} accepted residual finding(s) (see ` +
-        `.ado/guardian/sdl/.gdnsuppress):`,
-    );
-    for (const a of accepted) {
-      console.log(`  - ${a}`);
-    }
-  }
-  if (breaking.length > 0) {
-    console.error(
-      `\nBinSkim FAILED: ${breaking.length} unaccepted finding(s):`,
-    );
-    for (const b of breaking) {
-      console.error(`  - ${b}`);
-    }
-    console.error(
-      "\nIf a finding is a genuine fix, address it in src/v8jsi_settings.gypi; " +
-        "if it is a vetted residual, add it to .ado/guardian/sdl/.gdnsuppress " +
-        "and to acceptedBinSkimRules in build.ts.",
-    );
-    process.exit(1);
-  }
-  console.log(
-    `\nBinSkim OK (${platform} ${configuration}): no unaccepted findings.`,
+  const engineOk = analyzeBinSkim(
+    binskimExe,
+    [dllPath],
+    path.join(outDir, `${path.parse(dllName).name}.binskim.sarif`),
+    `${path.parse(dllName).name} ${platform} ${configuration}`,
+    acceptedBinSkimRules,
   );
+
+  const snapshotTool = path.join(outDir, "mkv8snapshot.exe");
+  let snapshotToolOk = true;
+  if (fs.existsSync(snapshotTool)) {
+    snapshotToolOk = analyzeBinSkim(
+      binskimExe,
+      [snapshotTool],
+      path.join(outDir, "mkv8snapshot.binskim.sarif"),
+      `mkv8snapshot ${platform} ${configuration}`,
+      acceptedSnapshotToolBinSkimRules,
+    );
+  }
+  if (!engineOk || !snapshotToolOk) {
+    process.exit(1);
+  }
 }
 
 // =============================================================================
 // DLL Reports (dumpbin)
 // =============================================================================
 
-// Locate dumpbin.exe via vswhere (works across VS editions/versions), falling
-// back to PATH. Cached after the first lookup.
-let cachedDumpbin: string | undefined;
-function findDumpbin(): string {
-  if (cachedDumpbin) return cachedDumpbin;
-
-  const programFilesX86 =
-    process.env["ProgramFiles(x86)"] ??
-    process.env["ProgramFiles"] ??
-    "C:\\Program Files (x86)";
-  const vswhere = path.join(
-    programFilesX86,
-    "Microsoft Visual Studio",
-    "Installer",
-    "vswhere.exe",
-  );
-  if (fs.existsSync(vswhere)) {
-    try {
-      const out = execSync(
-        `"${vswhere}" -latest -products * -find "**\\Hostx64\\x64\\dumpbin.exe"`,
-        { encoding: "utf-8" },
-      ).trim();
-      const first = out.split(/\r?\n/).find((l) => l.trim().length > 0)?.trim();
-      if (first && fs.existsSync(first)) {
-        cachedDumpbin = first;
-        return first;
-      }
-    } catch {
-      // Fall through to the PATH lookup.
-    }
-  }
-
-  try {
-    const onPath = execSync("where dumpbin.exe", { encoding: "utf-8" })
-      .split(/\r?\n/)
-      .find((l: string) => l.trim().length > 0)
-      ?.trim();
-    if (onPath && fs.existsSync(onPath)) {
-      cachedDumpbin = onPath;
-      return onPath;
-    }
-  } catch {
-    // Not on PATH either.
-  }
-
-  throw new Error(
-    "dumpbin.exe not found (install the Visual Studio C++ tools or run from a VS developer prompt).",
-  );
+// The produced DLL name depends on the build variant: the sandbox build
+// (--build-v8jsisb) emits v8jsisb.dll; the mainline build emits v8jsi.dll. The
+// hygiene gates (--binskim, --check-crt, --count-exports) follow the variant so
+// they validate whichever DLL was just built.
+function v8jsiDllName(): string {
+  return args["build-v8jsisb"] ? "v8jsisb.dll" : "v8jsi.dll";
 }
 
 function builtDllPath(configuration: string): string {
-  const dll = path.join(buildOutputDir(configuration), "v8jsi.dll");
+  const dll = path.join(buildOutputDir(configuration), v8jsiDllName());
   if (!fs.existsSync(dll)) {
-    console.error(`v8jsi.dll not found: ${dll}`);
+    console.error(`${v8jsiDllName()} not found: ${dll}`);
     process.exit(1);
   }
   return dll;
@@ -690,17 +494,8 @@ function builtDllPath(configuration: string): string {
 function reportCrtDependencies(platform: string, configuration: string): void {
   console.log(`\n=== CRT dependencies (${platform} ${configuration}) ===\n`);
   const dll = builtDllPath(configuration);
-  const dumpbin = findDumpbin();
-  const out = execSync(`"${dumpbin}" /DEPENDENTS "${dll}"`, {
-    encoding: "utf-8",
-  });
-  const crtRe = /vcruntime|msvcp|ucrtbase|api-ms-win-crt|ucrt/i;
-  const crtLines = out
-    .split(/\r?\n/)
-    .map((l: string) => l.trim())
-    .filter((l: string) => crtRe.test(l));
+  const crtLines = crtDependencyLines(dll);
 
-  console.log(`dumpbin: ${dumpbin}`);
   console.log(`==== ${dll} ====`);
   for (const l of crtLines) console.log(`  ${l}`);
 
@@ -721,16 +516,7 @@ function reportCrtDependencies(platform: string, configuration: string): void {
 function reportExports(platform: string, configuration: string): void {
   console.log(`\n=== Export counts (${platform} ${configuration}) ===\n`);
   const dll = builtDllPath(configuration);
-  const dumpbin = findDumpbin();
-  const out = execSync(`"${dumpbin}" /EXPORTS "${dll}"`, { encoding: "utf-8" });
-
-  // Export-table rows look like: "    1    0 00001000 napi_foo".
-  const rowRe = /^\s+\d+\s+\w+\s+\w+\s+(\S+)/;
-  const names: string[] = [];
-  for (const line of out.split(/\r?\n/)) {
-    const m = rowRe.exec(line);
-    if (m) names.push(m[1]);
-  }
+  const names = dumpbinExportNames(dll);
   const count = (prefix: string): number =>
     names.filter((n: string) => n.startsWith(prefix)).length;
 
@@ -739,6 +525,34 @@ function reportExports(platform: string, configuration: string): void {
   console.log(`node_api_*: ${count("node_api_")}`);
   console.log(`v8_*:       ${count("v8_")}`);
   console.log(`total:      ${names.length}`);
+}
+
+// Enforce the binary-size budget on the built engine DLL. Only the sandbox
+// variant v8jsisb.dll has a ceiling (17.06 MB jitless+lite, budget <= 18 MiB);
+// the full-JIT v8jsi.dll is reported but not gated. Exits non-zero on breach.
+// Re-baseline only on a deliberate, justified increase (e.g. a V8 bump).
+const DLL_SIZE_BUDGET_BYTES: Record<string, number> = {
+  "v8jsisb.dll": 18 * 1024 * 1024,
+};
+function checkDllSize(platform: string, configuration: string): void {
+  console.log(`\n=== Binary size budget (${platform} ${configuration}) ===\n`);
+  const dll = builtDllPath(configuration);
+  const name = path.basename(dll);
+  const size = fs.statSync(dll).size;
+  const mib = (n: number) => (n / (1024 * 1024)).toFixed(2);
+  const budget = DLL_SIZE_BUDGET_BYTES[name];
+  if (budget === undefined) {
+    console.log(`  ${name}: ${mib(size)} MiB (no size budget — reported only)`);
+    return;
+  }
+  if (size <= budget) {
+    console.log(`  OK   ${name}: ${mib(size)} MiB (ceiling ${mib(budget)} MiB)`);
+  } else {
+    console.error(
+      `  FAIL ${name}: ${mib(size)} MiB exceeds ceiling ${mib(budget)} MiB`,
+    );
+    process.exit(1);
+  }
 }
 
 // =============================================================================
@@ -752,7 +566,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   const pkgPath = path.join(outputPath, "pkg");
   const nugetSourceDir = path.join(repoRoot, "scripts", "nuget");
   const configJson = readConfigJson();
-  // Windows-only today; .so/.dylib substitutions land with Phase-2/3 multi-OS.
+  // Windows-only today; .so/.dylib substitutions land with future multi-OS support.
   const v8jsiName = "v8jsi.dll";
 
   // ---------------------------------------------------------------------
@@ -764,15 +578,14 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // ---------------------------------------------------------------------
   for (const platform of platforms) {
     for (const configuration of configurations) {
-      // Stage B2: Debug v8jsi.dll variants are dropped from the shipped
-      // NuGet. Hybrid CRT (B1) makes a Debug-CRT consumer safe to link
-      // against the Release v8jsi.dll: App-CRT is statically private to
-      // the DLL, UCRT is the only shared runtime, and ucrtbase.dll /
-      // ucrtbased.dll are separate DLLs with separate heaps - so the
-      // Stage-A "no STL across the boundary" rule keeps the cross-CRT
-      // allocations sound. Debug builds may still run in CI for
-      // validation; they just don't get packaged.
-      // See: ../kb/v8-jsi/new-v8jsi-dll-phase1/impl-b2-results.md.
+      // Debug v8jsi.dll variants are dropped from the shipped NuGet. The
+      // Hybrid CRT makes a Debug-CRT consumer safe to link against the
+      // Release v8jsi.dll: the App-CRT is statically private to the DLL,
+      // UCRT is the only shared runtime, and ucrtbase.dll / ucrtbased.dll
+      // are separate DLLs with separate heaps - so as long as no STL types
+      // cross the DLL boundary, the cross-CRT allocations stay sound. Debug
+      // builds may still run in CI for validation; they just don't get
+      // packaged.
       if (configuration === "debug") continue;
       const rid = platformToRid(platform);
       const outDir = buildOutputDir(configuration);
@@ -806,7 +619,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
           path.join(ridDir, "v8jsi.dll.lib"),
         );
       }
-      // PDB is optional (Q2 decision: ship in per-RID .nupkg when present).
+      // PDB is optional: ship it in the per-RID .nupkg when present.
       // Like the import lib, the GYP build names it v8jsi.pdb while the
       // MSBuild legacy emitted v8jsi.dll.pdb; stage it as v8jsi.dll.pdb either
       // way so the .targets copy rule and the symbol-publish staging resolve.
@@ -821,6 +634,15 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
       } else {
         console.log("Skipping copy of v8jsi.dll.pdb (file not found, optional)");
       }
+
+      // Sandbox binaries: the jitless sandbox engine v8jsisb.dll (vcbuild
+      // output, same out dir as v8jsi.dll) plus the Chromium-sandbox binaries
+      // sbox.dll / v8host.exe + sbox.dll.lib (gn output, per-arch out dir). All
+      // optional: a non-sandbox build won't have produced them, and the CI
+      // aggregator pre-stages them from the `sandbox-binaries` artifact, so a
+      // missing local file just means "already staged / not built here".
+      // test_app.exe is the TEST harness and is deliberately NOT staged.
+      stageSandboxBinaries(platform, outDir, ridDir);
     }
   }
 
@@ -872,8 +694,8 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
     copyFile(file, path.join(srcDir, "jsi_abi"), jsiAbiDir);
   }
 
-  // Public consumer-side TU. Holds makeV8Runtime + the V8ScriptCache (W3) and
-  // V8TaskRunner (W4) adapters. Compiled by the consumer via the .targets
+  // Public consumer-side TU. Holds makeV8Runtime + the V8ScriptCache and
+  // V8TaskRunner adapters. Compiled by the consumer via the .targets
   // file's <ClCompile> include.
   copyFile("V8JsiRuntime.cpp", path.join(srcDir, "public"), jsiPublicDir);
 
@@ -910,6 +732,19 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
       apiLoadersDir,
       true,
     );
+  }
+
+  // sbox public C-ABI headers. sbox.dll has its own small C ABI (it is NOT
+  // a JSI surface): a broker host compiles against these to spawn + lock down
+  // v8host.exe. Staged RID-independently under build/native/include/sbox.
+  //   sbox.h        — broker + target C ABI (self-contained: <cstddef>/<cstdint>)
+  //   sbox_harden.h — header-only DLL-search hardening + WinVerifyTrust helpers
+  // msg_channel.h is intentionally NOT shipped — it is internal to sbox.dll (the
+  // broker uses the channel via sbox_broker_post_message in sbox.h).
+  const sboxIncludeDir = path.join(includeDir, "sbox");
+  const sboxHeaderSrc = path.join(repoRoot, "deps", "chromium", "sandbox_dll");
+  for (const file of ["sbox.h", "sbox_harden.h"]) {
+    copyFile(file, sboxHeaderSrc, sboxIncludeDir);
   }
 
   // Root assets (LICENSE, NOTICE.txt, README.md, _._ placeholder)
@@ -1040,7 +875,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
     // Stage each RID's PDB next to the .nupkgs under pkg/symbols/<rid>/ so the
     // release pipeline can publish them to the Symbol Server directly (no
     // extracting from inside the .nupkg). The PDB also ships inside each per-RID
-    // .nupkg at runtimes/<rid>/native/ for consumer convenience (Stage-D Q2).
+    // .nupkg at runtimes/<rid>/native/ for consumer convenience.
     // Only done for the full RID set — i.e. the release aggregate; a single-arch
     // per-cell pack skips it (the symbols are reproduced by the aggregator pack),
     // which keeps the per-cell CI artifact from carrying a duplicate ~422 MB PDB.
@@ -1075,40 +910,85 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 }
 
 // =============================================================================
-// Smoke Operation
+// Integration suite (tests/) — real-consumer e2e against the packed .nupkg
 // =============================================================================
 
-// Build the real-consumer test-harness against the freshly-packed per-RID
-// .nupkg via test-harness/run-smoke.ps1. The harness is x64-only; it builds an
-// x64 consumer in both Release and Debug against the Release v8jsi.dll (the
-// Debug/Release leg exercises the Hybrid CRT cross-CRT boundary).
-function runSmoke(outputPath: string, platforms: string[]): void {
-  console.log("\n=== Smoke (real-consumer) ===\n");
-
+// Run one tests/ scenario (tests/run-<scenario>.ps1) against the freshly-packed
+// per-RID .nupkg. The harness is x64-only. Each scenario runs against the
+// default engine (v8jsi) in the given consumer configs, then once more on the
+// sandbox engine (v8jsisb, -UseV8Sandbox) when the pack actually carries it.
+function runHarnessScenario(
+  scenario: string,
+  outputPath: string,
+  platforms: string[],
+  consumerConfigs: string[],
+): void {
   if (!platforms.includes("x64")) {
     console.log(
-      "Skipping smoke: the harness is x64-only and x64 was not targeted.",
+      `Skipping ${scenario}: the harness is x64-only and x64 was not targeted.`,
     );
     return;
   }
 
-  const smokeScript = path.join(repoRoot, "test-harness", "run-smoke.ps1");
+  const script = path.join(repoRoot, "tests", `run-${scenario}.ps1`);
   const pkgDir = path.join(outputPath, "pkg");
-  for (const consumerConfig of ["Release", "Debug"]) {
-    run("powershell.exe", [
+  const invoke = (config: string, sandbox: boolean): void => {
+    const psArgs = [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-File",
-      `"${smokeScript}"`,
+      `"${script}"`,
       "-Configuration",
-      consumerConfig,
+      config,
       "-Platform",
       "x64",
       "-PkgDir",
       `"${pkgDir}"`,
-    ]);
+    ];
+    if (sandbox) psArgs.push("-UseV8Sandbox");
+    run("powershell.exe", psArgs);
+  };
+
+  for (const config of consumerConfigs) {
+    invoke(config, /*sandbox*/ false);
   }
+
+  // Sandbox-engine leg: only when the pack actually carries the sandbox
+  // binaries (a non-sandbox build doesn't). Drives v8jsisb.dll.
+  const stagedV8jsisb = path.join(
+    outputPath,
+    "pkg-staging",
+    "build",
+    "native",
+    "win-x64",
+    "v8jsisb.dll",
+  );
+  if (fs.existsSync(stagedV8jsisb)) {
+    console.log(`\n=== ${scenario} (sandbox engine) ===\n`);
+    invoke("Release", /*sandbox*/ true);
+  } else {
+    console.log(
+      `Skipping ${scenario} sandbox leg: no v8jsisb.dll staged (non-sandbox pack).`,
+    );
+  }
+}
+
+// Real-consumer smoke: builds the consumer in Release + Debug against the
+// Release v8jsi.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
+// boundary) and runs the JSI ABI checks.
+function runSmoke(outputPath: string, platforms: string[]): void {
+  console.log("\n=== Smoke (real-consumer) ===\n");
+  runHarnessScenario("smoke", outputPath, platforms, ["Release", "Debug"]);
+}
+
+// Startup-snapshot e2e: builds a snapshot with the packaged mkv8snapshot.exe and
+// consumes it via the public V8RuntimeArgs::startupSnapshotBlob surface, for both
+// engines, including cross-engine rejection. Release consumer is sufficient (the
+// scenario exercises the snapshot path, not the cross-CRT matrix).
+function runSnapshotE2E(outputPath: string, platforms: string[]): void {
+  console.log("\n=== Snapshot e2e ===\n");
+  runHarnessScenario("snapshot", outputPath, platforms, ["Release"]);
 }
 
 // =============================================================================
@@ -1202,6 +1082,9 @@ async function main(): Promise<void> {
       if (args["check-crt"]) {
         reportCrtDependencies(platform, configuration);
       }
+      if (args["check-size"]) {
+        checkDllSize(platform, configuration);
+      }
       if (args["count-exports"]) {
         reportExports(platform, configuration);
       }
@@ -1213,9 +1096,14 @@ async function main(): Promise<void> {
     packNuGet(outputPath, platforms, configurations);
   }
 
-  // Real-consumer smoke (after packing)
-  if (args.smoke) {
+  // Real-consumer integration tests (after packing). --test-e2e runs the full
+  // suite (smoke + snapshot); --smoke is the focused subset. Either implies the
+  // smoke; only --test-e2e adds the snapshot e2e.
+  if (args.smoke || args["test-e2e"]) {
     runSmoke(outputPath, platforms);
+  }
+  if (args["test-e2e"]) {
+    runSnapshotE2E(outputPath, platforms);
   }
 
   // Report elapsed time
