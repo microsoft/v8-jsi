@@ -37,11 +37,11 @@ parameters:
         AppPlatform: win32
     # Matrix with target platforms for the sandbox binaries. A separate list
     # from BuildMatrix because the sandbox cells carry extra per-arch knobs: the
-    # gn out dir (sbox.dll/v8host.exe land in out/sandbox-<cpu>) and whether
-    # the lockdown tier can run on the x64 build agent.
-    # RunTier is false for arm64 -- the binaries cross-compile on the x64 agent
-    # but AA64 cannot execute there, so the tier runs out-of-band on a native
-    # ARM64 agent (tracked as future work; the same model v8jsi uses).
+    # gn out dir (sbox.dll/v8host.exe land in out/sandbox-<cpu>) and whether the
+    # lockdown tier runs in this job (RunTier).
+    # RunTier is true for every arch: x64/x86 run on the x64 agent (x86 via
+    # WOW64) and arm64 runs natively on the ARM64 managed-image pool, so each
+    # cell executes its own Untrusted lockdown tier.
   - name: SandboxMatrix
     type: object
     default:
@@ -59,7 +59,7 @@ parameters:
         BuildPlatform: arm64
         Rid: win-arm64
         SboxOutDir: deps/chromium/out/sandbox-arm64
-        RunTier: false
+        RunTier: true
 
 resources:
   repositories:
@@ -202,6 +202,15 @@ extends:
 
           timeoutInMinutes: 1200
 
+          # ARM64 cells build natively on the ARM64 managed-image pool so their
+          # tests actually execute -- on an x64 agent build.ts can only cross-
+          # compile arm64 and skips the tests. windows-2025-1espt-arm64 is a
+          # single-image pool, so it takes no ImageOverride demand. x64/x86 cells
+          # inherit the top-level fabric-internal-pool-large pool, unchanged.
+          ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+            pool:
+              name: windows-2025-1espt-arm64
+
           variables:
           - name: Packaging.EnableSBOMSigning
             value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
@@ -218,8 +227,23 @@ extends:
               - output: pipelineArtifact
                 artifactName: ${{ matrix.Name }}-new
                 targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
+                # The 1ES SBoM ManifestGenerator runs as an x64 process and can't
+                # load the arm64 agent's native .NET (hostfxr arch mismatch,
+                # 0x800700C1), and its x64-runtime self-install is blocked by
+                # network isolation. This per-cell artifact is intermediate -- the
+                # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
+                # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86
+                # keep generating it.
+                ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+                  sbomEnabled: false
 
           steps:
+            # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
+            # retention post-job still runs on the Node 10 handler; shim node10 to
+            # the image's Node so that post-job doesn't fail. Right after checkout.
+          - ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+            - template: /.ado/ensure-node10-shim.yml@self
+
           - task: UsePythonVersion@0
             displayName: Use Python 3.x
             inputs:
@@ -264,16 +288,15 @@ extends:
         #                         carry the V8 cage; x86 is the degraded no-cage
         #                         variant (the cage is 64-bit-only).
         #   * sbox.dll/v8host.exe -- the Chromium sandbox (gn + VS clang/ninja, via
-        #                         scripts/sbox-build.ts --target-cpu). The gn build
-        #                         cross-compiles all three arches on an x64 host.
-        #                         test_app.exe is the TEST harness and is NOT
-        #                         shipped/signed.
+        #                         scripts/sbox-build.ts --target-cpu). x64/x86
+        #                         build on the x64 agent; arm64 builds natively on
+        #                         the ARM64 pool. test_app.exe is the TEST harness
+        #                         and is NOT shipped/signed.
         # Hygiene gates (export allowlist + Hybrid CRT + BinSkim) run via --check.
-        # The Untrusted lockdown tier runs as a CI test for x64 + x86 (x86 via
-        # WOW64 on the x64 agent); arm64's AA64 binaries cannot execute on the x64
-        # agent, so its tier is deferred to a native ARM64 agent (RunTier: false)
-        # -- the same model v8jsi uses for arm64. The three shipped binaries are
-        # signed on the publishing build.
+        # The Untrusted lockdown tier runs as a CI test for every arch: x64 + x86
+        # on the x64 agent (x86 via WOW64) and arm64 natively on the ARM64 pool
+        # (RunTier: true). The three shipped binaries are signed on the publishing
+        # build.
         # =====================================================================
       - ${{ each sb in parameters.SandboxMatrix }}:
         - job: V8JsiBuildSandbox_${{ sb.Name }}
@@ -281,9 +304,17 @@ extends:
 
           timeoutInMinutes: 180
 
-          pool:
-            name: fabric-internal-pool-large
-            demands: ImageOverride -equals windows-2025-1espt
+          # ARM64 builds natively on the ARM64 managed-image pool so its Untrusted
+          # lockdown tier can execute (AA64 binaries can't run on an x64 agent).
+          # It's a single-image pool, so no ImageOverride demand. x64/x86 keep the
+          # existing image, unchanged.
+          ${{ if eq(sb.BuildPlatform, 'arm64') }}:
+            pool:
+              name: windows-2025-1espt-arm64
+          ${{ else }}:
+            pool:
+              name: fabric-internal-pool-large
+              demands: ImageOverride -equals windows-2025-1espt
 
           variables:
           - name: Packaging.EnableSBOMSigning
@@ -294,6 +325,14 @@ extends:
             - output: pipelineArtifact
               artifactName: sandbox-binaries-${{ sb.Rid }}
               targetPath: $(Build.StagingDirectory)\sandbox
+              # Same arm64 SBoM skip as the V8JsiBuildNew cell: the x64-only 1ES
+              # SBoM toolkit can't load the arm64 agent's native .NET (hostfxr arch
+              # mismatch, 0x800700C1). This per-RID artifact is intermediate -- the
+              # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
+              # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86 keep
+              # generating it.
+              ${{ if eq(sb.BuildPlatform, 'arm64') }}:
+                sbomEnabled: false
 
           steps:
             # The vendored gn (deps/gn/gn.exe) is a Git LFS object; the default
@@ -301,6 +340,12 @@ extends:
             # can't find gn.
           - checkout: self
             lfs: true
+
+            # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
+            # retention post-job still runs on the Node 10 handler; shim node10 to
+            # the image's Node so that post-job doesn't fail.
+          - ${{ if eq(sb.BuildPlatform, 'arm64') }}:
+            - template: /.ado/ensure-node10-shim.yml@self
 
           - task: UsePythonVersion@0
             displayName: Use Python 3.x
@@ -355,9 +400,9 @@ extends:
               # Lockdown tier test (product-default Untrusted = jitless + ACG):
               # stage the engine next to v8host (it LoadLibrary's v8jsisb.dll by
               # name) and run the test_app broker harness. RESULT: PASS +
-              # target exit=0 is the success signal. x64 + x86 only (x86 via WOW64
-              # on the x64 agent); arm64 (RunTier:false) cannot execute its AA64
-              # binaries here -- its tier runs out-of-band on a native ARM64 agent.
+              # target exit=0 is the success signal. Runs for every arch: x64 + x86
+              # on the x64 agent (x86 via WOW64) and arm64 natively on the ARM64
+              # pool.
             - ${{ if eq(sb.RunTier, true) }}:
               - pwsh: |
                   $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
