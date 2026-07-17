@@ -214,18 +214,26 @@ function resolveVsToolchain(targetCpu: TargetCpu): VsToolchain {
     );
   }
 
-  // VS ships a SEPARATE LLVM toolchain per host arch (VC\Tools\Llvm\x64 and
-  // \ARM64). clang runs as the host binary, so the base path follows the HOST
-  // arch; target_cpu selects what it emits (the host clang cross-compiles all
-  // targets — see the compiler-rt note below).
-  const hostArchDir = process.arch === "arm64" ? "ARM64" : "x64";
-  const clangBasePath = path.join(vsPath, "VC", "Tools", "Llvm", hostArchDir);
+  // Always use the x64 clang toolchain (VC\Tools\Llvm\x64), even on an arm64
+  // host. The vendored gn.exe is x64, so gn's host_cpu is x64, and Chromium's
+  // build (build/config/BUILDCONFIG.gn) deliberately builds host tools with the
+  // x64 host toolchain for arm64 targets -- "Windows ARM64 targets require an
+  // x64 host for cross build". That win_clang_x64 host toolchain relies on
+  // clang defaulting to the x64 target (it passes x64-only flags such as
+  // -msse3), so the base clang must be the x64 build; the arm64 clang defaults
+  // to aarch64 and rejects those flags. target_cpu still selects what the
+  // TARGET toolchain emits, so arm64 binaries are cross-compiled by this same
+  // x64 clang (exactly as when this ran on x64 agents). On an arm64 agent the
+  // x64 clang runs under emulation, which is fine.
+  const clangBasePath = path.join(vsPath, "VC", "Tools", "Llvm", "x64");
   const clangCl = path.join(clangBasePath, "bin", "clang-cl.exe");
   const clangExe = path.join(clangBasePath, "bin", "clang.exe");
   if (!fs.existsSync(clangCl) || !fs.existsSync(clangExe)) {
     floor(
-      `clang not found under ${clangBasePath}\\bin. Repair the VS Clang ` +
-        "component (C++ Clang Compiler for Windows).",
+      `x64 clang not found under ${clangBasePath}\\bin. Install or repair the ` +
+        'VS "C++ Clang Compiler for Windows" component. On an arm64 host the ' +
+        "x64 Llvm toolchain must also be present -- it is the cross-build host " +
+        "toolchain for arm64 targets (see the clangBasePath note above).",
     );
   }
 
