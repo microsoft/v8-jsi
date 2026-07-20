@@ -34,5 +34,10 @@ executable("v8host") {
   ldflags = [
     "/DEPENDENTLOADFLAG:0xA00",
     "version_info_v8host.res",
+    # SourceLink map (written to the out dir by scripts/sbox-build.ts before
+    # ninja) — injected as the PDB "sourcelink" named stream via /pdbstream
+    # (lld-link has no /SOURCELINK). GitHub source indexing for v8host.exe's PDB.
+    # Relative to the out dir, like the .res above.
+    "/pdbstream:sourcelink=source_link_gen_gyp.json",
   ]
 }

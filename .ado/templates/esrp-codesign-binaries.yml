@@ -1,0 +1,57 @@
+#
+# ESRP Authenticode signing for shipped native binaries (DLLs / EXEs).
+#
+# Single source of truth for the binary-signing step so the build jobs don't
+# each carry a copy. Callers pass the folder to search and the minimatch
+# pattern(s) selecting the files to sign; the ESRP account, signing key
+# (CP-230012), and SigntoolSign/Verify operations are fixed here.
+#
+parameters:
+- name: displayName
+  type: string
+  default: CodeSign Binaries
+- name: folderPath
+  type: string
+  # Newline-separated minimatch pattern(s) of files to sign, relative to
+  # folderPath (useMinimatch). A single value works too.
+- name: pattern
+  type: string
+
+steps:
+- task: EsrpCodeSigning@6
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    connectedServiceName: 'ESRP-JSHost3'
+    appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+    appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+    authAKVName: 'OGX-JSHost-KV'
+    authCertName: 'OGX-JSHost-Auth4'
+    authSignCertName: 'OGX-JSHost-Sign3'
+    folderPath: ${{ parameters.folderPath }}
+    # Recursively finds files matching these patterns:
+    pattern: ${{ parameters.pattern }}
+    useMinimatch: true
+    signConfigType: inlineSignParams
+    inlineOperation: |
+      [
+        {
+          "KeyCode" : "CP-230012",
+          "OperationCode" : "SigntoolSign",
+          "Parameters" : {
+            "OpusName" : "Microsoft",
+            "OpusInfo" : "http://www.microsoft.com",
+            "FileDigest" : "/fd \"SHA256\"",
+            "PageHash" : "/NPH",
+            "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
+          },
+          "ToolName" : "sign",
+          "ToolVersion" : "1.0"
+        },
+        {
+          "KeyCode" : "CP-230012",
+          "OperationCode" : "SigntoolVerify",
+          "Parameters" : {},
+          "ToolName" : "sign",
+          "ToolVersion" : "1.0"
+        }
+      ]
