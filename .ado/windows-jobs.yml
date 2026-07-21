@@ -88,6 +88,7 @@ extends:
         skipBuildTagsForGitHubPullRequests: true
     pool:
       name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
     sdl:
       # Also disable the PREfast scan itself -- clang-cl can't run /analyze. (The
       # injection above is the actual build-breaker; this is belt-and-suspenders.)
@@ -166,7 +167,8 @@ extends:
           # tests actually execute -- on an x64 agent build.ts can only cross-
           # compile arm64 and skips the tests. windows-2025-1espt-arm64 is a
           # single-image pool, so it takes no ImageOverride demand. x64/x86 cells
-          # inherit the top-level fabric-internal-pool-large pool, unchanged.
+          # inherit the top-level fabric-internal-pool-large pool, which pins the
+          # windows-2025-1espt image.
           ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
