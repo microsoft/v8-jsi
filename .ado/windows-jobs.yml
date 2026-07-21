@@ -88,6 +88,7 @@ extends:
         skipBuildTagsForGitHubPullRequests: true
     pool:
       name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
     sdl:
       # Also disable the PREfast scan itself -- clang-cl can't run /analyze. (The
       # injection above is the actual build-breaker; this is belt-and-suspenders.)
@@ -127,6 +128,14 @@ extends:
 
           timeoutInMinutes: 1200
 
+          # The legacy Google-V8 (depot_tools) build supports only up to VS 2022
+          # (17.0), but the windows-2025-1espt image ships VS 2026 -- so this build
+          # must NOT run on it. Take the pool's default image (which provides a
+          # supported VS) instead of the top-level windows-2025-1espt ImageOverride.
+          # The Node.js-source build and sandbox keep the pinned image.
+          pool:
+            name: fabric-internal-pool-large
+
           variables:
           - name: Packaging.EnableSBOMSigning
             value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
@@ -139,13 +148,6 @@ extends:
               targetPath: $(Build.StagingDirectory)\out\pkg-staging
 
           steps:
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
-
           - template: /.ado/windows-build.yml@self
             parameters:
               outputPath: $(Build.StagingDirectory)\out\pkg-staging
@@ -173,7 +175,8 @@ extends:
           # tests actually execute -- on an x64 agent build.ts can only cross-
           # compile arm64 and skips the tests. windows-2025-1espt-arm64 is a
           # single-image pool, so it takes no ImageOverride demand. x64/x86 cells
-          # inherit the top-level fabric-internal-pool-large pool, unchanged.
+          # inherit the top-level fabric-internal-pool-large pool, which pins the
+          # windows-2025-1espt image.
           ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
@@ -194,15 +197,6 @@ extends:
               - output: pipelineArtifact
                 artifactName: ${{ matrix.Name }}-new
                 targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
-                # The 1ES SBoM ManifestGenerator runs as an x64 process and can't
-                # load the arm64 agent's native .NET (hostfxr arch mismatch,
-                # 0x800700C1), and its x64-runtime self-install is blocked by
-                # network isolation. This per-cell artifact is intermediate -- the
-                # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
-                # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86
-                # keep generating it.
-                ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
-                  sbomEnabled: false
 
           steps:
             # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
@@ -210,13 +204,6 @@ extends:
             # the image's Node so that post-job doesn't fail. Right after checkout.
           - ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             - template: /.ado/ensure-node10-shim.yml@self
-
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
 
           - task: UseNode@1
             displayName: Use Node.js 24.x
@@ -304,14 +291,6 @@ extends:
             - output: pipelineArtifact
               artifactName: sandbox-binaries-${{ sb.Rid }}
               targetPath: $(Build.StagingDirectory)\sandbox
-              # Same arm64 SBoM skip as the V8JsiBuildNew cell: the x64-only 1ES
-              # SBoM toolkit can't load the arm64 agent's native .NET (hostfxr arch
-              # mismatch, 0x800700C1). This per-RID artifact is intermediate -- the
-              # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
-              # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86 keep
-              # generating it.
-              ${{ if eq(sb.BuildPlatform, 'arm64') }}:
-                sbomEnabled: false
 
           steps:
             # The vendored gn (deps/gn/gn.exe) is a Git LFS object; the default
@@ -325,13 +304,6 @@ extends:
             # the image's Node so that post-job doesn't fail.
           - ${{ if eq(sb.BuildPlatform, 'arm64') }}:
             - template: /.ado/ensure-node10-shim.yml@self
-
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
 
           - task: UseNode@1
             displayName: Use Node.js 24.x

@@ -214,12 +214,20 @@ extends:
             targetPath: $(Pipeline.Workspace)\symbols\Desktop_x86_Release-new
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_ARM64_Release-new
+            targetPath: $(Pipeline.Workspace)\symbols\Desktop_ARM64_Release-new
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
             artifactName: sandbox-binaries-win-x64
             targetPath: $(Pipeline.Workspace)\symbols\sandbox-binaries-win-x64
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci
             artifactName: sandbox-binaries-win-x86
             targetPath: $(Pipeline.Workspace)\symbols\sandbox-binaries-win-x86
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: sandbox-binaries-win-arm64
+            targetPath: $(Pipeline.Workspace)\symbols\sandbox-binaries-win-arm64
 
         steps:
         - pwsh: |
