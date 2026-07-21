@@ -128,6 +128,14 @@ extends:
 
           timeoutInMinutes: 1200
 
+          # The legacy Google-V8 (depot_tools) build supports only up to VS 2022
+          # (17.0), but the windows-2025-1espt image ships VS 2026 -- so this build
+          # must NOT run on it. Take the pool's default image (which provides a
+          # supported VS) instead of the top-level windows-2025-1espt ImageOverride.
+          # The Node.js-source build and sandbox keep the pinned image.
+          pool:
+            name: fabric-internal-pool-large
+
           variables:
           - name: Packaging.EnableSBOMSigning
             value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
