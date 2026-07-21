@@ -139,13 +139,6 @@ extends:
               targetPath: $(Build.StagingDirectory)\out\pkg-staging
 
           steps:
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
-
           - template: /.ado/windows-build.yml@self
             parameters:
               outputPath: $(Build.StagingDirectory)\out\pkg-staging
@@ -194,15 +187,6 @@ extends:
               - output: pipelineArtifact
                 artifactName: ${{ matrix.Name }}-new
                 targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
-                # The 1ES SBoM ManifestGenerator runs as an x64 process and can't
-                # load the arm64 agent's native .NET (hostfxr arch mismatch,
-                # 0x800700C1), and its x64-runtime self-install is blocked by
-                # network isolation. This per-cell artifact is intermediate -- the
-                # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
-                # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86
-                # keep generating it.
-                ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
-                  sbomEnabled: false
 
           steps:
             # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
@@ -210,13 +194,6 @@ extends:
             # the image's Node so that post-job doesn't fail. Right after checkout.
           - ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             - template: /.ado/ensure-node10-shim.yml@self
-
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
 
           - task: UseNode@1
             displayName: Use Node.js 24.x
@@ -304,14 +281,6 @@ extends:
             - output: pipelineArtifact
               artifactName: sandbox-binaries-${{ sb.Rid }}
               targetPath: $(Build.StagingDirectory)\sandbox
-              # Same arm64 SBoM skip as the V8JsiBuildNew cell: the x64-only 1ES
-              # SBoM toolkit can't load the arm64 agent's native .NET (hostfxr arch
-              # mismatch, 0x800700C1). This per-RID artifact is intermediate -- the
-              # shipped NuGet's SBoM is produced by the V8JsiCreateNugetNew
-              # aggregator on x64 -- so skip SBoM here for arm64 only; x64/x86 keep
-              # generating it.
-              ${{ if eq(sb.BuildPlatform, 'arm64') }}:
-                sbomEnabled: false
 
           steps:
             # The vendored gn (deps/gn/gn.exe) is a Git LFS object; the default
@@ -325,13 +294,6 @@ extends:
             # the image's Node so that post-job doesn't fail.
           - ${{ if eq(sb.BuildPlatform, 'arm64') }}:
             - template: /.ado/ensure-node10-shim.yml@self
-
-          - task: UsePythonVersion@0
-            displayName: Use Python 3.x
-            inputs:
-              versionSpec: '3.x'
-              addToPath: true
-              architecture: 'x64'
 
           - task: UseNode@1
             displayName: Use Node.js 24.x
