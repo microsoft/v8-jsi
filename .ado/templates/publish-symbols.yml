@@ -1,0 +1,46 @@
+#
+# Publish PDBs + binaries to the org symbol service, which propagates to SymWeb
+# (internal). Single source of truth for the symbol-publish step shared by the
+# legacy and Node.js-source symbol jobs. Authenticates with the pipeline build
+# identity (System.AccessToken) — a service connection whose identity lacks
+# symbol rights fails (TF400813). Publishes the PDBs (symbol resolution) plus
+# the binaries so Watson can fetch the module image by TimeStamp+SizeOfImage,
+# not just the PDB.
+#
+# NOTE: public MSDL publishing is intentionally not wired here yet — it needs a
+# symbol-project onboarding that isn't in place, and the shipped NuGet packages
+# already carry the PDBs. It can be added later via the SymbolRequestProd API.
+#
+parameters:
+  # Symbol request name (the org symbol service request).
+- name: symbolsArtifactName
+  type: string
+  # Root folder holding the downloaded per-arch artifacts to publish (searched
+  # recursively for PDBs/DLLs/EXEs).
+- name: symbolsFolder
+  type: string
+  default: $(Pipeline.Workspace)/symbols
+
+steps:
+- task: PublishSymbols@2
+  displayName: Publish Symbols to Microsoft Symbol Server
+  continueOnError: true
+  inputs:
+    # Publish with the pipeline's build identity (System.AccessToken); a
+    # service connection whose identity lacks symbol rights fails (TF400813).
+    UseNetCoreClientTool: true
+    SymbolsFolder: '${{ parameters.symbolsFolder }}'
+    # Publish the PDBs (symbol resolution) plus the binaries so Watson can
+    # fetch the module image by TimeStamp+SizeOfImage, not just the PDB.
+    SearchPattern: |
+      **/*.pdb
+      **/*.dll
+      **/*.exe
+    SymbolServerType: TeamServices
+    IndexSources: false
+    SymbolsProduct: V8Jsi
+    SymbolsVersion: $(Build.BuildNumber)
+    SymbolsArtifactName: ${{ parameters.symbolsArtifactName }}
+    DetailedLog: true
+    TreatNotIndexedAsWarning: false
+

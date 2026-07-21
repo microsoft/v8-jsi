@@ -20,6 +20,15 @@
     # Path to v8-jsi repo root relative to deps/nodejs
     'v8jsi_root': '../..',
 
+    # Absolute path to the generated SourceLink map consumed by the v8jsi /
+    # v8jsisb link via /SOURCELINK: (see the v8jsi_source_link_gen action and the
+    # VCLinkerTool AdditionalOptions below). configure.py overrides this with an
+    # absolute path -- GYP does not rebase linker AdditionalOptions, so a relative
+    # path would not resolve from the linker's working directory. This relative
+    # default only keeps standalone gyp evaluation valid. A distinct filename
+    # (..._gyp) avoids clobbering the legacy Google-V8 build's source_link_gen.json.
+    'v8jsi_source_link_json%': '<(v8jsi_root)/src/source_link_gen_gyp.json',
+
     # The sandbox build variant (--build-v8jsisb / configure.py). When 1, the
     # v8jsi target is emitted as v8jsisb.dll and is compiled with the V8
     # in-process sandbox + pointer-compression shared cage + jitless/lite mode
@@ -161,6 +170,32 @@
     },  # v8jsi_version_gen target
 
     {
+      # Emit the SourceLink map (src/source_link_gen_gyp.json) before linking, so
+      # the v8jsi / v8jsisb PDB carries GitHub source indexing
+      # (raw.githubusercontent.com/microsoft/v8-jsi/<commit>/*). The
+      # PublishSymbols@2 task cannot index GitHub, so embedding it at link time is
+      # the only way the shipped PDBs get source-indexed.
+      'target_name': 'v8jsi_source_link_gen',
+      'type': 'none',
+      'actions': [
+        {
+          'action_name': 'generate_source_link',
+          'inputs': [
+            '<(v8jsi_root)/src/generate_source_link.ts',
+          ],
+          'outputs': [
+            '<(v8jsi_root)/src/source_link_gen_gyp.json',
+          ],
+          'action': [
+            'node',
+            '<(v8jsi_root)/src/generate_source_link.ts',
+            '--output', '<(v8jsi_root)/src/source_link_gen_gyp.json',
+          ],
+        },
+      ],
+    },  # v8jsi_source_link_gen target
+
+    {
       'target_name': 'v8jsi',
       'type': 'shared_library',
 
@@ -172,6 +207,8 @@
         'tools/v8_gypfiles/v8.gyp:v8_libplatform',
         # Generate version_gen.rc before building
         'v8jsi_version_gen',
+        # Generate the SourceLink map before linking (feeds /SOURCELINK:).
+        'v8jsi_source_link_gen',
       ],
 
       'include_dirs': [
@@ -239,6 +276,14 @@
                 'bcrypt.lib',
                 'shlwapi.lib',
                 'winmm.lib',
+              ],
+              # Embed GitHub SourceLink in the PDB. The new build links with
+              # clang-cl/lld-link, which does NOT support MSVC's /SOURCELINK: --
+              # it injects the map as the PDB "sourcelink" named stream via
+              # /pdbstream instead. v8jsi_source_link_json is an absolute path
+              # (from configure.py); the map is produced by v8jsi_source_link_gen.
+              'AdditionalOptions': [
+                '/pdbstream:sourcelink=<(v8jsi_source_link_json)',
               ],
             },
           },
@@ -407,9 +452,11 @@
       # only (Win32 LoadLibrary); the snapshot scenario is Windows-only.
       #
       # Depends on v8jsi_version_gen only to order the version header generation;
-      # it does not link anything from it (a 'none' target).
+      # it does not link anything from it (a 'none' target). Also depends on
+      # v8jsi_source_link_gen so the SourceLink map exists before this links.
       'dependencies': [
         'v8jsi_version_gen',
+        'v8jsi_source_link_gen',
       ],
 
       'sources': [
@@ -424,6 +471,12 @@
           'msvs_settings': {
             'VCLinkerTool': {
               'SubSystem': '1',  # console (main + fprintf diagnostics)
+              # Embed GitHub SourceLink in the PDB (see the v8jsi target:
+              # clang-cl/lld-link uses /pdbstream, not MSVC's /SOURCELINK). The
+              # map is produced by the v8jsi_source_link_gen action (a dependency).
+              'AdditionalOptions': [
+                '/pdbstream:sourcelink=<(v8jsi_source_link_json)',
+              ],
             },
             'VCResourceCompilerTool': {
               'PreprocessorDefinitions': ['VER_BINARY=3'],

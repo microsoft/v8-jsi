@@ -871,29 +871,6 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   );
   if (allRidsPresent) {
     packOne("Microsoft.JavaScript.V8.nuspec");
-
-    // Stage each RID's PDB next to the .nupkgs under pkg/symbols/<rid>/ so the
-    // release pipeline can publish them to the Symbol Server directly (no
-    // extracting from inside the .nupkg). The PDB also ships inside each per-RID
-    // .nupkg at runtimes/<rid>/native/ for consumer convenience.
-    // Only done for the full RID set — i.e. the release aggregate; a single-arch
-    // per-cell pack skips it (the symbols are reproduced by the aggregator pack),
-    // which keeps the per-cell CI artifact from carrying a duplicate ~422 MB PDB.
-    for (const rid of stagedRids) {
-      const pdbSrc = path.join(
-        pkgStagingPath,
-        "build",
-        "native",
-        rid,
-        "v8jsi.dll.pdb",
-      );
-      if (fs.existsSync(pdbSrc)) {
-        const symbolsDir = path.join(pkgPath, "symbols", rid);
-        ensureDir(symbolsDir);
-        fs.copyFileSync(pdbSrc, path.join(symbolsDir, "v8jsi.dll.pdb"));
-        console.log(`Staged ${rid} PDB under pkg/symbols/${rid}/.`);
-      }
-    }
   } else {
     const missing = ALL_WINDOWS_RIDS.filter(
       (r) =>

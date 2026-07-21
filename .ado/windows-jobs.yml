@@ -157,44 +157,11 @@ extends:
 
             # Sign binaries only for the non-fake CI builds.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - task: EsrpCodeSigning@6
-              displayName: CodeSign Binaries
-              inputs:
-                connectedServiceName: 'ESRP-JSHost3'
-                appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
-                appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
-                authAKVName: 'OGX-JSHost-KV'
-                authCertName: 'OGX-JSHost-Auth4'
-                authSignCertName: 'OGX-JSHost-Sign3'
+            - template: /.ado/templates/esrp-codesign-binaries.yml@self
+              parameters:
                 folderPath: $(Build.StagingDirectory)\out\pkg-staging
-                # Recursively finds files matching these patterns:
                 pattern: |
                   **\v8jsi.dll
-                useMinimatch: true
-                signConfigType: inlineSignParams
-                inlineOperation: |
-                  [
-                    {
-                      "KeyCode" : "CP-230012",
-                      "OperationCode" : "SigntoolSign",
-                      "Parameters" : {
-                        "OpusName" : "Microsoft",
-                        "OpusInfo" : "http://www.microsoft.com",
-                        "FileDigest" : "/fd \"SHA256\"",
-                        "PageHash" : "/NPH",
-                        "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
-                      },
-                      "ToolName" : "sign",
-                      "ToolVersion" : "1.0"
-                    },
-                    {
-                      "KeyCode" : "CP-230012",
-                      "OperationCode" : "SigntoolVerify",
-                      "Parameters" : {},
-                      "ToolName" : "sign",
-                      "ToolVersion" : "1.0"
-                    }
-                  ]
 
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
@@ -271,6 +238,18 @@ extends:
               buildPlatform: ${{ matrix.BuildPlatform }}
               isPublish: ${{ parameters.isPublish }}
               fakeBuild: ${{ parameters.fakeBuild }}
+
+            # Sign v8jsi.dll before the per-RID artifact is published, so the
+            # aggregated NuGet and the symbol-server image are both signed (the
+            # legacy and sandbox jobs already sign their binaries; this closes the
+            # gap for the Node.js-source build). Release-only: only Release cells
+            # stage out-new/pkg-staging (Debug cells build + test but don't pack).
+          - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false), eq(matrix.BuildConfiguration, 'Release')) }}:
+            - template: /.ado/templates/esrp-codesign-binaries.yml@self
+              parameters:
+                folderPath: $(Build.StagingDirectory)\out-new\pkg-staging
+                pattern: |
+                  **\v8jsi.dll
 
         # =====================================================================
         # Sandbox binaries. One job PER RID (x64/x86/arm64) builds that arch's
@@ -444,47 +423,15 @@ extends:
               # v8host.exe, mkv8snapshot.exe) only on the publishing CI build.
               # test_app.exe is never staged, so it is never signed.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - task: EsrpCodeSigning@6
-              displayName: CodeSign Sandbox Binaries
-              inputs:
-                connectedServiceName: 'ESRP-JSHost3'
-                appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
-                appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
-                authAKVName: 'OGX-JSHost-KV'
-                authCertName: 'OGX-JSHost-Auth4'
-                authSignCertName: 'OGX-JSHost-Sign3'
+            - template: /.ado/templates/esrp-codesign-binaries.yml@self
+              parameters:
+                displayName: CodeSign Sandbox Binaries
                 folderPath: $(Build.StagingDirectory)\sandbox
-                # Recursively finds files matching these patterns:
                 pattern: |
                   **\v8jsisb.dll
                   **\sbox.dll
                   **\v8host.exe
                   **\mkv8snapshot.exe
-                useMinimatch: true
-                signConfigType: inlineSignParams
-                inlineOperation: |
-                  [
-                    {
-                      "KeyCode" : "CP-230012",
-                      "OperationCode" : "SigntoolSign",
-                      "Parameters" : {
-                        "OpusName" : "Microsoft",
-                        "OpusInfo" : "http://www.microsoft.com",
-                        "FileDigest" : "/fd \"SHA256\"",
-                        "PageHash" : "/NPH",
-                        "TimeStamp" : "/tr \"http://rfc3161.gtm.corp.microsoft.com/TSS/HttpTspServer\" /td sha256"
-                      },
-                      "ToolName" : "sign",
-                      "ToolVersion" : "1.0"
-                    },
-                    {
-                      "KeyCode" : "CP-230012",
-                      "OperationCode" : "SigntoolVerify",
-                      "Parameters" : {},
-                      "ToolName" : "sign",
-                      "ToolVersion" : "1.0"
-                    }
-                  ]
 
       - job: V8JsiCreateNuget
         dependsOn:
@@ -550,37 +497,11 @@ extends:
 
           # Sign the NuGet packages only for the CI builds.
         - ${{ if parameters.isPublish }}:
-          - task: EsrpCodeSigning@6
-            displayName: CodeSign NuGets
-            inputs:
-              connectedServiceName: 'ESRP-JSHost3'
-              appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
-              appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
-              authAKVName: 'OGX-JSHost-KV'
-              authCertName: 'OGX-JSHost-Auth4'
-              authSignCertName: 'OGX-JSHost-Sign3'
+          - template: /.ado/templates/esrp-codesign-nuget.yml@self
+            parameters:
               folderPath: $(Build.StagingDirectory)\out\pkg
               pattern: |
                 ReactNative.V8Jsi.Windows.*.nupkg
-              useMinimatch: true
-              signConfigType: inlineSignParams
-              inlineOperation: |
-                [
-                  {
-                    "KeyCode" : "CP-401405",
-                    "OperationCode" : "NuGetSign",
-                    "Parameters" : {},
-                    "ToolName" : "sign",
-                    "ToolVersion" : "1.0"
-                  },
-                  {
-                    "KeyCode" : "CP-401405",
-                    "OperationCode" : "NuGetVerify",
-                    "Parameters" : {},
-                    "ToolName" : "sign",
-                    "ToolVersion" : "1.0"
-                  }
-                ]
 
         # =====================================================================
         # New (Node.js-source) NuGet aggregator: Microsoft.JavaScript.V8.
@@ -656,49 +577,23 @@ extends:
               path: $(Build.StagingDirectory)\out\pkg-staging
 
           # Pack: 3 per-RID Microsoft.JavaScript.V8.<rid>.nupkg + meta
-          # Microsoft.JavaScript.V8.nupkg, plus the per-RID PDBs staged under
-          # pkg/symbols/<rid>/ for the release pipeline's symbol publish. No
-          # local build needed — packNuGet's pre-staged binary fallback reuses
-          # the matrix-uploaded build/native/<rid>/ content. A successful pack
-          # with all three platforms guarantees the 4-pack, so there is no
-          # separate verify step.
+          # Microsoft.JavaScript.V8.nupkg. No local build needed — packNuGet's
+          # pre-staged binary fallback reuses the matrix-uploaded
+          # build/native/<rid>/ content. A successful pack with all three
+          # platforms guarantees the 4-pack, so there is no separate verify step.
+          # (The release symbol jobs publish PDBs from the per-arch build
+          # artifacts directly, so no symbols/ side-output is produced here.)
         - pwsh: |
             node scripts/build.ts --no-build --no-test --pack `
                 --platform x86 --platform x64 --platform arm64 `
                 --output-path $(Build.StagingDirectory)\out
-          displayName: NuGet Pack (3 per-RID + meta + symbols)
+          displayName: NuGet Pack (3 per-RID + meta)
           workingDirectory: $(Build.SourcesDirectory)
 
           # Sign the NuGet packages only for the CI builds.
         - ${{ if parameters.isPublish }}:
-          - task: EsrpCodeSigning@6
-            displayName: CodeSign NuGets
-            inputs:
-              connectedServiceName: 'ESRP-JSHost3'
-              appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
-              appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
-              authAKVName: 'OGX-JSHost-KV'
-              authCertName: 'OGX-JSHost-Auth4'
-              authSignCertName: 'OGX-JSHost-Sign3'
+          - template: /.ado/templates/esrp-codesign-nuget.yml@self
+            parameters:
               folderPath: $(Build.StagingDirectory)\out\pkg
               pattern: |
                 Microsoft.JavaScript.V8.*.nupkg
-              useMinimatch: true
-              signConfigType: inlineSignParams
-              inlineOperation: |
-                [
-                  {
-                    "KeyCode" : "CP-401405",
-                    "OperationCode" : "NuGetSign",
-                    "Parameters" : {},
-                    "ToolName" : "sign",
-                    "ToolVersion" : "1.0"
-                  },
-                  {
-                    "KeyCode" : "CP-401405",
-                    "OperationCode" : "NuGetVerify",
-                    "Parameters" : {},
-                    "ToolName" : "sign",
-                    "ToolVersion" : "1.0"
-                  }
-                ]

@@ -15,5 +15,13 @@ shared_library("sbox") {
   # src/version_info.rc -> version_info_sbox.res (VER_BINARY=4 selects sbox.dll's
   # strings) with the Windows SDK rc.exe before ninja runs; link the prebuilt
   # .res (lld-link embeds its resources). Path is relative to the out dir.
-  ldflags = [ "version_info_sbox.res" ]
+  # source_link_gen_gyp.json: the SourceLink map (also written to the out dir by
+  # scripts/sbox-build.ts before ninja) — injected as the PDB "sourcelink" named
+  # stream via /pdbstream (lld-link does not support MSVC's /SOURCELINK). Embeds
+  # GitHub source indexing in sbox.dll's PDB (clears BinSkim BA2027). Relative to
+  # the out dir.
+  ldflags = [
+    "version_info_sbox.res",
+    "/pdbstream:sourcelink=source_link_gen_gyp.json",
+  ]
 }

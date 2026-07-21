@@ -1,0 +1,50 @@
+#
+# ESRP signing for NuGet packages (.nupkg).
+#
+# Single source of truth for the NuGet-signing step so the aggregator jobs
+# don't each carry a copy. Callers pass the folder and the minimatch
+# pattern(s) selecting the packages to sign; the ESRP account, signing key
+# (CP-401405), and NuGetSign/Verify operations are fixed here.
+#
+parameters:
+- name: displayName
+  type: string
+  default: CodeSign NuGets
+- name: folderPath
+  type: string
+  # Newline-separated minimatch pattern(s) of packages to sign, relative to
+  # folderPath (useMinimatch). A single value works too.
+- name: pattern
+  type: string
+
+steps:
+- task: EsrpCodeSigning@6
+  displayName: ${{ parameters.displayName }}
+  inputs:
+    connectedServiceName: 'ESRP-JSHost3'
+    appRegistrationClientId: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+    appRegistrationTenantId: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+    authAKVName: 'OGX-JSHost-KV'
+    authCertName: 'OGX-JSHost-Auth4'
+    authSignCertName: 'OGX-JSHost-Sign3'
+    folderPath: ${{ parameters.folderPath }}
+    pattern: ${{ parameters.pattern }}
+    useMinimatch: true
+    signConfigType: inlineSignParams
+    inlineOperation: |
+      [
+        {
+          "KeyCode" : "CP-401405",
+          "OperationCode" : "NuGetSign",
+          "Parameters" : {},
+          "ToolName" : "sign",
+          "ToolVersion" : "1.0"
+        },
+        {
+          "KeyCode" : "CP-401405",
+          "OperationCode" : "NuGetVerify",
+          "Parameters" : {},
+          "ToolName" : "sign",
+          "ToolVersion" : "1.0"
+        }
+      ]

@@ -3,6 +3,7 @@ build
 build.log
 src/version_gen.rc
 src/source_link_gen.json
+src/source_link_gen_gyp.json
 
 # outputs
 out

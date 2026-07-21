@@ -490,6 +490,21 @@ function generateVersionInfo(): void {
   execSync(`node "${script}"`, { stdio: "inherit", cwd: repoRoot });
 }
 
+// Emit <outDir>/source_link_gen_gyp.json — the SourceLink map that sbox.dll /
+// v8host.exe link via /SOURCELINK: (their BUILD.gn ldflags). Same generator and
+// map the gyp engine build uses; written into the out dir so the ldflags can
+// reference it by name (relative to the linker's out-dir cwd, like the .res
+// files). Embeds GitHub source indexing in the sbox PDBs (clears BinSkim BA2027).
+function generateSourceLink(outDir: string): void {
+  const script = path.join(repoRoot, "src", "generate_source_link.ts");
+  const out = path.join(outDir, "source_link_gen_gyp.json");
+  console.log("\n=== source link (source_link_gen_gyp.json) ===\n");
+  execSync(`node "${script}" --output "${out}"`, {
+    stdio: "inherit",
+    cwd: repoRoot,
+  });
+}
+
 // Compile src/version_info.rc -> <outDir>/version_info_<name>.res for sbox.dll
 // and v8host.exe, which link the prebuilt .res via ldflags. GN's own rc tool
 // (rc.py) needs the hermetic rc binary + hermetic clang, neither of which the
@@ -773,6 +788,9 @@ async function main(): Promise<void> {
       // Compile the VERSIONINFO .res (sbox.dll / v8host.exe link it) after gn
       // gen has written the toolchain env block, before ninja links.
       compileVersionResources(outDir, targetCpu);
+      // Emit the SourceLink map into the out dir; sbox.dll / v8host.exe link it
+      // via /SOURCELINK: (their BUILD.gn ldflags), before ninja links.
+      generateSourceLink(outDir);
       ninjaBuild(tc.ninja, outDir, args.target ?? "generic");
     }
   }
