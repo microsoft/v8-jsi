@@ -58,18 +58,20 @@ steps:
       displayName: Stage pkg-staging + pack per-RID NuGet
       workingDirectory: $(Build.SourcesDirectory)
 
-      # x64 Release cell runs the tests/ integration suite against the freshly-
-      # packed per-RID .nupkg through a real consumer (tests/consumer.vcxproj).
-      # build.ts --test-e2e drives the x64-only harness: the cross-CRT smoke in
-      # Release/Release (links the Release Hybrid-CRT DLL) and Debug/Release
-      # (cross-CRT boundary), plus the startup-snapshot e2e (build a snapshot
-      # with the packaged mkv8snapshot.exe and consume it via the public
+      # x64, x86, and ARM64 Release cells run the tests/ integration suite
+      # against the freshly-packed per-RID .nupkg through a real consumer
+      # (tests/consumer.vcxproj). build.ts --test-e2e drives the matching native
+      # harness: the cross-CRT smoke in Release/Release (links the Release
+      # Hybrid-CRT DLL) and Debug/Release (cross-CRT boundary), plus the
+      # startup-snapshot e2e (build a snapshot with the packaged
+      # mkv8snapshot.exe and consume it via the public
       # V8RuntimeArgs::startupSnapshotBlob surface). This per-RID pack carries
       # v8jsi.dll + mkv8snapshot.exe but not v8jsisb.dll (that ships from the
       # sandbox job and is merged only in the aggregator), so the snapshot
       # scenario runs the v8jsi leg here and auto-skips the v8jsisb + cross-engine
-      # legs until they run against a sandbox-complete pack.
-    - ${{ if eq(parameters.buildPlatform, 'x64') }}:
+      # legs until they run against a sandbox-complete pack. x86 builds the
+      # 32-bit (Win32) consumer and runs it via WOW64 on the x64 agent.
+    - ${{ if in(parameters.buildPlatform, 'x64', 'x86', 'arm64') }}:
       - pwsh: |
           node scripts/build.ts --no-build --no-test --test-e2e `
               --platform ${{parameters.buildPlatform}} `

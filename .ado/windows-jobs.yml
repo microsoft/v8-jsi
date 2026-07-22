@@ -338,6 +338,17 @@ extends:
               displayName: Build v8jsisb.dll (jitless sandbox engine, MSVC)
               workingDirectory: $(Build.SourcesDirectory)
 
+              # The sandbox GYP build keeps the v8jsi target name but changes
+              # its product name, so v8jsi_test.exe and the Node-API suite's
+              # node_lite.exe child import v8jsisb.dll. Run both suites on every
+              # architecture (ARM64 natively, x86 via WOW64). Both suites pass
+              # unfiltered under jitless, so no JIT-specific exclusions apply.
+            - pwsh: |
+                node scripts/build.ts --no-build --test --build-v8jsisb `
+                    --platform ${{ sb.BuildPlatform }} --configuration release
+              displayName: Run JSI + Node-API gtests against v8jsisb.dll
+              workingDirectory: $(Build.SourcesDirectory)
+
               # Hygiene gates: export allowlist + Hybrid CRT + BinSkim, over this
               # arch's out dir (--target-cpu resolves it). Exits non-zero on any
               # unaccepted finding.
@@ -404,6 +415,28 @@ extends:
                   **\sbox.dll
                   **\v8host.exe
                   **\mkv8snapshot.exe
+
+              # Signed lockdown tier (publishing build only): re-run the
+              # Untrusted broker harness against the ESRP-signed binaries with
+              # NO SBOX_ALLOW_UNSIGNED override, so test_app.exe's WinVerifyTrust
+              # gate enforces genuine Authenticode on the exact sbox.dll /
+              # v8host.exe / v8jsisb.dll bytes that ship. Runs in ADDITION to the
+              # unsigned tier above and depends on the signing step, hence the
+              # isPublish gate. test_app.exe is the broker (never signature-
+              # checked), so overlaying the three signed images suffices.
+          - ${{ if and(eq(sb.RunTier, true), eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
+            - pwsh: |
+                $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                $signed = "$(Build.StagingDirectory)\sandbox\build\native\${{ sb.Rid }}"
+                foreach ($f in 'sbox.dll', 'v8host.exe', 'v8jsisb.dll') {
+                  Copy-Item (Join-Path $signed $f) $sandboxOut -Force
+                }
+                $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+                # SBOX_ALLOW_UNSIGNED intentionally unset: enforce real signatures.
+                & "$sandboxOut\test_app.exe"
+                if ($LASTEXITCODE -ne 0) { Write-Error "Signed Untrusted tier FAILED (exit $LASTEXITCODE)" }
+              displayName: Lockdown tier test (Untrusted, signed)
+              workingDirectory: $(Build.SourcesDirectory)
 
       - job: V8JsiCreateNuget
         dependsOn:
@@ -569,3 +602,64 @@ extends:
               folderPath: $(Build.StagingDirectory)\out\pkg
               pattern: |
                 Microsoft.JavaScript.V8.*.nupkg
+
+        # =====================================================================
+        # Signed-pack acceptance (CI only). After the 4-pack is built and ESRP-
+        # signed, restore the final per-RID Microsoft.JavaScript.V8.<rid>
+        # package as a real consumer and run the full tests/ suite against the
+        # SIGNED bytes -- including the sandbox (v8jsisb) leg + cross-engine
+        # rejection, which the in-cell --test-e2e skips (a per-RID build cell's
+        # pack carries no v8jsisb.dll). This is the only stage that exercises the
+        # exact signed binaries + signed .nupkg a customer restores. PR builds
+        # skip it (nothing is signed there); their fast in-cell --test-e2e
+        # already covers the non-sandbox legs unsigned. One job per shipped RID:
+        # x64/x86 on the x64 image (x86 consumer via WOW64), arm64 native.
+        # =====================================================================
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - ${{ if and(eq(parameters.isPublish, true), eq(matrix.BuildConfiguration, 'Release')) }}:
+          - job: V8JsiAcceptanceNew_${{ matrix.Name }}
+            dependsOn: V8JsiCreateNugetNew
+            displayName: Acceptance signed pack ${{ matrix.Name }}
+
+            # arm64 runs natively on the ARM64 pool; x64/x86 inherit the top-
+            # level windows-2025-1espt image (x86 consumer runs via WOW64).
+            ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+              pool:
+                name: windows-2025-1espt-arm64
+
+            steps:
+            - checkout: self
+
+              # ARM64 agents ship no externals\node10; shim it so the mandatory
+              # 1ES retention post-job (Node 10 handler) doesn't fail.
+            - ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+              - template: /.ado/ensure-node10-shim.yml@self
+
+            - task: UseNode@1
+              displayName: Use Node.js 24.x
+              inputs:
+                version: '24.x'
+
+              # The consumer restore (run-smoke.ps1 / run-snapshot.ps1) needs
+              # nuget.exe on PATH.
+            - task: NuGetToolInstaller@1
+              displayName: Install NuGet tools
+              inputs:
+                versionSpec: ">=4.6.0"
+
+              # The final signed 4-pack (3 per-RID + meta) from the aggregator.
+            - task: DownloadPipelineArtifact@2
+              displayName: Download published-packages-new
+              inputs:
+                artifact: published-packages-new
+                path: $(Build.StagingDirectory)\acceptance\pkg
+
+              # Restore the signed per-RID package as a real consumer and run the
+              # smoke + snapshot suite (both engines) against it. --test-acceptance
+              # forces the sandbox leg on: the final pack MUST carry v8jsisb.dll.
+            - pwsh: |
+                node scripts/build.ts --no-build --no-test --test-acceptance `
+                    --platform ${{ matrix.BuildPlatform }} `
+                    --output-path $(Build.StagingDirectory)\acceptance
+              displayName: Acceptance tests against signed pack
+              workingDirectory: $(Build.SourcesDirectory)

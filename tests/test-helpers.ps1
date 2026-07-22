@@ -118,12 +118,17 @@ function Build-Consumer {
     )
     $msbuild = Get-MSBuild
     $vcxproj = Join-Path $HarnessDir 'consumer.vcxproj'
+    # VC++ has no 'x86' platform - 32-bit is 'Win32'. Translate the harness
+    # platform vocabulary (x64/x86/arm64, matching the RID and CI buildPlatform)
+    # to the MSBuild platform the consumer project defines. The explicit
+    # V8JsiRuntimeIdentifier below still selects the win-x86 package payload.
+    $msbuildPlatform = if ($Platform -eq 'x86') { 'Win32' } else { $Platform }
     # Pass V8JsiRuntimeIdentifier explicitly to bypass the .props RID
     # auto-detection (a real PackageReference consumer lets that run on its own).
     $mbArgs = @(
         $vcxproj,
         "/p:Configuration=$Configuration",
-        "/p:Platform=$Platform",
+        "/p:Platform=$msbuildPlatform",
         "/p:V8JsiPackageProps=$PkgProps",
         "/p:V8JsiPackageTargets=$PkgTargets",
         "/p:V8JsiRuntimeIdentifier=$Rid"
@@ -136,7 +141,7 @@ function Build-Consumer {
     & $msbuild @mbArgs /restore:false /nologo /v:minimal | Out-Host
     if ($LASTEXITCODE -ne 0) { throw "msbuild failed (exit $LASTEXITCODE)" }
 
-    $exe = Join-Path $HarnessDir "bin\$Configuration\$Platform\v8jsi_smoke.exe"
+    $exe = Join-Path $HarnessDir "bin\$Configuration\$msbuildPlatform\v8jsi_smoke.exe"
     if (-not (Test-Path $exe)) { throw "Expected EXE not produced: $exe" }
     return $exe
 }
