@@ -7,6 +7,12 @@ parameters:
   - name: fakeBuild
     type: boolean
     default: false
+    # TEMPORARY POC (remove before merge): when true, add a standalone job that
+    # pushes a throwaway Git tag to the source repo to prove the CI identity has
+    # GitHub tag-push permission. Only windows-ci.yml turns this on.
+  - name: runTagPushPoc
+    type: boolean
+    default: false
     # Matrix with target platforms for v8-jsi binaries.
   - name: BuildMatrix
     type: object
@@ -125,6 +131,10 @@ extends:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuild_${{ matrix.Name }}
           displayName: Build V8-JSI ${{ matrix.Name }}
+          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
+          # while the tag-push POC runs.
+          ${{ if parameters.runTagPushPoc }}:
+            condition: false
 
           timeoutInMinutes: 1200
 
@@ -168,6 +178,10 @@ extends:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
           displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
+          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
+          # while the tag-push POC runs.
+          ${{ if parameters.runTagPushPoc }}:
+            condition: false
 
           timeoutInMinutes: 1200
 
@@ -267,6 +281,10 @@ extends:
       - ${{ each sb in parameters.SandboxMatrix }}:
         - job: V8JsiBuildSandbox_${{ sb.Name }}
           displayName: Build Sandbox (${{ sb.Rid }})
+          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
+          # while the tag-push POC runs.
+          ${{ if parameters.runTagPushPoc }}:
+            condition: false
 
           timeoutInMinutes: 180
 
@@ -443,6 +461,10 @@ extends:
         - ${{ each matrix in parameters.BuildMatrix }}:
           - V8JsiBuild_${{ matrix.Name }}
         displayName: Create Nuget
+        # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push POC
+        # runs; its build deps skip too.
+        ${{ if parameters.runTagPushPoc }}:
+          condition: false
 
         templateContext:
           outputs:
@@ -529,6 +551,10 @@ extends:
         - ${{ each sb in parameters.SandboxMatrix }}:
           - V8JsiBuildSandbox_${{ sb.Name }}
         displayName: Create Nuget (Node.js source)
+        # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push POC
+        # runs; its build deps skip too.
+        ${{ if parameters.runTagPushPoc }}:
+          condition: false
 
         templateContext:
           outputs:
@@ -620,6 +646,10 @@ extends:
           - job: V8JsiAcceptanceNew_${{ matrix.Name }}
             dependsOn: V8JsiCreateNugetNew
             displayName: Acceptance signed pack ${{ matrix.Name }}
+            # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push
+            # POC runs; its aggregator dep skips too.
+            ${{ if parameters.runTagPushPoc }}:
+              condition: false
 
             # arm64 runs natively on the ARM64 pool; x64/x86 inherit the top-
             # level windows-2025-1espt image (x86 consumer runs via WOW64).
@@ -663,3 +693,60 @@ extends:
                     --output-path $(Build.StagingDirectory)\acceptance
               displayName: Acceptance tests against signed pack
               workingDirectory: $(Build.SourcesDirectory)
+
+        # =====================================================================
+        # TEMPORARY POC -- REMOVE BEFORE MERGE.
+        # Proves the CI identity can push a Git tag to the source repo (expected:
+        # github.com/microsoft/v8-jsi). Creates a unique throwaway tag
+        # "poc/tag-push-<BuildId>" at the CI commit, dry-run pushes it (the
+        # permission probe), then really pushes it so the tag can be inspected
+        # and deleted. Standalone (no dependsOn) so it runs immediately without
+        # waiting for the build. Toggled on only from windows-ci.yml via
+        # runTagPushPoc; PR validation leaves the default (false) and skips it.
+        # =====================================================================
+      - ${{ if eq(parameters.runTagPushPoc, true) }}:
+        - job: TagPushPoc
+          displayName: 'POC: prove GitHub tag push permission'
+          steps:
+          - checkout: self
+
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+              $tag = "poc/tag-push-$(Build.BuildId)"
+              Write-Host "Probe tag : $tag"
+              Write-Host "At commit : $(Build.SourceVersion)"
+
+              Write-Host "=== remotes (what does 'origin' point at?) ==="
+              git remote -v
+
+              $authHeader = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
+              Write-Host "##vso[task.setsecret]$authHeader"
+
+              # Local lightweight tag at the exact CI commit.
+              git tag $tag "$(Build.SourceVersion)"
+
+              # 1) Dry run: proves push permission without creating anything remote.
+              Write-Host "=== git push --dry-run (permission probe) ==="
+              git -c http.extraheader="$authHeader" push --dry-run origin "refs/tags/$tag"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Dry-run push FAILED (exit $LASTEXITCODE): the CI identity cannot push tags to origin."
+                exit 1
+              }
+
+              # 2) Real push: creates the inspectable throwaway tag.
+              Write-Host "=== git push (real) ==="
+              git -c http.extraheader="$authHeader" push origin "refs/tags/$tag"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Real push FAILED (exit $LASTEXITCODE)."
+                exit 1
+              }
+
+              # Confirm it landed on the remote.
+              Write-Host "=== git ls-remote (confirm tag on remote) ==="
+              git -c http.extraheader="$authHeader" ls-remote --tags origin "$tag"
+
+              Write-Host "##[section]SUCCESS: pushed throwaway tag '$tag'"
+              Write-Host "Delete it with: git push origin :refs/tags/$tag"
+            displayName: Push throwaway probe tag
+            env:
+              SYSTEM_ACCESSTOKEN: $(System.AccessToken)

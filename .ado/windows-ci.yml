@@ -15,3 +15,6 @@ extends:
     isPublish: true
     # It must be false for real builds. Use true only for the build pipeline debugging.
     fakeBuild: false
+    # TEMPORARY POC (remove before merge): run the throwaway tag-push job that
+    # proves the CI identity can push a Git tag to GitHub. See windows-jobs.yml.
+    runTagPushPoc: true
