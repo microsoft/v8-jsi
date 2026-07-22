@@ -57,6 +57,7 @@ const options = {
   pack: { type: "boolean" as const, default: false },
   smoke: { type: "boolean" as const, default: false },
   "test-e2e": { type: "boolean" as const, default: false },
+  "test-acceptance": { type: "boolean" as const, default: false },
   binskim: { type: "boolean" as const, default: false },
   "check-crt": { type: "boolean" as const, default: false },
   "check-size": { type: "boolean" as const, default: false },
@@ -308,12 +309,15 @@ Boolean flags (all support --no- prefix):
   --test              Run v8jsi_test.exe
   --pack              Create NuGet package
   --smoke             Run the real-consumer smoke (tests/run-smoke.ps1) against
-                      the packed .nupkg (x64; Release + Debug)
+                      the packed .nupkg (x64/x86/arm64; Release + Debug)
   --test-e2e          Run the full tests/ integration suite against the packed
-                      .nupkg (x64): the consumer smoke + the startup-snapshot
+                      .nupkg (x64/x86/arm64): the consumer smoke + the startup-snapshot
                       e2e (build a snapshot with packaged mkv8snapshot.exe and
                       consume it via V8RuntimeArgs::startupSnapshotBlob, both
                       engines, incl. cross-engine rejection)
+  --test-acceptance   Like --test-e2e but against an already-built pack (e.g. the
+                      downloaded signed NuGet in CI); forces the sandbox-engine
+                      leg on (the final multi-engine pack always carries v8jsisb.dll)
   --binskim           Run BinSkim security validation
   --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
   --check-size        Enforce the binary-size budget (v8jsisb.dll <= 18 MiB)
@@ -403,7 +407,8 @@ async function runBuild(
 // =============================================================================
 
 function runTests(platform: string, configuration: string): void {
-  console.log(`\n=== Testing v8jsi (${platform} ${configuration}) ===\n`);
+  const engineName = args["build-v8jsisb"] ? "v8jsisb" : "v8jsi";
+  console.log(`\n=== Testing ${engineName} (${platform} ${configuration}) ===\n`);
 
   if (isCrossPlatformBuild(platform)) {
     console.log(
@@ -891,81 +896,110 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 // =============================================================================
 
 // Run one tests/ scenario (tests/run-<scenario>.ps1) against the freshly-packed
-// per-RID .nupkg. The harness is x64-only. Each scenario runs against the
-// default engine (v8jsi) in the given consumer configs, then once more on the
-// sandbox engine (v8jsisb, -UseV8Sandbox) when the pack actually carries it.
+// per-RID .nupkg. The harness supports x64, x86, and arm64. Each scenario runs
+// against the default engine (v8jsi) in the given consumer configs, then once
+// more on the sandbox engine (v8jsisb, -UseV8Sandbox). requireSandbox forces the
+// sandbox leg on (acceptance against a sandbox-complete pack); otherwise it runs
+// only when the pack actually staged a v8jsisb.dll for this RID.
 function runHarnessScenario(
   scenario: string,
   outputPath: string,
   platforms: string[],
   consumerConfigs: string[],
+  requireSandbox: boolean = false,
 ): void {
-  if (!platforms.includes("x64")) {
+  const harnessPlatforms = platforms.filter(
+    (platform) =>
+      platform === "x64" || platform === "x86" || platform === "arm64",
+  );
+  if (harnessPlatforms.length === 0) {
     console.log(
-      `Skipping ${scenario}: the harness is x64-only and x64 was not targeted.`,
+      `Skipping ${scenario}: the harness supports x64, x86, and arm64, but none was targeted.`,
     );
     return;
   }
 
   const script = path.join(repoRoot, "tests", `run-${scenario}.ps1`);
   const pkgDir = path.join(outputPath, "pkg");
-  const invoke = (config: string, sandbox: boolean): void => {
-    const psArgs = [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      `"${script}"`,
-      "-Configuration",
-      config,
-      "-Platform",
-      "x64",
-      "-PkgDir",
-      `"${pkgDir}"`,
-    ];
-    if (sandbox) psArgs.push("-UseV8Sandbox");
-    run("powershell.exe", psArgs);
-  };
+  for (const platform of harnessPlatforms) {
+    const invoke = (config: string, sandbox: boolean): void => {
+      const psArgs = [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        `"${script}"`,
+        "-Configuration",
+        config,
+        "-Platform",
+        platform,
+        "-PkgDir",
+        `"${pkgDir}"`,
+      ];
+      if (sandbox) psArgs.push("-UseV8Sandbox");
+      run("powershell.exe", psArgs);
+    };
 
-  for (const config of consumerConfigs) {
-    invoke(config, /*sandbox*/ false);
-  }
+    for (const config of consumerConfigs) {
+      invoke(config, /*sandbox*/ false);
+    }
 
-  // Sandbox-engine leg: only when the pack actually carries the sandbox
-  // binaries (a non-sandbox build doesn't). Drives v8jsisb.dll.
-  const stagedV8jsisb = path.join(
-    outputPath,
-    "pkg-staging",
-    "build",
-    "native",
-    "win-x64",
-    "v8jsisb.dll",
-  );
-  if (fs.existsSync(stagedV8jsisb)) {
-    console.log(`\n=== ${scenario} (sandbox engine) ===\n`);
-    invoke("Release", /*sandbox*/ true);
-  } else {
-    console.log(
-      `Skipping ${scenario} sandbox leg: no v8jsisb.dll staged (non-sandbox pack).`,
+    // Sandbox-engine leg: only when the pack actually carries the sandbox
+    // binaries (a non-sandbox build doesn't). Drives v8jsisb.dll.
+    const stagedV8jsisb = path.join(
+      outputPath,
+      "pkg-staging",
+      "build",
+      "native",
+      platformToRid(platform),
+      "v8jsisb.dll",
     );
+    if (requireSandbox || fs.existsSync(stagedV8jsisb)) {
+      console.log(`\n=== ${scenario} (${platform}, sandbox engine) ===\n`);
+      invoke("Release", /*sandbox*/ true);
+    } else {
+      console.log(
+        `Skipping ${scenario} sandbox leg for ${platform}: no v8jsisb.dll staged (non-sandbox pack).`,
+      );
+    }
   }
 }
 
 // Real-consumer smoke: builds the consumer in Release + Debug against the
 // Release v8jsi.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
 // boundary) and runs the JSI ABI checks.
-function runSmoke(outputPath: string, platforms: string[]): void {
+function runSmoke(
+  outputPath: string,
+  platforms: string[],
+  requireSandbox: boolean = false,
+): void {
   console.log("\n=== Smoke (real-consumer) ===\n");
-  runHarnessScenario("smoke", outputPath, platforms, ["Release", "Debug"]);
+  runHarnessScenario(
+    "smoke",
+    outputPath,
+    platforms,
+    ["Release", "Debug"],
+    requireSandbox,
+  );
 }
 
 // Startup-snapshot e2e: builds a snapshot with the packaged mkv8snapshot.exe and
 // consumes it via the public V8RuntimeArgs::startupSnapshotBlob surface, for both
 // engines, including cross-engine rejection. Release consumer is sufficient (the
 // scenario exercises the snapshot path, not the cross-CRT matrix).
-function runSnapshotE2E(outputPath: string, platforms: string[]): void {
+function runSnapshotE2E(
+  outputPath: string,
+  platforms: string[],
+  requireSandbox: boolean = false,
+): void {
   console.log("\n=== Snapshot e2e ===\n");
-  runHarnessScenario("snapshot", outputPath, platforms, ["Release"]);
+  runHarnessScenario(
+    "snapshot",
+    outputPath,
+    platforms,
+    ["Release"],
+    requireSandbox,
+  );
 }
 
 // =============================================================================
@@ -1074,13 +1108,16 @@ async function main(): Promise<void> {
   }
 
   // Real-consumer integration tests (after packing). --test-e2e runs the full
-  // suite (smoke + snapshot); --smoke is the focused subset. Either implies the
-  // smoke; only --test-e2e adds the snapshot e2e.
-  if (args.smoke || args["test-e2e"]) {
-    runSmoke(outputPath, platforms);
+  // suite (smoke + snapshot); --smoke is the focused subset. --test-acceptance
+  // runs the same suite against an already-built pack (e.g. the downloaded
+  // signed NuGet) and forces the sandbox-engine leg on. --smoke/--test-e2e
+  // imply the smoke; --test-e2e/--test-acceptance add the snapshot e2e.
+  const requireSandbox = args["test-acceptance"];
+  if (args.smoke || args["test-e2e"] || args["test-acceptance"]) {
+    runSmoke(outputPath, platforms, requireSandbox);
   }
-  if (args["test-e2e"]) {
-    runSnapshotE2E(outputPath, platforms);
+  if (args["test-e2e"] || args["test-acceptance"]) {
+    runSnapshotE2E(outputPath, platforms, requireSandbox);
   }
 
   // Report elapsed time

@@ -14,9 +14,12 @@ node scripts/build.ts --no-build --pack --test-e2e --platform x64 --configuratio
 ```
 
 `--test-e2e` runs the whole suite; `--smoke` runs just the consumer smoke. The
-harness is **x64-only** and needs `nuget.exe` + Visual Studio (MSBuild via vswhere)
-on the machine. The sandbox-engine (`v8jsisb.dll`) and cross-engine legs run only
-when the pack actually carries the sandbox binaries; otherwise they auto-skip.
+harness supports native x64, x86, and ARM64; pass `--platform x86` or
+`--platform arm64` to target those (x86 builds the 32-bit Win32 consumer, which
+runs via WOW64 on an x64 host). It needs `nuget.exe` + Visual Studio (MSBuild via
+vswhere) on the machine. The sandbox-engine (`v8jsisb.dll`) and cross-engine legs
+run only when the pack actually carries the sandbox binaries; otherwise they
+auto-skip.
 
 ## Layout
 
