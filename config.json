@@ -1,7 +1,7 @@
 {
-    "version":  "0.79.7",
+    "version":  "0.79.8",
     "v8ref":  "refs/branch-heads/12.1",
     "buildNumber":  "285",
-    "v8jsi_version":  "24.1.1",
+    "v8jsi_version":  "24.1.2",
     "nodejs_version":  "24.15.1"
 }
