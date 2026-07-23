@@ -7,12 +7,6 @@ parameters:
   - name: fakeBuild
     type: boolean
     default: false
-    # TEMPORARY POC (remove before merge): when true, add a standalone job that
-    # pushes a throwaway Git tag to the source repo to prove the CI identity has
-    # GitHub tag-push permission. Only windows-ci.yml turns this on.
-  - name: runTagPushPoc
-    type: boolean
-    default: false
     # Matrix with target platforms for v8-jsi binaries.
   - name: BuildMatrix
     type: object
@@ -131,10 +125,6 @@ extends:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuild_${{ matrix.Name }}
           displayName: Build V8-JSI ${{ matrix.Name }}
-          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
-          # while the tag-push POC runs.
-          ${{ if parameters.runTagPushPoc }}:
-            condition: false
 
           timeoutInMinutes: 1200
 
@@ -178,10 +168,6 @@ extends:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
           displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
-          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
-          # while the tag-push POC runs.
-          ${{ if parameters.runTagPushPoc }}:
-            condition: false
 
           timeoutInMinutes: 1200
 
@@ -281,10 +267,6 @@ extends:
       - ${{ each sb in parameters.SandboxMatrix }}:
         - job: V8JsiBuildSandbox_${{ sb.Name }}
           displayName: Build Sandbox (${{ sb.Rid }})
-          # TEMPORARY POC (remove with runTagPushPoc): skip this heavy build
-          # while the tag-push POC runs.
-          ${{ if parameters.runTagPushPoc }}:
-            condition: false
 
           timeoutInMinutes: 180
 
@@ -461,10 +443,6 @@ extends:
         - ${{ each matrix in parameters.BuildMatrix }}:
           - V8JsiBuild_${{ matrix.Name }}
         displayName: Create Nuget
-        # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push POC
-        # runs; its build deps skip too.
-        ${{ if parameters.runTagPushPoc }}:
-          condition: false
 
         templateContext:
           outputs:
@@ -551,10 +529,6 @@ extends:
         - ${{ each sb in parameters.SandboxMatrix }}:
           - V8JsiBuildSandbox_${{ sb.Name }}
         displayName: Create Nuget (Node.js source)
-        # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push POC
-        # runs; its build deps skip too.
-        ${{ if parameters.runTagPushPoc }}:
-          condition: false
 
         templateContext:
           outputs:
@@ -646,10 +620,6 @@ extends:
           - job: V8JsiAcceptanceNew_${{ matrix.Name }}
             dependsOn: V8JsiCreateNugetNew
             displayName: Acceptance signed pack ${{ matrix.Name }}
-            # TEMPORARY POC (remove with runTagPushPoc): skip while the tag-push
-            # POC runs; its aggregator dep skips too.
-            ${{ if parameters.runTagPushPoc }}:
-              condition: false
 
             # arm64 runs natively on the ARM64 pool; x64/x86 inherit the top-
             # level windows-2025-1espt image (x86 consumer runs via WOW64).
@@ -695,58 +665,106 @@ extends:
               workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
-        # TEMPORARY POC -- REMOVE BEFORE MERGE.
-        # Proves the CI identity can push a Git tag to the source repo (expected:
-        # github.com/microsoft/v8-jsi). Creates a unique throwaway tag
-        # "poc/tag-push-<BuildId>" at the CI commit, dry-run pushes it (the
-        # permission probe), then really pushes it so the tag can be inspected
-        # and deleted. Standalone (no dependsOn) so it runs immediately without
-        # waiting for the build. Toggled on only from windows-ci.yml via
-        # runTagPushPoc; PR validation leaves the default (false) and skips it.
+        # Tag published versions (publishing CI build only). After the NuGet
+        # aggregators and the signed-pack acceptance jobs succeed, create a Git
+        # tag on github.com/microsoft/v8-jsi for each package version this build
+        # is about to publish, so every shipped version is pinned to the commit
+        # it was built from. The release pipeline can't do this -- its agent
+        # can't enlist sources and only sees the CI artifacts -- so tagging runs
+        # here in CI, which checks out the repo.
+        #
+        # Two independently versioned families ship during the migration, so
+        # each gets its own package-qualified tag (mirroring RNW's _v<version>):
+        #   ReactNative.V8Jsi.Windows_v<version>   (config.json .version)
+        #   Microsoft.JavaScript.V8_v<version>     (config.json .v8jsi_version)
+        #
+        # config.json versions stay constant across many CI runs, so tagging
+        # every green build would fight over one tag. Instead reuse the release
+        # pipeline's own "is this version already on the public feed?" check
+        # (see .ado/templates/publish-nuget-to-ado-feed.yml): a tag is created
+        # only for the first build of a version not yet on the feed. That feed
+        # is anonymously readable, so the query needs no token. Idempotent: an
+        # existing tag is left untouched, never moved.
         # =====================================================================
-      - ${{ if eq(parameters.runTagPushPoc, true) }}:
-        - job: TagPushPoc
-          displayName: 'POC: prove GitHub tag push permission'
+      - ${{ if eq(parameters.isPublish, true) }}:
+        - job: V8JsiTagRelease
+          dependsOn:
+          - V8JsiCreateNuget
+          - V8JsiCreateNugetNew
+          - ${{ each matrix in parameters.BuildMatrix }}:
+            - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
+              - V8JsiAcceptanceNew_${{ matrix.Name }}
+          displayName: Tag published versions
           steps:
           - checkout: self
 
           - pwsh: |
               $ErrorActionPreference = 'Stop'
-              $tag = "poc/tag-push-$(Build.BuildId)"
-              Write-Host "Probe tag : $tag"
-              Write-Host "At commit : $(Build.SourceVersion)"
 
-              Write-Host "=== remotes (what does 'origin' point at?) ==="
-              git remote -v
+              # Both families ship to the public ms/react-native-public feed,
+              # which is anonymously readable -- no access token needed to query.
+              $feedUrl = 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
 
+              # Discover the flat-container (PackageBaseAddress) URL from the V3
+              # index -- the same lookup the publish template uses.
+              $index = Invoke-RestMethod -Uri $feedUrl
+              $baseAddress = ($index.resources |
+                Where-Object { $_.'@type' -like 'PackageBaseAddress*' } |
+                Select-Object -First 1).'@id'
+              if (-not $baseAddress) { throw "No PackageBaseAddress in $feedUrl" }
+              if (-not $baseAddress.EndsWith('/')) { $baseAddress += '/' }
+
+              # GitHub tag-push auth: the bearer header the permission POC proved.
               $authHeader = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
               Write-Host "##vso[task.setsecret]$authHeader"
 
-              # Local lightweight tag at the exact CI commit.
-              git tag $tag "$(Build.SourceVersion)"
+              $config = Get-Content "$(Build.SourcesDirectory)\config.json" | ConvertFrom-Json
+              $commit = "$(Build.SourceVersion)"
 
-              # 1) Dry run: proves push permission without creating anything remote.
-              Write-Host "=== git push --dry-run (permission probe) ==="
-              git -c http.extraheader="$authHeader" push --dry-run origin "refs/tags/$tag"
-              if ($LASTEXITCODE -ne 0) {
-                Write-Error "Dry-run push FAILED (exit $LASTEXITCODE): the CI identity cannot push tags to origin."
-                exit 1
+              # One package-qualified tag per independently versioned family.
+              $families = @(
+                @{ Id = 'ReactNative.V8Jsi.Windows'; Version = [string]$config.version },
+                @{ Id = 'Microsoft.JavaScript.V8';   Version = [string]$config.v8jsi_version }
+              )
+
+              foreach ($f in $families) {
+                $id = $f.Id
+                $version = $f.Version
+                Write-Host "=== $id $version ==="
+                if ([string]::IsNullOrWhiteSpace($version)) { throw "Missing version for $id in config.json" }
+
+                # Already on the public feed? Membership test, so feed ordering
+                # does not matter. 404 = never published -> treat as new.
+                $versionsUrl = "$baseAddress$($id.ToLower())/index.json"
+                $published = $false
+                try {
+                  $result = Invoke-RestMethod -Uri $versionsUrl -ErrorAction Stop
+                  if ($version.ToLower() -in $result.versions) { $published = $true }
+                } catch {
+                  if ($_.Exception.Response.StatusCode -ne [System.Net.HttpStatusCode]::NotFound) { throw }
+                }
+                if ($published) {
+                  Write-Host "  $version already on the feed -- no tag needed."
+                  continue
+                }
+
+                $tag = "${id}_v${version}"
+
+                # Idempotent: never move an existing tag.
+                $existing = git -c http.extraheader="$authHeader" ls-remote --tags origin "refs/tags/$tag"
+                if ($LASTEXITCODE -ne 0) { Write-Error "ls-remote failed for $tag"; exit 1 }
+                if ($existing) {
+                  Write-Host "  tag '$tag' already exists -- no-op."
+                  continue
+                }
+
+                Write-Host "  creating tag '$tag' at $commit"
+                git tag $tag $commit
+                if ($LASTEXITCODE -ne 0) { Write-Error "git tag failed for $tag"; exit 1 }
+                git -c http.extraheader="$authHeader" push origin "refs/tags/$tag"
+                if ($LASTEXITCODE -ne 0) { Write-Error "git push failed for $tag"; exit 1 }
+                Write-Host "  pushed $tag"
               }
-
-              # 2) Real push: creates the inspectable throwaway tag.
-              Write-Host "=== git push (real) ==="
-              git -c http.extraheader="$authHeader" push origin "refs/tags/$tag"
-              if ($LASTEXITCODE -ne 0) {
-                Write-Error "Real push FAILED (exit $LASTEXITCODE)."
-                exit 1
-              }
-
-              # Confirm it landed on the remote.
-              Write-Host "=== git ls-remote (confirm tag on remote) ==="
-              git -c http.extraheader="$authHeader" ls-remote --tags origin "$tag"
-
-              Write-Host "##[section]SUCCESS: pushed throwaway tag '$tag'"
-              Write-Host "Delete it with: git push origin :refs/tags/$tag"
-            displayName: Push throwaway probe tag
+            displayName: Create and push release tags
             env:
               SYSTEM_ACCESSTOKEN: $(System.AccessToken)
