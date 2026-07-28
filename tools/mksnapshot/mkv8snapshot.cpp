@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
 
   std::fprintf(stderr, "[mkv8snapshot] wrote %s (%zu bytes)\n", outPath.c_str(), blobSize);
   std::fflush(stderr);
-  // Engine V8 background threads can deadlock during DLL/process teardown; blob is on disk.
+  // V8 engine background threads can deadlock during DLL/process teardown; blob is on disk.
   ::TerminateProcess(::GetCurrentProcess(), 0);
   return 0;  // unreachable
 }
