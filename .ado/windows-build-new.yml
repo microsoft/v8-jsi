@@ -18,6 +18,11 @@ parameters:
 
 
 steps:
+  # Overlay the CI-computed config.json before build.ts runs. The gyp version
+  # action (src/generate_version_info.ts) reads config.json.v8jsi_version to
+  # stamp v8jsi.dll, and build.ts --pack reads it for the per-RID NuGet version.
+- template: /.ado/overlay-version-config.yml@self
+
 - ${{ if eq(parameters.fakeBuild, false) }}:
     # Every step is a single scripts/build.ts invocation so the whole flow is
     # reproducible locally. build.ts provisions NASM itself (needed for the

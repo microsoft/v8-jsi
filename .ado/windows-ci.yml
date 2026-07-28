@@ -1,7 +1,23 @@
 name: v8jsi_ci_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-# The triggers are overridden by the ADO pipeline definitions.
-trigger: none
+# Continuous integration trigger, defined in YAML so the pipeline is driven from
+# source instead of the ADO pipeline UI. Runs on master and main, and skips runs
+# for changes that only touch the documentation and ownership-metadata files
+# excluded below. PR validation is handled separately by windows-pr.yml, so this
+# pipeline sets pr: none.
+trigger:
+  batch: false
+  branches:
+    include:
+    - master
+    - main
+  paths:
+    exclude:
+    - README.md
+    - docs/*
+    - AGENTS.md
+    - CLAUDE.md
+    - CODEOWNERS
 pr: none
 
 variables:

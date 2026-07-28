@@ -3,6 +3,7 @@ name: v8jsi_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
 trigger: none
 pr:
   - master
+  - main
   - "*-stable"
 
 variables:

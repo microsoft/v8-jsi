@@ -16,7 +16,9 @@ const { values } = parseArgs({
 });
 
 const config = JSON.parse(readFileSync(values.config!, "utf8"));
-const [major, minor, build] = (config.version as string).split(".");
+// A Windows binary version is numeric major.minor.build. Drop any prerelease
+// suffix (e.g. 0.79.8-g0564e49f) before splitting.
+const [major, minor, build] = (config.version as string).split("-")[0].split(".");
 
 const template = readFileSync(values.template!, "utf8");
 const result = template

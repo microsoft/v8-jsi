@@ -1,0 +1,34 @@
+{
+  // Type-checking config for the v8-jsi build/tooling scripts. These run
+  // directly with `node scripts/<name>.ts` (Node.js strip-types) — there is no
+  // build step, so this config never emits; it exists for editor IntelliSense
+  // and `npm run typecheck`.
+  "compilerOptions": {
+    // Match Node's native ESM + TypeScript execution.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+
+    // Node globals/built-ins (process, node:fs, ...). Fixes the "Cannot find
+    // name 'process'/'node:*'" squiggles that appear without @types/node.
+    "types": ["node"],
+
+    // The scripts import each other with an explicit ".ts" extension (e.g.
+    // "./build-common.ts"), which is how Node runs them. Allowed only with
+    // noEmit / emitDeclarationOnly.
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+
+    // Node strip-types only erases types; it cannot transform runtime TS syntax
+    // (parameter properties, enums, namespaces). Flag those at type-check time
+    // so a script can't compile here yet fail to run under `node`.
+    "erasableSyntaxOnly": true,
+
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // Top-level scripts only. fork-sync/ is its own package with its own config.
+  "include": ["*.ts"]
+}

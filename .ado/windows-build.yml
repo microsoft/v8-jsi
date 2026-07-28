@@ -18,6 +18,13 @@ parameters:
 
 
 steps:
+  # Overlay the CI-computed config.json before anything reads it. The legacy
+  # binary's version RC (src/generate_version_rc.ts) reads config.json.version
+  # during build.ps1, and build.ps1 then stages config.json into pkg-staging,
+  # which the V8JsiCreateNuget aggregator reads -- so this one overlay carries
+  # the computed version through both the binary stamp and the NuGet version.
+- template: /.ado/overlay-version-config.yml@self
+
 - ${{ if eq(parameters.fakeBuild, false) }}:
   - task: PowerShell@2
     displayName: Download and extract depot_tools.zip
