@@ -1,0 +1,13 @@
+# Base version for the ReactNative.V8Jsi.Windows NuGet package (legacy).
+#
+# scripts/compute-version.ts computes the shipped version as:
+#   major.minor.(patch + git height)
+# where "git height" is the number of commits since the version below was last
+# changed. The patch here is therefore a FLOOR: the shipped patch is this value
+# plus the commits added since. At the commit that sets it, height is 0 and the
+# shipped version equals this exactly; it then grows by one per commit.
+#
+# To start a new version line, edit the value below (any component). Set it at
+# or above the latest already-published patch so versions never overlap. On
+# non-release branches the build appends "-<8-char commit sha>" (prerelease).
+0.79.8

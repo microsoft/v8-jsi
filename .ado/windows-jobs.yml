@@ -122,9 +122,71 @@ extends:
     stages:
     - stage: main
       jobs:
+      # =====================================================================
+      # Compute versions. Runs first and is the ONLY job that needs the full
+      # git history: scripts/compute-version.ts derives each package's patch
+      # from git height (commits since its versions/*.version file last
+      # changed). It writes the computed versions into config.json and this job
+      # publishes that config.json as the `version-config` artifact. Every
+      # build/pack/tag job depends on this job and overlays the artifact (see
+      # .ado/overlay-version-config.yml), so they read the computed version with
+      # a shallow checkout and no code change. The write stays in the working
+      # tree / artifact only -- it is never committed (committing would move the
+      # height anchor). Also sets the pipeline run number to the
+      # Microsoft.JavaScript.V8 version so each run is identifiable.
+      # =====================================================================
+      - job: V8JsiComputeVersion
+        displayName: Compute versions
+        templateContext:
+          outputs:
+          - output: pipelineArtifact
+            artifactName: version-config
+            targetPath: $(Build.StagingDirectory)\version-config
+        steps:
+          # Height is a commit count, so this job (and only this job) needs the
+          # complete first-parent history.
+        - checkout: self
+          fetchDepth: 0
+
+        - task: UseNode@1
+          displayName: Use Node.js 24.x
+          inputs:
+            version: '24.x'
+
+          # Materialize both computed versions into config.json (surgical field
+          # replace; formatting preserved) and stage it for publishing.
+        - pwsh: |
+            node scripts/compute-version.ts --write
+            $stage = "$(Build.StagingDirectory)\version-config"
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            Copy-Item -Force config.json (Join-Path $stage 'config.json')
+            Write-Host "Staged computed config.json:"
+            Get-Content config.json
+          displayName: Compute versions into config.json
+          workingDirectory: $(Build.SourcesDirectory)
+
+          # Keep the ADO run-id prefix (pipeline `name:`), then append both
+          # computed versions -> "<run-id> - <v8jsi> - <legacy>".
+        - pwsh: |
+            $ErrorActionPreference = 'Stop'
+            $info = node scripts/compute-version.ts --json | ConvertFrom-Json
+            $v8jsi = ($info.packages | Where-Object { $_.packageId -eq 'Microsoft.JavaScript.V8' }).version
+            $legacy = ($info.packages | Where-Object { $_.packageId -eq 'ReactNative.V8Jsi.Windows' }).version
+            if ([string]::IsNullOrWhiteSpace($v8jsi)) { throw 'Could not resolve the Microsoft.JavaScript.V8 version' }
+            if ([string]::IsNullOrWhiteSpace($legacy)) { throw 'Could not resolve the ReactNative.V8Jsi.Windows version' }
+            $runNumber = "$($env:BUILD_BUILDNUMBER) - $v8jsi - $legacy"
+            Write-Host "##vso[build.updatebuildnumber]$runNumber"
+            Write-Host "Pipeline run number set to $runNumber"
+          displayName: Set pipeline run number
+          workingDirectory: $(Build.SourcesDirectory)
+
+
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuild_${{ matrix.Name }}
           displayName: Build V8-JSI ${{ matrix.Name }}
+
+          # Wait for the computed config.json (overlaid in windows-build.yml).
+          dependsOn: V8JsiComputeVersion
 
           timeoutInMinutes: 1200
 
@@ -168,6 +230,9 @@ extends:
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
           displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
+
+          # Wait for the computed config.json (overlaid in windows-build-new.yml).
+          dependsOn: V8JsiComputeVersion
 
           timeoutInMinutes: 1200
 
@@ -268,6 +333,9 @@ extends:
         - job: V8JsiBuildSandbox_${{ sb.Name }}
           displayName: Build Sandbox (${{ sb.Rid }})
 
+          # Wait for the computed config.json (overlaid below before building).
+          dependsOn: V8JsiComputeVersion
+
           timeoutInMinutes: 180
 
           # ARM64 builds natively on the ARM64 managed-image pool so its Untrusted
@@ -304,6 +372,13 @@ extends:
             # the image's Node so that post-job doesn't fail.
           - ${{ if eq(sb.BuildPlatform, 'arm64') }}:
             - template: /.ado/ensure-node10-shim.yml@self
+
+            # Overlay the CI-computed config.json before building. Both the
+            # jitless engine (build.ts --build-v8jsisb -> gyp
+            # generate_version_info.ts) and the Chromium sandbox binaries
+            # (sbox-build.ts -> gn rc) stamp their version from
+            # config.json.v8jsi_version.
+          - template: /.ado/overlay-version-config.yml@self
 
           - task: UseNode@1
             displayName: Use Node.js 24.x
@@ -528,6 +603,9 @@ extends:
           # packages.
         - ${{ each sb in parameters.SandboxMatrix }}:
           - V8JsiBuildSandbox_${{ sb.Name }}
+          # scripts/build.ts --pack reads config.json.v8jsi_version for the
+          # package version, so wait for the computed config.json and overlay it.
+        - V8JsiComputeVersion
         displayName: Create Nuget (Node.js source)
 
         templateContext:
@@ -541,6 +619,9 @@ extends:
           # headers + consumer source TUs from src/, and runs the 4-pack flow
           # (3 per-RID + 1 meta) for Microsoft.JavaScript.V8.
         - checkout: self
+
+          # Overlay the CI-computed config.json before build.ts --pack reads it.
+        - template: /.ado/overlay-version-config.yml@self
 
         - task: UseNode@1
           displayName: Use Node.js 24.x
@@ -678,13 +759,16 @@ extends:
         #   ReactNative.V8Jsi.Windows_v<version>   (config.json .version)
         #   Microsoft.JavaScript.V8_v<version>     (config.json .v8jsi_version)
         #
-        # config.json versions stay constant across many CI runs, so tagging
-        # every green build would fight over one tag. Instead reuse the release
-        # pipeline's own "is this version already on the public feed?" check
-        # (see .ado/templates/publish-nuget-to-ado-feed.yml): a tag is created
-        # only for the first build of a version not yet on the feed. That feed
-        # is anonymously readable, so the query needs no token. Idempotent: an
-        # existing tag is left untouched, never moved.
+        # The versions come from the computed config.json overlaid above, so a
+        # release build increments the patch per commit (git height) and each
+        # commit gets its own tag. Two guards keep tagging correct:
+        #   * Skip prerelease builds: a non-release branch produces a "-<sha>"
+        #     suffixed version, which must never mint a real release tag.
+        #   * Idempotent for re-runs of the same commit (same version): the feed
+        #     membership check and the ls-remote tag check both no-op if the
+        #     version is already published / already tagged. The public feed is
+        #     anonymously readable, so that query needs no token; an existing tag
+        #     is left untouched, never moved.
         # =====================================================================
       - ${{ if eq(parameters.isPublish, true) }}:
         - job: V8JsiTagRelease
@@ -694,9 +778,15 @@ extends:
           - ${{ each matrix in parameters.BuildMatrix }}:
             - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
               - V8JsiAcceptanceNew_${{ matrix.Name }}
+          # The tag version comes from the computed config.json overlaid below.
+          - V8JsiComputeVersion
           displayName: Tag published versions
           steps:
           - checkout: self
+
+            # Overlay the CI-computed config.json so the tags carry the computed
+            # per-build versions (and prerelease builds are skipped, below).
+          - template: /.ado/overlay-version-config.yml@self
 
           - pwsh: |
               $ErrorActionPreference = 'Stop'
@@ -732,6 +822,16 @@ extends:
                 $version = $f.Version
                 Write-Host "=== $id $version ==="
                 if ([string]::IsNullOrWhiteSpace($version)) { throw "Missing version for $id in config.json" }
+
+                # Release tags only. compute-version.ts appends a "-g<sha>"
+                # prerelease suffix on non-release branches, so a suffixed
+                # version marks a non-release build (a PR or a topic branch that
+                # publishes for testing) -- those must never mint a real release
+                # tag. A clean version therefore implies a release branch.
+                if ($version -match '-') {
+                  Write-Host "  $version is a prerelease build -- no release tag."
+                  continue
+                }
 
                 # Already on the public feed? Membership test, so feed ordering
                 # does not matter. 404 = never published -> treat as new.

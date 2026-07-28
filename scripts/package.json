@@ -1,0 +1,14 @@
+{
+  "name": "v8jsi-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript build/tooling scripts for v8-jsi. Run directly with Node.js v24+ (strip-types); no build step. Types are for editor/CI type-checking only.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}

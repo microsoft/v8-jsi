@@ -1,0 +1,33 @@
+# Overlays the CI-computed config.json onto the checked-out working tree.
+#
+# The V8JsiComputeVersion job derives each package's version from git height
+# (scripts/compute-version.ts), writes them into config.json, and publishes it
+# as the `version-config` pipeline artifact. Every job that stamps, packs, or
+# tags a version downloads that artifact and overlays it here, so build.ts, the
+# RC generators (src/generate_version_info.ts, src/generate_version_rc.ts), the
+# NuGet aggregators, and the tag job read the computed version with no code
+# change -- and without needing the full git history that the height
+# calculation requires (only the version job checks out deep; every other job
+# stays shallow and gets the versions through this artifact).
+#
+# Prerequisites for the consuming job:
+#   * dependsOn: V8JsiComputeVersion  (so the artifact exists)
+#   * the repo checked out            (config.json is present to overwrite)
+# Reference this template BEFORE any step that reads config.json.
+
+steps:
+- task: DownloadPipelineArtifact@2
+  displayName: Download computed version-config
+  inputs:
+    artifact: version-config
+    path: $(Pipeline.Workspace)/version-config
+
+- powershell: |
+    $ErrorActionPreference = 'Stop'
+    $src = '$(Pipeline.Workspace)/version-config/config.json'
+    $dst = '$(Build.SourcesDirectory)/config.json'
+    if (-not (Test-Path $src)) { throw "Computed config.json not found at $src" }
+    Copy-Item -Force $src $dst
+    Write-Host "Overlaid computed config.json onto $dst :"
+    Get-Content $dst
+  displayName: Overlay computed config.json

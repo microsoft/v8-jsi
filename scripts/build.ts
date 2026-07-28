@@ -1035,10 +1035,13 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Validate arguments
-  const platforms = (args.platform ?? ["x64"]).map((p) => p.toLowerCase());
-  const configurations = (args.configuration ?? ["release"]).map((c) =>
-    c.toLowerCase(),
+  // Validate arguments. platform/configuration are parseArgs multiple:true
+  // options (always arrays), so narrow the string | string[] union.
+  const platforms = ((args.platform ?? ["x64"]) as string[]).map((p) =>
+    p.toLowerCase(),
+  );
+  const configurations = ((args.configuration ?? ["release"]) as string[]).map(
+    (c) => c.toLowerCase(),
   );
 
   for (const p of platforms) {

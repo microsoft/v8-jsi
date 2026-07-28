@@ -45,7 +45,9 @@ Push-Location $SourcesPath
 $ourGitHash = ((git rev-parse --verify HEAD) | Out-String).Trim()
 Pop-Location
 
-$version = [version]$config.version
+# Strip any prerelease suffix (e.g. 0.79.8-g0564e49f) before the numeric cast;
+# a Windows FILEVERSION is numeric major.minor.build only.
+$version = [version]($config.version -replace '-.*$', '')
 
 $gitRevision = ""
 $v8Version = ""
@@ -73,15 +75,6 @@ Write-Host "##vso[task.setvariable variable=V8JSI_VERSION;]$verString"
     -replace ('V8JSI_GIT_HASH', $ourGitHash) `
     -replace ('V8JSIVER_V8REF', $v8Version) |`
     Set-Content "$SourcesPath\src\source_link_gen.json"
-
-# Update ADO build version string when run from ADO pipeline
-if ($env:BUILD_BUILDNUMBER) {
-    $buildVersion = $env:BUILD_BUILDNUMBER
-    if (!$buildVersion.EndsWith($v8Version.Replace('.', '_'))) {
-        $buildVersion = $buildVersion + " - " + $config.v8jsi_version + " - " + $version.Major + "." + $version.Minor + "." + $version.Build + "." + $v8Version.Replace('.', '_')
-        Write-Host "##vso[build.updateBuildNumber]$buildVersion"
-    }
-}
 
 # Install build dependencies for Android
 if ($AppPlatform -eq "android") {

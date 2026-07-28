@@ -27,7 +27,10 @@ const { values } = parseArgs({
 
 const config = JSON.parse(readFileSync(values.config!, "utf8"));
 const version = (config.v8jsi_version as string) ?? "0.0.0";
-const [major = "0", minor = "0", build = "0"] = version.split(".");
+// A Windows binary version is numeric major.minor.build.revision. Auto-versioned
+// prerelease builds carry a SemVer suffix (e.g. 24.1.2-g0564e49f); drop it before
+// splitting, since the suffix can't appear in FILEVERSION/PRODUCTVERSION.
+const [major = "0", minor = "0", build = "0"] = version.split("-")[0].split(".");
 const revision = "0";
 const versionStr = `${major}.${minor}.${build}.${revision}`;
 
