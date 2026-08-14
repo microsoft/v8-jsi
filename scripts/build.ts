@@ -98,7 +98,19 @@ async function ensureNasm(toolsPath: string): Promise<string> {
       ?.trim();
     if (onPath) return path.dirname(onPath);
   } catch {
-    // Not on PATH; fall through to the cached/download path.
+    // Not on PATH; fall through to the known-dir/cached/download path.
+  }
+
+  // The Chocolatey `nasm` package (used to bake NASM into the CI image) runs the
+  // NASM installer, which lands in Program Files but does not add itself to PATH.
+  // Probe that install dir before downloading.
+  for (const base of [
+    process.env["ProgramFiles"],
+    process.env["ProgramFiles(x86)"],
+  ]) {
+    if (base && fs.existsSync(path.join(base, "NASM", "nasm.exe"))) {
+      return path.join(base, "NASM");
+    }
   }
 
   const nasmDir = path.join(toolsPath, "nasm", `nasm-${nasmVersion}`);

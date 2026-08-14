@@ -40,102 +40,12 @@ extends:
       displayName: Publish V8Jsi NuGets
 
       jobs:
-      - job: ms_react_native_nuget_job
-        displayName: Publish Nuget to ms/react-native-public
-        condition: succeeded()
-        timeoutInMinutes: 30
-
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:
-          - input: pipelineArtifact
-            pipeline: microsoft.v8-jsi.ci
-            artifactName: published-packages
-            targetPath: $(Pipeline.Workspace)\published-packages
-
-        steps:
-        - template: .ado/templates/publish-nuget-to-ado-feed.yml@self
-          parameters:
-            endpointId: '29e4c04c-ae69-4453-b9f3-bfef7a4c8d32'
-            nugetFeedUrl: 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
-            packageParentPath: '$(Pipeline.Workspace)/published-packages'
-            packagesToPush: '$(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg'
-            publishFeedCredentials: 'Nuget - ms/react-native-public'
-            feedDisplayName: 'ms/react-native-public'
-
-      - job: office_nuget_job
-        displayName: Publish Nuget to office
-        condition: succeeded()
-        timeoutInMinutes: 30
-
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          inputs:
-          - input: pipelineArtifact
-            pipeline: microsoft.v8-jsi.ci
-            artifactName: published-packages
-            targetPath: $(Pipeline.Workspace)\published-packages
-
-        steps:
-        - template: .ado/templates/publish-nuget-to-office-feed.yml@self
-          parameters:
-            packageParentPath: $(Pipeline.Workspace)\published-packages
-            packagesToPush: $(Pipeline.Workspace)/published-packages/ReactNative.V8Jsi.Windows.*.nupkg
-
-      - job: publish_symbols_job
-        displayName: Publish PDB Symbols to Symbol Server
-        condition: succeeded()
-        timeoutInMinutes: 30
-
-        templateContext:
-          type: releaseJob
-          isProduction: true
-          # Consume the per-arch Release build artifacts directly (the same signed
-          # bits the NuGet aggregator packs) instead of unzipping the .nupkgs to
-          # harvest PDBs. Each cell's pkg-staging already carries the signed
-          # v8jsi.dll and its PDB, so we build once, sign once, and reuse. Keep
-          # each artifact in its own subfolder under a shared symbols/ root.
-          inputs:
-          - input: pipelineArtifact
-            pipeline: microsoft.v8-jsi.ci
-            artifactName: Desktop_x64_Release
-            targetPath: $(Pipeline.Workspace)\symbols\Desktop_x64_Release
-          - input: pipelineArtifact
-            pipeline: microsoft.v8-jsi.ci
-            artifactName: Desktop_x86_Release
-            targetPath: $(Pipeline.Workspace)\symbols\Desktop_x86_Release
-          - input: pipelineArtifact
-            pipeline: microsoft.v8-jsi.ci
-            artifactName: Desktop_ARM64_Release
-            targetPath: $(Pipeline.Workspace)\symbols\Desktop_ARM64_Release
-
-        steps:
-        - pwsh: |
-            $symbolsDir = "$(Pipeline.Workspace)/symbols"
-            $pdbs = Get-ChildItem $symbolsDir -Recurse -Filter "*.pdb"
-            Write-Host "Found $($pdbs.Count) PDB file(s) under $symbolsDir`:"
-            foreach ($pdb in $pdbs) {
-              Write-Host "  $($pdb.FullName) ($([math]::Round($pdb.Length / 1MB, 2)) MB)"
-            }
-            if ($pdbs.Count -eq 0) {
-              Write-Host "##vso[task.logissue type=warning]No PDB files found in downloaded artifacts"
-            }
-          displayName: Inspect downloaded symbols
-
-        - template: .ado/templates/publish-symbols.yml@self
-          parameters:
-            symbolsArtifactName: V8Jsi-Symbols-$(Build.BuildId)
-
       # =====================================================================
-      # New (Node.js-source) package: Microsoft.JavaScript.V8.
-      # Additive siblings of the three jobs above — those keep publishing the
-      # legacy ReactNative.V8Jsi.Windows package unchanged. These consume the
-      # separate published-packages-new artifact (produced by the
-      # V8JsiCreateNugetNew CI aggregator) and push Microsoft.JavaScript.V8.*
-      # to the same two feeds, plus its symbols to the Symbol Server. Both
-      # packages publish during the consumer migration window.
+      # Node.js-source package: Microsoft.JavaScript.V8. Consumes the
+      # published-packages-new artifact (produced by the V8JsiCreateNugetNew CI
+      # aggregator) and pushes Microsoft.JavaScript.V8.* to the
+      # ms/react-native-public and office feeds, plus its symbols to the Symbol
+      # Server.
       # =====================================================================
       - job: ms_react_native_nuget_job_new
         displayName: Publish Nuget (Microsoft.JavaScript.V8) to ms/react-native-public

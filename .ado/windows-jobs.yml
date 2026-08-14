@@ -165,67 +165,19 @@ extends:
           displayName: Compute versions into config.json
           workingDirectory: $(Build.SourcesDirectory)
 
-          # Keep the ADO run-id prefix (pipeline `name:`), then append both
-          # computed versions -> "<run-id> - <v8jsi> - <legacy>".
+          # Keep the ADO run-id prefix (pipeline `name:`), then append the
+          # computed version -> "<run-id> - <v8jsi>".
         - pwsh: |
             $ErrorActionPreference = 'Stop'
             $info = node scripts/compute-version.ts --json | ConvertFrom-Json
             $v8jsi = ($info.packages | Where-Object { $_.packageId -eq 'Microsoft.JavaScript.V8' }).version
-            $legacy = ($info.packages | Where-Object { $_.packageId -eq 'ReactNative.V8Jsi.Windows' }).version
             if ([string]::IsNullOrWhiteSpace($v8jsi)) { throw 'Could not resolve the Microsoft.JavaScript.V8 version' }
-            if ([string]::IsNullOrWhiteSpace($legacy)) { throw 'Could not resolve the ReactNative.V8Jsi.Windows version' }
-            $runNumber = "$($env:BUILD_BUILDNUMBER) - $v8jsi - $legacy"
+            $runNumber = "$($env:BUILD_BUILDNUMBER) - $v8jsi"
             Write-Host "##vso[build.updatebuildnumber]$runNumber"
             Write-Host "Pipeline run number set to $runNumber"
           displayName: Set pipeline run number
           workingDirectory: $(Build.SourcesDirectory)
 
-
-      - ${{ each matrix in parameters.BuildMatrix }}:
-        - job: V8JsiBuild_${{ matrix.Name }}
-          displayName: Build V8-JSI ${{ matrix.Name }}
-
-          # Wait for the computed config.json (overlaid in windows-build.yml).
-          dependsOn: V8JsiComputeVersion
-
-          timeoutInMinutes: 1200
-
-          # The legacy Google-V8 (depot_tools) build supports only up to VS 2022
-          # (17.0), but the windows-2025-1espt image ships VS 2026 -- so this build
-          # must NOT run on it. Take the pool's default image (which provides a
-          # supported VS) instead of the top-level windows-2025-1espt ImageOverride.
-          # The Node.js-source build and sandbox keep the pinned image.
-          pool:
-            name: fabric-internal-pool-large
-
-          variables:
-          - name: Packaging.EnableSBOMSigning
-            value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
-
-          templateContext:
-            outputs:
-              # The base template takes care of publishing the artifacts.
-            - output: pipelineArtifact
-              artifactName: ${{ matrix.Name }}
-              targetPath: $(Build.StagingDirectory)\out\pkg-staging
-
-          steps:
-          - template: /.ado/windows-build.yml@self
-            parameters:
-              outputPath: $(Build.StagingDirectory)\out\pkg-staging
-              appPlatform: ${{ matrix.AppPlatform }}
-              buildConfiguration: ${{ matrix.BuildConfiguration }}
-              buildPlatform: ${{ matrix.BuildPlatform }}
-              isPublish: ${{ parameters.isPublish }}
-              fakeBuild: ${{ parameters.fakeBuild }}
-
-            # Sign binaries only for the non-fake CI builds.
-          - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - template: /.ado/templates/esrp-codesign-binaries.yml@self
-              parameters:
-                folderPath: $(Build.StagingDirectory)\out\pkg-staging
-                pattern: |
-                  **\v8jsi.dll
 
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
@@ -513,86 +465,13 @@ extends:
               displayName: Lockdown tier test (Untrusted, signed)
               workingDirectory: $(Build.SourcesDirectory)
 
-      - job: V8JsiCreateNuget
-        dependsOn:
-        - ${{ each matrix in parameters.BuildMatrix }}:
-          - V8JsiBuild_${{ matrix.Name }}
-        displayName: Create Nuget
-
-        templateContext:
-          outputs:
-            # The base template takes care of publishing the artifacts.
-          - output: pipelineArtifact
-            targetPath: $(Build.StagingDirectory)\out\pkg
-            artifactName: published-packages
-
-        steps:
-          # Packing itself only needs the downloaded artifacts, but the 1ES SDL
-          # auto-baselining pre-check needs the repo (.git + guardian_baselines.
-          # gdnbaselines) on disk. With `checkout: none` it can't find them and
-          # warns "repo is not checked out". Check out source so the pre-check
-          # behaves like the V8JsiCreateNugetNew job below.
-        - checkout: self
-
-          # The substitution tags in the nuspec require that we use at least NuGet 4.6.
-        - task: NuGetToolInstaller@1
-          displayName: Install NuGet tools
-          inputs:
-            versionSpec: ">=4.6.0"
-
-          # Download v8-jsi binaries built in previous jobs.
-        - ${{ each matrix in parameters.BuildMatrix }}:
-          - task: DownloadPipelineArtifact@2
-            displayName: Download ${{ matrix.Name }} v8-jsi artifacts
-            inputs:
-              artifact: ${{ matrix.Name }}
-              path: $(Build.StagingDirectory)\out\pkg-staging
-
-        - task: PowerShell@2
-          displayName: Set version variables
-          inputs:
-            targetType: 'inline'
-            script: |
-              $config = Get-Content $(Build.StagingDirectory)\out\pkg-staging\config.json | ConvertFrom-Json
-              $Version = $config.version
-              Write-Host "##vso[task.setvariable variable=Version]$Version"
-              Write-Host "##vso[task.setvariable variable=VersionDetails]V8 version: $Version; Git revision: $(Build.SourceVersion)"
-
-        - task: NuGetCommand@2
-          displayName: 'NuGet Pack'
-          inputs:
-            command: pack
-            packagesToPack: $(Build.StagingDirectory)\out\pkg-staging\ReactNative.V8Jsi.Windows.nuspec
-            packDestination: $(Build.StagingDirectory)\out\pkg
-            buildProperties: CommitId=$(Build.SourceVersion);nugetroot=$(Build.StagingDirectory)\out\pkg-staging;RepoUri=$(Build.Repository.Uri);VersionDetails=$(VersionDetails)
-            versioningScheme: byEnvVar
-            versionEnvVar: Version
-            includeSymbols: false
-
-        - pwsh: |
-            if ((Get-ChildItem $(Build.StagingDirectory)\out\pkg\*nupkg).Count -lt 1) {
-              Write-Error 'No NUPKG generated'
-            }
-          displayName: Verify NuGet packages creation
-
-          # Sign the NuGet packages only for the CI builds.
-        - ${{ if parameters.isPublish }}:
-          - template: /.ado/templates/esrp-codesign-nuget.yml@self
-            parameters:
-              folderPath: $(Build.StagingDirectory)\out\pkg
-              pattern: |
-                ReactNative.V8Jsi.Windows.*.nupkg
-
         # =====================================================================
-        # New (Node.js-source) NuGet aggregator: Microsoft.JavaScript.V8.
-        # Additive sibling of V8JsiCreateNuget above — that job keeps packing
-        # the legacy ReactNative.V8Jsi.Windows package unchanged. This one
-        # collects the per-RID pkg-staging that each Release V8JsiBuildNew_*
-        # cell uploaded and runs scripts/build.ts --pack to emit the 4-pack
-        # (3 per-RID Microsoft.JavaScript.V8.<rid>.nupkg + 1 meta
-        # Microsoft.JavaScript.V8.nupkg). It publishes a separate
-        # published-packages-new artifact so the release pipeline can push the
-        # new package alongside the old one during the migration window.
+        # Node.js-source NuGet aggregator: Microsoft.JavaScript.V8. Collects the
+        # per-RID pkg-staging that each Release V8JsiBuildNew_* cell uploaded and
+        # runs scripts/build.ts --pack to emit the 4-pack (3 per-RID
+        # Microsoft.JavaScript.V8.<rid>.nupkg + 1 meta Microsoft.JavaScript.V8.nupkg).
+        # It publishes the published-packages-new artifact that the release
+        # pipeline pushes.
         # =====================================================================
       - job: V8JsiCreateNugetNew
         dependsOn:
@@ -754,9 +633,8 @@ extends:
         # can't enlist sources and only sees the CI artifacts -- so tagging runs
         # here in CI, which checks out the repo.
         #
-        # Two independently versioned families ship during the migration, so
-        # each gets its own package-qualified tag (mirroring RNW's _v<version>):
-        #   ReactNative.V8Jsi.Windows_v<version>   (config.json .version)
+        # The shipped package gets a package-qualified tag (mirroring RNW's
+        # _v<version>):
         #   Microsoft.JavaScript.V8_v<version>     (config.json .v8jsi_version)
         #
         # The versions come from the computed config.json overlaid above, so a
@@ -773,7 +651,6 @@ extends:
       - ${{ if eq(parameters.isPublish, true) }}:
         - job: V8JsiTagRelease
           dependsOn:
-          - V8JsiCreateNuget
           - V8JsiCreateNugetNew
           - ${{ each matrix in parameters.BuildMatrix }}:
             - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
@@ -791,7 +668,7 @@ extends:
           - pwsh: |
               $ErrorActionPreference = 'Stop'
 
-              # Both families ship to the public ms/react-native-public feed,
+              # The package ships to the public ms/react-native-public feed,
               # which is anonymously readable -- no access token needed to query.
               $feedUrl = 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
 
@@ -811,9 +688,8 @@ extends:
               $config = Get-Content "$(Build.SourcesDirectory)\config.json" | ConvertFrom-Json
               $commit = "$(Build.SourceVersion)"
 
-              # One package-qualified tag per independently versioned family.
+              # One package-qualified tag for the shipped package.
               $families = @(
-                @{ Id = 'ReactNative.V8Jsi.Windows'; Version = [string]$config.version },
                 @{ Id = 'Microsoft.JavaScript.V8';   Version = [string]$config.v8jsi_version }
               )
 
