@@ -88,6 +88,12 @@ void OnTargetMessage(void* ctx, int kind, const void* data, size_t len) {
 }
 
 std::wstring TargetExeBesideUs(const wchar_t* exe) {
+  wchar_t override_path[32768] = {};
+  const DWORD override_length = ::GetEnvironmentVariableW(
+      L"SBOX_TARGET_EXE", override_path, ARRAYSIZE(override_path));
+  if (override_length != 0 && override_length < ARRAYSIZE(override_path))
+    return std::wstring(override_path, override_length);
+
   wchar_t self[MAX_PATH] = {};
   ::GetModuleFileNameW(nullptr, self, MAX_PATH);
   std::wstring path(self);
@@ -143,8 +149,23 @@ int main() {
   policy.prohibit_dynamic_code = trusted ? 0 : 1;  // ACG off only for Trusted
   policy.file_rules = rules;
   policy.file_rule_count = 1;
-  printf("[test_app] tier = %s\n",
-         trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)");
+  const bool use_lpac = EnvFlagEnabled(L"SBOX_USE_LPAC");
+  // An inert custom capability SID (no OS-granted access) so the capability-grant
+  // path is exercised without conferring network or any other real privilege.
+  static const wchar_t* const kTestCapabilities[] = {
+      L"S-1-15-3-4021848294-1651122667-3873966303-2985905677",
+  };
+  policy.use_app_container = use_lpac ? 1 : 0;
+  policy.low_privilege_app_container = use_lpac ? 1 : 0;
+  policy.app_container_sid = L"Microsoft.V8Jsi.Sandbox.TestApp";
+  policy.capabilities = use_lpac ? kTestCapabilities : nullptr;
+  policy.capability_count = use_lpac ? std::size(kTestCapabilities) : 0;
+  // Test harness: mirror the CheckTrust opt-in into the ABI flag so a hooks-on
+  // sbox.dll allows the unsigned local trio (a default build ignores it).
+  policy.allow_unsigned = allow_unsigned ? 1 : 0;
+  printf("[test_app] tier = %s, token = %s\n",
+         trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)",
+         use_lpac ? "LPAC" : "restricted");
 
   const std::wstring target = TargetExeBesideUs(L"v8host.exe");
   printf("[test_app] test_app.exe -> sbox_broker_run\n");

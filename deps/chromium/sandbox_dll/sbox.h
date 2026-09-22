@@ -48,11 +48,19 @@ typedef struct SboxFileRule {
 typedef struct SboxPolicy {
   int32_t initial_token;          // SboxTokenLevel
   int32_t lockdown_token;         // SboxTokenLevel
-  int32_t integrity;              // SboxIntegrityLevel (initial)
+  int32_t integrity;              // SboxIntegrityLevel; AppContainer requires LOW
   int32_t delayed_integrity;      // SboxIntegrityLevel (applied at LowerToken)
   int32_t prohibit_dynamic_code;  // 1 = arm ACG (MITIGATION_DYNAMIC_CODE_DISABLE)
   const SboxFileRule* file_rules;
   size_t file_rule_count;
+  int32_t use_app_container;  // 1 = create or reuse an AppContainer profile
+  int32_t low_privilege_app_container;  // 1 = opt out of ALL_APP_PACKAGES
+  const wchar_t* app_container_sid;  // stable AppContainer profile name
+  const wchar_t* const* capabilities;  // capability SID strings
+  size_t capability_count;
+  // Test-only; honored only when sbox.dll is built with SBOX_ENABLE_TEST_HOOKS
+  // (a no-op in production). 1 = relax the inherited MS-signed-only enforcement.
+  int32_t allow_unsigned;
 } SboxPolicy;
 
 // Bootstrap struct: the target EXE exports an instance named `g_sbox_bootstrap`;
