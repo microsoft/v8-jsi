@@ -29,6 +29,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <sddl.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -89,6 +90,87 @@ void PrintAcgStatus() {
     printf("[v8host] ACG (ProhibitDynamicCode) = %s\n",
            dc.ProhibitDynamicCode ? "ON" : "off");
   }
+}
+
+bool VerifyLpacToken() {
+  HANDLE token = nullptr;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) {
+    printf("[v8host] OpenProcessToken failed: %lu\n", ::GetLastError());
+    return false;
+  }
+
+  DWORD is_app_container = 0;
+  DWORD returned = 0;
+  const bool app_container_ok =
+      ::GetTokenInformation(token, TokenIsAppContainer, &is_app_container,
+                            sizeof(is_app_container), &returned) != 0;
+
+  DWORD groups_size = 0;
+  ::GetTokenInformation(token, TokenGroups, nullptr, 0, &groups_size);
+  const DWORD groups_error = ::GetLastError();
+  std::vector<uint8_t> groups(groups_size);
+  const bool groups_ok =
+      groups_error == ERROR_INSUFFICIENT_BUFFER &&
+      ::GetTokenInformation(token, TokenGroups, groups.data(), groups_size,
+                            &returned);
+  DWORD capabilities_size = 0;
+  ::GetTokenInformation(token, TokenCapabilities, nullptr, 0,
+                        &capabilities_size);
+  const DWORD capabilities_error = ::GetLastError();
+  std::vector<uint8_t> capabilities(capabilities_size);
+  const bool capabilities_ok =
+      capabilities_error == ERROR_INSUFFICIENT_BUFFER &&
+      ::GetTokenInformation(token, TokenCapabilities, capabilities.data(),
+                            capabilities_size, &returned);
+
+  PSID all_application_packages = nullptr;
+  PSID expected_capability = nullptr;
+  const bool sids_ok =
+      ::ConvertStringSidToSidW(L"S-1-15-2-1", &all_application_packages) &&
+      ::ConvertStringSidToSidW(
+          L"S-1-15-3-4021848294-1651122667-3873966303-2985905677",
+          &expected_capability);
+  auto contains_sid = [](const TOKEN_GROUPS* token_groups, PSID sid) {
+    for (DWORD i = 0; i < token_groups->GroupCount; ++i) {
+      if (::EqualSid(token_groups->Groups[i].Sid, sid))
+        return true;
+    }
+    return false;
+  };
+
+  bool has_all_application_packages = false;
+  if (groups_ok && sids_ok) {
+    const auto* token_groups =
+        reinterpret_cast<const TOKEN_GROUPS*>(groups.data());
+    has_all_application_packages =
+        contains_sid(token_groups, all_application_packages);
+  }
+  bool capability_present = false;
+  if (capabilities_ok && sids_ok) {
+    const auto* capability_groups =
+        reinterpret_cast<const TOKEN_GROUPS*>(capabilities.data());
+    capability_present =
+        contains_sid(capability_groups, expected_capability);
+  }
+
+  if (all_application_packages)
+    ::LocalFree(all_application_packages);
+  if (expected_capability)
+    ::LocalFree(expected_capability);
+  ::CloseHandle(token);
+
+  // LPAC's process-creation contract opts out of ALL APPLICATION PACKAGES.
+  const bool valid = app_container_ok && is_app_container && groups_ok &&
+                     !has_all_application_packages && capabilities_ok &&
+                     capability_present;
+  printf("[v8host] LPAC token state = %s (appcontainer=%lu, all_apps=%s, "
+         "capability=%s)\n",
+         valid ? "OK" : "FAIL", is_app_container,
+         has_all_application_packages ? "present" : "absent",
+         capability_present ? "present" : "missing");
+  if (!app_container_ok || !groups_ok || !capabilities_ok || !sids_ok)
+    printf("[v8host] LPAC token query failed\n");
+  return valid;
 }
 
 DWORD TryReadOpen(const std::wstring& path) {
@@ -424,6 +506,7 @@ int main() {
   //   Untrusted (default) = jitless + ACG (V8 emits no executable code).
   //   Trusted            = JIT allowed; the broker also leaves ACG off.
   const bool trusted_tier = EnvW(L"SBOX_TIER") == L"trusted";
+  const bool lpac_requested = EnvW(L"SBOX_USE_LPAC") == L"1";
   printf("[v8host] tier = %s\n",
          trusted_tier ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)");
 
@@ -575,6 +658,7 @@ int main() {
   g_perf.emit("lockdown", t_runtime_created, t_lockdown);
   printf("[v8host] LowerToken() survived\n");
   PrintAcgStatus();
+  const bool token_state_ok = !lpac_requested || VerifyLpacToken();
 
   const bool ping_post = sbox_target_test_ipc(target) != 0;
   printf("[v8host] IPC test (post-lockdown) = %s\n", ping_post ? "OK" : "FAIL");
@@ -678,8 +762,8 @@ int main() {
   // runtime's destruction fires TaskRunnerDeleteCb, which touches task_queue).
   rt_owner.reset();
 
-  const bool pass = ping_pre && ping_post && proxied_ok && nonallowed_denied &&
-                    js_ok && msg_ok;
+  const bool pass = ping_pre && ping_post && token_state_ok && proxied_ok &&
+                    nonallowed_denied && js_ok && msg_ok;
   printf("[v8host] RESULT: %s\n",
          pass ? "PASS - untrusted JS exchanges WebView2-style messages "
                 "(postMessage/onmessage, string+binary) under lockdown via the "

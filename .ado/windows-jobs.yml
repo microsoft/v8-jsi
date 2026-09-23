@@ -401,10 +401,21 @@ extends:
               # pool.
             - ${{ if eq(sb.RunTier, true) }}:
               - pwsh: |
+                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
                   $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
-                  Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxTestOut -Force
+                  $engine = "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll"
+                  Copy-Item $engine $sandboxOut -Force
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
                   $env:SBOX_ALLOW_UNSIGNED = '1'
+                  Remove-Item Env:SBOX_USE_LPAC -ErrorAction SilentlyContinue
+                  & "$sandboxOut\test_app.exe"
+                  if ($LASTEXITCODE -ne -1073740760) {
+                    throw "Hooks-off sandbox did not reject the unsigned image with 0xC0000428 (exit $LASTEXITCODE)"
+                  }
+                  Write-Host "Hooks-off sandbox rejected unsigned target as expected"
+                  $global:LASTEXITCODE = 0
+
+                  Copy-Item $engine $sandboxTestOut -Force
                   & "$sandboxTestOut\test_app.exe"
                   if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted tier FAILED (exit $LASTEXITCODE)" }
                   $env:SBOX_USE_LPAC = '1'

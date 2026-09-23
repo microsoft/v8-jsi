@@ -19,7 +19,10 @@ executable("v8host") {
     "//jsi_cpp",
     "//sandbox_dll:sbox",
   ]
-  libs = [ "wintrust.lib" ]  # WinVerifyTrust (signature check)
+  libs = [
+    "advapi32.lib",  # token inspection + SID parsing
+    "wintrust.lib",  # WinVerifyTrust (signature check)
+  ]
 
   configs -= [ "//build/config/compiler:no_exceptions" ]
   configs += [ "//build/config/compiler:exceptions" ]
