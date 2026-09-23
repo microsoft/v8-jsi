@@ -163,6 +163,10 @@ static_library("sandbox") {
     "//build/config/compiler:prevent_unsafe_narrowing",
   ]
 
+  # Match the sbox.dll target so both agree on SBOX_ENABLE_TEST_HOOKS (which
+  # gates the allow_unsigned override). Off in release builds (fail-closed).
+  configs += [ "//sandbox_dll:sbox_test_hooks" ]
+
   public_deps = [
     ":common",
     "//base",

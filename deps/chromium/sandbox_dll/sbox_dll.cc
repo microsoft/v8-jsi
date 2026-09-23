@@ -30,6 +30,8 @@
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/win/scoped_process_information.h"
+#include "base/win/windows_version.h"
+#include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/handle_closer.h"  // HandleCloserConfig, g_handle_closer_info
 #include "sandbox/win/src/interception.h"   // SelfInstallInterceptions
 #include "sandbox/win/src/sandbox.h"
@@ -382,11 +384,49 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   std::unique_ptr<sandbox::TargetPolicy> sb_policy = broker->CreatePolicy();
   sandbox::TargetConfig* config = sb_policy->GetConfig();
+#if defined(SBOX_ENABLE_TEST_HOOKS)
+  if (policy->allow_unsigned && policy->use_app_container &&
+      base::win::GetVersion() < base::win::Version::WIN10_RS5) {
+    printf("[broker] unsigned AppContainer tests require Windows 10 RS5+\n");
+    return nullptr;
+  }
+#endif
+  if (policy->allow_unsigned) {
+#if defined(SBOX_ENABLE_TEST_HOOKS)
+    const sandbox::MitigationFlags signature_mitigation =
+        sandbox::MITIGATION_ALLOW_UNSIGNED_BINARIES;
+    ::OutputDebugStringA("[sbox][broker] unsigned override active\n");
+#else
+    const sandbox::MitigationFlags signature_mitigation =
+        sandbox::MITIGATION_FORCE_MS_SIGNED_BINS;
+#endif
+    const sandbox::ResultCode mitigation_rc = config->SetProcessMitigations(
+        config->GetProcessMitigations() | signature_mitigation);
+    if (mitigation_rc != sandbox::SBOX_ALL_OK) {
+      printf("[broker] unsigned test policy failed: rc=%d\n", mitigation_rc);
+      return nullptr;
+    }
+#if defined(SBOX_ENABLE_TEST_HOOKS)
+    printf("[broker] WARNING: unsigned binaries allowed for this test target\n");
+#else
+    printf("[broker] unsigned override unavailable; enforcing signed binaries\n");
+#endif
+  }
   if (config->SetTokenLevel(MapToken(policy->initial_token),
                             MapToken(policy->lockdown_token)) !=
           sandbox::SBOX_ALL_OK ||
       config->SetJobLevel(sandbox::JobLevel::kLockdown, 0) !=
-          sandbox::SBOX_ALL_OK ||
+          sandbox::SBOX_ALL_OK) {
+    printf("[broker] policy configuration failed\n");
+    return nullptr;
+  }
+
+  if (policy->use_app_container &&
+      policy->integrity != SBOX_INTEGRITY_LOW) {
+    printf("[broker] AppContainer requires low integrity\n");
+    return nullptr;
+  }
+  if (!policy->use_app_container &&
       config->SetIntegrityLevel(MapIntegrity(policy->integrity)) !=
           sandbox::SBOX_ALL_OK) {
     printf("[broker] policy configuration failed\n");
@@ -394,6 +434,38 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   }
   config->SetDelayedIntegrityLevel(MapIntegrity(policy->delayed_integrity));
   config->SetLockdownDefaultDacl();
+
+  if (policy->use_app_container) {
+    if (!policy->app_container_profile_name ||
+        !policy->app_container_profile_name[0] ||
+        (policy->capability_count && !policy->capabilities)) {
+      printf("[broker] invalid AppContainer policy\n");
+      return nullptr;
+    }
+    const sandbox::ResultCode app_container_rc =
+        config->AddAppContainerProfile(
+            base::wcstring_view(policy->app_container_profile_name));
+    if (app_container_rc != sandbox::SBOX_ALL_OK) {
+      printf("[broker] AddAppContainerProfile failed: rc=%d\n",
+             app_container_rc);
+      return nullptr;
+    }
+    sandbox::AppContainer* app_container = config->GetAppContainer();
+    if (!app_container) {
+      printf("[broker] AppContainer profile unavailable\n");
+      return nullptr;
+    }
+    app_container->SetEnableLowPrivilegeAppContainer(
+        policy->low_privilege_app_container != 0);
+    for (size_t i = 0; i < policy->capability_count; ++i) {
+      const wchar_t* capability = policy->capabilities[i];
+      if (!capability || !capability[0] ||
+          !app_container->AddCapabilitySddl(base::wcstring_view(capability))) {
+        printf("[broker] invalid AppContainer capability at index %zu\n", i);
+        return nullptr;
+      }
+    }
+  }
 
   for (size_t i = 0; i < policy->file_rule_count; ++i) {
     const SboxFileRule& rule = policy->file_rules[i];
@@ -558,6 +630,11 @@ SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
                                         SboxMessageCb on_message, void* ctx) {
   if (!target_exe || !policy)
     return nullptr;
+  if (policy->struct_size < sizeof(SboxPolicy)) {
+    printf("[broker] incompatible SboxPolicy size: got %u, need at least %zu\n",
+           policy->struct_size, sizeof(SboxPolicy));
+    return nullptr;
+  }
   // Do the heavy, once-per-process init (base + BrokerServices::Init) HERE, on
   // the caller thread, before handing off to the launcher thread. The host may
   // have hardened its DLL search path (SetDefaultDllDirectories) before calling

@@ -2,6 +2,16 @@
 # Built with the Chromium toolchain; loaded by the app's host + target EXEs.
 # Build everything: `ninja -C out/sandbox-x64 generic`.
 
+import("sbox_test_hooks.gni")
+
+# Adds SBOX_ENABLE_TEST_HOOKS when sbox_enable_test_hooks is set; applied to both
+# sbox.dll (here) and //sandbox/win:sandbox. Off in release builds (fail-closed).
+config("sbox_test_hooks") {
+  if (sbox_enable_test_hooks) {
+    defines = [ "SBOX_ENABLE_TEST_HOOKS" ]
+  }
+}
+
 shared_library("sbox") {
   sources = [ "sbox_dll.cc" ]
   include_dirs = [ "." ]  # sbox.h
@@ -9,6 +19,10 @@ shared_library("sbox") {
     "//base",
     "//sandbox/win:sandbox",
   ]
+
+  # Compile-gated test hooks (default off): adds SBOX_ENABLE_TEST_HOOKS so the
+  # allow_unsigned ABI override is honored in dev builds and absent in release.
+  configs += [ ":sbox_test_hooks" ]
 
   # Microsoft.JavaScript.V8 VERSIONINFO. The pruned sandbox tree lacks the
   # hermetic rc binary GN's rc tool needs, so scripts/sbox-build.ts compiles

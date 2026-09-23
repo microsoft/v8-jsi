@@ -41,7 +41,13 @@ parameters:
     # lockdown tier runs in this job (RunTier).
     # RunTier is true for every arch: x64/x86 run on the x64 agent (x86 via
     # WOW64) and arm64 runs natively on the ARM64 managed-image pool, so each
-    # cell executes its own Untrusted lockdown tier.
+    # cell executes its own Untrusted lockdown tier (hooks-off unsigned reject +
+    # restricted-token). RunLpac additionally runs the LPAC lockdown tier and is
+    # x64-only: the LPAC target fails to start on the ARM64 image
+    # (STATUS_DLL_INIT_FAILED) and, on x86 (no sandbox interception layer), the
+    # post-lockdown token self-check is denied, so LPAC is validated on x64 until
+    # those platforms are sorted out. The restricted-token tier passes on all
+    # three arches regardless.
   - name: SandboxMatrix
     type: object
     default:
@@ -50,16 +56,19 @@ parameters:
         Rid: win-x64
         SboxOutDir: deps/chromium/out/sandbox-x64
         RunTier: true
+        RunLpac: true
       - Name: x86
         BuildPlatform: x86
         Rid: win-x86
         SboxOutDir: deps/chromium/out/sandbox-x86
         RunTier: true
+        RunLpac: false
       - Name: arm64
         BuildPlatform: arm64
         Rid: win-arm64
         SboxOutDir: deps/chromium/out/sandbox-arm64
         RunTier: true
+        RunLpac: false
 
 resources:
   repositories:
@@ -357,6 +366,13 @@ extends:
               displayName: Build sbox.dll + v8host.exe (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
+            - ${{ if eq(sb.RunTier, true) }}:
+              - pwsh: |
+                  node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} `
+                      --test-hooks --out-dir ${{ sb.SboxOutDir }}-test
+                displayName: Build sandbox test binaries with test hooks
+                workingDirectory: $(Build.SourcesDirectory)
+
               # The jitless sandbox engine (MSVC/vcbuild). Fresh agent => clean
               # engine out, so the lite-flag stale-snapshot gotcha doesn't apply.
             - pwsh: |
@@ -395,12 +411,42 @@ extends:
             - ${{ if eq(sb.RunTier, true) }}:
               - pwsh: |
                   $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                  Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxOut -Force
+                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
+                  $engine = "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll"
+                  Copy-Item $engine $sandboxOut -Force
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
                   $env:SBOX_ALLOW_UNSIGNED = '1'
+                  Remove-Item Env:SBOX_USE_LPAC -ErrorAction SilentlyContinue
                   & "$sandboxOut\test_app.exe"
+                  if ($LASTEXITCODE -ne -1073740760) {
+                    throw "Hooks-off sandbox did not reject the unsigned image with 0xC0000428 (exit $LASTEXITCODE)"
+                  }
+                  Write-Host "Hooks-off sandbox rejected unsigned target as expected"
+                  $global:LASTEXITCODE = 0
+
+                  Copy-Item $engine $sandboxTestOut -Force
+                  & "$sandboxTestOut\test_app.exe"
                   if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted tier FAILED (exit $LASTEXITCODE)" }
-                displayName: Lockdown tier test (Untrusted)
+                displayName: Lockdown tier tests (hooks-off reject + Untrusted restricted token)
+                workingDirectory: $(Build.SourcesDirectory)
+
+              # LPAC lockdown tier (x64-only, RunLpac). The engine was already
+              # copied next to the -test v8host above, so this just flips
+              # SBOX_USE_LPAC on and reruns the harness (each pwsh step is a fresh
+              # process, so re-set the env vars). Skipped on x86/arm64: the LPAC
+              # target won't start on the ARM64 image (STATUS_DLL_INIT_FAILED) and
+              # its post-lockdown token self-check is denied on x86 (no
+              # interception layer), even though the restricted-token tier above
+              # passes on both.
+            - ${{ if eq(sb.RunLpac, true) }}:
+              - pwsh: |
+                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
+                  $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
+                  $env:SBOX_ALLOW_UNSIGNED = '1'
+                  $env:SBOX_USE_LPAC = '1'
+                  & "$sandboxTestOut\test_app.exe"
+                  if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted LPAC tier FAILED (exit $LASTEXITCODE)" }
+                displayName: Lockdown tier test (Untrusted LPAC)
                 workingDirectory: $(Build.SourcesDirectory)
 
             # Stage the shipped sandbox binaries under a build/native/<rid>/

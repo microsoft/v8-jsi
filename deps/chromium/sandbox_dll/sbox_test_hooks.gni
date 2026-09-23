@@ -1,0 +1,8 @@
+# Compile-time gate for the sandbox's test-only hooks. The sbox_test_hooks config
+# (in sandbox_dll/BUILD.gn) applies these to the sandbox engine lib and sbox.dll.
+# Default OFF and must stay OFF for release/CI: when off the gated code (e.g. the
+# allow_unsigned override) is absent from the binary (fail-closed).
+declare_args() {
+  sbox_enable_test_hooks = false
+}
+

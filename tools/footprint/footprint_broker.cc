@@ -145,6 +145,7 @@ int main(int argc, char** argv) {
 
   SboxFileRule rules[1] = {{allowed.c_str(), /*readonly=*/1}};
   SboxPolicy policy = {};
+  policy.struct_size = sizeof(policy);
   policy.initial_token = SBOX_TOKEN_RESTRICTED_SAME_ACCESS;
   policy.lockdown_token = SBOX_TOKEN_LOCKDOWN;
   policy.integrity = SBOX_INTEGRITY_LOW;

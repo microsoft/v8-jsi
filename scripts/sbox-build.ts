@@ -115,6 +115,7 @@ const options = {
   build: { type: "boolean" as const, default: true },
   check: { type: "boolean" as const, default: false },
   clean: { type: "boolean" as const, default: false },
+  "test-hooks": { type: "boolean" as const, default: false },
   target: { type: "string" as const, default: "generic" },
   "target-cpu": { type: "string" as const, default: "x64" },
   "out-dir": { type: "string" as const },
@@ -136,6 +137,9 @@ Boolean flags (all support --no- prefix):
   --check         Enforce export-allowlist + Hybrid-CRT + BinSkim gates on the
                   produced binaries (sbox.dll, v8host.exe, test_app.exe)
   --clean         Delete the out dir before generating
+  --test-hooks    Compile the sandbox's test-only hooks (gn arg
+                  sbox_enable_test_hooks=true), which enable the allow_unsigned
+                  ABI override. Default OFF; keep OFF for release/CI (fail-closed).
 
 String arguments:
   --target <t>    ninja target to build (default: generic)
@@ -357,6 +361,7 @@ function gnArgsContent(
   clangBasePathForGn: string,
   clangMajor: number,
   targetCpu: TargetCpu,
+  testHooks: boolean,
 ): string {
   return (
     [
@@ -378,6 +383,9 @@ function gnArgsContent(
       // plugin whose sources live in a separate DEPS checkout we don't vendor.
       // Disabling it cuts protoc -> protoc-gen-js so the build needs no JS gen.
       "enable_js_protobuf = false",
+      // Test-only hooks (allow_unsigned ABI override). Default off; only emitted
+      // when --test-hooks is passed, so release/CI builds stay fail-closed.
+      `sbox_enable_test_hooks = ${testHooks ? "true" : "false"}`,
     ].join("\n") + "\n"
   );
 }
@@ -458,6 +466,7 @@ function gnGen(
   clangBasePathForGn: string,
   clangMajor: number,
   targetCpu: TargetCpu,
+  testHooks: boolean,
 ): void {
   console.log(`\n=== gn gen (${outDir}, target_cpu=${targetCpu}) ===\n`);
   ensureGeneratedBuildFiles();
@@ -466,7 +475,7 @@ function gnGen(
   // avoids quoting the embedded double-quotes, and the file is inspectable.
   fs.writeFileSync(
     path.join(outDir, "args.gn"),
-    gnArgsContent(clangBasePathForGn, clangMajor, targetCpu),
+    gnArgsContent(clangBasePathForGn, clangMajor, targetCpu, testHooks),
   );
   run(
     `"${gnExe}"`,
@@ -782,7 +791,7 @@ async function main(): Promise<void> {
     generateVersionInfo();
     if (args.gen) {
       const junction = ensureClangJunction(tc.clangBasePath);
-      gnGen(outDir, junction, tc.clangMajor, targetCpu);
+      gnGen(outDir, junction, tc.clangMajor, targetCpu, args["test-hooks"] ?? false);
     }
     if (args.build) {
       // Compile the VERSIONINFO .res (sbox.dll / v8host.exe link it) after gn

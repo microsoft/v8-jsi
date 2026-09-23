@@ -136,6 +136,7 @@ int main() {
 
   SboxFileRule rules[1] = {{allowed.c_str(), /*readonly=*/1}};
   SboxPolicy policy = {};
+  policy.struct_size = sizeof(policy);
   policy.initial_token = SBOX_TOKEN_RESTRICTED_SAME_ACCESS;
   policy.lockdown_token = SBOX_TOKEN_LOCKDOWN;
   policy.integrity = SBOX_INTEGRITY_LOW;
@@ -143,8 +144,23 @@ int main() {
   policy.prohibit_dynamic_code = trusted ? 0 : 1;  // ACG off only for Trusted
   policy.file_rules = rules;
   policy.file_rule_count = 1;
-  printf("[test_app] tier = %s\n",
-         trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)");
+  const bool use_lpac = EnvFlagEnabled(L"SBOX_USE_LPAC");
+  // An inert custom capability SID (no OS-granted access) so the capability-grant
+  // path is exercised without conferring network or any other real privilege.
+  static const wchar_t* const kTestCapabilities[] = {
+      L"S-1-15-3-4021848294-1651122667-3873966303-2985905677",
+  };
+  policy.use_app_container = use_lpac ? 1 : 0;
+  policy.low_privilege_app_container = use_lpac ? 1 : 0;
+  policy.app_container_profile_name = L"Microsoft.V8Jsi.Sandbox.TestApp";
+  policy.capabilities = use_lpac ? kTestCapabilities : nullptr;
+  policy.capability_count = use_lpac ? std::size(kTestCapabilities) : 0;
+  // Test harness: mirror the CheckTrust opt-in into the ABI flag so a hooks-on
+  // sbox.dll allows the unsigned local trio (a default build ignores it).
+  policy.allow_unsigned = allow_unsigned ? 1 : 0;
+  printf("[test_app] tier = %s, token = %s\n",
+         trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)",
+         use_lpac ? "LPAC" : "restricted");
 
   const std::wstring target = TargetExeBesideUs(L"v8host.exe");
   printf("[test_app] test_app.exe -> sbox_broker_run\n");

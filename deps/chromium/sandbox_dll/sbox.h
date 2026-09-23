@@ -46,13 +46,23 @@ typedef struct SboxFileRule {
 // applies; whether the guest can survive it (e.g. running V8 jitless) is the
 // target EXE's concern, not the DLL's.
 typedef struct SboxPolicy {
+  uint32_t struct_size;            // must be initialized to sizeof(SboxPolicy)
   int32_t initial_token;          // SboxTokenLevel
   int32_t lockdown_token;         // SboxTokenLevel
-  int32_t integrity;              // SboxIntegrityLevel (initial)
+  int32_t integrity;              // SboxIntegrityLevel; AppContainer requires LOW
   int32_t delayed_integrity;      // SboxIntegrityLevel (applied at LowerToken)
   int32_t prohibit_dynamic_code;  // 1 = arm ACG (MITIGATION_DYNAMIC_CODE_DISABLE)
   const SboxFileRule* file_rules;
   size_t file_rule_count;
+  int32_t use_app_container;  // 1 = create or reuse an AppContainer profile
+  int32_t low_privilege_app_container;  // 1 = opt out of ALL_APP_PACKAGES
+  const wchar_t* app_container_profile_name;
+  const wchar_t* const* capabilities;  // capability SID strings
+  size_t capability_count;
+  // Test-only; hooks-on builds relax MS-signed-only enforcement (AppContainer
+  // requires Windows 10 RS5+). Hooks-off builds fail closed by explicitly
+  // enforcing Microsoft-signed binaries.
+  int32_t allow_unsigned;
 } SboxPolicy;
 
 // Bootstrap struct: the target EXE exports an instance named `g_sbox_bootstrap`;
