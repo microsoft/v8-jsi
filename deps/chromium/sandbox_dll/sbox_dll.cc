@@ -30,6 +30,7 @@
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/win/scoped_process_information.h"
+#include "base/win/windows_version.h"
 #include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/handle_closer.h"  // HandleCloserConfig, g_handle_closer_info
 #include "sandbox/win/src/interception.h"   // SelfInstallInterceptions
@@ -383,6 +384,13 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   std::unique_ptr<sandbox::TargetPolicy> sb_policy = broker->CreatePolicy();
   sandbox::TargetConfig* config = sb_policy->GetConfig();
+#if defined(SBOX_ENABLE_TEST_HOOKS)
+  if (policy->allow_unsigned && policy->use_app_container &&
+      base::win::GetVersion() < base::win::Version::WIN10_RS5) {
+    printf("[broker] unsigned AppContainer tests require Windows 10 RS5+\n");
+    return nullptr;
+  }
+#endif
   if (policy->allow_unsigned) {
 #if defined(SBOX_ENABLE_TEST_HOOKS)
     const sandbox::MitigationFlags signature_mitigation =

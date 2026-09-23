@@ -88,12 +88,6 @@ void OnTargetMessage(void* ctx, int kind, const void* data, size_t len) {
 }
 
 std::wstring TargetExeBesideUs(const wchar_t* exe) {
-  wchar_t override_path[32768] = {};
-  const DWORD override_length = ::GetEnvironmentVariableW(
-      L"SBOX_TARGET_EXE", override_path, ARRAYSIZE(override_path));
-  if (override_length != 0 && override_length < ARRAYSIZE(override_path))
-    return std::wstring(override_path, override_length);
-
   wchar_t self[MAX_PATH] = {};
   ::GetModuleFileNameW(nullptr, self, MAX_PATH);
   std::wstring path(self);

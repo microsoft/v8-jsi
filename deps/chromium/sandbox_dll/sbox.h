@@ -59,8 +59,9 @@ typedef struct SboxPolicy {
   const wchar_t* app_container_profile_name;
   const wchar_t* const* capabilities;  // capability SID strings
   size_t capability_count;
-  // Test-only; hooks-on builds relax MS-signed-only enforcement. Hooks-off
-  // builds fail closed by explicitly enforcing Microsoft-signed binaries.
+  // Test-only; hooks-on builds relax MS-signed-only enforcement (AppContainer
+  // requires Windows 10 RS5+). Hooks-off builds fail closed by explicitly
+  // enforcing Microsoft-signed binaries.
   int32_t allow_unsigned;
 } SboxPolicy;
 
