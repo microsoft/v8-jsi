@@ -46,6 +46,7 @@ typedef struct SboxFileRule {
 // applies; whether the guest can survive it (e.g. running V8 jitless) is the
 // target EXE's concern, not the DLL's.
 typedef struct SboxPolicy {
+  uint32_t struct_size;            // must be initialized to sizeof(SboxPolicy)
   int32_t initial_token;          // SboxTokenLevel
   int32_t lockdown_token;         // SboxTokenLevel
   int32_t integrity;              // SboxIntegrityLevel; AppContainer requires LOW
@@ -55,7 +56,7 @@ typedef struct SboxPolicy {
   size_t file_rule_count;
   int32_t use_app_container;  // 1 = create or reuse an AppContainer profile
   int32_t low_privilege_app_container;  // 1 = opt out of ALL_APP_PACKAGES
-  const wchar_t* app_container_sid;  // stable AppContainer profile name
+  const wchar_t* app_container_profile_name;
   const wchar_t* const* capabilities;  // capability SID strings
   size_t capability_count;
   // Test-only; honored only when sbox.dll is built with SBOX_ENABLE_TEST_HOOKS

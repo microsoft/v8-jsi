@@ -357,6 +357,13 @@ extends:
               displayName: Build sbox.dll + v8host.exe (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
+            - ${{ if eq(sb.RunTier, true) }}:
+              - pwsh: |
+                  node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} `
+                      --test-hooks --out-dir ${{ sb.SboxOutDir }}-test
+                displayName: Build sandbox test binaries with test hooks
+                workingDirectory: $(Build.SourcesDirectory)
+
               # The jitless sandbox engine (MSVC/vcbuild). Fresh agent => clean
               # engine out, so the lite-flag stale-snapshot gotcha doesn't apply.
             - pwsh: |
@@ -394,13 +401,16 @@ extends:
               # pool.
             - ${{ if eq(sb.RunTier, true) }}:
               - pwsh: |
-                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                  Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxOut -Force
+                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
+                  Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxTestOut -Force
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
                   $env:SBOX_ALLOW_UNSIGNED = '1'
-                  & "$sandboxOut\test_app.exe"
+                  & "$sandboxTestOut\test_app.exe"
                   if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted tier FAILED (exit $LASTEXITCODE)" }
-                displayName: Lockdown tier test (Untrusted)
+                  $env:SBOX_USE_LPAC = '1'
+                  & "$sandboxTestOut\test_app.exe"
+                  if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted LPAC tier FAILED (exit $LASTEXITCODE)" }
+                displayName: Lockdown tier tests (Untrusted restricted token + LPAC)
                 workingDirectory: $(Build.SourcesDirectory)
 
             # Stage the shipped sandbox binaries under a build/native/<rid>/

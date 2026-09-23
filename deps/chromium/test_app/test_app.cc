@@ -142,6 +142,7 @@ int main() {
 
   SboxFileRule rules[1] = {{allowed.c_str(), /*readonly=*/1}};
   SboxPolicy policy = {};
+  policy.struct_size = sizeof(policy);
   policy.initial_token = SBOX_TOKEN_RESTRICTED_SAME_ACCESS;
   policy.lockdown_token = SBOX_TOKEN_LOCKDOWN;
   policy.integrity = SBOX_INTEGRITY_LOW;
@@ -157,7 +158,7 @@ int main() {
   };
   policy.use_app_container = use_lpac ? 1 : 0;
   policy.low_privilege_app_container = use_lpac ? 1 : 0;
-  policy.app_container_sid = L"Microsoft.V8Jsi.Sandbox.TestApp";
+  policy.app_container_profile_name = L"Microsoft.V8Jsi.Sandbox.TestApp";
   policy.capabilities = use_lpac ? kTestCapabilities : nullptr;
   policy.capability_count = use_lpac ? std::size(kTestCapabilities) : 0;
   // Test harness: mirror the CheckTrust opt-in into the ABI flag so a hooks-on

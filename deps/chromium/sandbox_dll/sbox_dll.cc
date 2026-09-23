@@ -422,14 +422,15 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   config->SetLockdownDefaultDacl();
 
   if (policy->use_app_container) {
-    if (!policy->app_container_sid || !policy->app_container_sid[0] ||
+    if (!policy->app_container_profile_name ||
+        !policy->app_container_profile_name[0] ||
         (policy->capability_count && !policy->capabilities)) {
       printf("[broker] invalid AppContainer policy\n");
       return nullptr;
     }
     const sandbox::ResultCode app_container_rc =
         config->AddAppContainerProfile(
-            base::wcstring_view(policy->app_container_sid));
+            base::wcstring_view(policy->app_container_profile_name));
     if (app_container_rc != sandbox::SBOX_ALL_OK) {
       printf("[broker] AddAppContainerProfile failed: rc=%d\n",
              app_container_rc);
@@ -615,6 +616,11 @@ SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
                                         SboxMessageCb on_message, void* ctx) {
   if (!target_exe || !policy)
     return nullptr;
+  if (policy->struct_size < sizeof(SboxPolicy)) {
+    printf("[broker] incompatible SboxPolicy size: got %u, need at least %zu\n",
+           policy->struct_size, sizeof(SboxPolicy));
+    return nullptr;
+  }
   // Do the heavy, once-per-process init (base + BrokerServices::Init) HERE, on
   // the caller thread, before handing off to the launcher thread. The host may
   // have hardened its DLL search path (SetDefaultDllDirectories) before calling
