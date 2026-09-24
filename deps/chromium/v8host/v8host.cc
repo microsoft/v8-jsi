@@ -507,8 +507,20 @@ int main() {
   //   Trusted            = JIT allowed; the broker also leaves ACG off.
   const bool trusted_tier = EnvW(L"SBOX_TIER") == L"trusted";
   const bool lpac_requested = EnvW(L"SBOX_USE_LPAC") == L"1";
+  const bool lpac_smoke = EnvW(L"SBOX_LPAC_SMOKE") == L"1";
   printf("[v8host] tier = %s\n",
          trusted_tier ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)");
+
+  if (lpac_smoke) {
+    const bool pass = lpac_requested && ping_pre && VerifyLpacToken();
+    printf("[v8host] RESULT: %s\n",
+           pass ? "PASS - bootstrap and genuine LPAC identity verified"
+                : "FAIL - LPAC bootstrap/identity smoke test");
+    sbox_target_end(target);
+    ::CloseHandle(task_queue.wake);
+    ::DeleteCriticalSection(&task_queue.cs);
+    return pass ? 0 : 14;
+  }
 
   // --- warmup: load the guest engine + create the V8 runtime (BEFORE LowerToken) ---
   // Engine selection: the Untrusted tier runs the jitless

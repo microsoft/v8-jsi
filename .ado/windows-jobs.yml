@@ -430,23 +430,25 @@ extends:
                 displayName: Lockdown tier tests (hooks-off reject + Untrusted restricted token)
                 workingDirectory: $(Build.SourcesDirectory)
 
-              # LPAC lockdown tier (x64-only, RunLpac). The engine was already
-              # copied next to the -test v8host above, so this just flips
-              # SBOX_USE_LPAC on and reruns the harness (each pwsh step is a fresh
-              # process, so re-set the env vars). Skipped on x86/arm64: the LPAC
-              # target won't start on the ARM64 image (STATUS_DLL_INIT_FAILED) and
-              # its post-lockdown token self-check is denied on x86 (no
-              # interception layer), even though the restricted-token tier above
-              # passes on both.
+              # Genuine-LPAC process-creation smoke test (x64-only, RunLpac).
+              # Verify the relayed bootstrap, IPC, AppContainer identity,
+              # ALL_APPLICATION_PACKAGES opt-out, and requested capability
+              # without loading V8. Full V8 warmup needs product capabilities
+              # and install-path ACLs that a generic CI workspace does not have.
+              # Skipped on x86/arm64; the full restricted-token tier above still
+              # runs on every architecture.
             - ${{ if eq(sb.RunLpac, true) }}:
               - pwsh: |
                   $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
                   $env:SBOX_ALLOW_UNSIGNED = '1'
                   $env:SBOX_USE_LPAC = '1'
+                  $env:SBOX_LPAC_SMOKE = '1'
                   & "$sandboxTestOut\test_app.exe"
-                  if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted LPAC tier FAILED (exit $LASTEXITCODE)" }
-                displayName: Lockdown tier test (Untrusted LPAC)
+                  if ($LASTEXITCODE -ne 0) {
+                    Write-Error "LPAC bootstrap/identity smoke test FAILED (exit $LASTEXITCODE)"
+                  }
+                displayName: LPAC bootstrap and identity smoke test
                 workingDirectory: $(Build.SourcesDirectory)
 
             # Stage the shipped sandbox binaries under a build/native/<rid>/

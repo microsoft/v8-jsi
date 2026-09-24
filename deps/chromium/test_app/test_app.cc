@@ -145,6 +145,11 @@ int main() {
   policy.file_rules = rules;
   policy.file_rule_count = 1;
   const bool use_lpac = EnvFlagEnabled(L"SBOX_USE_LPAC");
+  const bool lpac_smoke = EnvFlagEnabled(L"SBOX_LPAC_SMOKE");
+  if (lpac_smoke && !use_lpac) {
+    printf("[test_app] SBOX_LPAC_SMOKE requires SBOX_USE_LPAC\n");
+    return 33;
+  }
   // An inert custom capability SID (no OS-granted access) so the capability-grant
   // path is exercised without conferring network or any other real privilege.
   static const wchar_t* const kTestCapabilities[] = {
@@ -161,6 +166,8 @@ int main() {
   printf("[test_app] tier = %s, token = %s\n",
          trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)",
          use_lpac ? "LPAC" : "restricted");
+  if (lpac_smoke)
+    printf("[test_app] mode = LPAC bootstrap/identity smoke test\n");
 
   const std::wstring target = TargetExeBesideUs(L"v8host.exe");
   printf("[test_app] test_app.exe -> sbox_broker_run\n");
@@ -169,12 +176,12 @@ int main() {
 
   // Verify every artifact the target will use BEFORE spawning it, here in the
   // unrestricted broker — the sandboxed target can't reliably call
-  // WinVerifyTrust (restricted token / low integrity). In the same-EXE model the
-  // target is the same signed image by construction; here we check explicitly:
-  // the target EXE and the guest DLL it will load (both in our application dir).
+  // WinVerifyTrust (restricted token / low integrity). The LPAC smoke mode exits
+  // before loading an engine; the full round-trip also verifies its guest DLL.
   const std::wstring guest = sbox_harden::ExeDir() + engine_name;
   if (!sbox_harden::CheckTrust(target, "v8host.exe", allow_unsigned) ||
-      !sbox_harden::CheckTrust(guest, engine_tag, allow_unsigned)) {
+      (!lpac_smoke &&
+       !sbox_harden::CheckTrust(guest, engine_tag, allow_unsigned))) {
     return 31;
   }
 
@@ -191,6 +198,13 @@ int main() {
     return 32;
   }
   hc.session = session;
+
+  if (lpac_smoke) {
+    int rc = sbox_broker_wait(session);
+    ::CloseHandle(hc.done);
+    printf("[test_app] LPAC smoke target finished rc=%d\n", rc);
+    return rc;
+  }
 
   // Wait for the round-trip to complete (or a safety timeout), then close the
   // channel so the target's event loop exits cleanly.
