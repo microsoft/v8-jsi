@@ -52,6 +52,11 @@ class StartupInformationHelper {
   // Have handles been provided for secure inheritance?
   bool ShouldInheritHandles() { return inherit_handles_; }
 
+  // True once a profile-based AppContainer/LPAC is applied (SetAppContainer set the
+  // security capabilities). Such a target's token is built by the OS during
+  // CreateProcess; a prebuilt kLowbox token has null capabilities and is excluded.
+  bool HasAppContainer() const { return security_capabilities_ != nullptr; }
+
   // Compiles fields into PROC_THREAD_ attributes and populates startup
   // information. Must be called before GetStartupInformation().
   bool BuildStartupInformation();
