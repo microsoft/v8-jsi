@@ -209,8 +209,10 @@ bool EnsureLauncherThread() {
 }
 
 sandbox::TokenLevel MapToken(int32_t level) {
-  return level == SBOX_TOKEN_LOCKDOWN ? sandbox::USER_LOCKDOWN
-                                      : sandbox::USER_RESTRICTED_SAME_ACCESS;
+  // SboxTokenLevel mirrors Chromium's TokenLevel 1:1; clamp unknown -> same-access.
+  if (level < sandbox::USER_LOCKDOWN || level > sandbox::USER_RESTRICTED_SAME_ACCESS)
+    return sandbox::USER_RESTRICTED_SAME_ACCESS;
+  return static_cast<sandbox::TokenLevel>(level);
 }
 sandbox::IntegrityLevel MapIntegrity(int32_t level) {
   return level == SBOX_INTEGRITY_UNTRUSTED ? sandbox::INTEGRITY_LEVEL_UNTRUSTED

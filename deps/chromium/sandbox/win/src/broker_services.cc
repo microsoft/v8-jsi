@@ -280,6 +280,25 @@ ResultCode CreateSandboxProcess(
   bool inherit_handles = startup_info_helper->ShouldInheritHandles();
   PROCESS_INFORMATION temp_process_info = {};
   std::wstring args = command_line.GetCommandLineString();
+
+  // AppContainer/LPAC targets must be spawned with CreateProcess so the OS builds the
+  // AppContainer token from the security-capabilities attributes; passing a primary token
+  // to CreateProcessAsUser would defeat the AppContainer identity (plain restricted token).
+  if (startup_info_helper->HasAppContainer()) {
+    if (!::CreateProcessW(
+            command_line.GetProgram().value().c_str(), std::data(args),
+            nullptr,  // No process attribute.
+            nullptr,  // No thread attribute.
+            inherit_handles, flags, startup_info_helper->GetEnvironment(),
+            nullptr,  // Use current directory of the caller.
+            startup_info->startup_info(), &temp_process_info)) {
+      win_error = ::GetLastError();
+      return SBOX_ERROR_CREATE_PROCESS;
+    }
+    process_info.Set(temp_process_info);
+    return SBOX_ALL_OK;
+  }
+
   if (!::CreateProcessAsUserW(
           tokens.lockdown_.get(), command_line.GetProgram().value().c_str(),
           std::data(args),

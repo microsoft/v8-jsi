@@ -26,9 +26,14 @@
 #endif
 
 // --- abstract, ABI-safe levels (mapped to sandbox enums inside the DLL) ---
+// Token levels, most- to least-restrictive (mirrors Chromium's TokenLevel 1:1).
+// Unknown -> RESTRICTED_SAME_ACCESS.
 enum SboxTokenLevel {
-  SBOX_TOKEN_RESTRICTED_SAME_ACCESS = 0,  // initial (warmup) token
-  SBOX_TOKEN_LOCKDOWN = 1,                // post-LowerToken restricted token
+  SBOX_TOKEN_LOCKDOWN = 0,                 // null SID only; most restrictive
+  SBOX_TOKEN_LIMITED = 1,                  // restricting SIDs: Users, Everyone, RESTRICTED
+  SBOX_TOKEN_INTERACTIVE = 2,              // + Owner; more deny-only exceptions than LIMITED
+  SBOX_TOKEN_RESTRICTED_NON_ADMIN = 3,     // keeps user/authenticated SIDs, drops admin/other groups
+  SBOX_TOKEN_RESTRICTED_SAME_ACCESS = 4,   // all SIDs (~ caller access); least restrictive
 };
 enum SboxIntegrityLevel {
   SBOX_INTEGRITY_LOW = 0,
