@@ -1,7 +1,10 @@
-# test_app.exe — generic broker test harness. Consumes only the generic
-# sbox.dll C API; no Chromium internals, no V8.
+# Generic broker test harness (consumes only the sbox.dll C API; no Chromium
+# internals, no V8). Two variants share test_app.cc:
+#   test_app        — dev opt-in tolerates UNSIGNED; runs the pre-signing tier.
+#   test_app_signed — fails closed on unsigned; runs the ESRP-signed binaries to
+#                     prove they carry valid signatures AND spawn a full round trip.
 
-executable("test_app") {
+_test_app_common = {
   sources = [ "test_app.cc" ]
   include_dirs = [ "//sandbox_dll" ]  # sbox.h, sbox_harden.h
   deps = [ "//sandbox_dll:sbox" ]
@@ -10,4 +13,13 @@ executable("test_app") {
   # Resolve statically-imported DLLs (incl. sbox.dll) only from System32 + the
   # application directory — neutralizes current-directory / PATH planting.
   ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+}
+
+executable("test_app") {
+  forward_variables_from(_test_app_common, "*")
+  defines = [ "SBOX_DEV_ALLOW_UNSIGNED" ]  # tolerate unsigned dev binaries
+}
+
+executable("test_app_signed") {
+  forward_variables_from(_test_app_common, "*")  # no dev define: fails closed
 }

@@ -366,13 +366,6 @@ extends:
               displayName: Build sbox.dll + v8host.exe (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
-            - ${{ if eq(sb.RunTier, true) }}:
-              - pwsh: |
-                  node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} `
-                      --test-hooks --out-dir ${{ sb.SboxOutDir }}-test
-                displayName: Build sandbox test binaries with test hooks
-                workingDirectory: $(Build.SourcesDirectory)
-
               # The jitless sandbox engine (MSVC/vcbuild). Fresh agent => clean
               # engine out, so the lite-flag stale-snapshot gotcha doesn't apply.
             - pwsh: |
@@ -411,23 +404,13 @@ extends:
             - ${{ if eq(sb.RunTier, true) }}:
               - pwsh: |
                   $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
                   $engine = "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll"
                   Copy-Item $engine $sandboxOut -Force
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                  $env:SBOX_ALLOW_UNSIGNED = '1'
                   Remove-Item Env:SBOX_USE_LPAC -ErrorAction SilentlyContinue
                   & "$sandboxOut\test_app.exe"
-                  if ($LASTEXITCODE -ne -1073740760) {
-                    throw "Hooks-off sandbox did not reject the unsigned image with 0xC0000428 (exit $LASTEXITCODE)"
-                  }
-                  Write-Host "Hooks-off sandbox rejected unsigned target as expected"
-                  $global:LASTEXITCODE = 0
-
-                  Copy-Item $engine $sandboxTestOut -Force
-                  & "$sandboxTestOut\test_app.exe"
                   if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted tier FAILED (exit $LASTEXITCODE)" }
-                displayName: Lockdown tier tests (hooks-off reject + Untrusted restricted token)
+                displayName: Lockdown tier test (Untrusted restricted token)
                 workingDirectory: $(Build.SourcesDirectory)
 
               # Genuine-LPAC process-creation smoke test (x64-only, RunLpac).
@@ -439,12 +422,11 @@ extends:
               # runs on every architecture.
             - ${{ if eq(sb.RunLpac, true) }}:
               - pwsh: |
-                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
+                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
                   $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                  $env:SBOX_ALLOW_UNSIGNED = '1'
                   $env:SBOX_USE_LPAC = '1'
                   $env:SBOX_LPAC_SMOKE = '1'
-                  & "$sandboxTestOut\test_app.exe"
+                  & "$sandboxOut\test_app.exe"
                   if ($LASTEXITCODE -ne 0) {
                     Write-Error "LPAC bootstrap/identity smoke test FAILED (exit $LASTEXITCODE)"
                   }
@@ -491,14 +473,10 @@ extends:
                   **\v8host.exe
                   **\mkv8snapshot.exe
 
-              # Signed lockdown tier (publishing build only): re-run the
-              # Untrusted broker harness against the ESRP-signed binaries with
-              # NO SBOX_ALLOW_UNSIGNED override, so test_app.exe's WinVerifyTrust
-              # gate enforces genuine Authenticode on the exact sbox.dll /
-              # v8host.exe / v8jsisb.dll bytes that ship. Runs in ADDITION to the
-              # unsigned tier above and depends on the signing step, hence the
-              # isPublish gate. test_app.exe is the broker (never signature-
-              # checked), so overlaying the three signed images suffices.
+              # Signed lockdown tier (publishing build only): overlay the
+              # ESRP-signed binaries and run the fail-closed harness
+              # (test_app_signed, no SBOX_DEV_ALLOW_UNSIGNED) to prove the shipped
+              # bytes carry valid signatures AND spawn a full round trip.
           - ${{ if and(eq(sb.RunTier, true), eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
             - pwsh: |
                 $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
@@ -507,8 +485,7 @@ extends:
                   Copy-Item (Join-Path $signed $f) $sandboxOut -Force
                 }
                 $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                # SBOX_ALLOW_UNSIGNED intentionally unset: enforce real signatures.
-                & "$sandboxOut\test_app.exe"
+                & "$sandboxOut\test_app_signed.exe"
                 if ($LASTEXITCODE -ne 0) { Write-Error "Signed Untrusted tier FAILED (exit $LASTEXITCODE)" }
               displayName: Lockdown tier test (Untrusted, signed)
               workingDirectory: $(Build.SourcesDirectory)

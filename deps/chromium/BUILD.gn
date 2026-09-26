@@ -12,5 +12,6 @@ group("generic") {
     "//sandbox_dll:sbox",
     "//v8host",
     "//test_app",
+    "//test_app:test_app_signed",
   ]
 }

@@ -102,14 +102,11 @@ std::wstring TargetExeBesideUs(const wchar_t* exe) {
 int main() {
   setvbuf(stdout, nullptr, _IONBF, 0);
 
-  // Hardening: restrict the loader search path, then verify the sandbox engine
-  // DLL we just loaded is genuine. A planted sbox.dll would replace the broker.
-  // Unsigned local and PR-validation binaries require an explicit test opt-in;
-  // production callers fail closed by default.
-  const bool allow_unsigned = EnvFlagEnabled(L"SBOX_ALLOW_UNSIGNED");
+  // Restrict the loader search path, then verify sbox.dll is genuine — a planted
+  // sbox.dll would replace the broker.
   sbox_harden::HardenDllSearch();
   if (!sbox_harden::CheckTrust(sbox_harden::LoadedModulePath(L"sbox.dll"),
-                               "sbox.dll", allow_unsigned)) {
+                               "sbox.dll")) {
     return 30;
   }
 
@@ -160,9 +157,6 @@ int main() {
   policy.app_container_profile_name = L"Microsoft.V8Jsi.Sandbox.TestApp";
   policy.capabilities = use_lpac ? kTestCapabilities : nullptr;
   policy.capability_count = use_lpac ? std::size(kTestCapabilities) : 0;
-  // Test harness: mirror the CheckTrust opt-in into the ABI flag so a hooks-on
-  // sbox.dll allows the unsigned local trio (a default build ignores it).
-  policy.allow_unsigned = allow_unsigned ? 1 : 0;
   printf("[test_app] tier = %s, token = %s\n",
          trusted ? "Trusted (JIT, ACG off)" : "Untrusted (jitless + ACG)",
          use_lpac ? "LPAC" : "restricted");
@@ -179,9 +173,8 @@ int main() {
   // WinVerifyTrust (restricted token / low integrity). The LPAC smoke mode exits
   // before loading an engine; the full round-trip also verifies its guest DLL.
   const std::wstring guest = sbox_harden::ExeDir() + engine_name;
-  if (!sbox_harden::CheckTrust(target, "v8host.exe", allow_unsigned) ||
-      (!lpac_smoke &&
-       !sbox_harden::CheckTrust(guest, engine_tag, allow_unsigned))) {
+  if (!sbox_harden::CheckTrust(target, "v8host.exe") ||
+      (!lpac_smoke && !sbox_harden::CheckTrust(guest, engine_tag))) {
     return 31;
   }
 

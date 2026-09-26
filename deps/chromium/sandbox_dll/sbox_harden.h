@@ -79,21 +79,23 @@ inline Trust VerifyTrust(const std::wstring& path) {
   }
 }
 
-// Trust policy: valid signatures proceed; invalid signatures and unsigned files
-// fail closed. Test harnesses may explicitly allow unsigned local binaries.
-inline bool CheckTrust(const std::wstring& path, const char* tag,
-                       bool allow_unsigned = false) {
+// Fail closed on unsigned or invalid (tampered) signatures. SBOX_DEV_ALLOW_UNSIGNED
+// is a compile-time dev opt-in that tolerates UNSIGNED images only; it is never
+// defined for shipped hosts, and there is no runtime bypass.
+inline bool CheckTrust(const std::wstring& path, const char* tag) {
   switch (VerifyTrust(path)) {
     case Trust::kSignedValid:
       printf("[harden] signature OK: %s\n", tag);
       return true;
     case Trust::kUnsigned:
-      if (allow_unsigned) {
-        printf("[harden] WARNING: %s is UNSIGNED (explicit test opt-in)\n", tag);
-        return true;
-      }
+#if defined(SBOX_DEV_ALLOW_UNSIGNED)
+      printf("[harden] WARNING: %s is UNSIGNED (dev build; not for release)\n",
+             tag);
+      return true;
+#else
       printf("[harden] ABORT: %s is UNSIGNED\n", tag);
       return false;
+#endif
     case Trust::kInvalid:
       printf("[harden] ABORT: %s has an INVALID signature (tampered?)\n", tag);
       return false;

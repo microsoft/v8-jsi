@@ -30,7 +30,6 @@
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
 #include "base/win/scoped_process_information.h"
-#include "base/win/windows_version.h"
 #include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/handle_closer.h"  // HandleCloserConfig, g_handle_closer_info
 #include "sandbox/win/src/interception.h"   // SelfInstallInterceptions
@@ -386,34 +385,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   std::unique_ptr<sandbox::TargetPolicy> sb_policy = broker->CreatePolicy();
   sandbox::TargetConfig* config = sb_policy->GetConfig();
-#if defined(SBOX_ENABLE_TEST_HOOKS)
-  if (policy->allow_unsigned && policy->use_app_container &&
-      base::win::GetVersion() < base::win::Version::WIN10_RS5) {
-    printf("[broker] unsigned AppContainer tests require Windows 10 RS5+\n");
-    return nullptr;
-  }
-#endif
-  if (policy->allow_unsigned) {
-#if defined(SBOX_ENABLE_TEST_HOOKS)
-    const sandbox::MitigationFlags signature_mitigation =
-        sandbox::MITIGATION_ALLOW_UNSIGNED_BINARIES;
-    ::OutputDebugStringA("[sbox][broker] unsigned override active\n");
-#else
-    const sandbox::MitigationFlags signature_mitigation =
-        sandbox::MITIGATION_FORCE_MS_SIGNED_BINS;
-#endif
-    const sandbox::ResultCode mitigation_rc = config->SetProcessMitigations(
-        config->GetProcessMitigations() | signature_mitigation);
-    if (mitigation_rc != sandbox::SBOX_ALL_OK) {
-      printf("[broker] unsigned test policy failed: rc=%d\n", mitigation_rc);
-      return nullptr;
-    }
-#if defined(SBOX_ENABLE_TEST_HOOKS)
-    printf("[broker] WARNING: unsigned binaries allowed for this test target\n");
-#else
-    printf("[broker] unsigned override unavailable; enforcing signed binaries\n");
-#endif
-  }
   if (config->SetTokenLevel(MapToken(policy->initial_token),
                             MapToken(policy->lockdown_token)) !=
           sandbox::SBOX_ALL_OK ||
