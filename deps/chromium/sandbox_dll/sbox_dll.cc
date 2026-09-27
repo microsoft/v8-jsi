@@ -16,6 +16,7 @@
 #endif
 #include <windows.h>
 
+#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -85,6 +86,35 @@ struct SboxSession {
 
 namespace {
 
+// Broker diagnostics: mirror to stdout (console harnesses like test_app) and to
+// the debugger via OutputDebugString, so broker failures are visible from GUI
+// hosts (e.g. Excel) that have no console. Capture with DebugView/DBWIN.
+void BrokerLog(const char* fmt, ...) {
+  char buf[1024];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = ::vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n < 0)
+    return;
+  ::fputs(buf, stdout);
+  ::OutputDebugStringA(buf);
+}
+
+// Length-delimited variant for the relayed target output (not NUL-terminated).
+void BrokerLogRaw(const char* data, size_t len) {
+  ::fwrite(data, 1, len, stdout);
+  char buf[4097];
+  while (len) {
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    ::memcpy(buf, data, n);
+    buf[n] = '\0';
+    ::OutputDebugStringA(buf);
+    data += n;
+    len -= n;
+  }
+}
+
 // Synchronous launch delegate (run task + reply inline; no thread pool).
 class SyncBrokerDelegate : public sandbox::BrokerServicesDelegate {
  public:
@@ -126,12 +156,12 @@ sandbox::BrokerServices* EnsureBrokerInitialized() {
   std::call_once(g_once, [] {
     sandbox::BrokerServices* b = sandbox::SandboxFactory::GetBrokerServices();
     if (!b) {
-      printf("[broker] GetBrokerServices() returned null\n");
+      BrokerLog("[broker] GetBrokerServices() returned null\n");
       return;
     }
     sandbox::ResultCode rc = b->Init(std::make_unique<SyncBrokerDelegate>());
     if (rc != sandbox::SBOX_ALL_OK) {
-      printf("[broker] BrokerServices::Init() failed: rc=%d\n", rc);
+      BrokerLog("[broker] BrokerServices::Init() failed: rc=%d\n", rc);
       return;
     }
     g_broker = b;
@@ -374,12 +404,12 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   // DLL-loading init on this freshly-created launcher thread can stall if the
   // host hardened its DLL search path). EnsureBrokerInitialized() here just
   // returns the already-created broker (its std::call_once is already satisfied).
-  printf("[broker] sbox.dll base = 0x%llx (size 0x%lx)\n",
+  BrokerLog("[broker] sbox.dll base = 0x%llx (size 0x%lx)\n",
          (unsigned long long)MyDllBase(), MyDllSizeOfImage());
 
   sandbox::BrokerServices* broker = EnsureBrokerInitialized();
   if (!broker) {
-    printf("[broker] broker not initialized\n");
+    BrokerLog("[broker] broker not initialized\n");
     return nullptr;
   }
 
@@ -390,19 +420,19 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
           sandbox::SBOX_ALL_OK ||
       config->SetJobLevel(sandbox::JobLevel::kLockdown, 0) !=
           sandbox::SBOX_ALL_OK) {
-    printf("[broker] policy configuration failed\n");
+    BrokerLog("[broker] policy configuration failed\n");
     return nullptr;
   }
 
   if (policy->use_app_container &&
       policy->integrity != SBOX_INTEGRITY_LOW) {
-    printf("[broker] AppContainer requires low integrity\n");
+    BrokerLog("[broker] AppContainer requires low integrity\n");
     return nullptr;
   }
   if (!policy->use_app_container &&
       config->SetIntegrityLevel(MapIntegrity(policy->integrity)) !=
           sandbox::SBOX_ALL_OK) {
-    printf("[broker] policy configuration failed\n");
+    BrokerLog("[broker] policy configuration failed\n");
     return nullptr;
   }
   config->SetDelayedIntegrityLevel(MapIntegrity(policy->delayed_integrity));
@@ -412,20 +442,20 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
     if (!policy->app_container_profile_name ||
         !policy->app_container_profile_name[0] ||
         (policy->capability_count && !policy->capabilities)) {
-      printf("[broker] invalid AppContainer policy\n");
+      BrokerLog("[broker] invalid AppContainer policy\n");
       return nullptr;
     }
     const sandbox::ResultCode app_container_rc =
         config->AddAppContainerProfile(
             base::wcstring_view(policy->app_container_profile_name));
     if (app_container_rc != sandbox::SBOX_ALL_OK) {
-      printf("[broker] AddAppContainerProfile failed: rc=%d\n",
+      BrokerLog("[broker] AddAppContainerProfile failed: rc=%d\n",
              app_container_rc);
       return nullptr;
     }
     sandbox::AppContainer* app_container = config->GetAppContainer();
     if (!app_container) {
-      printf("[broker] AppContainer profile unavailable\n");
+      BrokerLog("[broker] AppContainer profile unavailable\n");
       return nullptr;
     }
     app_container->SetEnableLowPrivilegeAppContainer(
@@ -434,7 +464,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
       const wchar_t* capability = policy->capabilities[i];
       if (!capability || !capability[0] ||
           !app_container->AddCapabilitySddl(base::wcstring_view(capability))) {
-        printf("[broker] invalid AppContainer capability at index %zu\n", i);
+        BrokerLog("[broker] invalid AppContainer capability at index %zu\n", i);
         return nullptr;
       }
     }
@@ -446,10 +476,10 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
                                      ? sandbox::FileSemantics::kAllowReadonly
                                      : sandbox::FileSemantics::kAllowAny;
     if (config->AllowFileAccess(sem, rule.pattern) != sandbox::SBOX_ALL_OK) {
-      printf("[broker] AllowFileAccess(%ls) failed\n", rule.pattern);
+      BrokerLog("[broker] AllowFileAccess(%ls) failed\n", rule.pattern);
       return nullptr;
     }
-    printf("[broker] allow file (%s): %ls\n",
+    BrokerLog("[broker] allow file (%s): %ls\n",
            rule.readonly ? "readonly" : "any", rule.pattern);
   }
 
@@ -459,7 +489,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   // The duplex message channel (independent of the sandbox IPC).
   if (!CreateMsgChannel(s)) {
-    printf("[broker] CreateMsgChannel failed: %lu\n", ::GetLastError());
+    BrokerLog("[broker] CreateMsgChannel failed: %lu\n", ::GetLastError());
     delete s;
     return nullptr;
   }
@@ -473,7 +503,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
       ::CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
                            PAGE_READWRITE | SEC_COMMIT, 0, 256 * 1024, nullptr);
   if (!s->ipc_section) {
-    printf("[broker] CreateFileMapping(ipc section) failed: %lu\n",
+    BrokerLog("[broker] CreateFileMapping(ipc section) failed: %lu\n",
            ::GetLastError());
     delete s;
     return nullptr;
@@ -481,7 +511,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   sandbox::g_sbox_hosted_section = s->ipc_section;
 
   base::CommandLine target_cmd((base::FilePath(target_exe)));
-  printf("[broker] spawning target binary: %ls\n", target_exe);
+  BrokerLog("[broker] spawning target binary: %ls\n", target_exe);
 
   // Capture the sandboxed target's stdout (it can't reach the console).
   wchar_t dir[MAX_PATH] = {};
@@ -515,7 +545,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
           &s->proc, &s->thread, &last_error, &rc));
 
   if (rc != sandbox::SBOX_ALL_OK || !s->proc) {
-    printf("[broker] SpawnTargetAsync failed: rc=%d last_error=%lu\n", rc,
+    BrokerLog("[broker] SpawnTargetAsync failed: rc=%d last_error=%lu\n", rc,
            last_error);
     delete s;
     return nullptr;
@@ -545,7 +575,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
       !::DuplicateHandle(::GetCurrentProcess(), s->evt_close, proc,
                          reinterpret_cast<HANDLE*>(&bootstrap.msg_evt_close),
                          EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, 0)) {
-    printf("[broker] DuplicateHandle(->child) failed: %lu\n", ::GetLastError());
+    BrokerLog("[broker] DuplicateHandle(->child) failed: %lu\n", ::GetLastError());
     delete s;
     return nullptr;
   }
@@ -566,12 +596,12 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
       !::WriteProcessMemory(proc, reinterpret_cast<void*>(addr), &bootstrap,
                             sizeof(bootstrap), &wrote) ||
       wrote != sizeof(bootstrap)) {
-    printf("[broker] relay bootstrap failed (addr=0x%llx err=%lu)\n",
+    BrokerLog("[broker] relay bootstrap failed (addr=0x%llx err=%lu)\n",
            (unsigned long long)addr, ::GetLastError());
     delete s;
     return nullptr;
   }
-  printf("[broker] relayed bootstrap @0x%llx: ipc=%u policy=%u + message channel\n",
+  BrokerLog("[broker] relayed bootstrap @0x%llx: ipc=%u policy=%u + message channel\n",
          (unsigned long long)addr, bootstrap.ipc_size, bootstrap.policy_size);
 
   // Base-independence probe (see security note): force the child's sbox.dll to
@@ -581,7 +611,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
     DWORD img_size = MyDllSizeOfImage();
     void* reserved = ::VirtualAllocEx(proc, reinterpret_cast<void*>(host_base),
                                       img_size, MEM_RESERVE, PAGE_NOACCESS);
-    printf("[broker] FORCE_RELOCATE: reserved child range [0x%llx,+0x%lx) -> %s "
+    BrokerLog("[broker] FORCE_RELOCATE: reserved child range [0x%llx,+0x%lx) -> %s "
            "(err=%lu); child must relocate sbox.dll\n",
            (unsigned long long)host_base, img_size, reserved ? "OK" : "FAILED",
            reserved ? 0 : ::GetLastError());
@@ -604,7 +634,7 @@ SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
   if (!target_exe || !policy)
     return nullptr;
   if (policy->struct_size < sizeof(SboxPolicy)) {
-    printf("[broker] incompatible SboxPolicy size: got %u, need at least %zu\n",
+    BrokerLog("[broker] incompatible SboxPolicy size: got %u, need at least %zu\n",
            policy->struct_size, sizeof(SboxPolicy));
     return nullptr;
   }
@@ -618,11 +648,11 @@ SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
   EnsureBase();
   setvbuf(stdout, nullptr, _IONBF, 0);
   if (!EnsureBrokerInitialized()) {
-    printf("[broker] broker not initialized\n");
+    BrokerLog("[broker] broker not initialized\n");
     return nullptr;
   }
   if (!EnsureLauncherThread()) {
-    printf("[broker] launcher thread unavailable\n");
+    BrokerLog("[broker] launcher thread unavailable\n");
     return nullptr;
   }
   SpawnRequest req;
@@ -667,7 +697,7 @@ SBOX_API int sbox_broker_wait(SboxSession* session) {
     return -1;
 
   if (::WaitForSingleObject(session->proc, 30000) == WAIT_TIMEOUT) {
-    printf("[broker] target timed out; terminating\n");
+    BrokerLog("[broker] target timed out; terminating\n");
     ::TerminateProcess(session->proc, 0xDEAD);
     ::WaitForSingleObject(session->proc, 5000);
   }
@@ -688,18 +718,18 @@ SBOX_API int sbox_broker_wait(SboxSession* session) {
                               FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                               FILE_ATTRIBUTE_NORMAL, nullptr);
     if (rd != INVALID_HANDLE_VALUE) {
-      printf("[broker] ----- captured target output -----\n");
+      BrokerLog("[broker] ----- captured target output -----\n");
       char buf[4096];
       DWORD got = 0;
       while (::ReadFile(rd, buf, sizeof(buf), &got, nullptr) && got)
-        fwrite(buf, 1, got, stdout);
-      printf("[broker] -----------------------------------\n");
+        BrokerLogRaw(buf, got);
+      BrokerLog("[broker] -----------------------------------\n");
       ::CloseHandle(rd);
     }
     ::DeleteFileW(session->log_path.c_str());
   }
 
-  printf("[broker] target exit=%lu (0x%lx) -> %s\n", ec, ec,
+  BrokerLog("[broker] target exit=%lu (0x%lx) -> %s\n", ec, ec,
          ec == 0 ? "PASS" : "FAIL");
 
   if (session->msg_map)
