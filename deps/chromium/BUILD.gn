@@ -10,8 +10,19 @@
 group("generic") {
   deps = [
     "//sandbox_dll:sbox",
-    "//v8host",
     "//test_app",
     "//test_app:test_app_signed",
+    "//v8host",
   ]
+}
+
+if (current_cpu == "x64") {
+  group("sbox_trust_transition_tests") {
+    testonly = true
+    deps = [
+      "//sandbox_dll:sbox_trust_transition_test",
+      "//test_app:sbox_trust_transition_target",
+      "//test_app:sbox_trust_transition_tests",
+    ]
+  }
 }

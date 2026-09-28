@@ -39,6 +39,10 @@
 #include "sandbox/win/src/sandbox_policy.h"
 #include "sandbox/win/src/security_level.h"
 #include "sandbox/win/src/target_services.h"  // TargetServicesBase::TestIPCPing
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+#define SBOX_TRUST_TRANSITION_TEST_DLL_IMPL
+#include "sbox_trust_transition_test_private.h"
+#endif
 
 // Hosted (decoupled-DLL) mode hooks. We are inside sbox.dll (linked with the
 // sandbox engine), so we reference these vendored globals directly.
@@ -86,6 +90,15 @@ struct SboxSession {
 
 namespace {
 
+constexpr int kAcgQueryFailure = -3;
+constexpr int kAcgPostconditionFailure = -4;
+
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+std::mutex g_trust_transition_test_mutex;
+SboxTrustTransitionTestControl g_trust_transition_next_control = {};
+std::string g_trust_transition_last_output;
+#endif
+
 // Broker diagnostics: mirror to stdout (console harnesses like test_app) and to
 // the debugger via OutputDebugString, so broker failures are visible from GUI
 // hosts (e.g. Excel) that have no console. Capture with DebugView/DBWIN.
@@ -103,6 +116,12 @@ void BrokerLog(const char* fmt, ...) {
 
 // Length-delimited variant for the relayed target output (not NUL-terminated).
 void BrokerLogRaw(const char* data, size_t len) {
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  {
+    std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+    g_trust_transition_last_output.append(data, len);
+  }
+#endif
   ::fwrite(data, 1, len, stdout);
   char buf[4097];
   while (len) {
@@ -604,6 +623,34 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   BrokerLog("[broker] relayed bootstrap @0x%llx: ipc=%u policy=%u + message channel\n",
          (unsigned long long)addr, bootstrap.ipc_size, bootstrap.policy_size);
 
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  SboxTrustTransitionTestControl control = {};
+  {
+    std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+    control = g_trust_transition_next_control;
+    g_trust_transition_next_control = {};
+  }
+  if (control.magic == kSboxTrustTransitionControlMagic) {
+    const uint64_t control_addr =
+        FindRemoteExport(proc, "g_sbox_trust_transition_test_control");
+    wrote = 0;
+    if (!control_addr ||
+        !::WriteProcessMemory(proc, reinterpret_cast<void*>(control_addr),
+                              &control, sizeof(control), &wrote) ||
+        wrote != sizeof(control)) {
+      BrokerLog("[broker] trust-transition control relay failed "
+                "(addr=0x%llx err=%lu)\n",
+                static_cast<unsigned long long>(control_addr),
+                ::GetLastError());
+      delete s;
+      return nullptr;
+    }
+    BrokerLog("[broker] trust-transition selected case=%u serial=%llu\n",
+              control.case_id,
+              static_cast<unsigned long long>(control.serial));
+  }
+#endif
+
   // Base-independence probe (see security note): force the child's sbox.dll to
   // relocate when SBOX_FORCE_RELOCATE is set.
   if (::GetEnvironmentVariableW(L"SBOX_FORCE_RELOCATE", nullptr, 0) > 0) {
@@ -752,6 +799,50 @@ SBOX_API int sbox_broker_run(const wchar_t* target_exe,
   return sbox_broker_wait(s);
 }
 
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_next_case(
+    uint32_t case_id, uint64_t serial) {
+  if (case_id == SBOX_TRUST_TRANSITION_CASE_INVALID ||
+      case_id > SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS || serial == 0) {
+    return 0;
+  }
+  std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+  if (g_trust_transition_next_control.magic != 0)
+    return 0;
+  g_trust_transition_next_control = {
+      kSboxTrustTransitionControlMagic, kSboxTrustTransitionControlVersion,
+      case_id, serial};
+  g_trust_transition_last_output.clear();
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_initialize(
+    const SboxTrustTransitionTestControl* control) {
+  if (!control || control->magic != kSboxTrustTransitionControlMagic ||
+      control->version != kSboxTrustTransitionControlVersion ||
+      control->case_id == SBOX_TRUST_TRANSITION_CASE_INVALID ||
+      control->case_id > SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS ||
+      control->serial == 0) {
+    return 0;
+  }
+  sandbox::trust_transition_test::Initialize(control->case_id);
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_get_thunk_telemetry(
+    SboxTrustTransitionThunkTelemetry* telemetry) {
+  if (!telemetry)
+    return 0;
+  *telemetry = sandbox::trust_transition_test::GetThunkTelemetry();
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API const char* sbox_trust_transition_test_last_output() {
+  std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+  return g_trust_transition_last_output.c_str();
+}
+#endif
+
 SBOX_API SboxTarget* sbox_target_begin(const SboxBootstrap* boot) {
   EnsureBase();
   setvbuf(stdout, nullptr, _IONBF, 0);
@@ -829,11 +920,53 @@ SBOX_API int sbox_target_lower_token(SboxTarget* target) {
   // LowerToken) forbids patching executable ntdll pages afterward. The broker
   // can't install these remotely (our sbox.dll is a different binary, unmapped
   // while we were suspended), so we patch our own.
-  if (sandbox::SelfInstallInterceptions() != sandbox::SBOX_ALL_OK) {
-    printf("[sbox] SelfInstallInterceptions() failed\n");
+  const sandbox::ResultCode interception =
+      sandbox::SelfInstallInterceptions();
+  if (interception != sandbox::SBOX_ALL_OK) {
+    printf("[sbox] SelfInstallInterceptions() failed: result=%d\n",
+           interception);
     return -2;
   }
   target->services->LowerToken();
+
+  const bool strict_acg_requested =
+      (sandbox::g_shared_delayed_mitigations &
+       sandbox::MITIGATION_DYNAMIC_CODE_DISABLE) != 0;
+  if (!strict_acg_requested)
+    return 0;
+
+  PROCESS_MITIGATION_DYNAMIC_CODE_POLICY dynamic_code = {};
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  const bool inject_query =
+      sandbox::trust_transition_test::Consume(
+          SBOX_TRUST_TRANSITION_CASE_ACG_QUERY_FAILURE);
+#else
+  const bool inject_query = false;
+#endif
+  if (inject_query ||
+      !::GetProcessMitigationPolicy(::GetCurrentProcess(),
+                                    ProcessDynamicCodePolicy, &dynamic_code,
+                                    sizeof(dynamic_code))) {
+    const DWORD error = inject_query ? ERROR_INVALID_FUNCTION : ::GetLastError();
+    printf("[sbox] stage=acg-query expected_strict=1 win32=%lu\n", error);
+    return kAcgQueryFailure;
+  }
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  if (sandbox::trust_transition_test::Consume(
+          SBOX_TRUST_TRANSITION_CASE_ACG_WEAK_STATE)) {
+    dynamic_code.ProhibitDynamicCode = 0;
+    dynamic_code.AllowThreadOptOut = 1;
+    dynamic_code.AllowRemoteDowngrade = 1;
+  }
+#endif
+  if (!dynamic_code.ProhibitDynamicCode || dynamic_code.AllowThreadOptOut ||
+      dynamic_code.AllowRemoteDowngrade) {
+    printf("[sbox] stage=acg-postcondition expected_strict=1 prohibit=%u "
+           "thread_opt_out=%u remote_downgrade=%u\n",
+           dynamic_code.ProhibitDynamicCode, dynamic_code.AllowThreadOptOut,
+           dynamic_code.AllowRemoteDowngrade);
+    return kAcgPostconditionFailure;
+  }
   return 0;
 }
 

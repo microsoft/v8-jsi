@@ -34,151 +34,170 @@ source_set("service_resolver") {
   deps = [ "//base:base_static" ]
 }
 
-static_library("sandbox") {
-  sources = [
-    "src/acl.cc",
-    "src/acl.h",
-    "src/alternate_desktop.cc",
-    "src/alternate_desktop.h",
-    "src/app_container.h",
-    "src/app_container_base.cc",
-    "src/app_container_base.h",
-    "src/broker_services.cc",
-    "src/broker_services.h",
-    "src/crosscall_client.h",
-    "src/crosscall_params.h",
-    "src/crosscall_server.cc",
-    "src/crosscall_server.h",
-    "src/eat_resolver.cc",
-    "src/eat_resolver.h",
-    "src/filesystem_dispatcher.cc",
-    "src/filesystem_dispatcher.h",
-    "src/filesystem_interception.cc",
-    "src/filesystem_interception.h",
-    "src/filesystem_policy.cc",
-    "src/filesystem_policy.h",
-    "src/handle_closer.h",
-    "src/handle_closer_agent.cc",
-    "src/handle_closer_agent.h",
-    "src/heap_helper.cc",
-    "src/heap_helper.h",
-    "src/interception.cc",
-    "src/interception.h",
-    "src/interception_agent.cc",
-    "src/interception_agent.h",
-    "src/interception_internal.h",
-    "src/interceptors.h",
-    "src/internal_types.h",
-    "src/ipc_args.cc",
-    "src/ipc_args.h",
-    "src/ipc_tags.h",
-    "src/job.cc",
-    "src/job.h",
-    "src/nt_internals.h",
-    "src/policy_broker.cc",
-    "src/policy_broker.h",
-    "src/policy_engine_opcodes.cc",
-    "src/policy_engine_opcodes.h",
-    "src/policy_engine_params.h",
-    "src/policy_engine_processor.cc",
-    "src/policy_engine_processor.h",
-    "src/policy_low_level.cc",
-    "src/policy_low_level.h",
-    "src/policy_params.h",
-    "src/policy_target.cc",
-    "src/policy_target.h",
-    "src/process_mitigations.cc",
-    "src/process_mitigations.h",
-    "src/process_mitigations_win32k_dispatcher.cc",
-    "src/process_mitigations_win32k_dispatcher.h",
-    "src/process_mitigations_win32k_interception.cc",
-    "src/process_mitigations_win32k_interception.h",
-    "src/process_mitigations_win32k_policy.cc",
-    "src/process_mitigations_win32k_policy.h",
-    "src/process_thread_dispatcher.cc",
-    "src/process_thread_dispatcher.h",
-    "src/process_thread_interception.cc",
-    "src/process_thread_interception.h",
-    "src/process_thread_policy.cc",
-    "src/process_thread_policy.h",
-    "src/restricted_token.cc",
-    "src/restricted_token.h",
-    "src/restricted_token_utils.cc",
-    "src/restricted_token_utils.h",
-    "src/sandbox.cc",
-    "src/sandbox_factory.h",
-    "src/sandbox_globals.cc",
-    "src/sandbox_nt_types.h",
-    "src/sandbox_nt_util.cc",
-    "src/sandbox_nt_util.h",
-    "src/sandbox_policy_base.cc",
-    "src/sandbox_policy_base.h",
-    "src/sandbox_policy_diagnostic.cc",
-    "src/sandbox_policy_diagnostic.h",
-    "src/security_capabilities.cc",
-    "src/security_capabilities.h",
-    "src/sharedmem_ipc_client.cc",
-    "src/sharedmem_ipc_client.h",
-    "src/sharedmem_ipc_server.cc",
-    "src/sharedmem_ipc_server.h",
-    "src/signed_dispatcher.cc",
-    "src/signed_dispatcher.h",
-    "src/signed_interception.cc",
-    "src/signed_interception.h",
-    "src/signed_policy.cc",
-    "src/signed_policy.h",
-    "src/startup_information_helper.cc",
-    "src/startup_information_helper.h",
-    "src/target_interceptions.cc",
-    "src/target_interceptions.h",
-    "src/target_process.cc",
-    "src/target_process.h",
-    "src/target_services.cc",
-    "src/target_services.h",
-    "src/threadpool.cc",
-    "src/threadpool.h",
-    "src/top_level_dispatcher.cc",
-    "src/top_level_dispatcher.h",
-    "src/win_utils.cc",
-    "src/win_utils.h",
-    "src/window.cc",
-    "src/window.h",
-  ]
-
-  if (current_cpu == "x64" || current_cpu == "arm64") {
-    sources += [
-      "src/interceptors_64.cc",
-      "src/interceptors_64.h",
+template("sandbox_library") {
+  _trust_transition_testing = invoker.trust_transition_testing
+  static_library(target_name) {
+    sources = [
+      "src/acl.cc",
+      "src/acl.h",
+      "src/alternate_desktop.cc",
+      "src/alternate_desktop.h",
+      "src/app_container.h",
+      "src/app_container_base.cc",
+      "src/app_container_base.h",
+      "src/broker_services.cc",
+      "src/broker_services.h",
+      "src/crosscall_client.h",
+      "src/crosscall_params.h",
+      "src/crosscall_server.cc",
+      "src/crosscall_server.h",
+      "src/eat_resolver.cc",
+      "src/eat_resolver.h",
+      "src/filesystem_dispatcher.cc",
+      "src/filesystem_dispatcher.h",
+      "src/filesystem_interception.cc",
+      "src/filesystem_interception.h",
+      "src/filesystem_policy.cc",
+      "src/filesystem_policy.h",
+      "src/handle_closer.h",
+      "src/handle_closer_agent.cc",
+      "src/handle_closer_agent.h",
+      "src/heap_helper.cc",
+      "src/heap_helper.h",
+      "src/interception.cc",
+      "src/interception.h",
+      "src/interception_agent.cc",
+      "src/interception_agent.h",
+      "src/interception_internal.h",
+      "src/interceptors.h",
+      "src/internal_types.h",
+      "src/ipc_args.cc",
+      "src/ipc_args.h",
+      "src/ipc_tags.h",
+      "src/job.cc",
+      "src/job.h",
+      "src/nt_internals.h",
+      "src/policy_broker.cc",
+      "src/policy_broker.h",
+      "src/policy_engine_opcodes.cc",
+      "src/policy_engine_opcodes.h",
+      "src/policy_engine_params.h",
+      "src/policy_engine_processor.cc",
+      "src/policy_engine_processor.h",
+      "src/policy_low_level.cc",
+      "src/policy_low_level.h",
+      "src/policy_params.h",
+      "src/policy_target.cc",
+      "src/policy_target.h",
+      "src/process_mitigations.cc",
+      "src/process_mitigations.h",
+      "src/process_mitigations_win32k_dispatcher.cc",
+      "src/process_mitigations_win32k_dispatcher.h",
+      "src/process_mitigations_win32k_interception.cc",
+      "src/process_mitigations_win32k_interception.h",
+      "src/process_mitigations_win32k_policy.cc",
+      "src/process_mitigations_win32k_policy.h",
+      "src/process_thread_dispatcher.cc",
+      "src/process_thread_dispatcher.h",
+      "src/process_thread_interception.cc",
+      "src/process_thread_interception.h",
+      "src/process_thread_policy.cc",
+      "src/process_thread_policy.h",
+      "src/restricted_token.cc",
+      "src/restricted_token.h",
+      "src/restricted_token_utils.cc",
+      "src/restricted_token_utils.h",
+      "src/sandbox.cc",
+      "src/sandbox_factory.h",
+      "src/sandbox_globals.cc",
+      "src/sandbox_nt_types.h",
+      "src/sandbox_nt_util.cc",
+      "src/sandbox_nt_util.h",
+      "src/sandbox_policy_base.cc",
+      "src/sandbox_policy_base.h",
+      "src/sandbox_policy_diagnostic.cc",
+      "src/sandbox_policy_diagnostic.h",
+      "src/security_capabilities.cc",
+      "src/security_capabilities.h",
+      "src/sharedmem_ipc_client.cc",
+      "src/sharedmem_ipc_client.h",
+      "src/sharedmem_ipc_server.cc",
+      "src/sharedmem_ipc_server.h",
+      "src/signed_dispatcher.cc",
+      "src/signed_dispatcher.h",
+      "src/signed_interception.cc",
+      "src/signed_interception.h",
+      "src/signed_policy.cc",
+      "src/signed_policy.h",
+      "src/startup_information_helper.cc",
+      "src/startup_information_helper.h",
+      "src/target_interceptions.cc",
+      "src/target_interceptions.h",
+      "src/target_process.cc",
+      "src/target_process.h",
+      "src/target_services.cc",
+      "src/target_services.h",
+      "src/threadpool.cc",
+      "src/threadpool.h",
+      "src/top_level_dispatcher.cc",
+      "src/top_level_dispatcher.h",
+      "src/win_utils.cc",
+      "src/win_utils.h",
+      "src/window.cc",
+      "src/window.h",
     ]
+
+    if (current_cpu == "x64" || current_cpu == "arm64") {
+      sources += [
+        "src/interceptors_64.cc",
+        "src/interceptors_64.h",
+      ]
+    }
+
+    # Disable sanitizer coverage in the sandbox code. The sandbox code runs before
+    # sanitizer coverage can initialize. http://crbug.com/484711
+    configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
+    configs +=
+        [ "//build/config/sanitizers:default_sanitizer_flags_but_coverage" ]
+
+    configs += [
+      "//build/config:precompiled_headers",
+      "//build/config/compiler:prevent_unsafe_narrowing",
+    ]
+
+    public_deps = [
+      ":common",
+      "//base",
+      "//sandbox:common",
+    ]
+
+    deps = [
+      ":service_resolver",
+      "//base:base_static",
+      "//build/config/win:maybe_set_appcontainer_acls",
+    ]
+
+    libs = [
+      "ntdll.lib",
+      "userenv.lib",
+    ]
+    if (_trust_transition_testing) {
+      testonly = true
+      defines = [ "SBOX_TRUST_TRANSITION_TESTING" ]
+      include_dirs = [ "//test_app" ]
+      sources += [ "//test_app/sbox_trust_transition_test_private.cc" ]
+    }
   }
+}
 
-  # Disable sanitizer coverage in the sandbox code. The sandbox code runs before
-  # sanitizer coverage can initialize. http://crbug.com/484711
-  configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
-  configs +=
-      [ "//build/config/sanitizers:default_sanitizer_flags_but_coverage" ]
+sandbox_library("sandbox") {
+  trust_transition_testing = false
+}
 
-  configs += [
-    "//build/config:precompiled_headers",
-    "//build/config/compiler:prevent_unsafe_narrowing",
-  ]
-
-  public_deps = [
-    ":common",
-    "//base",
-    "//sandbox:common",
-  ]
-
-  deps = [
-    ":service_resolver",
-    "//base:base_static",
-    "//build/config/win:maybe_set_appcontainer_acls",
-  ]
-
-  libs = [
-    "ntdll.lib",
-    "userenv.lib",
-  ]
+if (current_cpu == "x64") {
+  sandbox_library("sandbox_trust_transition_test") {
+    trust_transition_testing = true
+  }
 }
 
 test("sbox_integration_tests") {

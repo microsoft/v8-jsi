@@ -366,6 +366,24 @@ extends:
               displayName: Build sbox.dll + v8host.exe (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
+              # The trust-transition suite is x64-only and testonly. Build it
+              # from the already-generated GN graph, run every isolated failure
+              # and success case, and leave all focused artifacts in the GN out
+              # directory (the shipping staging/signing lists below stay closed).
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
+                  node scripts/sbox-build.ts --target-cpu x64 --target sbox_trust_transition_tests --no-gen
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Sandbox trust-transition build FAILED (exit $LASTEXITCODE)"
+                  }
+                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                  & "$sandboxOut\sbox_trust_transition_tests.exe" --all
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Sandbox trust-transition tests FAILED (exit $LASTEXITCODE)"
+                  }
+                displayName: Sandbox trust-transition tests (x64)
+                workingDirectory: $(Build.SourcesDirectory)
+
               # The jitless sandbox engine (MSVC/vcbuild). Fresh agent => clean
               # engine out, so the lite-flag stale-snapshot gotcha doesn't apply.
             - pwsh: |

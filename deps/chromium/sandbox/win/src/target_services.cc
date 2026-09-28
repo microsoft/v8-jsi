@@ -27,6 +27,9 @@
 #include "sandbox/win/src/sandbox_nt_util.h"
 #include "sandbox/win/src/sandbox_types.h"
 #include "sandbox/win/src/sharedmem_ipc_client.h"
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+#include "sbox_trust_transition_test_private.h"
+#endif
 
 namespace sandbox {
 namespace {
@@ -147,6 +150,15 @@ void TargetServicesBase::LowerToken() {
     ::TerminateProcess(::GetCurrentProcess(), SBOX_FATAL_CLOSEHANDLES);
   process_state_.SetCsrssConnected(is_csrss_connected);
   // Enabling mitigations must happen last otherwise handle closing breaks
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  if (trust_transition_test::Consume(
+          SBOX_TRUST_TRANSITION_CASE_FINAL_MITIGATION_FAILURE)) {
+    printf("[sbox] stage=final-mitigation case=%u fatal=%d\n",
+           SBOX_TRUST_TRANSITION_CASE_FINAL_MITIGATION_FAILURE,
+           SBOX_FATAL_MITIGATION);
+    ::TerminateProcess(::GetCurrentProcess(), SBOX_FATAL_MITIGATION);
+  }
+#endif
   if (g_shared_delayed_mitigations &&
       !LockDownSecurityMitigations(g_shared_delayed_mitigations)) {
     ::TerminateProcess(::GetCurrentProcess(), SBOX_FATAL_MITIGATION);

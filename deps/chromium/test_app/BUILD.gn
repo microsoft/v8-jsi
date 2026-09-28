@@ -23,3 +23,30 @@ executable("test_app") {
 executable("test_app_signed") {
   forward_variables_from(_test_app_common, "*")  # no dev define: fails closed
 }
+
+if (current_cpu == "x64") {
+  executable("sbox_trust_transition_target") {
+    testonly = true
+    sources = [ "sbox_trust_transition_target.cc" ]
+    include_dirs = [
+      ".",
+      "//sandbox_dll",
+    ]
+    deps = [ "//sandbox_dll:sbox_trust_transition_test" ]
+    defines = [ "SBOX_TRUST_TRANSITION_TESTING" ]
+    ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+  }
+
+  executable("sbox_trust_transition_tests") {
+    testonly = true
+    sources = [ "sbox_trust_transition_tests.cc" ]
+    include_dirs = [
+      ".",
+      "//sandbox_dll",
+    ]
+    deps = [ "//sandbox_dll:sbox_trust_transition_test" ]
+    defines = [ "SBOX_TRUST_TRANSITION_TESTING" ]
+    libs = [ "userenv.lib" ]
+    ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+  }
+}

@@ -665,7 +665,11 @@ int main() {
   printf("[v8host] v8jsi runtime created (warmup, pre-lockdown)\n");
 
   // --- drop privileges (installs file interceptions + applies ACG) ---
-  sbox_target_lower_token(target);
+  const int transition_result = sbox_target_lower_token(target);
+  if (transition_result != 0) {
+    printf("[v8host] stage=target-transition result=%d\n", transition_result);
+    ::TerminateProcess(::GetCurrentProcess(), 23);
+  }
   const LONGLONG t_lockdown = g_perf.now();
   g_perf.emit("lockdown", t_runtime_created, t_lockdown);
   printf("[v8host] LowerToken() survived\n");

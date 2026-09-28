@@ -29,6 +29,9 @@
 #include "sandbox/win/src/target_interceptions.h"
 #include "sandbox/win/src/target_process.h"
 #include "sandbox/win/src/win_utils.h"
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+#include "sbox_trust_transition_test_private.h"
+#endif
 
 namespace sandbox {
 
@@ -513,10 +516,24 @@ ResultCode SelfInstallInterceptions() {
   // the DllInterceptionData header. This mirrors PatchNtdll's child allocation,
   // but in our own address space. Must happen before LowerToken (ACG).
   size_t thunk_bytes = kCount * sizeof(ThunkData) + sizeof(DllInterceptionData);
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  if (trust_transition_test::Consume(
+          SBOX_TRUST_TRANSITION_CASE_ALLOC_FAILURE)) {
+    ::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+    printf("[sbox] stage=thunk-allocation bytes=%zu result=%d win32=%lu\n",
+           thunk_bytes, SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK,
+           ::GetLastError());
+    return SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK;
+  }
+#endif
   BYTE* mem = reinterpret_cast<BYTE*>(::VirtualAlloc(
       nullptr, thunk_bytes, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-  if (!mem)
+  if (!mem) {
+    const DWORD error = ::GetLastError();
+    printf("[sbox] stage=thunk-allocation bytes=%zu result=%d win32=%lu\n",
+           thunk_bytes, SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK, error);
     return SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK;
+  }
 
   DllInterceptionData* thunks = reinterpret_cast<DllInterceptionData*>(mem);
   thunks->data_bytes = thunk_bytes;
@@ -531,12 +548,30 @@ ResultCode SelfInstallInterceptions() {
     ServiceResolverThunk thunk(::GetCurrentProcess(), /*relaxed=*/true);
     thunk.AllowLocalPatches();
     size_t used = 0;
-    NTSTATUS ret = thunk.Setup(
+    NTSTATUS ret = 0;
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+    const bool inject_first =
+        i == 0 && trust_transition_test::Consume(
+                      SBOX_TRUST_TRANSITION_CASE_FIRST_HOOK_FAILURE);
+    const bool inject_partial =
+        i == 1 && trust_transition_test::Consume(
+                      SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE);
+    if (inject_first || inject_partial) {
+      ret = static_cast<NTSTATUS>(0xC0000001L);
+    } else
+#endif
+    ret = thunk.Setup(
         ntdll_base, kItems[i].name, kItems[i].interceptor,
         &UNSAFE_TODO(thunks->thunks[thunks->num_thunks]),
         thunk_bytes - thunks->used_bytes, &used);
     if (!NT_SUCCESS(ret)) {
-      ::SetLastError(GetLastErrorFromNtStatus(ret));
+      const DWORD error = GetLastErrorFromNtStatus(ret);
+      ::SetLastError(error);
+      printf("[sbox] stage=hook-install hook=%s index=%zu installed=%d "
+             "result=%d ntstatus=0x%08lx win32=%lu\n",
+             kItems[i].name, i, thunks->num_thunks,
+             SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK,
+             static_cast<unsigned long>(ret), error);
       return SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK;
     }
     UNSAFE_TODO(g_originals.functions[kItems[i].id]) =
@@ -547,7 +582,27 @@ ResultCode SelfInstallInterceptions() {
 
   // The thunks now hold the saved original code; make them execute-only.
   DWORD old_protection = 0;
-  ::VirtualProtect(thunks, thunk_bytes, PAGE_EXECUTE_READ, &old_protection);
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  const bool inject_rx =
+      trust_transition_test::Consume(SBOX_TRUST_TRANSITION_CASE_RX_FAILURE);
+#else
+  const bool inject_rx = false;
+#endif
+  if (inject_rx ||
+      !::VirtualProtect(thunks, thunk_bytes, PAGE_EXECUTE_READ,
+                       &old_protection)) {
+    const DWORD error = inject_rx ? ERROR_ACCESS_DENIED : ::GetLastError();
+    ::SetLastError(error);
+    printf("[sbox] stage=thunk-rx base=%p bytes=%zu installed=%d "
+           "requested=PAGE_EXECUTE_READ win32=%lu\n",
+           thunks, thunk_bytes, thunks->num_thunks, error);
+    return SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK;
+  }
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  trust_transition_test::SetThunkTelemetry(
+      {reinterpret_cast<uintptr_t>(thunks), thunk_bytes, thunks->used_bytes,
+       static_cast<size_t>(thunks->num_thunks), 1});
+#endif
   return SBOX_ALL_OK;
 #endif  // !defined(_WIN64)
 }
