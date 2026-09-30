@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "base/check.h"
+#include "base/logging.h"
 #include "base/notreached.h"
 #include "sandbox/win/src/crosscall_server.h"
 #include "sandbox/win/src/filesystem_dispatcher.h"
@@ -95,8 +96,13 @@ Dispatcher* TopLevelDispatcher::OnMessageReady(IpcTag ipc_tag,
   DCHECK(callback);
   Dispatcher* dispatcher = Dispatcher::OnMessageReady(ipc_tag, types, callback);
   if (!dispatcher) {
-    dispatcher =
-        GetDispatcher(ipc_tag)->OnMessageReady(ipc_tag, types, callback);
+    const auto found = ipc_targets_.find(ipc_tag);
+    if (found == ipc_targets_.end()) {
+      DLOG(ERROR) << "Unconfigured sandbox IPC service: "
+                  << static_cast<uint32_t>(ipc_tag);
+      return nullptr;  // SharedMemIPCServer returns SBOX_ERROR_INVALID_IPC.
+    }
+    dispatcher = found->second->OnMessageReady(ipc_tag, types, callback);
   }
   return dispatcher;
 }

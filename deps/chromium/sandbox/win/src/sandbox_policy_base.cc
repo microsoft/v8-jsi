@@ -385,19 +385,8 @@ ResultCode ConfigBase::AddAppContainerProfile(
   if (!app_container_)
     return SBOX_ERROR_CREATE_APPCONTAINER;
 
-  // A bug exists in CreateProcess where enabling an AppContainer profile and
-  // passing a set of mitigation flags will generate ERROR_INVALID_PARAMETER.
-  // Apply best efforts here and convert set mitigations to delayed mitigations.
-  // This bug looks to have been fixed in Win10 RS5, so exit early if possible.
-  if (base::win::GetVersion() >= base::win::Version::WIN10_RS5)
-    return SBOX_ALL_OK;
-
-  delayed_mitigations_ =
-      mitigations_ & GetAllowedPostStartupProcessMitigations();
-  DCHECK(delayed_mitigations_ ==
-         (mitigations_ & ~(MITIGATION_SEHOP |
-                           MITIGATION_RESTRICT_INDIRECT_BRANCH_PREDICTION)));
-  mitigations_ = 0;
+  // IsAppContainerSandboxSupported already requires RS5, where profile
+  // creation and startup mitigations can be used together.
   return SBOX_ALL_OK;
 }
 

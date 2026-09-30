@@ -187,7 +187,7 @@ class [[clang::lto_visibility_public]] TargetConfig {
   virtual void SetDelayedIntegrityLevel(IntegrityLevel level) = 0;
 
   // Sets the LowBox token for sandboxed process. This is mutually exclusive
-  // with SetAppContainer method.
+  // with AddAppContainerProfile. Neither is another name for lowering a token.
   [[nodiscard]] virtual ResultCode SetLowBox(base::wcstring_view sid) = 0;
 
   // Sets the mitigations enabled when the process is created. Most of these

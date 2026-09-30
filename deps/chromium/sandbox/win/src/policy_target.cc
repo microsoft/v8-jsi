@@ -37,6 +37,12 @@ std::optional<std::tuple<EvalResult, uintptr_t>> EvaluatePolicy(
     return std::nullopt;
   }
 
+  // Hosted targets also install file hooks without file rules. An empty
+  // policy authorizes no brokered operations.
+  if (!g_shared_policy_size) {
+    return std::nullopt;
+  }
+
   // Policy is only sent if required.
   if (!g_shared_policy_memory) {
     CHECK_NT(g_shared_policy_size);

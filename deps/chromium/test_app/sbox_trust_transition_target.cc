@@ -7,7 +7,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <string>
+#include <vector>
 
 #include "sbox.h"
 #include "sbox_trust_transition_test_private.h"
@@ -28,6 +30,157 @@ bool QueryStrictAcg() {
   PROCESS_MITIGATION_DYNAMIC_CODE_POLICY policy = {};
   return ::GetProcessMitigationPolicy(::GetCurrentProcess(), ProcessDynamicCodePolicy, &policy, sizeof(policy)) &&
       policy.ProhibitDynamicCode && !policy.AllowThreadOptOut && !policy.AllowRemoteDowngrade;
+}
+
+bool QueryTokenBuffer(HANDLE token, TOKEN_INFORMATION_CLASS kind, std::vector<BYTE> &buffer) {
+  DWORD bytes = 0;
+  if (::GetTokenInformation(token, kind, nullptr, 0, &bytes) || ::GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+      !bytes) {
+    printf("[policy-target] token size query failed: class=%d error=%lu\n", kind, ::GetLastError());
+    return false;
+  }
+  buffer.resize(bytes);
+  if (!::GetTokenInformation(token, kind, buffer.data(), bytes, &bytes)) {
+    printf("[policy-target] token query failed: class=%d error=%lu\n", kind, ::GetLastError());
+    return false;
+  }
+  return true;
+}
+
+bool HasGroup(const TOKEN_GROUPS &groups, PSID sid) {
+  for (DWORD i = 0; i < groups.GroupCount; ++i) {
+    if (::EqualSid(groups.Groups[i].Sid, sid))
+      return true;
+  }
+  return false;
+}
+
+bool TokenIntegrity(HANDLE token, DWORD &integrity) {
+  std::vector<BYTE> buffer;
+  if (!QueryTokenBuffer(token, TokenIntegrityLevel, buffer))
+    return false;
+  const auto *label = reinterpret_cast<const TOKEN_MANDATORY_LABEL *>(buffer.data());
+  integrity =
+      *::GetSidSubAuthority(label->Label.Sid, static_cast<DWORD>(*::GetSidSubAuthorityCount(label->Label.Sid) - 1));
+  return true;
+}
+
+bool VerifyPolicyTokens(const SboxTrustTransitionPolicyExpectation &expected, bool final) {
+  HANDLE process_token = nullptr;
+  if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &process_token)) {
+    printf("[policy-target] OpenProcessToken failed: error=%lu\n", ::GetLastError());
+    return false;
+  }
+  DWORD app_container = 0;
+  DWORD bytes = 0;
+  DWORD integrity = 0;
+  std::vector<BYTE> restricted;
+  bool ok = ::GetTokenInformation(process_token, TokenIsAppContainer, &app_container, sizeof(app_container), &bytes) &&
+      TokenIntegrity(process_token, integrity) && QueryTokenBuffer(process_token, TokenRestrictedSids, restricted);
+  const int32_t wanted_integrity = final ? expected.delayed_integrity : expected.initial_integrity;
+  const DWORD wanted_rid =
+      wanted_integrity == SBOX_INTEGRITY_LOW ? SECURITY_MANDATORY_LOW_RID : SECURITY_MANDATORY_UNTRUSTED_RID;
+  ok = ok && app_container == static_cast<DWORD>(expected.app_container) && integrity == wanted_rid;
+
+  if (ok && !expected.app_container) {
+    const auto *groups = reinterpret_cast<const TOKEN_GROUPS *>(restricted.data());
+    printf(
+        "[policy-target] restricted_sids=%lu null_sid=%d\n",
+        groups->GroupCount,
+        groups->GroupCount == 1 && ::IsWellKnownSid(groups->Groups[0].Sid, WinNullSid));
+    ok = groups->GroupCount == 1 && ::IsWellKnownSid(groups->Groups[0].Sid, WinNullSid);
+  }
+
+  if (ok && expected.app_container) {
+    std::vector<BYTE> package;
+    std::vector<BYTE> capabilities;
+    std::vector<BYTE> groups;
+    PSID package_sid = nullptr;
+    PSID capability_sid = nullptr;
+    PSID all_apps_sid = nullptr;
+    ok = ::ConvertStringSidToSidW(expected.package_sid, &package_sid) &&
+        ::ConvertStringSidToSidW(kSboxTrustTransitionCapability, &capability_sid) &&
+        ::ConvertStringSidToSidW(L"S-1-15-2-1", &all_apps_sid) &&
+        QueryTokenBuffer(process_token, TokenAppContainerSid, package) &&
+        QueryTokenBuffer(process_token, TokenCapabilities, capabilities) &&
+        QueryTokenBuffer(process_token, TokenGroups, groups);
+    if (ok) {
+      const auto *actual_package = reinterpret_cast<const TOKEN_APPCONTAINER_INFORMATION *>(package.data());
+      const auto *actual_capabilities = reinterpret_cast<const TOKEN_GROUPS *>(capabilities.data());
+      const auto *actual_groups = reinterpret_cast<const TOKEN_GROUPS *>(groups.data());
+      printf(
+          "[policy-target] package_match=%d capabilities=%lu capability_match=%d "
+          "all_apps=%d\n",
+          actual_package->TokenAppContainer && ::EqualSid(actual_package->TokenAppContainer, package_sid),
+          actual_capabilities->GroupCount,
+          HasGroup(*actual_capabilities, capability_sid),
+          HasGroup(*actual_groups, all_apps_sid));
+      ok = actual_package->TokenAppContainer && ::EqualSid(actual_package->TokenAppContainer, package_sid) &&
+          actual_capabilities->GroupCount == 1 && HasGroup(*actual_capabilities, capability_sid);
+    } else {
+      printf("[policy-target] profile token query failed: error=%lu\n", ::GetLastError());
+    }
+    if (package_sid)
+      ::LocalFree(package_sid);
+    if (capability_sid)
+      ::LocalFree(capability_sid);
+    if (all_apps_sid)
+      ::LocalFree(all_apps_sid);
+  }
+  ::CloseHandle(process_token);
+
+  HANDLE thread_token = nullptr;
+  const bool impersonating = ::OpenThreadToken(::GetCurrentThread(), TOKEN_QUERY, FALSE, &thread_token) != FALSE;
+  const DWORD thread_error = impersonating ? ERROR_SUCCESS : ::GetLastError();
+  if (final || expected.app_container) {
+    ok = ok && !impersonating && thread_error == ERROR_NO_TOKEN;
+  } else {
+    DWORD thread_integrity = 0;
+    ok = ok && impersonating && TokenIntegrity(thread_token, thread_integrity) && thread_integrity == wanted_rid;
+  }
+  if (thread_token)
+    ::CloseHandle(thread_token);
+  printf(
+      "[policy-target] tokens phase=%s appcontainer=%lu lpac=%d integrity=0x%lx "
+      "thread_token=%d thread_error=%lu -> %s\n",
+      final ? "final" : "initial",
+      app_container,
+      expected.lpac,
+      integrity,
+      impersonating,
+      thread_error,
+      ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool CheckFixtureRead(const wchar_t *directory, const wchar_t *name, bool expected) {
+  const std::wstring path = std::wstring(directory) + L"\\" + name;
+  HANDLE file = ::CreateFileW(
+      path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  const bool opened = file != INVALID_HANDLE_VALUE;
+  const DWORD error = opened ? ERROR_SUCCESS : ::GetLastError();
+  if (opened)
+    ::CloseHandle(file);
+  const bool ok = opened == expected && (opened || error == ERROR_ACCESS_DENIED);
+  printf(
+      "[policy-target] resource=%ls expected=%s actual=%s error=%lu -> %s\n",
+      name,
+      expected ? "allowed" : "denied",
+      opened ? "allowed" : "denied",
+      error,
+      ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool VerifyPolicyResources(const SboxTrustTransitionPolicyExpectation &expected) {
+  const bool allowed = CheckFixtureRead(expected.fixture_directory, L"allowed.txt", true);
+  const bool denied = CheckFixtureRead(expected.fixture_directory, L"denied.txt", false);
+  const bool package = CheckFixtureRead(expected.fixture_directory, L"package.txt", expected.app_container != 0);
+  // ALL APPLICATION PACKAGES can be implicit rather than listed in TokenGroups.
+  // Test its actual access effect to distinguish AppContainer from LPAC.
+  const bool all_apps =
+      CheckFixtureRead(expected.fixture_directory, L"all-apps.txt", expected.app_container && !expected.lpac);
+  return allowed && denied && package && all_apps;
 }
 
 bool VerifyLpacLow() {
@@ -59,7 +212,7 @@ bool VerifyLpacLow() {
   PSID all_apps = nullptr;
   PSID expected_capability = nullptr;
   ::ConvertStringSidToSidW(L"S-1-15-2-1", &all_apps);
-  ::ConvertStringSidToSidW(L"S-1-15-3-4021848294-1651122667-3873966303-2985905677", &expected_capability);
+  ::ConvertStringSidToSidW(kSboxTrustTransitionCapability, &expected_capability);
   bool has_all_apps = false;
   if (got_groups && all_apps) {
     auto *groups = reinterpret_cast<TOKEN_GROUPS *>(groups_buffer);
@@ -176,6 +329,23 @@ int main() {
   }
   printf("[trust-transition-target] pre-lockdown-ipc=ok\n");
 
+  const bool policy_case = control.case_id == SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS;
+  if (policy_case && !VerifyPolicyTokens(control.policy, false)) {
+    printf("[policy-target] stage=initial-token-contract result=failed\n");
+    return 50;
+  }
+  if (policy_case && control.policy.force_relocation) {
+    const uintptr_t target_base = reinterpret_cast<uintptr_t>(::GetModuleHandleW(L"sbox_trust_transition_test.dll"));
+    if (!target_base || !control.broker_dll_base || target_base == control.broker_dll_base) {
+      printf("[policy-target] stage=hosted-relocation result=failed\n");
+      return 51;
+    }
+    printf(
+        "[policy-target] hosted-relocation=ok broker=0x%llx target=0x%llx\n",
+        static_cast<unsigned long long>(control.broker_dll_base),
+        static_cast<unsigned long long>(target_base));
+  }
+
   const int transition = sbox_target_lower_token(target);
   if (transition != 0) {
     printf("[trust-transition-target] stage=target-transition result=%d\n", transition);
@@ -202,6 +372,10 @@ int main() {
   if (!VerifyThunkRx()) {
     printf("[trust-transition-target] stage=thunk-telemetry result=failed\n");
     return 46;
+  }
+  if (policy_case && (!VerifyPolicyTokens(control.policy, true) || !VerifyPolicyResources(control.policy))) {
+    printf("[policy-target] stage=final-policy-contract result=failed\n");
+    return 52;
   }
 
   char marker[80] = {};

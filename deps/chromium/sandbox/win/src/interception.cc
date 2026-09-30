@@ -459,8 +459,9 @@ ResultCode SelfInstallInterceptions() {
   // including the NtSetInformationThread guard that blocks a premature
   // RevertToSelf) plus the filesystem dispatcher's ntdll service calls. All are
   // INTERCEPTION_SERVICE_CALL on ntdll. Over-installing a hook with no matching
-  // policy is harmless: the interceptor just asks the broker, which denies via
-  // EvalPolicy, leaving the original (denied) status. (EAT-based interceptions —
+  // policy retains the original denial: an empty policy or a rule mismatch
+  // grants no brokered access, and unconfigured IPC services are rejected.
+  // (EAT-based interceptions —
   // win32k lockdown, kernel32 CreateThread — use a different resolver and are a
   // tracked follow-up; they are conditional and not needed by a headless,
   // csrss-connected target.)

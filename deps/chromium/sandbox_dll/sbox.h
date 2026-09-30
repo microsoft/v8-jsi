@@ -9,10 +9,14 @@
 //   * an app-defined target EXE calls sbox_target_* to run the sandboxed role
 //     and host whatever it wants (the target EXE decides the "prime use").
 //
-// The sandbox's primary enforcement is the restricted token + job + integrity
-// (kernel-enforced). File rules below are a *selective re-allow* channel: the
-// locked-down target is denied by default; rules name the few paths the broker
-// will open on its behalf and hand back.
+// Requires Windows 10 version 1809 (RS5, build 17763), Windows Server 2019,
+// or later, for every mode. Broker and target must have the same architecture.
+//
+// Ordinary mode uses restricted tokens, a job, and integrity levels. Profile
+// AppContainer/LPAC mode uses the Windows-created AppContainer token, its
+// package/capabilities, a job, and integrity levels; it does not combine that
+// identity with the ordinary mode's token-level or restricted-default-DACL
+// settings. File rules are an additional broker-mediated access channel.
 #ifndef SANDBOX_DLL_SBOX_H_
 #define SANDBOX_DLL_SBOX_H_
 
@@ -51,9 +55,9 @@ typedef struct SboxFileRule {
 // applies; whether the guest can survive it (e.g. running V8 jitless) is the
 // target EXE's concern, not the DLL's.
 typedef struct SboxPolicy {
-  uint32_t struct_size;            // must be initialized to sizeof(SboxPolicy)
-  int32_t initial_token;          // SboxTokenLevel
-  int32_t lockdown_token;         // SboxTokenLevel
+  uint32_t struct_size;           // size in bytes; at least sizeof(SboxPolicy)
+  int32_t initial_token;          // SboxTokenLevel; ordinary mode only
+  int32_t lockdown_token;         // SboxTokenLevel; ordinary mode only
   int32_t integrity;              // SboxIntegrityLevel; AppContainer requires LOW
   int32_t delayed_integrity;      // SboxIntegrityLevel (applied at LowerToken)
   int32_t prohibit_dynamic_code;  // 1 = arm ACG (MITIGATION_DYNAMIC_CODE_DISABLE)
@@ -65,6 +69,19 @@ typedef struct SboxPolicy {
   const wchar_t* const* capabilities;  // capability SID strings
   size_t capability_count;
 } SboxPolicy;
+
+// A zero use_app_container selects ordinary restricted-token mode. Nonzero
+// selects profile-based AppContainer; nonzero low_privilege_app_container then
+// selects LPAC. LPAC without AppContainer is invalid.
+//
+// In profile mode, initial_token and lockdown_token are ignored, including
+// values from existing callers. They do not request additional restricted-token
+// enforcement. Initial integrity must be LOW; delayed_integrity may be LOW or
+// UNTRUSTED and is applied as requested. Final target lockdown is still required.
+// Profile name/capability fields do not apply in ordinary mode.
+//
+// The current complete structure is required. Smaller structures are rejected;
+// larger structures may append fields, but this version reads only this prefix.
 
 // Bootstrap struct: the target EXE exports an instance named `g_sbox_bootstrap`;
 // the broker fills it (by parsing the target EXE's export table) while the
@@ -127,6 +144,8 @@ typedef void (*SboxMessageCb)(void* ctx, int kind, const void* data, size_t len)
 // per-session calls below (post_message / close / wait) are likewise safe to use
 // concurrently across distinct live sessions.
 typedef struct SboxSession SboxSession;
+// Creation returns nullptr on unsupported platforms or invalid policies and
+// writes a broker diagnostic. No target is resumed after setup failure.
 SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
                                         const SboxPolicy* policy,
                                         SboxMessageCb on_message, void* ctx);

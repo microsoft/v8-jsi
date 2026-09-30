@@ -19,7 +19,9 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -30,7 +32,9 @@
 #include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
+#include "base/win/current_module.h"
 #include "base/win/scoped_process_information.h"
+#include "base/win/windows_version.h"
 #include "sandbox/win/src/app_container.h"
 #include "sandbox/win/src/handle_closer.h"  // HandleCloserConfig, g_handle_closer_info
 #include "sandbox/win/src/interception.h"   // SelfInstallInterceptions
@@ -97,11 +101,27 @@ constexpr int kAcgPostconditionFailure = -4;
 std::mutex g_trust_transition_test_mutex;
 SboxTrustTransitionTestControl g_trust_transition_next_control = {};
 std::string g_trust_transition_last_output;
+SboxTrustTransitionExitObservation g_trust_transition_exit_observation = {};
+
+bool ValidPolicyExpectation(const SboxTrustTransitionPolicyExpectation& policy) {
+  return (policy.initial_integrity == SBOX_INTEGRITY_LOW ||
+          policy.initial_integrity == SBOX_INTEGRITY_UNTRUSTED) &&
+         (policy.delayed_integrity == SBOX_INTEGRITY_LOW ||
+          policy.delayed_integrity == SBOX_INTEGRITY_UNTRUSTED) &&
+         (policy.app_container == 0 || policy.app_container == 1) &&
+         (policy.lpac == 0 || policy.lpac == 1) &&
+         (policy.force_relocation == 0 || policy.force_relocation == 1) &&
+         (!policy.lpac || policy.app_container) &&
+         (!policy.app_container || policy.package_sid[0]) &&
+         policy.fixture_directory[0] &&
+         policy.package_sid[std::size(policy.package_sid) - 1] == L'\0' &&
+         policy.fixture_directory[std::size(policy.fixture_directory) - 1] == L'\0';
+}
 #endif
 
 // Broker diagnostics: mirror to stdout (console harnesses like test_app) and to
 // the debugger via OutputDebugString, so broker failures are visible from GUI
-// hosts (e.g. Excel) that have no console. Capture with DebugView/DBWIN.
+// hosts that have no console. Capture with DebugView/DBWIN.
 void BrokerLog(const char* fmt, ...) {
   char buf[1024];
   va_list ap;
@@ -110,6 +130,12 @@ void BrokerLog(const char* fmt, ...) {
   va_end(ap);
   if (n < 0)
     return;
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  {
+    std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+    g_trust_transition_last_output.append(buf);
+  }
+#endif
   ::fputs(buf, stdout);
   ::OutputDebugStringA(buf);
 }
@@ -267,13 +293,106 @@ sandbox::IntegrityLevel MapIntegrity(int32_t level) {
                                            : sandbox::INTEGRITY_LEVEL_LOW;
 }
 
+bool ValidatePolicy(const wchar_t* target_exe, const SboxPolicy* policy) {
+  auto version = base::win::GetVersion();
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  switch (sandbox::trust_transition_test::Platform()) {
+    case SBOX_TRUST_TRANSITION_PLATFORM_PRE_RS5:
+      version = base::win::Version::WIN10_RS4;
+      break;
+    case SBOX_TRUST_TRANSITION_PLATFORM_RS5:
+      version = base::win::Version::WIN10_RS5;
+      break;
+    case SBOX_TRUST_TRANSITION_PLATFORM_UNKNOWN:
+      version = base::win::Version::WIN_LAST;
+      break;
+  }
+#endif
+  if (version < base::win::Version::WIN10_RS5 ||
+      version >= base::win::Version::WIN_LAST) {
+    BrokerLog("[broker] stage=platform unsupported Windows version=%d; "
+              "Windows 10 RS5/build 17763 or later is required\n",
+              static_cast<int>(version));
+    ::SetLastError(ERROR_OLD_WIN_VERSION);
+    return false;
+  }
+  if (!target_exe || !target_exe[0] || !policy) {
+    BrokerLog("[broker] stage=policy missing target path or policy\n");
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  if (policy->struct_size < sizeof(SboxPolicy)) {
+    BrokerLog("[broker] stage=policy incompatible SboxPolicy size: "
+              "got %u, need at least %zu\n",
+              policy->struct_size, sizeof(SboxPolicy));
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  const bool app_container = policy->use_app_container != 0;
+  if (policy->low_privilege_app_container && !app_container) {
+    BrokerLog("[broker] stage=policy LPAC requires AppContainer\n");
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  const auto valid_integrity = [](int32_t value) {
+    return value == SBOX_INTEGRITY_LOW || value == SBOX_INTEGRITY_UNTRUSTED;
+  };
+  if (!valid_integrity(policy->integrity) ||
+      !valid_integrity(policy->delayed_integrity) ||
+      (app_container && policy->integrity != SBOX_INTEGRITY_LOW)) {
+    BrokerLog("[broker] stage=policy invalid integrity: initial=%d delayed=%d "
+              "appcontainer=%d (profile initial integrity must be LOW)\n",
+              policy->integrity, policy->delayed_integrity, app_container);
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  if (!app_container &&
+      MapToken(policy->initial_token) < MapToken(policy->lockdown_token)) {
+    BrokerLog("[broker] stage=policy initial token cannot be more restricted "
+              "than lockdown token: initial=%d lockdown=%d\n",
+              policy->initial_token, policy->lockdown_token);
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  if (app_container) {
+    if (!policy->app_container_profile_name ||
+        !policy->app_container_profile_name[0] ||
+        (policy->capability_count && !policy->capabilities)) {
+      BrokerLog("[broker] stage=policy missing AppContainer profile or "
+                "capability array\n");
+      ::SetLastError(ERROR_INVALID_PARAMETER);
+      return false;
+    }
+    for (size_t i = 0; i < policy->capability_count; ++i) {
+      if (!policy->capabilities[i] || !policy->capabilities[i][0]) {
+        BrokerLog("[broker] stage=policy empty capability at index %zu\n", i);
+        ::SetLastError(ERROR_INVALID_PARAMETER);
+        return false;
+      }
+    }
+  }
+  if (policy->file_rule_count && !policy->file_rules) {
+    BrokerLog("[broker] stage=policy missing file-rule array\n");
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    return false;
+  }
+  for (size_t i = 0; i < policy->file_rule_count; ++i) {
+    if (!policy->file_rules[i].pattern || !policy->file_rules[i].pattern[0]) {
+      BrokerLog("[broker] stage=policy empty file rule at index %zu\n", i);
+      ::SetLastError(ERROR_INVALID_PARAMETER);
+      return false;
+    }
+  }
+  return true;
+}
+
 // Base + SizeOfImage of our own sbox.dll in this process (diagnostics + the
 // optional forced-relocation base-independence probe).
 uintptr_t MyDllBase() {
-  return reinterpret_cast<uintptr_t>(::GetModuleHandleW(L"sbox.dll"));
+  return reinterpret_cast<uintptr_t>(CURRENT_MODULE());
 }
 DWORD MyDllSizeOfImage() {
-  HMODULE m = ::GetModuleHandleW(L"sbox.dll");
+  HMODULE m = CURRENT_MODULE();
   if (!m)
     return 0;
   auto base = reinterpret_cast<const BYTE*>(m);
@@ -369,6 +488,35 @@ uint64_t FindRemoteExport(HANDLE proc, const char* name) {
 
 // --- message channel (broker side) ---
 
+// Used only before the target is resumed and the broker reader is started.
+void CleanupFailedSpawn(SboxSession* session) {
+  if (session->proc) {
+    if (::WaitForSingleObject(session->proc, 0) == WAIT_TIMEOUT &&
+        !::TerminateProcess(session->proc, 1)) {
+      BrokerLog("[broker] failed to terminate suspended target: error=%lu\n",
+                ::GetLastError());
+    }
+    if (::WaitForSingleObject(session->proc, 5000) != WAIT_OBJECT_0) {
+      BrokerLog("[broker] failed target did not exit during cleanup\n");
+    }
+  }
+  if (session->msg_map)
+    ::UnmapViewOfFile(session->msg_map);
+  for (HANDLE handle : {session->msg_section, session->evt_t2b,
+                        session->evt_b2t, session->evt_close,
+                        session->reader_stop, session->ipc_section,
+                        session->thread, session->proc}) {
+    if (handle)
+      ::CloseHandle(handle);
+  }
+  if (session->logh != INVALID_HANDLE_VALUE)
+    ::CloseHandle(session->logh);
+  if (!session->log_path.empty() && !::DeleteFileW(session->log_path.c_str())) {
+    BrokerLog("[broker] failed log cleanup: error=%lu\n", ::GetLastError());
+  }
+  delete session;
+}
+
 // Create the duplex message section + the two auto-reset events + a manual-reset
 // stop event for the reader thread.
 bool CreateMsgChannel(SboxSession* s) {
@@ -391,13 +539,42 @@ bool CreateMsgChannel(SboxSession* s) {
 
 void DiscardFrame(void*, int, const void*, size_t) {}
 
-// Broker reader thread: wake on the inbound event, drain the t2b ring, deliver
-// each frame to the host's handler (or discard if none).
+// Deliver incoming frames and report process exit. The host still owns wait
+// and session cleanup.
 DWORD WINAPI BrokerReaderThread(void* param) {
   SboxSession* s = static_cast<SboxSession*>(param);
-  HANDLE waits[2] = {s->evt_t2b, s->reader_stop};
+  HANDLE waits[3] = {s->evt_t2b, s->reader_stop, s->proc};
+  DWORD wait_count = 3;
   for (;;) {
-    DWORD w = ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+    DWORD w = ::WaitForMultipleObjects(wait_count, waits, FALSE, INFINITE);
+    if (w == WAIT_OBJECT_0 + 2) {
+      DWORD exit_code = 0;
+      const DWORD pid = ::GetProcessId(s->proc);
+      if (::GetExitCodeProcess(s->proc, &exit_code)) {
+        BrokerLog("[broker] target exit observed: pid=%lu exit=%lu (0x%08lx) "
+                  "output=%ls\n",
+                  pid, exit_code, exit_code,
+                  s->log_path.empty() ? L"(unavailable)" : s->log_path.c_str());
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+        {
+          std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+          ++g_trust_transition_exit_observation.count;
+          g_trust_transition_exit_observation.exit_code = exit_code;
+        }
+#endif
+      } else {
+        BrokerLog("[broker] target exit query failed: pid=%lu error=%lu\n",
+                  pid, ::GetLastError());
+      }
+      // Report exit once, but keep the original message/stop behavior.
+      wait_count = 2;
+      continue;
+    }
+    if (w == WAIT_FAILED) {
+      const DWORD error = ::GetLastError();
+      BrokerLog("[broker] target reader wait failed: pid=%lu error=%lu\n",
+                ::GetProcessId(s->proc), error);
+    }
     if (w != WAIT_OBJECT_0)
       break;  // stop event or error
     sbox_msg::ChannelHeader* h = sbox_msg::Header(s->msg_map);
@@ -434,36 +611,31 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   std::unique_ptr<sandbox::TargetPolicy> sb_policy = broker->CreatePolicy();
   sandbox::TargetConfig* config = sb_policy->GetConfig();
-  if (config->SetTokenLevel(MapToken(policy->initial_token),
-                            MapToken(policy->lockdown_token)) !=
-          sandbox::SBOX_ALL_OK ||
-      config->SetJobLevel(sandbox::JobLevel::kLockdown, 0) !=
-          sandbox::SBOX_ALL_OK) {
-    BrokerLog("[broker] policy configuration failed\n");
+  if (config->SetJobLevel(sandbox::JobLevel::kLockdown, 0) !=
+      sandbox::SBOX_ALL_OK) {
+    BrokerLog("[broker] job policy configuration failed\n");
     return nullptr;
   }
 
-  if (policy->use_app_container &&
-      policy->integrity != SBOX_INTEGRITY_LOW) {
-    BrokerLog("[broker] AppContainer requires low integrity\n");
-    return nullptr;
-  }
-  if (!policy->use_app_container &&
-      config->SetIntegrityLevel(MapIntegrity(policy->integrity)) !=
-          sandbox::SBOX_ALL_OK) {
-    BrokerLog("[broker] policy configuration failed\n");
-    return nullptr;
-  }
-  config->SetDelayedIntegrityLevel(MapIntegrity(policy->delayed_integrity));
-  config->SetLockdownDefaultDacl();
-
-  if (policy->use_app_container) {
-    if (!policy->app_container_profile_name ||
-        !policy->app_container_profile_name[0] ||
-        (policy->capability_count && !policy->capabilities)) {
-      BrokerLog("[broker] invalid AppContainer policy\n");
+  if (!policy->use_app_container) {
+    if (config->SetTokenLevel(MapToken(policy->initial_token),
+                              MapToken(policy->lockdown_token)) !=
+            sandbox::SBOX_ALL_OK ||
+        config->SetIntegrityLevel(MapIntegrity(policy->integrity)) !=
+            sandbox::SBOX_ALL_OK) {
+      BrokerLog("[broker] restricted-token policy configuration failed\n");
       return nullptr;
     }
+    config->SetLockdownDefaultDacl();
+  } else {
+    BrokerLog("[broker] profile token contract: initial_token=%d and "
+              "lockdown_token=%d do not apply; no restricted-default-DACL "
+              "guarantee\n",
+              policy->initial_token, policy->lockdown_token);
+  }
+  config->SetDelayedIntegrityLevel(MapIntegrity(policy->delayed_integrity));
+
+  if (policy->use_app_container) {
     const sandbox::ResultCode app_container_rc =
         config->AddAppContainerProfile(
             base::wcstring_view(policy->app_container_profile_name));
@@ -502,14 +674,15 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
            rule.readonly ? "readonly" : "any", rule.pattern);
   }
 
-  SboxSession* s = new SboxSession();
+  std::unique_ptr<SboxSession, decltype(&CleanupFailedSpawn)> pending(
+      new SboxSession(), &CleanupFailedSpawn);
+  SboxSession* s = pending.get();
   s->on_message = on_message;
   s->on_message_ctx = ctx;
 
   // The duplex message channel (independent of the sandbox IPC).
   if (!CreateMsgChannel(s)) {
     BrokerLog("[broker] CreateMsgChannel failed: %lu\n", ::GetLastError());
-    delete s;
     return nullptr;
   }
 
@@ -518,13 +691,18 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   // the spawn we duplicate it + the message-channel handles into the child and
   // relay the values via the child's EXE bootstrap struct.
   sandbox::g_sbox_hosted_mode = true;
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  if (sandbox::trust_transition_test::ConsumeBrokerFault(
+          SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED)) {
+    sandbox::g_sbox_hosted_mode = false;
+  }
+#endif
   s->ipc_section =
       ::CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
                            PAGE_READWRITE | SEC_COMMIT, 0, 256 * 1024, nullptr);
   if (!s->ipc_section) {
     BrokerLog("[broker] CreateFileMapping(ipc section) failed: %lu\n",
            ::GetLastError());
-    delete s;
     return nullptr;
   }
   sandbox::g_sbox_hosted_section = s->ipc_section;
@@ -535,15 +713,28 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   // Capture the sandboxed target's stdout (it can't reach the console).
   wchar_t dir[MAX_PATH] = {};
   DWORD tn = ::GetTempPathW(MAX_PATH, dir);
-  s->log_path =
-      (tn ? std::wstring(dir, tn) : std::wstring(L"")) + L"sbox_target.out";
-  SECURITY_ATTRIBUTES sa = {sizeof(sa), nullptr, TRUE};
-  s->logh = ::CreateFileW(s->log_path.c_str(), GENERIC_WRITE,
-                          FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS,
-                          FILE_ATTRIBUTE_NORMAL, nullptr);
+  wchar_t log_path[MAX_PATH] = {};
+  if (tn && tn < MAX_PATH &&
+      ::GetTempFileNameW(dir, L"sbx", 0, log_path)) {
+    s->log_path = log_path;
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), nullptr, TRUE};
+    s->logh = ::CreateFileW(s->log_path.c_str(), GENERIC_WRITE,
+                            FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL, nullptr);
+  }
   if (s->logh != INVALID_HANDLE_VALUE) {
     sb_policy->SetStdoutHandle(s->logh);
     sb_policy->SetStderrHandle(s->logh);
+  } else {
+    BrokerLog("[broker] target output capture unavailable: error=%lu\n",
+              ::GetLastError());
+    if (!s->log_path.empty()) {
+      if (!::DeleteFileW(s->log_path.c_str())) {
+        BrokerLog("[broker] unused log cleanup failed: error=%lu\n",
+                  ::GetLastError());
+      }
+      s->log_path.clear();
+    }
   }
 
   DWORD last_error = ERROR_SUCCESS;
@@ -566,9 +757,11 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   if (rc != sandbox::SBOX_ALL_OK || !s->proc) {
     BrokerLog("[broker] SpawnTargetAsync failed: rc=%d last_error=%lu\n", rc,
            last_error);
-    delete s;
     return nullptr;
   }
+  const DWORD target_pid = ::GetProcessId(s->proc);
+  BrokerLog("[broker] target created: pid=%lu output=%ls\n", target_pid,
+            s->log_path.empty() ? L"(unavailable)" : s->log_path.c_str());
 
   // Relay the bootstrap to the child's EXE struct while it is still suspended
   // (its EXE image is mapped; its sbox.dll is not). Duplicate the IPC section +
@@ -595,7 +788,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
                          reinterpret_cast<HANDLE*>(&bootstrap.msg_evt_close),
                          EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, 0)) {
     BrokerLog("[broker] DuplicateHandle(->child) failed: %lu\n", ::GetLastError());
-    delete s;
     return nullptr;
   }
   bootstrap.ipc_size = sandbox::g_sbox_hosted_child_ipc_size;
@@ -617,7 +809,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
       wrote != sizeof(bootstrap)) {
     BrokerLog("[broker] relay bootstrap failed (addr=0x%llx err=%lu)\n",
            (unsigned long long)addr, ::GetLastError());
-    delete s;
     return nullptr;
   }
   BrokerLog("[broker] relayed bootstrap @0x%llx: ipc=%u policy=%u + message channel\n",
@@ -631,6 +822,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
     g_trust_transition_next_control = {};
   }
   if (control.magic == kSboxTrustTransitionControlMagic) {
+    control.broker_dll_base = MyDllBase();
     const uint64_t control_addr =
         FindRemoteExport(proc, "g_sbox_trust_transition_test_control");
     wrote = 0;
@@ -642,7 +834,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
                 "(addr=0x%llx err=%lu)\n",
                 static_cast<unsigned long long>(control_addr),
                 ::GetLastError());
-      delete s;
       return nullptr;
     }
     BrokerLog("[broker] trust-transition selected case=%u serial=%llu\n",
@@ -666,8 +857,18 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 
   // Start the broker reader thread, then let the target run.
   s->reader_thread = ::CreateThread(nullptr, 0, &BrokerReaderThread, s, 0, nullptr);
-  ::ResumeThread(s->thread);
-  return s;
+  if (!s->reader_thread) {
+    BrokerLog("[broker] target reader start failed: pid=%lu error=%lu\n",
+              target_pid, ::GetLastError());
+  }
+  const DWORD previous_suspend_count = ::ResumeThread(s->thread);
+  const DWORD resume_error =
+      previous_suspend_count == static_cast<DWORD>(-1)
+          ? ::GetLastError()
+          : ERROR_SUCCESS;
+  BrokerLog("[broker] target resume: pid=%lu previous_suspend_count=%lu error=%lu\n",
+            target_pid, previous_suspend_count, resume_error);
+  return pending.release();
 }
 
 }  // namespace
@@ -678,13 +879,8 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 SBOX_API SboxSession* sbox_broker_spawn(const wchar_t* target_exe,
                                         const SboxPolicy* policy,
                                         SboxMessageCb on_message, void* ctx) {
-  if (!target_exe || !policy)
+  if (!ValidatePolicy(target_exe, policy))
     return nullptr;
-  if (policy->struct_size < sizeof(SboxPolicy)) {
-    BrokerLog("[broker] incompatible SboxPolicy size: got %u, need at least %zu\n",
-           policy->struct_size, sizeof(SboxPolicy));
-    return nullptr;
-  }
   // Do the heavy, once-per-process init (base + BrokerServices::Init) HERE, on
   // the caller thread, before handing off to the launcher thread. The host may
   // have hardened its DLL search path (SetDefaultDllDirectories) before calling
@@ -768,12 +964,23 @@ SBOX_API int sbox_broker_wait(SboxSession* session) {
       BrokerLog("[broker] ----- captured target output -----\n");
       char buf[4096];
       DWORD got = 0;
-      while (::ReadFile(rd, buf, sizeof(buf), &got, nullptr) && got)
+      BOOL read_ok = TRUE;
+      while ((read_ok = ::ReadFile(rd, buf, sizeof(buf), &got, nullptr)) && got)
         BrokerLogRaw(buf, got);
+      if (!read_ok) {
+        BrokerLog("[broker] target output read failed: path=%ls error=%lu\n",
+                  session->log_path.c_str(), ::GetLastError());
+      }
       BrokerLog("[broker] -----------------------------------\n");
       ::CloseHandle(rd);
+    } else {
+      BrokerLog("[broker] target output open failed: path=%ls error=%lu\n",
+                session->log_path.c_str(), ::GetLastError());
     }
-    ::DeleteFileW(session->log_path.c_str());
+    if (!::DeleteFileW(session->log_path.c_str())) {
+      BrokerLog("[broker] target output cleanup failed: path=%ls error=%lu\n",
+                session->log_path.c_str(), ::GetLastError());
+    }
   }
 
   BrokerLog("[broker] target exit=%lu (0x%lx) -> %s\n", ec, ec,
@@ -821,8 +1028,12 @@ SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_initialize(
   if (!control || control->magic != kSboxTrustTransitionControlMagic ||
       control->version != kSboxTrustTransitionControlVersion ||
       control->case_id == SBOX_TRUST_TRANSITION_CASE_INVALID ||
-      control->case_id > SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS ||
+      control->case_id > SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS ||
       control->serial == 0) {
+    return 0;
+  }
+  if (control->case_id == SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS &&
+      !ValidPolicyExpectation(control->policy)) {
     return 0;
   }
   sandbox::trust_transition_test::Initialize(control->case_id);
@@ -840,6 +1051,64 @@ SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_get_thunk_telemetry(
 SBOX_TRUST_TRANSITION_API const char* sbox_trust_transition_test_last_output() {
   std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
   return g_trust_transition_last_output.c_str();
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_next_policy_case(
+    const SboxTrustTransitionPolicyExpectation* policy, uint64_t serial) {
+  if (!policy || !ValidPolicyExpectation(*policy) || !serial)
+    return 0;
+  std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+  if (g_trust_transition_next_control.magic != 0)
+    return 0;
+  g_trust_transition_next_control = {};
+  g_trust_transition_next_control.magic = kSboxTrustTransitionControlMagic;
+  g_trust_transition_next_control.version = kSboxTrustTransitionControlVersion;
+  g_trust_transition_next_control.case_id =
+      SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS;
+  g_trust_transition_next_control.serial = serial;
+  g_trust_transition_next_control.policy = *policy;
+  g_trust_transition_last_output.clear();
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API void sbox_trust_transition_test_reset_broker() {
+  std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+  g_trust_transition_next_control = {};
+  g_trust_transition_last_output.clear();
+  g_trust_transition_exit_observation = {};
+  sandbox::trust_transition_test::SetPlatform(
+      SBOX_TRUST_TRANSITION_PLATFORM_CURRENT);
+  sandbox::trust_transition_test::SetBrokerFault(SBOX_TRUST_TRANSITION_BROKER_NONE);
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_platform(
+    uint32_t platform) {
+  if (platform > SBOX_TRUST_TRANSITION_PLATFORM_UNKNOWN)
+    return 0;
+  sandbox::trust_transition_test::SetPlatform(platform);
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_broker_fault(
+    uint32_t fault) {
+  if (fault > SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED)
+    return 0;
+  sandbox::trust_transition_test::SetBrokerFault(fault);
+  return 1;
+}
+
+SBOX_TRUST_TRANSITION_API uint32_t
+sbox_trust_transition_test_pending_broker_fault() {
+  return sandbox::trust_transition_test::BrokerFault();
+}
+
+SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_get_exit_observation(
+    SboxTrustTransitionExitObservation* observation) {
+  if (!observation)
+    return 0;
+  std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
+  *observation = g_trust_transition_exit_observation;
+  return 1;
 }
 #endif
 
