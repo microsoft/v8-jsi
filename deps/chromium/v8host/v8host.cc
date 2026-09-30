@@ -35,6 +35,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -194,7 +195,14 @@ bool ReadFileBytes(const std::wstring& path, std::string& out) {
   if (h == INVALID_HANDLE_VALUE)
     return false;
   LARGE_INTEGER size = {};
-  bool ok = (::GetFileSizeEx(h, &size) != 0) && size.QuadPart >= 0;
+  bool ok = ::GetFileSizeEx(h, &size) != 0;
+  DWORD error = ok ? ERROR_SUCCESS : ::GetLastError();
+  if (ok && (size.QuadPart < 0 ||
+             static_cast<unsigned long long>(size.QuadPart) >
+                 std::numeric_limits<size_t>::max())) {
+    ok = false;
+    error = ERROR_FILE_TOO_LARGE;
+  }
   if (ok) {
     out.assign(static_cast<size_t>(size.QuadPart), '\0');
     size_t total = 0;
@@ -202,7 +210,9 @@ bool ReadFileBytes(const std::wstring& path, std::string& out) {
       DWORD want =
           static_cast<DWORD>(std::min<size_t>(out.size() - total, 1u << 28));
       DWORD got = 0;
-      if (!::ReadFile(h, &out[total], want, &got, nullptr) || got == 0) {
+      const BOOL read_ok = ::ReadFile(h, &out[total], want, &got, nullptr);
+      if (!read_ok || got == 0) {
+        error = read_ok ? ERROR_HANDLE_EOF : ::GetLastError();
         ok = false;
         break;
       }
@@ -210,6 +220,8 @@ bool ReadFileBytes(const std::wstring& path, std::string& out) {
     }
   }
   ::CloseHandle(h);
+  if (!ok)
+    ::SetLastError(error);
   return ok;
 }
 
@@ -217,6 +229,26 @@ std::wstring EnvW(const wchar_t* name) {
   wchar_t buf[MAX_PATH] = {};
   DWORD n = ::GetEnvironmentVariableW(name, buf, MAX_PATH);
   return (n == 0 || n >= MAX_PATH) ? std::wstring() : std::wstring(buf, n);
+}
+
+bool ReadGuestPath(std::wstring& path) {
+  constexpr wchar_t name[] = L"V8HOST_GUEST_JS";
+  ::SetLastError(ERROR_SUCCESS);
+  const DWORD required = ::GetEnvironmentVariableW(name, nullptr, 0);
+  if (!required) {
+    const DWORD error = ::GetLastError();
+    return error == ERROR_SUCCESS || error == ERROR_ENVVAR_NOT_FOUND;
+  }
+  path.resize(required);
+  ::SetLastError(ERROR_SUCCESS);
+  const DWORD length = ::GetEnvironmentVariableW(name, path.data(), required);
+  if ((!length && ::GetLastError() != ERROR_SUCCESS) || length >= required) {
+    if (length >= required)
+      ::SetLastError(ERROR_INSUFFICIENT_BUFFER);
+    return false;
+  }
+  path.resize(length);
+  return true;
 }
 
 //==========================================================================
@@ -374,8 +406,12 @@ void InstallHostObject(Runtime& rt, SboxTarget* target) {
             MarkFirstPost();
             if (count >= 1 && args[0].isString()) {
               std::string s = args[0].getString(rt).utf8(rt);
-              sbox_target_post_message(target, SBOX_MSG_STRING, s.data(),
-                                       s.size());
+              const int result = sbox_target_post_message(
+                  target, SBOX_MSG_STRING, s.data(), s.size());
+              if (result != 0) {
+                throw JSError(rt, "host.postMessage failed: result=" +
+                                     std::to_string(result));
+              }
             }
             return Value::undefined();
           }));
@@ -391,8 +427,12 @@ void InstallHostObject(Runtime& rt, SboxTarget* target) {
               Object o = args[0].getObject(rt);
               if (o.isArrayBuffer(rt)) {
                 ArrayBuffer ab = o.getArrayBuffer(rt);
-                sbox_target_post_message(target, SBOX_MSG_BINARY, ab.data(rt),
-                                         ab.size(rt));
+                const int result = sbox_target_post_message(
+                    target, SBOX_MSG_BINARY, ab.data(rt), ab.size(rt));
+                if (result != 0) {
+                  throw JSError(rt, "host.postMessageBinary failed: result=" +
+                                       std::to_string(result));
+                }
               }
             }
             return Value::undefined();
@@ -441,22 +481,32 @@ struct DrainCtx {
   Runtime* rt;
   int strings = 0;
   int binaries = 0;
+  bool failed = false;
 };
 
 // Invoked by sbox_target_drain_messages (C code) — exceptions must NOT cross
 // back into C, so catch everything here.
 void OnInbound(void* ctx, int kind, const void* data, size_t len) {
   auto* c = static_cast<DrainCtx*>(ctx);
+  if (c->failed)
+    return;
   if (kind == SBOX_MSG_STRING)
     ++c->strings;
-  else
+  else if (kind == SBOX_MSG_BINARY)
     ++c->binaries;
+  else {
+    printf("[v8host] invalid inbound message kind=%d\n", kind);
+    c->failed = true;
+    return;
+  }
   try {
     DeliverToJs(*c->rt, kind, data, len);
   } catch (const std::exception& e) {
     printf("[v8host] onmessage threw: %s\n", e.what());
+    c->failed = true;
   } catch (...) {
     printf("[v8host] onmessage threw (unknown)\n");
+    c->failed = true;
   }
 }
 
@@ -498,9 +548,9 @@ int main() {
     return 10;
   }
 
-  printf("[v8host] IPC test (pre-lockdown)  = %s\n",
-         sbox_target_test_ipc(target) ? "OK" : "FAIL");
   const bool ping_pre = sbox_target_test_ipc(target) != 0;
+  printf("[v8host] IPC test (pre-lockdown)  = %s\n",
+         ping_pre ? "OK" : "FAIL");
 
   // Tier selection (host-chosen; the broker sets SBOX_TIER, inherited here):
   //   Untrusted (default) = jitless + ACG (V8 emits no executable code).
@@ -551,27 +601,30 @@ int main() {
     }
   }
 
-  // Host-supplied guest script: if V8HOST_GUEST_JS names a readable file,
-  // evaluate its contents as the guest instead of the built-in kUserJs demo.
+  // A supplied guest selects custom-guest mode, not the built-in demo.
   // Read it NOW (pre-lockdown) — once LowerToken() drops privileges the target
   // can no longer open arbitrary files. v8host stays a neutral JS host: it
   // installs the `host` object and evaluates whatever guest it is handed; the
-  // broker composes whatever the guest contains. A set-but-unreadable path is a
-  // warning, not a fatal error, so the demo guest keeps the binary self-testable.
+  // broker composes whatever the guest contains. A requested but unreadable
+  // guest is an input error; never replace it with the demo.
   std::string guest_js;
-  bool use_guest_file = false;
-  const std::wstring guest_js_path = EnvW(L"V8HOST_GUEST_JS");
-  if (!guest_js_path.empty()) {
-    if (ReadFileBytes(guest_js_path, guest_js)) {
-      use_guest_file = true;
-      printf("[v8host] guest JS from %ls (%zu bytes)\n", guest_js_path.c_str(),
-             guest_js.size());
-    } else {
-      printf("[v8host] WARNING: V8HOST_GUEST_JS=%ls could not be read; "
-             "falling back to built-in demo guest\n",
-             guest_js_path.c_str());
-    }
+  std::wstring guest_js_path;
+  if (!ReadGuestPath(guest_js_path)) {
+    printf("[v8host] stage=guest-input environment query failed: error=%lu\n",
+           ::GetLastError());
+    return 24;
   }
+  const bool use_guest_file = !guest_js_path.empty();
+  if (use_guest_file) {
+    if (!ReadFileBytes(guest_js_path, guest_js)) {
+      printf("[v8host] stage=guest-input cannot read %ls: error=%lu\n",
+             guest_js_path.c_str(), ::GetLastError());
+      return 24;
+    }
+    printf("[v8host] guest JS from %ls (%zu bytes)\n", guest_js_path.c_str(),
+           guest_js.size());
+  }
+  printf("[v8host] mode = %s\n", use_guest_file ? "custom guest" : "demo self-test");
 
   // Load the engine by FULL PATH (our own application directory) — never a bare
   // name (which would honor the search path / allow planting). The broker
@@ -678,38 +731,42 @@ int main() {
 
   const bool ping_post = sbox_target_test_ipc(target) != 0;
   printf("[v8host] IPC test (post-lockdown) = %s\n", ping_post ? "OK" : "FAIL");
+  if (!ping_pre || !ping_post || !token_state_ok) {
+    printf("[v8host] stage=security-validation pre_ipc=%d post_ipc=%d token=%d\n",
+           ping_pre, ping_post, token_state_ok);
+    ::TerminateProcess(::GetCurrentProcess(), 23);
+  }
 
-  // --- brokered file proxy: an UNMODIFIED CreateFileW. The restricted token
-  // denies it; the self-installed NtCreateFile interception routes the denied
-  // open to the broker, which evaluates the policy. ---
-  const std::wstring allowed = EnvW(L"SBOX_DEMO_ALLOWED");
-  const std::wstring denied = EnvW(L"SBOX_DEMO_DENIED");
-  DWORD allowed_rc = TryReadOpen(allowed);
-  DWORD denied_rc = TryReadOpen(denied);
-  const bool nonallowed_denied = (denied_rc != ERROR_SUCCESS);
+  // Only the demo requires its file fixtures. Custom guests use the access
+  // granted by their policy, which need not include file brokering.
+  bool demo_files_ok = true;
+  if (!use_guest_file) {
+    const std::wstring allowed = EnvW(L"SBOX_DEMO_ALLOWED");
+    const std::wstring denied = EnvW(L"SBOX_DEMO_DENIED");
+    DWORD allowed_rc = TryReadOpen(allowed);
+    DWORD denied_rc = TryReadOpen(denied);
+    const bool nonallowed_denied = (denied_rc != ERROR_SUCCESS);
 #if defined(_WIN64)
-  const bool proxied_ok = (allowed_rc == ERROR_SUCCESS);
-  printf("[v8host] policy-allowed file open (broker-proxied) = %-7s (err=%lu)\n",
-         proxied_ok ? "OPENED" : "FAILED", allowed_rc);
+    const bool proxied_ok = (allowed_rc == ERROR_SUCCESS);
+    printf("[v8host] policy-allowed file open (broker-proxied) = %-7s (err=%lu)\n",
+           proxied_ok ? "OPENED" : "FAILED", allowed_rc);
 #else
-  // v8-jsi: on the 32-bit (x86) target SelfInstallInterceptions() is a no-op
-  // (the Chromium sandbox interception thunks are 64-bit-only — see
-  // interception.cc), so there is NO brokered file re-allow channel. Under the
-  // deny-all Untrusted model that channel is unused, so the policy-allowed open
-  // is expected to be denied and is NOT a pass criterion on x86. (The hard
-  // kernel-level denial of the non-allowed open below still holds.)
-  const bool proxied_ok = true;  // not applicable on x86 (no interceptions)
-  printf("[v8host] policy-allowed file open (broker-proxied) = N/A     "
-         "(no interceptions on x86; deny-all needs none, err=%lu)\n", allowed_rc);
+    // x86 has no brokered file interceptions; retain its deny-only demo check.
+    const bool proxied_ok = true;
+    printf("[v8host] policy-allowed file open (broker-proxied) = N/A     "
+           "(no interceptions on x86; deny-all needs none, err=%lu)\n", allowed_rc);
 #endif
-  printf("[v8host] non-allowed file open                     = %-7s (err=%lu)\n",
-         nonallowed_denied ? "DENIED" : "OPENED!", denied_rc);
+    printf("[v8host] non-allowed file open                     = %-7s (err=%lu)\n",
+           nonallowed_denied ? "DENIED" : "OPENED!", denied_rc);
+    demo_files_ok = proxied_ok && nonallowed_denied;
+  }
 
   // --- Stage 2: WebView2-style JS messaging, all POST-LOCKDOWN (jitless+ACG) ---
-  // Install the `host` object, run the untrusted JS (sets onmessage, posts
-  // "ready"), then own the JS thread in an event loop until the host closes the
-  // channel. All via the JSI C++ API — RAII, exceptions, no manual ABI calls.
+  // Install the `host` object and run the untrusted JS, then own the JS thread
+  // in an event loop until the host closes the channel. The demo sets
+  // onmessage and posts "ready"; custom guests define their own protocol.
   bool js_ok = false;
+  bool host_closed = false;
   DrainCtx dctx{&rt};
   try {
     InstallHostObject(rt, target);
@@ -728,7 +785,6 @@ int main() {
     rt.evaluatePreparedJavaScript(prepared);
     const LONGLONG t_executed = g_perf.now();
     g_perf.emit("execute", t_parsed, t_executed);
-    js_ok = true;
     printf("[v8host] %s JS evaluated = OK\n", use_guest_file ? "guest" : "user");
     rt.drainMicrotasks();
     // kickoff: time to the guest's first outbound host.postMessage. In a real
@@ -753,18 +809,25 @@ int main() {
     printf("[v8host] entering JS message loop (until host closes channel)\n");
     for (;;) {
       DWORD w = ::WaitForMultipleObjects(3, waits, FALSE, INFINITE);
-      if (w == WAIT_OBJECT_0 + 2) {  // host closed the channel
-        sbox_target_drain_messages(target, OnInbound, &dctx);  // final drain
-        break;
-      } else if (w == WAIT_OBJECT_0) {  // inbound message
+      const bool closing = w == WAIT_OBJECT_0 + 2;
+      if (closing || w == WAIT_OBJECT_0) {
         sbox_target_drain_messages(target, OnInbound, &dctx);
       } else if (w == WAIT_OBJECT_0 + 1) {  // engine-posted foreground task(s)
         RunQueuedTasks(&task_queue);
       } else {
-        break;  // WAIT_FAILED / unexpected
+        printf("[v8host] message loop wait failed: wait=%lu error=%lu\n",
+               w, w == WAIT_FAILED ? ::GetLastError() : ERROR_INVALID_FUNCTION);
+        break;
       }
+      if (dctx.failed)
+        break;
       rt.drainMicrotasks();
+      if (closing) {
+        host_closed = true;
+        break;
+      }
     }
+    js_ok = host_closed && !dctx.failed;
     printf("[v8host] JS loop exited: onmessage delivered %d string + %d binary\n",
            dctx.strings, dctx.binaries);
   } catch (const JSError& e) {
@@ -772,19 +835,21 @@ int main() {
   } catch (const std::exception& e) {
     printf("[v8host] exception: %s\n", e.what());
   }
-  const bool msg_ok = (dctx.strings >= 1 && dctx.binaries >= 1);
+  const bool demo_ok = use_guest_file ||
+      (demo_files_ok && dctx.strings >= 1 && dctx.binaries >= 1);
 
   // Destroy the runtime BEFORE tearing down the task queue it references (the
   // runtime's destruction fires TaskRunnerDeleteCb, which touches task_queue).
   rt_owner.reset();
 
-  const bool pass = ping_pre && ping_post && token_state_ok && proxied_ok &&
-                    nonallowed_denied && js_ok && msg_ok;
+  const bool pass = ping_pre && ping_post && token_state_ok && js_ok && demo_ok;
+  const char* success = use_guest_file
+      ? "PASS - guest host completed under lockdown"
+      : "PASS - untrusted JS exchanges WebView2-style messages "
+        "(postMessage/onmessage, string+binary) under lockdown via the "
+        "JSI C++ API over a generic, V8-agnostic sbox.dll";
   printf("[v8host] RESULT: %s\n",
-         pass ? "PASS - untrusted JS exchanges WebView2-style messages "
-                "(postMessage/onmessage, string+binary) under lockdown via the "
-                "JSI C++ API over a generic, V8-agnostic sbox.dll"
-              : "FAIL");
+         pass ? success : "FAIL");
   sbox_target_end(target);
   ::CloseHandle(task_queue.wake);
   ::DeleteCriticalSection(&task_queue.cs);

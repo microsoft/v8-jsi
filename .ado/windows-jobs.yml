@@ -431,6 +431,15 @@ extends:
                 displayName: Lockdown tier test (Untrusted restricted token)
                 workingDirectory: $(Build.SourcesDirectory)
 
+              - pwsh: |
+                  node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target v8host_tests --no-gen
+                  if ($LASTEXITCODE -ne 0) { throw "Guest host test build FAILED (exit $LASTEXITCODE)" }
+                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                  & "$sandboxOut\v8host_tests.exe" --all
+                  if ($LASTEXITCODE -ne 0) { throw "Guest host result tests FAILED (exit $LASTEXITCODE)" }
+                displayName: Guest host result tests
+                workingDirectory: $(Build.SourcesDirectory)
+
               # Genuine-LPAC process-creation smoke test (x64-only, RunLpac).
               # Verify the relayed bootstrap, IPC, AppContainer identity,
               # ALL_APPLICATION_PACKAGES opt-out, and requested capability
