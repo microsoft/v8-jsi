@@ -45,6 +45,8 @@ enum SboxIntegrityLevel {
 };
 
 // A single selectively-allowed (broker-proxied) file rule.
+// No file rules means no file-brokering hooks are installed. Windows access
+// restrictions, required process/token hooks, and final lockdown still apply.
 typedef struct SboxFileRule {
   const wchar_t* pattern;  // full path, or a wildcard pattern ('*')
   int32_t readonly;        // 1 = read-only access; 0 = any access

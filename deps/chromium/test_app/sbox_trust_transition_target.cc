@@ -5,6 +5,7 @@
 
 #include <sddl.h>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -20,6 +21,30 @@ extern "C" __declspec(dllexport) SboxTrustTransitionTestControl g_sbox_trust_tra
 namespace {
 
 constexpr DWORD kTransitionExit = 23;
+
+using FileHookCode = std::array<std::array<unsigned char, 32>, 5>;
+
+bool ReadFileHookCode(FileHookCode &code) {
+  constexpr const char *names[] = {
+      "NtCreateFile", "NtOpenFile", "NtQueryAttributesFile", "NtQueryFullAttributesFile", "NtSetInformationFile"};
+  const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+  if (!ntdll) {
+    printf("[trust-transition-target] file-hook module query failed: error=%lu\n", ::GetLastError());
+    return false;
+  }
+  for (size_t i = 0; i < code.size(); ++i) {
+    const auto entry = ::GetProcAddress(ntdll, names[i]);
+    SIZE_T read = 0;
+    if (!entry ||
+        !::ReadProcessMemory(
+            ::GetCurrentProcess(), reinterpret_cast<const void *>(entry), code[i].data(), code[i].size(), &read) ||
+        read != code[i].size()) {
+      printf("[trust-transition-target] file-hook code read failed: hook=%s error=%lu\n", names[i], ::GetLastError());
+      return false;
+    }
+  }
+  return true;
+}
 
 bool Emit(SboxTarget *target, const char *marker) {
   printf("[trust-transition-target] %s\n", marker);
@@ -346,6 +371,11 @@ int main() {
         static_cast<unsigned long long>(target_base));
   }
 
+  const bool verify_unused_file_hooks = control.case_id == SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS;
+  FileHookCode file_code_before = {};
+  if (verify_unused_file_hooks && !ReadFileHookCode(file_code_before))
+    return 53;
+
   const int transition = sbox_target_lower_token(target);
   if (transition != 0) {
     printf("[trust-transition-target] stage=target-transition result=%d\n", transition);
@@ -372,6 +402,14 @@ int main() {
   if (!VerifyThunkRx()) {
     printf("[trust-transition-target] stage=thunk-telemetry result=failed\n");
     return 46;
+  }
+  if (verify_unused_file_hooks) {
+    FileHookCode file_code_after = {};
+    if (!ReadFileHookCode(file_code_after) || file_code_before != file_code_after) {
+      printf("[trust-transition-target] stage=unused-file-hooks result=changed\n");
+      return 54;
+    }
+    printf("[trust-transition-target] unused-file-hooks=unchanged\n");
   }
   if (policy_case && (!VerifyPolicyTokens(control.policy, true) || !VerifyPolicyResources(control.policy))) {
     printf("[policy-target] stage=final-policy-contract result=failed\n");

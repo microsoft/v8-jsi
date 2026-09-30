@@ -1010,7 +1010,9 @@ SBOX_API int sbox_broker_run(const wchar_t* target_exe,
 SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_next_case(
     uint32_t case_id, uint64_t serial) {
   if (case_id == SBOX_TRUST_TRANSITION_CASE_INVALID ||
-      case_id > SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS || serial == 0) {
+      case_id == SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS ||
+      case_id > SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS ||
+      serial == 0) {
     return 0;
   }
   std::lock_guard<std::mutex> lock(g_trust_transition_test_mutex);
@@ -1028,7 +1030,7 @@ SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_initialize(
   if (!control || control->magic != kSboxTrustTransitionControlMagic ||
       control->version != kSboxTrustTransitionControlVersion ||
       control->case_id == SBOX_TRUST_TRANSITION_CASE_INVALID ||
-      control->case_id > SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS ||
+      control->case_id > SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS ||
       control->serial == 0) {
     return 0;
   }
@@ -1189,8 +1191,11 @@ SBOX_API int sbox_target_lower_token(SboxTarget* target) {
   // LowerToken) forbids patching executable ntdll pages afterward. The broker
   // can't install these remotely (our sbox.dll is a different binary, unmapped
   // while we were suspended), so we patch our own.
+  // The hosted public policy serializes file rules. An empty policy section
+  // means the broker requested no file interceptions.
+  const bool file_brokering = sandbox::g_shared_policy_size != 0;
   const sandbox::ResultCode interception =
-      sandbox::SelfInstallInterceptions();
+      sandbox::SelfInstallInterceptions(file_brokering);
   if (interception != sandbox::SBOX_ALL_OK) {
     printf("[sbox] SelfInstallInterceptions() failed: result=%d\n",
            interception);

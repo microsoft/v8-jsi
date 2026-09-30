@@ -29,6 +29,7 @@ struct CaseSpec {
   bool success;
   bool lpac;
   bool acg;
+  bool file_brokering = false;
 };
 
 constexpr CaseSpec kCases[] = {
@@ -48,6 +49,15 @@ constexpr CaseSpec kCases[] = {
     {SBOX_TRUST_TRANSITION_CASE_STRICT_SUCCESS, "ordinary-strict-success", nullptr, 0, true, false, true},
     {SBOX_TRUST_TRANSITION_CASE_LPAC_SUCCESS, "lpac-low-strict-success", nullptr, 0, true, true, true},
     {SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS, "ordinary-acg-off-success", nullptr, 0, true, false, false},
+    {SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE,
+     "required-file-hook-failure",
+     "hook-install",
+     23,
+     false,
+     false,
+     true,
+     true},
+    {SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS, "unused-file-hook-success", nullptr, 0, true, false, true},
 };
 
 struct Messages {
@@ -143,6 +153,12 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
   if (spec.lpac && !DeleteTestProfile(false))
     return false;
   SboxPolicy policy = MakePolicy(spec);
+  const std::wstring file_probe = TargetPath();
+  const SboxFileRule file_rule{file_probe.c_str(), 1};
+  if (spec.file_brokering) {
+    policy.file_rules = &file_rule;
+    policy.file_rule_count = 1;
+  }
   Messages messages;
   SboxSession *session = sbox_broker_spawn(TargetPath().c_str(), &policy, &OnMessage, &messages);
   if (!session) {
@@ -178,13 +194,20 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
       static_cast<unsigned long long>(serial));
   bool ok = exit_code == static_cast<int>(spec.exit_code) && Contains(output, selected) &&
       Contains(output, consumed_control) && fixture_cleanup_ok;
+  ok = ok &&
+      Contains(
+           output,
+           spec.file_brokering ? "interception plan: file_brokering=1 hooks=12"
+                               : "interception plan: file_brokering=0 hooks=7");
   if (spec.success) {
     ok = ok && ready == 1 && guest == 1 && host == 1 && result == 1 && Contains(output, "pre-lockdown-ipc=ok") &&
         Contains(output, "final-lockdown=ok") && Contains(output, "post-lockdown-ipc=ok") &&
-        Contains(output, "rx=1 protect=0x20");
+        Contains(output, spec.file_brokering ? "installed=12 rx=1 protect=0x20" : "installed=7 rx=1 protect=0x20");
     ok = ok && Contains(output, spec.acg ? "strict_acg_expected=true" : "strict_acg_expected=false");
     if (spec.lpac)
       ok = ok && Contains(output, "lpac=1 app_container=1") && Contains(output, "capability=present");
+    if (spec.id == SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS)
+      ok = ok && Contains(output, "unused-file-hooks=unchanged") && !Contains(output, "[trust-transition] consumed=13");
   } else {
     char consumed[32] = {};
     std::snprintf(consumed, sizeof(consumed), "consumed=%u", spec.id);
@@ -194,6 +217,8 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
       ok = ok && Contains(output, "installed=0");
     if (spec.id == SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE)
       ok = ok && Contains(output, "installed=1");
+    if (spec.id == SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE)
+      ok = ok && Contains(output, "hook=NtCreateFile index=7 installed=7") && Contains(output, "ntstatus=0xc0000035");
   }
   printf(
       "[trust-transition-tests] case=%s exit=%d markers=%zu/%zu/%zu/%zu -> %s\n",
@@ -462,6 +487,12 @@ bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
       Contains(output, "tokens phase=initial") && Contains(output, "tokens phase=final") &&
       Contains(output, "post-lockdown-ipc=ok") && Contains(output, "resource=denied.txt") &&
       Contains(output, "resource=all-apps.txt");
+  ok = ok &&
+      Contains(
+           output,
+           policy.file_rule_count ? "interception plan: file_brokering=1 hooks=12"
+                                  : "interception plan: file_brokering=0 hooks=7") &&
+      Contains(output, policy.file_rule_count ? "installed=12 rx=1 protect=0x20" : "installed=7 rx=1 protect=0x20");
   if (spec.inactive_tokens) {
     ok = ok && sbox_trust_transition_test_pending_broker_fault() == SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE &&
         Contains(output, "do not apply; no restricted-default-DACL guarantee");

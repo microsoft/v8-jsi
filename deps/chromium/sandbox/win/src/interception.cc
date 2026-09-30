@@ -10,6 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <array>
+#include <cstdio>
+#include <cstring>
 #include <set>
 #include <string>
 
@@ -47,6 +50,88 @@ const size_t kPageSize = 4096;
 inline size_t RoundUpToMultiple(size_t value, size_t alignment) {
   return ((value + alignment - 1) / alignment) * alignment;
 }
+
+#if defined(_WIN64)
+void LogRejectedService(HMODULE module, const char* name) {
+  const void* address =
+      reinterpret_cast<const void*>(::GetProcAddress(module, name));
+  if (!address) {
+    printf("[sbox] rejected-service hook=%s export-query-error=%lu\n",
+           name, ::GetLastError());
+    return;
+  }
+
+  // Read-only diagnostics. Recognizing a jump here never authorizes patching it.
+  for (unsigned hop = 0; hop != 3; ++hop) {
+    MEMORY_BASIC_INFORMATION region = {};
+    if (!::VirtualQuery(address, &region, sizeof(region))) {
+      printf("[sbox] rejected-service hook=%s hop=%u address=%p "
+             "region-query-error=%lu\n",
+             name, hop, address, ::GetLastError());
+      return;
+    }
+    wchar_t image[MAX_PATH] = {};
+    if (region.Type == MEM_IMAGE &&
+        !::GetModuleFileNameW(static_cast<HMODULE>(region.AllocationBase),
+                             image, MAX_PATH)) {
+      printf("[sbox] rejected-service hook=%s hop=%u image-query-error=%lu\n",
+             name, hop, ::GetLastError());
+    }
+    printf("[sbox] rejected-service hook=%s hop=%u address=%p "
+           "allocation=%p type=0x%lx protect=0x%lx image=%ls\n",
+           name, hop, address, region.AllocationBase, region.Type,
+           region.Protect, image[0] ? image : L"(no image identified)");
+
+    std::array<unsigned char, 32> bytes = {};
+    SIZE_T read = 0;
+    if (!::ReadProcessMemory(::GetCurrentProcess(), address, bytes.data(),
+                             bytes.size(), &read) ||
+        read != bytes.size()) {
+      printf("[sbox] rejected-service hook=%s hop=%u bytes-read=%zu "
+             "read-error=%lu\n",
+             name, hop, read, ::GetLastError());
+      return;
+    }
+    printf("[sbox] rejected-service hook=%s hop=%u bytes=", name, hop);
+    for (unsigned char byte : bytes)
+      printf("%02x", static_cast<unsigned>(byte));
+    printf("\n");
+
+#if defined(_M_X64)
+    const uintptr_t entry = reinterpret_cast<uintptr_t>(address);
+    uintptr_t destination = 0;
+    if (bytes[0] == 0xe9) {
+      int32_t offset = 0;
+      std::memcpy(&offset, bytes.data() + 1, sizeof(offset));
+      destination = entry + 5 + static_cast<intptr_t>(offset);
+    } else if (bytes[0] == 0xff && bytes[1] == 0x25) {
+      int32_t offset = 0;
+      std::memcpy(&offset, bytes.data() + 2, sizeof(offset));
+      const uintptr_t slot = entry + 6 + static_cast<intptr_t>(offset);
+      if (!::ReadProcessMemory(::GetCurrentProcess(),
+                               reinterpret_cast<const void*>(slot),
+                               &destination, sizeof(destination), &read) ||
+          read != sizeof(destination)) {
+        printf("[sbox] rejected-service hook=%s hop=%u jump-slot=%p "
+               "read-error=%lu\n",
+               name, hop, reinterpret_cast<const void*>(slot), ::GetLastError());
+        return;
+      }
+    } else if (bytes[0] == 0x48 && bytes[1] == 0xb8 &&
+               bytes[10] == 0xff && bytes[11] == 0xe0) {
+      std::memcpy(&destination, bytes.data() + 2, sizeof(destination));
+    } else {
+      return;
+    }
+    if (!destination || destination == entry)
+      return;
+    address = reinterpret_cast<const void*>(destination);
+#else
+    return;
+#endif
+  }
+}
+#endif
 
 }  // namespace
 
@@ -429,7 +514,7 @@ InterceptionManager::PatchClientFunctions(DllInterceptionData* thunks,
   return patch;
 }
 
-ResultCode SelfInstallInterceptions() {
+ResultCode SelfInstallInterceptions(bool file_brokering) {
 #if !defined(_WIN64)
   // v8-jsi: 32-bit (x86) target — no user-mode interception layer.
   // The Chromium sandbox interception thunks (interceptors_64.cc / Target*64)
@@ -454,13 +539,12 @@ ResultCode SelfInstallInterceptions() {
   // cross-process address matching, which is what makes the broker-side install
   // fragile across binaries).
   //
-  // This mirrors stock SetupAllInterceptions for a file-brokering policy: the
+  // This follows stock SetupAllInterceptions: always install the
   // SetupBasicInterceptions() process/thread/token hooks (defense-in-depth,
   // including the NtSetInformationThread guard that blocks a premature
-  // RevertToSelf) plus the filesystem dispatcher's ntdll service calls. All are
-  // INTERCEPTION_SERVICE_CALL on ntdll. Over-installing a hook with no matching
-  // policy retains the original denial: an empty policy or a rule mismatch
-  // grants no brokered access, and unconfigured IPC services are rejected.
+  // RevertToSelf), and install the filesystem hooks only for a file-brokering
+  // policy. All are INTERCEPTION_SERVICE_CALL on ntdll. Hook selection happens
+  // before patching; failure to install any selected hook remains fatal.
   // (EAT-based interceptions —
   // win32k lockdown, kernel32 CreateThread — use a different resolver and are a
   // tracked follow-up; they are conditional and not needed by a headless,
@@ -469,6 +553,7 @@ ResultCode SelfInstallInterceptions() {
     const char* name;
     const void* interceptor;
     InterceptorId id;
+    bool needs_file_policy = false;
   };
   const LocalInterception kItems[] = {
       // SetupBasicInterceptions() — process/thread/token hardening.
@@ -493,20 +578,26 @@ ResultCode SelfInstallInterceptions() {
        OPEN_THREAD_TOKEN_EX_ID},
       // FilesystemDispatcher::SetupService — brokered file operations.
       {"NtCreateFile", reinterpret_cast<const void*>(&TargetNtCreateFile64),
-       CREATE_FILE_ID},
+       CREATE_FILE_ID, true},
       {"NtOpenFile", reinterpret_cast<const void*>(&TargetNtOpenFile64),
-       OPEN_FILE_ID},
+       OPEN_FILE_ID, true},
       {"NtQueryAttributesFile",
        reinterpret_cast<const void*>(&TargetNtQueryAttributesFile64),
-       QUERY_ATTRIB_FILE_ID},
+       QUERY_ATTRIB_FILE_ID, true},
       {"NtQueryFullAttributesFile",
        reinterpret_cast<const void*>(&TargetNtQueryFullAttributesFile64),
-       QUERY_FULL_ATTRIB_FILE_ID},
+       QUERY_FULL_ATTRIB_FILE_ID, true},
       {"NtSetInformationFile",
        reinterpret_cast<const void*>(&TargetNtSetInformationFile64),
-       SET_INFO_FILE_ID},
+       SET_INFO_FILE_ID, true},
   };
-  const size_t kCount = sizeof(kItems) / sizeof(kItems[0]);
+  size_t selected_count = 0;
+  for (const auto& item : kItems) {
+    if (!item.needs_file_policy || file_brokering)
+      ++selected_count;
+  }
+  printf("[sbox] interception plan: file_brokering=%d hooks=%zu\n",
+         file_brokering, selected_count);
 
   HMODULE ntdll_base = ::GetModuleHandle(kNtdllName);
   if (!ntdll_base)
@@ -516,7 +607,8 @@ ResultCode SelfInstallInterceptions() {
   // interception (holds the saved original ntdll prologue + a jump back) plus
   // the DllInterceptionData header. This mirrors PatchNtdll's child allocation,
   // but in our own address space. Must happen before LowerToken (ACG).
-  size_t thunk_bytes = kCount * sizeof(ThunkData) + sizeof(DllInterceptionData);
+  size_t thunk_bytes =
+      selected_count * sizeof(ThunkData) + sizeof(DllInterceptionData);
 #if defined(SBOX_TRUST_TRANSITION_TESTING)
   if (trust_transition_test::Consume(
           SBOX_TRUST_TRANSITION_CASE_ALLOC_FAILURE)) {
@@ -542,7 +634,9 @@ ResultCode SelfInstallInterceptions() {
   thunks->base = nullptr;  // Only used by the EAT agent, which we do not run.
   thunks->num_thunks = 0;
 
-  for (size_t i = 0; i < kCount; ++i) {
+  for (size_t i = 0; i < std::size(kItems); ++i) {
+    if (kItems[i].needs_file_policy && !file_brokering)
+      continue;
     // process_ = GetCurrentProcess() + AllowLocalPatches() => the resolver
     // writes the ntdll patch straight into our own image (the same path the
     // sandbox's own unit tests use to patch the running process).
@@ -557,7 +651,15 @@ ResultCode SelfInstallInterceptions() {
     const bool inject_partial =
         i == 1 && trust_transition_test::Consume(
                       SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE);
-    if (inject_first || inject_partial) {
+    const bool inject_file_conflict =
+        kItems[i].id == CREATE_FILE_ID &&
+        (trust_transition_test::Consume(
+             SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE) ||
+         trust_transition_test::Consume(
+             SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS));
+    if (inject_file_conflict) {
+      ret = static_cast<NTSTATUS>(0xC0000035L);
+    } else if (inject_first || inject_partial) {
       ret = static_cast<NTSTATUS>(0xC0000001L);
     } else
 #endif
@@ -573,6 +675,8 @@ ResultCode SelfInstallInterceptions() {
              kItems[i].name, i, thunks->num_thunks,
              SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK,
              static_cast<unsigned long>(ret), error);
+      LogRejectedService(ntdll_base, kItems[i].name);
+      ::SetLastError(error);
       return SBOX_ERROR_CANNOT_SETUP_INTERCEPTION_THUNK;
     }
     UNSAFE_TODO(g_originals.functions[kItems[i].id]) =
