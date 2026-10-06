@@ -145,7 +145,7 @@ ProcessResult spawnSync(std::string_view command,
   // before the reader tasks wait for EOF.
   job.Close();
 
-  result.status = exit_code;
+  result.status = timed_out ? ERROR_TIMEOUT : exit_code;
   result.std_output = std_output.get();
   result.std_error = std_error.get();
   if (timed_out) {
