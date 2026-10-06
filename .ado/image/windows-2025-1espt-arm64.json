@@ -40,9 +40,15 @@
             "name": "windows-AzPipeline-Install-7zip",
             "parameters": {
                 "InstallLatest": "0",
-                "InstallSpecificVersion": "26.02",
+                "InstallSpecificVersion": "26.03",
                 "InstallVersionPatternSuffix": "-arm64",
-                "SpecificVersionExpectedHash": "sha256:7c6fde79ed5e11b81c7bb6573b7962d3b6322aa5fce69c33ed19f672b55173ab"
+                "SpecificVersionExpectedHash": "sha256:e22ce71c11dcf503c448fe51e56f41830eb4e1344fa5c7731ae63bce533a8e8e"
+            }
+        },
+        {
+            "name": "windows-add-to-path",
+            "parameters": {
+                "newPath": "%ProgramFiles%\\7-Zip"
             }
         },
         {
@@ -92,18 +98,42 @@
                 "DotNetCoreVersion": "latest",
                 "Channel": "10.0",
                 "Architecture": "x64",
-                "InstallDir": "C:\\Program Files\\dotnet\\x64"
+                "InstallDir": "$env:ProgramFiles\\dotnet\\x64"
             }
         },
         {
             "name": "windows-setenvvar",
             "parameters": {
                 "Variable": "DOTNET_ROOT_X64",
-                "Value": "C:\\Program Files\\dotnet\\x64"
+                "Value": "%ProgramFiles%\\dotnet\\x64"
+            }
+        },
+        {
+            "name": "windows-1es-pt-prerequisites-v2",
+            "parameters": {
+                "KVSecret_AppSecret": "https://pipelinesidentity.vault.azure.net/secrets/1es-gpt-read-only-app-secret"
             }
         },
         {
             "name": "Windows-AzureCLI"
+        },
+        {
+            "name": "windows-updateregistry",
+            "parameters": {
+                "RegistryPath": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\VisualStudio\\Setup",
+                "RegistryKey": "BackgroundDownloadDisabled",
+                "DataType": "REG_DWORD",
+                "Value": "1"
+            }
+        },
+        {
+            "name": "windows-updateregistry",
+            "parameters": {
+                "RegistryPath": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\VisualStudio\\Setup",
+                "RegistryKey": "BackgroundDownloadDisabled",
+                "DataType": "REG_DWORD",
+                "Value": "1"
+            }
         }
     ]
 }

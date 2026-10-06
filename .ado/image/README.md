@@ -99,8 +99,10 @@ come before the artifacts that depend on them.
 | `windows-AzPipeline-InitializeVM` | Baseline VM initialization |
 | `windows-AzPipeline-powershellCore` | PowerShell 7 (`pwsh`); arch-aware (native on both) |
 | `windows-1es-install-winget` | **ARM64 only** — provision winget (all-users, sysprep-safe) into the shipped image |
-| `windows-AzPipeline-7zip` | **x64 only** — install 7-zip via Chocolatey |
-| `windows-AzPipeline-Install-7zip` | **ARM64 only** — install 7-zip by direct download (pinned version + SHA256); see [7-zip note](#7-zip-on-arm64) |
+| `windows-AzPipeline-7zip` | **x64 only** — install 7-zip through Chocolatey; see [7-zip note](#7-zip) |
+| `windows-AzPipeline-Install-7zip` | **ARM64 only** — install a pinned native 7-zip with an approved hash; see [7-zip note](#7-zip) |
+| `windows-add-to-path` | Add the 7-zip installation directory to the machine `PATH` |
+| `windows-chocolatey` (`nasm`) | **x64 only** — install NASM for native builds |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
 | `Windows-NodeJS` | Node.js `24.x` (`UseARM` selects the architecture) |
 | `windows-1es-starter-install-python` | Latest Python `3.13.*` x64 build in the Azure Pipelines tool cache; see [Python note](#python) |
@@ -109,7 +111,9 @@ come before the artifacts that depend on them.
 | `windows-AzPipeline-WinAppDriver` | WinAppDriver |
 | `windows-dotnetcore-sdk` | .NET SDK; see [.NET note](#net-sdk) |
 | `windows-setenvvar` (`DOTNET_ROOT_X64`) | **ARM64 only** — point x64 .NET hosts at the x64 runtime; see [.NET note](#net-sdk) |
+| `windows-1es-pt-prerequisites-v2` | Provision the private tool cache and dependencies required by 1ES Pipeline Templates; see [1ES prerequisites](#1es-pipeline-template-prerequisites) |
 | `Windows-AzureCLI` | Azure CLI |
+| `windows-updateregistry` (`BackgroundDownloadDisabled`) | Disable Visual Studio Installer background downloads in both Setup registry hives; see [Visual Studio background downloads](#visual-studio-background-downloads) |
 
 ## Per-architecture differences
 
@@ -117,12 +121,13 @@ Everything else is identical; only these entries differ between the two JSONs:
 
 | Aspect | x64 image | ARM64 image |
 |--------|-----------|-------------|
-| 7-zip | `windows-AzPipeline-7zip` (Chocolatey) | `windows-AzPipeline-Install-7zip` (direct download, pinned) |
+| 7-zip | `windows-AzPipeline-7zip` through Chocolatey | pinned native direct download with SHA-256 verification |
 | winget | not provisioned separately | `windows-1es-install-winget` added |
+| NASM | installed through `windows-chocolatey` | not installed separately |
 | `Windows-NodeJS` | `Version: 24.x`, `UseARM: false` | `Version: 24.x`, `UseARM: true` |
 | Tool-cache Python 3.13 | x64 | x64 (runs under emulation) |
 | Latest Python on `PATH` | `Architecture: x64` | `Architecture: arm64` (native) |
-| `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK at `C:\Program Files\dotnet\x64` + `DOTNET_ROOT_X64` |
+| `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK under `%ProgramFiles%\dotnet\x64` + `DOTNET_ROOT_X64` |
 
 ## Key decisions
 
@@ -144,6 +149,19 @@ Keep the tool-cache artifact before the `latest` artifact. The second install
 remains the default on `PATH` while the pinned minor version remains available
 to Azure Pipelines tasks.
 
+### 1ES Pipeline Template prerequisites
+
+`windows-1es-pt-prerequisites-v2` is required on images used by 1ES Pipeline
+Templates. It initializes the private tool cache and provisions the tools and
+packages used by injected pipeline tasks without adding them to the general
+`PATH`. Its `KVSecret_AppSecret` value identifies the shared read-only 1ES
+identity used to retrieve those packages and should not be changed.
+
+The explicit `windows-1es-starter-install-python` step runs earlier, so Python
+3.13 is already present in the tool cache when the prerequisites artifact runs.
+The artifact reuses a matching major/minor installation instead of downloading
+another Python 3.13 copy.
+
 ### .NET SDK
 
 All `windows-dotnetcore-sdk` entries float on the latest **.NET 10.0** servicing
@@ -157,26 +175,43 @@ required for the channel to take effect.
 ### x64 .NET on the ARM64 image
 
 The ARM64 image installs a **second, x64** .NET SDK side-by-side with the native
-arm64 SDK (`Architecture: x64`, `InstallDir: C:\Program Files\dotnet\x64`) and sets
-the machine variable `DOTNET_ROOT_X64` to that path. Reason: the SBoM (Software
-Bill of Materials) generation tool used by the release build is an **x64** process;
-on a native ARM64 agent it can't load the arm64 `hostfxr.dll`
-(`HRESULT 0x800700C1`, bad-image-format). Providing an x64 runtime it can discover
-(via `DOTNET_ROOT_X64`, which an x64 .NET host probes first on an arm64 OS) lets
-SBoM run on the ARM64 cells.
+arm64 SDK (`Architecture: x64`, `InstallDir:
+$env:ProgramFiles\dotnet\x64`) and sets the machine variable `DOTNET_ROOT_X64`
+to `%ProgramFiles%\dotnet\x64`. The installer parameter uses PowerShell
+expansion, while the persisted environment variable uses Windows environment
+expansion; both remain independent of the system drive. Reason: the SBoM
+(Software Bill of Materials) generation tool used by the release build is an
+**x64** process; on a native ARM64 agent it can't load the arm64 `hostfxr.dll`
+(`HRESULT 0x800700C1`, bad-image-format). Providing an x64 runtime it can
+discover (via `DOTNET_ROOT_X64`, which an x64 .NET host probes first on an arm64
+OS) lets SBoM run on the ARM64 cells.
 
-### 7-zip on ARM64
+### 7-zip
 
-The ARM64 image can't use the Chocolatey/winget 7-zip paths during provisioning
-(winget isn't on the provisioning `PATH` at that point). It uses
-`windows-AzPipeline-Install-7zip`, which downloads the installer directly from the
-official `ip7z/7zip` GitHub release. That artifact **requires an integrity hash**:
-it verifies the download against either an inline `SpecificVersionExpectedHash` or
-its internal approved-hash list (which ships x64 hashes only). So the ARM64 entry
-pins an explicit `InstallSpecificVersion` + `SpecificVersionExpectedHash` for the
-arm64 installer. This is intentional — "install latest" is not possible here
-without dropping the hash check. To move to a newer 7-zip, update the version and
-its arm64 SHA256 together.
+The x64 image uses `windows-AzPipeline-7zip`, which installs 7-zip through
+Chocolatey.
+
+`windows-1es-install-winget-packages` does not currently work on either
+managed-image builder. When `winget.exe` is unavailable, the artifact's
+`Microsoft.WinGet.Client` fallback crashes while installing 7-zip with exit code
+`0xC0000409`. The ARM64 image therefore uses
+`windows-AzPipeline-Install-7zip` with an explicit version and approved SHA-256.
+Update both values together when the pinned release is removed from the current
+7-zip download page.
+
+`windows-add-to-path` then adds `%ProgramFiles%\7-Zip` to the machine `PATH`.
+Using the environment variable keeps the image definition independent of the
+system drive. This entry is required because
+`windows-1es-starter-install-python`, which runs later, invokes `7z.exe` while
+populating the Python tool cache.
+
+### Visual Studio background downloads
+
+Both images set `BackgroundDownloadDisabled` to `1` under the Visual Studio
+Setup policy hive and the non-policy Setup hive. This prevents the Visual
+Studio Installer background updater from contacting the Microsoft CDN during a
+build, which would violate pipeline network isolation. Both registry locations
+are set because Visual Studio setup components can consult either location.
 
 ### Both Windows SDKs are kept
 
