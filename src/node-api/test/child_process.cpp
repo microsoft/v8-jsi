@@ -140,6 +140,11 @@ ProcessResult spawnSync(std::string_view command,
   ::CloseHandle(process_info.hProcess);
   ::CloseHandle(process_info.hThread);
 
+  // The primary process may have exited after spawning descendants that still
+  // hold inherited pipe handles. Closing the job terminates those descendants
+  // before the reader tasks wait for EOF.
+  job.Close();
+
   result.status = exit_code;
   result.std_output = std_output.get();
   result.std_error = std_error.get();
