@@ -386,68 +386,11 @@ extends:
               # node_lite.exe child import v8jsisb.dll. Run both suites on every
               # architecture (ARM64 natively, x86 via WOW64). Both suites pass
               # unfiltered under jitless, so no JIT-specific exclusions apply.
-            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
-              - pwsh: |
-                  $outDir = "$(Build.SourcesDirectory)\deps\nodejs\out\Release"
-                  $v8jsiTest = Join-Path $outDir "v8jsi_test.exe"
-                  $nodeApiTests = Join-Path $outDir "node_api_tests.exe"
-                  $diagnostics = "$(Build.StagingDirectory)\node-api-diagnostics"
-                  New-Item -ItemType Directory -Path $diagnostics -Force | Out-Null
-
-                  & $v8jsiTest --gtest_brief=1
-                  if ($LASTEXITCODE -ne 0) {
-                    throw "v8jsi_test.exe failed with exit code $LASTEXITCODE"
-                  }
-
-                  $testProcess = Start-Process $nodeApiTests `
-                      -ArgumentList "--gtest_color=no" -NoNewWindow -PassThru
-                  if (-not $testProcess.WaitForExit(300000)) {
-                    $processes = @(Get-CimInstance Win32_Process)
-                    $descendantIds = [System.Collections.Generic.List[int]]::new()
-                    $pendingIds = [System.Collections.Generic.Queue[int]]::new()
-                    $pendingIds.Enqueue($testProcess.Id)
-                    while ($pendingIds.Count -gt 0) {
-                      $parentId = $pendingIds.Dequeue()
-                      foreach ($child in $processes | Where-Object ParentProcessId -eq $parentId) {
-                        $descendantIds.Add($child.ProcessId)
-                        $pendingIds.Enqueue($child.ProcessId)
-                      }
-                    }
-                    $processIds = @($descendantIds) + @($testProcess.Id)
-
-                    $processes |
-                        Where-Object ProcessId -in $processIds |
-                        Format-List ProcessId, ParentProcessId, Name, CommandLine |
-                        Out-File (Join-Path $diagnostics "processes.txt")
-
-                    foreach ($processId in $processIds) {
-                      $dumpPath = Join-Path $diagnostics "$processId.dmp"
-                      & rundll32.exe "$env:WINDIR\System32\comsvcs.dll, MiniDump" `
-                          $processId $dumpPath full
-                      if (Test-Path $dumpPath) {
-                        Write-Host "##vso[task.uploadfile]$dumpPath"
-                      } else {
-                        Write-Warning "Failed to capture dump for process $processId"
-                      }
-                    }
-                    Write-Host "##vso[task.uploadfile]$(Join-Path $diagnostics 'processes.txt')"
-
-                    foreach ($processId in $processIds) {
-                      Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-                    }
-                    throw "node_api_tests.exe exceeded the 5-minute diagnostic timeout"
-                  }
-                  if ($testProcess.ExitCode -ne 0) {
-                    throw "node_api_tests.exe failed with exit code $($testProcess.ExitCode)"
-                  }
-                displayName: Run verbose x64 gtests and capture hangs
-                workingDirectory: $(Build.SourcesDirectory)
-            - ${{ else }}:
-              - pwsh: |
-                  node scripts/build.ts --no-build --test --build-v8jsisb `
-                      --platform ${{ sb.BuildPlatform }} --configuration release
-                displayName: Run JSI + Node-API gtests against v8jsisb.dll
-                workingDirectory: $(Build.SourcesDirectory)
+            - pwsh: |
+                node scripts/build.ts --no-build --test --build-v8jsisb `
+                    --platform ${{ sb.BuildPlatform }} --configuration release
+              displayName: Run JSI + Node-API gtests against v8jsisb.dll
+              workingDirectory: $(Build.SourcesDirectory)
 
               # Hygiene gates: export allowlist + Hybrid CRT + BinSkim, over this
               # arch's out dir (--target-cpu resolves it). Exits non-zero on any
