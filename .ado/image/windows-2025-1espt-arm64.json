@@ -61,6 +61,12 @@
             }
         },
         {
+            "name": "windows-1es-starter-install-python",
+            "parameters": {
+                "versions": "3.13.*"
+            }
+        },
+        {
             "name": "windows-install-python",
             "parameters": {
                 "Version": "latest",

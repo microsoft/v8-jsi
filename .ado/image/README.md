@@ -11,10 +11,11 @@ image the build agents run on.
 | [`windows-2025-1espt-arm64.json`](./windows-2025-1espt-arm64.json) | ARM64 (native) | `windows-2025-1espt-arm64` |
 
 Both images share one toolchain — **Visual Studio 2026 Enterprise + Clang, the
-current Windows SDK, Node.js 24, the latest Python, and .NET 10** — so x64, x86,
-and ARM64 all build and test with the same tools. The two JSONs are intentionally
-kept as close to identical as possible; they differ only where the architecture
-forces it (see [Per-architecture differences](#per-architecture-differences)).
+current Windows SDK, Node.js 24, Python 3.13 in the Azure Pipelines tool cache,
+the latest Python on `PATH`, and .NET 10** — so x64, x86, and ARM64 all build and
+test with the same tools. The two JSONs are intentionally kept as close to
+identical as possible; they differ only where the architecture forces it (see
+[Per-architecture differences](#per-architecture-differences)).
 
 ## Pool ↔ image mapping (how pipelines select an image)
 
@@ -102,7 +103,8 @@ come before the artifacts that depend on them.
 | `windows-AzPipeline-Install-7zip` | **ARM64 only** — install 7-zip by direct download (pinned version + SHA256); see [7-zip note](#7-zip-on-arm64) |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
 | `Windows-NodeJS` | Node.js `24.x` (`UseARM` selects the architecture) |
-| `windows-install-python` | Latest python.org build; see [Python note](#python) |
+| `windows-1es-starter-install-python` | Latest Python `3.13.*` x64 build in the Azure Pipelines tool cache; see [Python note](#python) |
+| `windows-install-python` | Latest native python.org build on `PATH`; see [Python note](#python) |
 | `windows-chrome` | Google Chrome (UI/WinAppDriver tests) |
 | `windows-AzPipeline-WinAppDriver` | WinAppDriver |
 | `windows-dotnetcore-sdk` | .NET SDK; see [.NET note](#net-sdk) |
@@ -118,20 +120,29 @@ Everything else is identical; only these entries differ between the two JSONs:
 | 7-zip | `windows-AzPipeline-7zip` (Chocolatey) | `windows-AzPipeline-Install-7zip` (direct download, pinned) |
 | winget | not provisioned separately | `windows-1es-install-winget` added |
 | `Windows-NodeJS` | `Version: 24.x`, `UseARM: false` | `Version: 24.x`, `UseARM: true` |
-| `windows-install-python` | `Architecture: x64` | `Architecture: arm64` (native) |
+| Tool-cache Python 3.13 | x64 | x64 (runs under emulation) |
+| Latest Python on `PATH` | `Architecture: x64` | `Architecture: arm64` (native) |
 | `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK at `C:\Program Files\dotnet\x64` + `DOTNET_ROOT_X64` |
 
 ## Key decisions
 
 ### Python
 
-`windows-install-python` (`Version: latest`) installs the newest stable python.org
-release to `C:\Python` and adds it to the machine `PATH`. It does **not** populate
-the Azure Pipelines *hosted tool cache*. Consequently the pipelines do **not** use
-the `UsePythonVersion@0` task (which resolves **only** from the tool cache) — the
-build picks up `python` from `PATH`. If you reintroduce `UsePythonVersion@0`, you
-must switch back to a tool-cache-populating Python artifact, or the task will fail
-to find a version.
+The images install Python twice because the artifacts serve different consumers:
+
+1. `windows-1es-starter-install-python` installs the latest matching Python
+   `3.13.*` x64 release into the Azure Pipelines hosted tool cache. Tasks such as
+   `UsePythonVersion@0`, including tasks invoked by SDL tooling, resolve Python
+   only from this cache. The factory artifact currently publishes x64 Python, so
+   the ARM64 image runs this cached copy under emulation when a task requests it.
+2. `windows-install-python` (`Version: latest`) then installs the newest stable
+   native python.org release to `C:\Python` and adds it to the machine `PATH`.
+   Direct build scripts that invoke `python` continue to use this floating,
+   architecture-native installation.
+
+Keep the tool-cache artifact before the `latest` artifact. The second install
+remains the default on `PATH` while the pinned minor version remains available
+to Azure Pipelines tasks.
 
 ### .NET SDK
 
