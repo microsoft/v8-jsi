@@ -95,8 +95,17 @@ ProcessResult spawnSync(std::string_view command,
                      &startup_info,    // STARTUPINFO pointer
                      &process_info));  // receives PROCESS_INFORMATION
 
-  VerifyElseExit(WAIT_OBJECT_0 ==
-                 ::WaitForSingleObject(process_info.hProcess, INFINITE));
+  constexpr DWORD childProcessTimeoutMs = 5 * 60 * 1000;
+  DWORD wait_result =
+      ::WaitForSingleObject(process_info.hProcess, childProcessTimeoutMs);
+  bool timed_out = wait_result == WAIT_TIMEOUT;
+  if (timed_out) {
+    VerifyElseExit(::TerminateProcess(process_info.hProcess, ERROR_TIMEOUT));
+    VerifyElseExit(
+        WAIT_OBJECT_0 == ::WaitForSingleObject(process_info.hProcess, 5000));
+  } else {
+    VerifyElseExit(WAIT_OBJECT_0 == wait_result);
+  }
 
   DWORD exit_code;
   VerifyElseExit(::GetExitCodeProcess(process_info.hProcess, &exit_code));
@@ -117,6 +126,10 @@ ProcessResult spawnSync(std::string_view command,
   result.status = exit_code;
   result.std_output = readFromPipe(out_read_handle.handle);
   result.std_error = readFromPipe(err_read_handle.handle);
+  if (timed_out) {
+    if (!result.std_error.empty()) result.std_error += '\n';
+    result.std_error += "Child process exceeded the 5-minute timeout.";
+  }
 
   return result;
 }
