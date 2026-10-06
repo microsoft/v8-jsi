@@ -37,6 +37,12 @@
             "name": "windows-AzPipeline-7zip"
         },
         {
+            "name": "windows-add-to-path",
+            "parameters": {
+                "newPath": "%ProgramFiles%\\7-Zip"
+            }
+        },
+        {
             "name": "windows-chocolatey",
             "parameters": {
                 "packages": "nasm"
@@ -55,6 +61,12 @@
             "parameters": {
                 "Version": "24.x",
                 "UseARM": "false"
+            }
+        },
+        {
+            "name": "windows-1es-starter-install-python",
+            "parameters": {
+                "versions": "3.13.*"
             }
         },
         {
@@ -78,7 +90,31 @@
             }
         },
         {
+            "name": "windows-1es-pt-prerequisites-v2",
+            "parameters": {
+                "KVSecret_AppSecret": "https://pipelinesidentity.vault.azure.net/secrets/1es-gpt-read-only-app-secret"
+            }
+        },
+        {
             "name": "Windows-AzureCLI"
+        },
+        {
+            "name": "windows-updateregistry",
+            "parameters": {
+                "RegistryPath": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Microsoft\\VisualStudio\\Setup",
+                "RegistryKey": "BackgroundDownloadDisabled",
+                "DataType": "REG_DWORD",
+                "Value": "1"
+            }
+        },
+        {
+            "name": "windows-updateregistry",
+            "parameters": {
+                "RegistryPath": "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\VisualStudio\\Setup",
+                "RegistryKey": "BackgroundDownloadDisabled",
+                "DataType": "REG_DWORD",
+                "Value": "1"
+            }
         }
     ]
 }

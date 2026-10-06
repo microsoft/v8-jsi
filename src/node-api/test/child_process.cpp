@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <cassert>
 #include <cstdio>
+#include <future>
 
 #ifndef VerifyElseExit
 #define VerifyElseExit(condition)                                              \
@@ -43,6 +44,15 @@ struct AutoHandle {
 ProcessResult spawnSync(std::string_view command,
                         std::vector<std::string> args) {
   ProcessResult result{};
+
+  AutoHandle job{::CreateJobObjectW(nullptr, nullptr)};
+  VerifyElseExit(job.handle != nullptr);
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_info{};
+  job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  VerifyElseExit(::SetInformationJobObject(job.handle,
+                                           JobObjectExtendedLimitInformation,
+                                           &job_info,
+                                           sizeof(job_info)));
 
   // Set the bInheritHandle flag so pipe handles are inherited.
 
@@ -89,14 +99,37 @@ ProcessResult spawnSync(std::string_view command,
                      nullptr,  // process security attributes
                      nullptr,  // primary thread security attributes
                      TRUE,     // handles are inherited
-                     CREATE_DEFAULT_ERROR_MODE,  // creation flags
+                     CREATE_DEFAULT_ERROR_MODE |
+                         CREATE_SUSPENDED,  // creation flags
                      nullptr,                    // use parent's environment
                      nullptr,          // use parent's current directory
                      &startup_info,    // STARTUPINFO pointer
                      &process_info));  // receives PROCESS_INFORMATION
 
-  VerifyElseExit(WAIT_OBJECT_0 ==
-                 ::WaitForSingleObject(process_info.hProcess, INFINITE));
+  VerifyElseExit(
+      ::AssignProcessToJobObject(job.handle, process_info.hProcess));
+  VerifyElseExit(::ResumeThread(process_info.hThread) != static_cast<DWORD>(-1));
+
+  // Only the child keeps the write handles. Drain both pipes concurrently so
+  // neither can fill up and block the child before it exits.
+  out_write_handle.Close();
+  err_write_handle.Close();
+  std::future<std::string> std_output = std::async(
+      std::launch::async, readFromPipe, out_read_handle.handle);
+  std::future<std::string> std_error = std::async(
+      std::launch::async, readFromPipe, err_read_handle.handle);
+
+  constexpr DWORD childProcessTimeoutMs = 5 * 60 * 1000;
+  DWORD wait_result =
+      ::WaitForSingleObject(process_info.hProcess, childProcessTimeoutMs);
+  bool timed_out = wait_result == WAIT_TIMEOUT;
+  if (timed_out) {
+    VerifyElseExit(::TerminateJobObject(job.handle, ERROR_TIMEOUT));
+    VerifyElseExit(
+        WAIT_OBJECT_0 == ::WaitForSingleObject(process_info.hProcess, 5000));
+  } else {
+    VerifyElseExit(WAIT_OBJECT_0 == wait_result);
+  }
 
   DWORD exit_code;
   VerifyElseExit(::GetExitCodeProcess(process_info.hProcess, &exit_code));
@@ -107,16 +140,18 @@ ProcessResult spawnSync(std::string_view command,
   ::CloseHandle(process_info.hProcess);
   ::CloseHandle(process_info.hThread);
 
-  // Close handles to the stdin and stdout pipes no longer needed by the child
-  // process. If they are not explicitly closed, there is no way to recognize
-  // that the child process has ended.
+  // The primary process may have exited after spawning descendants that still
+  // hold inherited pipe handles. Closing the job terminates those descendants
+  // before the reader tasks wait for EOF.
+  job.Close();
 
-  out_write_handle.Close();
-  err_write_handle.Close();
-
-  result.status = exit_code;
-  result.std_output = readFromPipe(out_read_handle.handle);
-  result.std_error = readFromPipe(err_read_handle.handle);
+  result.status = timed_out ? ERROR_TIMEOUT : exit_code;
+  result.std_output = std_output.get();
+  result.std_error = std_error.get();
+  if (timed_out) {
+    if (!result.std_error.empty()) result.std_error += '\n';
+    result.std_error += "Child process exceeded the 5-minute timeout.";
+  }
 
   return result;
 }

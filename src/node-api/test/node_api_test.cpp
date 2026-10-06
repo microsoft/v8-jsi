@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cstdarg>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -1000,6 +1001,11 @@ class DeferPlatformDispose {
 };
 
 int main(int argc, char** argv) {
+  // Intentional crash tests must not wait for Windows Error Reporting or JIT UI.
+  ::SetErrorMode(::GetErrorMode() | SEM_FAILCRITICALERRORS |
+                 SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+  _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
   DeferPlatformDispose deferPlatformDispose;
   return node_api_tests::EvaluateJSFile(argc, argv);
 }
