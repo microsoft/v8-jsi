@@ -9,7 +9,11 @@
 // This module is side-effect-free: no CLI parsing and no top-level execution, so
 // either script can import it without triggering the other's behavior.
 
-import { execSync, type ExecSyncOptions } from "node:child_process";
+import {
+  execFileSync,
+  execSync,
+  type ExecSyncOptions,
+} from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as https from "node:https";
@@ -67,6 +71,266 @@ export function run(
     console.error(`Command failed with exit code: ${exitCode}`);
     process.exit(exitCode || 1);
   }
+}
+
+// Prepend a directory to the EXISTING path variable in place. Windows stores it
+// as "Path"; assigning env.PATH on a copied env object would add a second,
+// conflicting key that shadows the real one (dropping System32, so cmd.exe and
+// vcbuild can't be found).
+export function prependToPath(env: NodeJS.ProcessEnv, dir: string): void {
+  const pathKey =
+    Object.keys(env).find((k) => k.toUpperCase() === "PATH") ?? "Path";
+  env[pathKey] = `${dir};${env[pathKey] ?? ""}`;
+}
+
+// =============================================================================
+// Python interpreter selection
+// =============================================================================
+
+// vcbuild.bat (tools\msvs\find_python.cmd) and the Chromium gn/ninja build
+// (script_executable = "python.exe") run the first python.exe on PATH, and the
+// Node.js `configure` script rejects any Python outside its acceptable_pythons
+// list. The CI images float the PATH Python on python.org's latest release,
+// which can move past that list (3.15.0 did). ensureSupportedPython keeps the
+// PATH Python when configure accepts it; otherwise it puts the best accepted
+// interpreter from the PEP 514 registry or the Azure Pipelines tool cache first
+// on PATH for the child build.
+
+export interface PythonInterpreter {
+  exe: string;
+  version: [major: number, minor: number, micro: number];
+  // sysconfig.get_platform(): "win-amd64", "win-arm64", or "win32".
+  platform: string;
+}
+
+// Read the [major, minor] pairs from configure's `acceptable_pythons = (...)`,
+// either the single-line or the multi-line form.
+export function parseAcceptablePythons(
+  configureText: string,
+): Array<[number, number]> {
+  const start = configureText.indexOf("acceptable_pythons");
+  const open = start < 0 ? -1 : configureText.indexOf("(", start);
+  if (open < 0) {
+    throw new Error("acceptable_pythons not found in deps/nodejs/configure");
+  }
+  let depth = 0;
+  let end = open;
+  for (; end < configureText.length; end++) {
+    const ch = configureText[end];
+    if (ch === "(") depth++;
+    else if (ch === ")" && --depth === 0) break;
+  }
+  const versions = [
+    ...configureText
+      .slice(open, end + 1)
+      .matchAll(/\(\s*(\d+)\s*,\s*(\d+)\s*\)/g),
+  ].map((m): [number, number] => [Number(m[1]), Number(m[2])]);
+  if (versions.length === 0) {
+    throw new Error("acceptable_pythons in deps/nodejs/configure is empty");
+  }
+  return versions;
+}
+
+export function isAcceptedPython(
+  python: PythonInterpreter,
+  acceptable: Array<[number, number]>,
+): boolean {
+  return acceptable.some(
+    ([major, minor]) =>
+      python.version[0] === major && python.version[1] === minor,
+  );
+}
+
+// Prefer an interpreter native to the machine (no emulation, and configure's
+// host-arch detection stays trivially correct), then the newest version.
+export function pickPython(
+  candidates: PythonInterpreter[],
+  acceptable: Array<[number, number]>,
+  nativePlatform: string,
+): PythonInterpreter | undefined {
+  const isNative = (p: PythonInterpreter) => Number(p.platform === nativePlatform);
+  return candidates
+    .filter((p) => isAcceptedPython(p, acceptable))
+    .sort(
+      (a, b) =>
+        isNative(b) - isNative(a) ||
+        b.version[0] - a.version[0] ||
+        b.version[1] - a.version[1] ||
+        b.version[2] - a.version[2],
+    )[0];
+}
+
+export function nativePythonPlatform(): string {
+  const arch = (
+    process.env.PROCESSOR_ARCHITEW6432 ??
+    process.env.PROCESSOR_ARCHITECTURE ??
+    "AMD64"
+  ).toUpperCase();
+  if (arch === "ARM64") return "win-arm64";
+  if (arch === "X86") return "win32";
+  return "win-amd64";
+}
+
+function probePython(exe: string): PythonInterpreter | undefined {
+  try {
+    const out = execFileSync(
+      exe,
+      [
+        "-c",
+        "import sys, sysconfig; print(*sys.version_info[:3], sysconfig.get_platform())",
+      ],
+      {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 30_000,
+        windowsHide: true,
+      },
+    );
+    const m = /^(\d+) (\d+) (\d+) (\S+)/.exec(out.trim());
+    if (!m) return undefined;
+    return {
+      exe,
+      version: [Number(m[1]), Number(m[2]), Number(m[3])],
+      platform: m[4],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+// The Microsoft Store "python.exe" app-execution alias is a stub, not CPython.
+function isStoreAlias(exe: string): boolean {
+  return /\\WindowsApps\\/i.test(exe);
+}
+
+function pathPythons(env: NodeJS.ProcessEnv): string[] {
+  try {
+    return execFileSync("where.exe", ["python.exe"], {
+      encoding: "utf-8",
+      env,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// PEP 514: <hive>\Software\Python\PythonCore\<tag>\InstallPath (default value).
+function registryPythons(): string[] {
+  const roots = [
+    "HKCU\\Software\\Python\\PythonCore",
+    "HKLM\\SOFTWARE\\Python\\PythonCore",
+    "HKLM\\SOFTWARE\\WOW6432Node\\Python\\PythonCore",
+  ];
+  const exes: string[] = [];
+  for (const root of roots) {
+    let out: string;
+    try {
+      out = execFileSync("reg.exe", ["query", root, "/s", "/ve"], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      continue;
+    }
+    let key = "";
+    for (const line of out.split(/\r?\n/)) {
+      if (/^HKEY_/i.test(line)) {
+        key = line.trim();
+        continue;
+      }
+      const value = /\sREG_(?:EXPAND_)?SZ\s+(.+)$/.exec(line)?.[1]?.trim();
+      if (value && /\\InstallPath$/i.test(key)) {
+        exes.push(path.join(value, "python.exe"));
+      }
+    }
+  }
+  return exes;
+}
+
+// Azure Pipelines tool cache layout: <root>\Python\<version>\<arch>\python.exe.
+function toolCachePythons(env: NodeJS.ProcessEnv): string[] {
+  const roots = [
+    env.AGENT_TOOLSDIRECTORY,
+    env.RUNNER_TOOL_CACHE,
+    "C:\\ToolCache",
+    "C:\\hostedtoolcache\\windows",
+  ].filter((r): r is string => !!r);
+  const exes: string[] = [];
+  for (const root of roots) {
+    const pythonDir = path.join(root, "Python");
+    if (!fs.existsSync(pythonDir)) continue;
+    for (const version of fs.readdirSync(pythonDir)) {
+      const versionDir = path.join(pythonDir, version);
+      if (!fs.statSync(versionDir).isDirectory()) continue;
+      for (const arch of fs.readdirSync(versionDir)) {
+        exes.push(path.join(versionDir, arch, "python.exe"));
+      }
+    }
+  }
+  return exes;
+}
+
+function describePython(p: PythonInterpreter): string {
+  return `Python ${p.version.join(".")} (${p.platform}) at ${p.exe}`;
+}
+
+// Make `env` resolve python.exe to an interpreter that Node.js configure
+// accepts. Throws if none is installed.
+export function ensureSupportedPython(env: NodeJS.ProcessEnv): void {
+  const configurePath = path.join(repoRoot, "deps", "nodejs", "configure");
+  const acceptable = parseAcceptablePythons(
+    fs.readFileSync(configurePath, "utf-8"),
+  );
+  const acceptedList = acceptable.map((v) => v.join(".")).join(", ");
+
+  const onPath = pathPythons(env);
+  const first = onPath[0];
+  const current =
+    first && !isStoreAlias(first) ? probePython(first) : undefined;
+  if (current && isAcceptedPython(current, acceptable)) {
+    console.log(`Using ${describePython(current)} (from PATH)`);
+    return;
+  }
+
+  const seen = new Set<string>();
+  const candidates: PythonInterpreter[] = [];
+  for (const exe of [
+    ...onPath,
+    ...registryPythons(),
+    ...toolCachePythons(env),
+  ]) {
+    const key = path.resolve(exe).toLowerCase();
+    if (seen.has(key) || isStoreAlias(exe) || !fs.existsSync(exe)) continue;
+    seen.add(key);
+    const probed = probePython(exe);
+    if (probed) candidates.push(probed);
+  }
+
+  const reason = current
+    ? `PATH python.exe is Python ${current.version.join(".")}`
+    : "no usable python.exe on PATH";
+  // An arm64 interpreter runs only on an ARM64 machine, which an emulated x64
+  // Node.js process cannot see in its own environment.
+  const nativePlatform = candidates.some((p) => p.platform === "win-arm64")
+    ? "win-arm64"
+    : nativePythonPlatform();
+  const pick = pickPython(candidates, acceptable, nativePlatform);
+  if (!pick) {
+    throw new Error(
+      `${reason}, and no other installed Python is accepted by Node.js ` +
+        `configure (accepted: ${acceptedList}). Install one of those versions ` +
+        `(python.org, or the Azure Pipelines tool cache) or put it first on PATH.`,
+    );
+  }
+  console.log(
+    `${reason}; Node.js configure accepts ${acceptedList}. ` +
+      `Using ${describePython(pick)}`,
+  );
+  prependToPath(env, path.dirname(pick.exe));
 }
 
 export function copyFile(

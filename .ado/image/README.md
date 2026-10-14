@@ -12,7 +12,8 @@ image the build agents run on.
 
 Both images share one toolchain — **Visual Studio 2026 Enterprise + Clang, the
 current Windows SDK, Node.js 24, Python 3.13 in the Azure Pipelines tool cache,
-the latest Python on `PATH`, and .NET 10** — so x64, x86, and ARM64 all build and
+the latest Python on `PATH`, a native Python 3.14 off `PATH`, and .NET 10** —
+so x64, x86, and ARM64 all build and
 test with the same tools. The two JSONs are intentionally kept as close to
 identical as possible; they differ only where the architecture forces it (see
 [Per-architecture differences](#per-architecture-differences)).
@@ -38,11 +39,16 @@ The build/test jobs run in two different ways depending on target architecture:
   ```yaml
   pool:
     name: windows-2025-1espt-arm64
+    os: windows
+    hostArchitecture: arm64
   ```
   `windows-2025-1espt-arm64` is a **single-image pool** — `windows-2025-1espt-arm64`
   is its one default image — so **no `ImageOverride` demand is used (or needed)**.
   ARM64 binaries can't execute on an x64 agent, so ARM64 cells build *and run their
-  tests* natively on this pool.
+  tests* natively on this pool. `hostArchitecture: arm64` is required: 1ES Pipeline
+  Templates default it to `amd64`, and the 1ES PT pre-job fails an `amd64` host on
+  an ARM VM SKU (`An amd64 architecture has been specified, but this is an arm64
+  pool`).
 
 > The `windows-release.yml` pipeline runs its publish/download jobs on the hosted
 > `Azure-Pipelines-1ESPT-ExDShared` pool (it does not build v8-jsi), so it does not
@@ -100,12 +106,13 @@ come before the artifacts that depend on them.
 | `windows-AzPipeline-powershellCore` | PowerShell 7 (`pwsh`); arch-aware (native on both) |
 | `windows-1es-install-winget` | **ARM64 only** — provision winget (all-users, sysprep-safe) into the shipped image |
 | `windows-AzPipeline-7zip` | **x64 only** — install 7-zip through Chocolatey; see [7-zip note](#7-zip) |
-| `windows-powershell-invokecommand` ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) | **ARM64 only** — install the latest native 7-zip through winget; see [7-zip note](#7-zip) |
+| `windows-powershell-invokecommand` ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) | **ARM64 only** — install the latest native 7-zip and native Python `3.14.x` (off `PATH`) through winget; see [7-zip note](#7-zip) and [Python note](#python) |
 | `windows-add-to-path` | Add the 7-zip installation directory to the machine `PATH` |
 | `windows-chocolatey` (`nasm`) | **x64 only** — install NASM for native builds |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
 | `Windows-NodeJS` | Node.js `24.x` (`UseARM` selects the architecture) |
 | `windows-1es-starter-install-python` | Latest Python `3.13.*` x64 build in the Azure Pipelines tool cache; see [Python note](#python) |
+| `windows-1es-starter-install-python` (`3.14.*`) | **x64 only** — latest Python `3.14.*` x64 build in the tool cache, the build scripts' fallback; see [Python note](#python) |
 | `windows-install-python` | Latest native python.org build on `PATH`; see [Python note](#python) |
 | `windows-chrome` | Google Chrome (UI/WinAppDriver tests) |
 | `windows-AzPipeline-WinAppDriver` | WinAppDriver |
@@ -127,6 +134,7 @@ Everything else is identical; only these entries differ between the two JSONs:
 | `Windows-NodeJS` | `Version: 24.x`, `UseARM: false` | `Version: 24.x`, `UseARM: true` |
 | Tool-cache Python 3.13 | x64 | x64 (runs under emulation) |
 | Latest Python on `PATH` | `Architecture: x64` | `Architecture: arm64` (native) |
+| Native Python `3.14.x` off `PATH` | tool cache, through a second `windows-1es-starter-install-python` (`versions: 3.14.*`) | through winget ([`install-winget-packages.ps1`](./install-winget-packages.ps1)); the tool-cache artifact installs only x64 builds |
 | `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK under `%ProgramFiles%\dotnet\x64` + `DOTNET_ROOT_X64` |
 
 ## Key decisions
@@ -148,6 +156,37 @@ The images install Python twice because the artifacts serve different consumers:
 Keep the tool-cache artifact before the `latest` artifact. The second install
 remains the default on `PATH` while the pinned minor version remains available
 to Azure Pipelines tasks.
+
+The floating `PATH` Python can be newer than the vendored Node.js `configure`
+accepts (Python 3.15.0 was rejected by Node.js 24's 3.9–3.14 range).
+`scripts/build.ts` and `scripts/sbox-build.ts` handle this without pinning the
+`PATH` Python: they read the accepted versions from `deps/nodejs/configure`. If
+the `PATH` Python is outside that range, they put the best accepted Python
+found in the registry (PEP 514) or the Azure Pipelines tool cache first on
+`PATH` for the build, preferring a native interpreter over an emulated one,
+then the newest version.
+
+- x64 image: a second `windows-1es-starter-install-python` entry
+  (`versions: 3.14.*`) adds native Python 3.14 to the tool cache, so the build
+  uses the newest version Node.js accepts; the tool-cache 3.13 remains a native
+  fallback. Keep the `3.13.*` entry, which the CodeQL step and the 1ES
+  prerequisites artifact use.
+- ARM64 image: `windows-1es-starter-install-python` installs only x64 builds
+  (the tool cache holds `…\Python\<version>\x64`), so a `3.14.*` entry there
+  would add another emulated copy. Windows does not set
+  `PROCESSOR_ARCHITEW6432` for emulated x64 processes, so `configure` would see
+  an x64 host and cross-compile arm64 with emulated host tools. The ARM64 image
+  therefore installs native Python `3.14.x` through winget
+  (`Python.Python.3.14`) instead. It is registered under
+  `HKLM\SOFTWARE\Python\PythonCore` but kept off `PATH`, without the `py`
+  launcher or file associations. The manifest's machine installer defaults to
+  `PrependPath=1`, so the script overrides its arguments.
+
+Both 3.14 installs float on 3.14 servicing releases. Raise the minor version
+only when the vendored Node.js drops 3.14 from `acceptable_pythons`.
+
+Do not remove the tool-cache artifact, and do not pin `windows-install-python`
+to work around a new Python release.
 
 ### 1ES Pipeline Template prerequisites
 
