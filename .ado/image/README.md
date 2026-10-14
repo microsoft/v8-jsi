@@ -100,7 +100,7 @@ come before the artifacts that depend on them.
 | `windows-AzPipeline-powershellCore` | PowerShell 7 (`pwsh`); arch-aware (native on both) |
 | `windows-1es-install-winget` | **ARM64 only** — provision winget (all-users, sysprep-safe) into the shipped image |
 | `windows-AzPipeline-7zip` | **x64 only** — install 7-zip through Chocolatey; see [7-zip note](#7-zip) |
-| `windows-AzPipeline-Install-7zip` | **ARM64 only** — install a pinned native 7-zip with an approved hash; see [7-zip note](#7-zip) |
+| `windows-powershell-invokecommand` ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) | **ARM64 only** — install the latest native 7-zip through winget; see [7-zip note](#7-zip) |
 | `windows-add-to-path` | Add the 7-zip installation directory to the machine `PATH` |
 | `windows-chocolatey` (`nasm`) | **x64 only** — install NASM for native builds |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
@@ -121,7 +121,7 @@ Everything else is identical; only these entries differ between the two JSONs:
 
 | Aspect | x64 image | ARM64 image |
 |--------|-----------|-------------|
-| 7-zip | `windows-AzPipeline-7zip` through Chocolatey | pinned native direct download with SHA-256 verification |
+| 7-zip | `windows-AzPipeline-7zip` through Chocolatey | latest native release through winget ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) |
 | winget | not provisioned separately | `windows-1es-install-winget` added |
 | NASM | installed through `windows-chocolatey` | not installed separately |
 | `Windows-NodeJS` | `Version: 24.x`, `UseARM: false` | `Version: 24.x`, `UseARM: true` |
@@ -191,19 +191,63 @@ OS) lets SBoM run on the ARM64 cells.
 The x64 image uses `windows-AzPipeline-7zip`, which installs 7-zip through
 Chocolatey.
 
-`windows-1es-install-winget-packages` does not currently work on either
-managed-image builder. When `winget.exe` is unavailable, the artifact's
-`Microsoft.WinGet.Client` fallback crashes while installing 7-zip with exit code
-`0xC0000409`. The ARM64 image therefore uses
-`windows-AzPipeline-Install-7zip` with an explicit version and approved SHA-256.
-Update both values together when the pinned release is removed from the current
-7-zip download page.
+The ARM64 image installs the latest native 7-zip through winget, using
+[`install-winget-packages.ps1`](./install-winget-packages.ps1), embedded
+base64-encoded as the `Script` of a `windows-powershell-invokecommand`
+artifact. winget selects the
+installer for the OS architecture and verifies its SHA-256 against the
+community manifest, so there is no version or hash to maintain. Pinning is not
+an option: the image rebuilds weekly, and the pinned-version artifact
+(`windows-AzPipeline-Install-7zip`) finds installers only on the current 7-zip
+download page, so every new 7-zip release broke the next rebuild.
 
 `windows-add-to-path` then adds `%ProgramFiles%\7-Zip` to the machine `PATH`.
 Using the environment variable keeps the image definition independent of the
 system drive. This entry is required because
 `windows-1es-starter-install-python`, which runs later, invokes `7z.exe` while
 populating the Python tool cache.
+
+### WinGet during image builds
+
+The factory winget artifacts (`windows-AzPipeline-7zip` on ARM64,
+`windows-install-7zip`, `windows-1es-install-winget-packages`) cannot use winget
+in this managed-image build. Probing the ARM64 builder showed why, and the
+script handles each point in order:
+
+1. Artifacts run as the `vmadmin` build user in a service logon (session 0),
+   started by `ImageFactoryV3.VMAgent.exe`. PowerShell runs as an emulated x64
+   process on the ARM64 builder, so `PROCESSOR_ARCHITECTURE` reports `AMD64`.
+2. The base image provisions winget (App Installer) for all users, so
+   `windows-1es-install-winget` leaves it as is — but it is not registered for
+   `vmadmin`. Without a registration there is no
+   `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` alias, and Windows refuses
+   to start `winget.exe` from its package folder. Adding a directory to `PATH`
+   cannot help. The script registers the provisioned package with
+   `Add-AppxPackage -RegisterByFamilyName` and calls the alias.
+3. winget then fails to deploy its own catalog package in this session
+   (`0x8A15000F`, source data missing). Deploying the same Microsoft-signed
+   `source.msix` with `Add-AppxPackage` works, so the script does that when the
+   catalog is unusable.
+4. Sysprep fails (`0x80073cf2`) on per-user packages that are not provisioned,
+   so the script removes the per-user `Microsoft.Winget.*` catalog packages. It
+   keeps the `DesktopAppInstaller` registration, which matches the provisioned
+   version, and sets `SkipDesktopAppInstallerRemoval` under
+   `HKLM:\SOFTWARE\ImageFactory` so ImageFactory's sysprep preparation does not
+   remove it either.
+
+The JSON carries the script base64-encoded because ImageFactory pastes the
+`Script` value into a generated command line as a double-quoted PowerShell
+string: quotes would end the string, and `$` would be expanded there. The base64
+form contains neither. After editing the script, regenerate the entry from this
+folder in PowerShell 7:
+
+```powershell
+$json = [IO.File]::ReadAllText("$PWD\windows-2025-1espt-arm64.json")
+$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([IO.File]::ReadAllText("$PWD\install-winget-packages.ps1") -replace "`r`n", "`n")))
+$value = "& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b64'))))" | ConvertTo-Json
+$json = [regex]::Replace($json, '(?s)("name": "windows-powershell-invokecommand",\s*"parameters": \{\s*"Script": )"(?:[^"\\]|\\.)*"', { param($m) $m.Groups[1].Value + $value })
+[IO.File]::WriteAllText("$PWD\windows-2025-1espt-arm64.json", $json, (New-Object Text.UTF8Encoding $false))
+```
 
 ### Visual Studio background downloads
 
