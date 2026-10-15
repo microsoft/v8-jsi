@@ -77,8 +77,8 @@ class V8PlatformHolder {
     }
     is_initialized_ = true;
     init_callback();
-    platform_ = v8::platform::NewDefaultPlatform(thread_pool_size);
-    v8::V8::InitializePlatform(platform_.get());
+    platform_ = v8::platform::NewDefaultPlatform(thread_pool_size).release();
+    v8::V8::InitializePlatform(platform_);
     v8::V8::Initialize();
   }
 
@@ -92,6 +92,7 @@ class V8PlatformHolder {
     is_disposed_ = true;
     v8::V8::Dispose();
     v8::V8::DisposePlatform();
+    delete platform_;
     platform_ = nullptr;
   }
 
@@ -107,7 +108,11 @@ class V8PlatformHolder {
 
  private:
   static std::mutex mutex_;
-  static std::unique_ptr<v8::Platform> platform_;
+  // Owned, but deleted only by disposePlatform(), never by a static
+  // destructor. If the process exits without disposing, ExitProcess has already
+  // killed the worker threads, possibly while they held the task runner's
+  // mutex, and ~DefaultPlatform would wait for it forever in DLL_PROCESS_DETACH.
+  static v8::Platform* platform_;
   static bool is_initialized_;
   static bool is_disposed_;
 };
