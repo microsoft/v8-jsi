@@ -17,7 +17,7 @@ namespace v8rt {
 //==============================================================================
 
 std::mutex V8PlatformHolder::mutex_;
-std::unique_ptr<v8::Platform> V8PlatformHolder::platform_;
+v8::Platform* V8PlatformHolder::platform_ = nullptr;
 bool V8PlatformHolder::is_initialized_ = false;
 bool V8PlatformHolder::is_disposed_ = false;
 

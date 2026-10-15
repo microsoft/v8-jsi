@@ -202,10 +202,14 @@ extends:
           # compile arm64 and skips the tests. windows-2025-1espt-arm64 is a
           # single-image pool, so it takes no ImageOverride demand. x64/x86 cells
           # inherit the top-level fabric-internal-pool-large pool, which pins the
-          # windows-2025-1espt image.
+          # windows-2025-1espt image. hostArchitecture must be arm64: 1ES PT
+          # defaults it to amd64, and its pre-job fails an amd64 host on an ARM
+          # VM SKU.
           ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
+              os: windows
+              hostArchitecture: arm64
 
           variables:
           - name: Packaging.EnableSBOMSigning
@@ -301,11 +305,14 @@ extends:
 
           # ARM64 builds natively on the ARM64 managed-image pool so its Untrusted
           # lockdown tier can execute (AA64 binaries can't run on an x64 agent).
-          # It's a single-image pool, so no ImageOverride demand. x64/x86 keep the
+          # It's a single-image pool, so no ImageOverride demand; hostArchitecture
+          # arm64 satisfies the 1ES PT host-architecture check. x64/x86 keep the
           # existing image, unchanged.
           ${{ if eq(sb.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
+              os: windows
+              hostArchitecture: arm64
           ${{ else }}:
             pool:
               name: fabric-internal-pool-large
@@ -634,6 +641,8 @@ extends:
             ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
               pool:
                 name: windows-2025-1espt-arm64
+                os: windows
+                hostArchitecture: arm64
 
             steps:
             - checkout: self

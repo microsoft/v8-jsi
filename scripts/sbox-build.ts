@@ -34,6 +34,7 @@ import {
   crtDependencyLines,
   ensureBinSkimExe,
   analyzeBinSkim,
+  ensureSupportedPython,
 } from "./build-common.ts";
 
 // =============================================================================
@@ -390,10 +391,18 @@ function gnArgsContent(
   );
 }
 
+let cachedSandboxEnv: NodeJS.ProcessEnv | undefined;
+
 function sandboxEnv(): NodeJS.ProcessEnv {
-  // The Chromium build keys off this to use the locally-resolved MSVC/SDK rather
-  // than trying to download a Google-internal toolchain package.
-  return { ...process.env, DEPOT_TOOLS_WIN_TOOLCHAIN: "0" };
+  if (!cachedSandboxEnv) {
+    // The Chromium build keys off this to use the locally-resolved MSVC/SDK
+    // rather than trying to download a Google-internal toolchain package.
+    cachedSandboxEnv = { ...process.env, DEPOT_TOOLS_WIN_TOOLCHAIN: "0" };
+    // gn and ninja actions run python.exe from PATH (.gn script_executable).
+    // Use the same interpreter range as the engine build in the same job.
+    ensureSupportedPython(cachedSandboxEnv);
+  }
+  return cachedSandboxEnv;
 }
 
 // gclient's `runhooks` normally generates these build inputs. This vendored tree
