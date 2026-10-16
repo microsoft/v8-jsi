@@ -1,10 +1,19 @@
 name: v8jsi_pr_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
+# Triggers are defined here, not in the ADO pipeline UI.
 trigger: none
 pr:
-  - master
   - main
-  - "*-stable"
+
+# Monthly keep-alive run so ADO does not disable the pipeline for inactivity.
+# It is not used for real releases and its time is not significant.
+schedules:
+- cron: '0 9 1 * *'
+  displayName: Monthly keep-alive
+  branches:
+    include:
+    - main
+  always: true
 
 variables:
     # Forked-repo PRs can't run Guardian/SDL and emit a noisy "not supported for
