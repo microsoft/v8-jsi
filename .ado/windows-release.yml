@@ -5,7 +5,8 @@
 
 name: v8jsi_release_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-# The triggers are overridden by the ADO pipeline definitions.
+# Runs only when microsoft.v8-jsi.ci completes on main (see resources below);
+# triggers are defined here, not in the ADO pipeline UI.
 trigger: none
 pr: none
 
@@ -17,9 +18,7 @@ resources:
     trigger:
       branches:
         include:
-        - master
         - main
-        - '*-stable'
 
   repositories:
   - repository: CustomPipelineTemplates
