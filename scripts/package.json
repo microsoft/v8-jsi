@@ -5,6 +5,7 @@
   "type": "module",
   "description": "TypeScript build/tooling scripts for v8-jsi. Run directly with Node.js v24+ (strip-types); no build step. Types are for editor/CI type-checking only.",
   "scripts": {
+    "header-check": "node --test header-check.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

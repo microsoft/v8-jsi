@@ -58,11 +58,11 @@ target("shared_library", "v8jsi") {
       "node-api/js_native_api_v8.cc",
       "node-api/js_native_api_v8.h",
       "node-api/js_native_api_v8_internals.h",
-      "node-api/js_runtime_api.h",
+      "node-api/v8_node_api.h",
+      "node-api/v8_node_api_stela.h",
       "node-api/util-inl.h",
       "node-api/v8_api.cpp",
       "public/compat.h",
-      "public/v8_api.h",
     ]
   }
 
@@ -139,7 +139,10 @@ target("shared_library", "v8jsi") {
     "//:v8_monolith",
   ]
 
-  defines = [ "BUILDING_V8JSI_SHARED" ]
+  defines = [
+    "BUILDING_V8JSI_SHARED",
+    "V8_NODE_API_IMPL",
+  ]
 
   if (is_win) {
     libs = [
@@ -207,8 +210,9 @@ target("executable", "jsitests") {
     "jsi/test/testlib.h",
     "jsi/test/testlib_ext.cpp",
     "jsi/threadsafe.h",
+    "node-api/v8_node_api.h",
+    "node-api/v8_node_api_stela.h",
     "public/compat.h",
-    "public/v8_api.h",
     "testmain.cpp",
   ]
 

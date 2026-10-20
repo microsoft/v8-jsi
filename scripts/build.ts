@@ -30,6 +30,17 @@ import {
 
 const nodejsDir = path.join(repoRoot, "deps", "nodejs");
 const srcDir = path.join(repoRoot, "src");
+const stelaCli = path.join(repoRoot, "tools", "stela", "src", "stela.ts");
+const stelaConfig = path.join(repoRoot, "stela.config.json");
+
+// Libraries whose headers ship in the package; each ships its Stela model
+// (build/native/stela/<library>.model.json), extracted from the same headers.
+const shippedStelaLibraries = ["jsi_abi", "v8_jsi_abi", "v8_node_api", "sbox", "v8host"];
+
+// Run the Stela CLI; `run` joins a shell command line, so quote every path.
+function runStela(stelaArgs: string[]): void {
+  run(`"${process.execPath}"`, [stelaCli, ...stelaArgs].map((a) => `"${a}"`), { cwd: repoRoot });
+}
 
 // BinSkim rules accepted as residuals on the engine binaries (full rationale in the
 // per-RID suppressions in .ado/guardian/sdl/.gdnsuppress -- keep in sync). The
@@ -238,8 +249,9 @@ function sandboxOutDir(platform: string): string {
 // Everything is optional: a mainline (non-sandbox) build won't have produced
 // them, and the CI aggregator pre-stages them from the `sandbox-binaries`
 // artifact. v8jsisb.dll comes from the vcbuild out dir (engineOutDir, alongside
-// v8jsi.dll); sbox.dll / v8host.exe / sbox.dll.lib from the gn out dir.
-// test_app.exe (the test harness) is deliberately excluded.
+// v8jsi.dll); sbox.exe (the sandbox container) and v8host.dll (the engine
+// payload a consuming app loads) + v8host.dll.lib from the gn out dir. The gn
+// test binaries are deliberately excluded.
 function stageSandboxBinaries(
   platform: string,
   engineOutDir: string,
@@ -277,13 +289,13 @@ function stageSandboxBinaries(
       path.join(ridDir, "mkv8snapshot.exe.pdb"),
     );
   }
-  // The Chromium-sandbox binaries (gn output) + sbox's import lib.
+  // The Chromium-sandbox binaries (gn output) + v8host's import lib.
   for (const f of [
-    "sbox.dll",
-    "sbox.dll.pdb",
-    "sbox.dll.lib",
-    "v8host.exe",
-    "v8host.exe.pdb",
+    "sbox.exe",
+    "sbox.exe.pdb",
+    "v8host.dll",
+    "v8host.dll.pdb",
+    "v8host.dll.lib",
   ]) {
     copyFile(f, sbxOut, ridDir, /*optional*/ true);
   }
@@ -320,7 +332,8 @@ Usage: node scripts/build.ts [options]
 Boolean flags (all support --no- prefix):
   --help              Show this help message
   --build             Build v8jsi.dll (default: true)
-  --test              Run v8jsi_test.exe
+  --test              Run v8jsi_test.exe + node_api_tests.exe, and check the
+                      DLL's embedded Stela manifest (stela verify + check)
   --pack              Create NuGet package
   --smoke             Run the real-consumer smoke (tests/run-smoke.ps1) against
                       the packed .nupkg (x64/x86/arm64; Release + Debug)
@@ -331,7 +344,11 @@ Boolean flags (all support --no- prefix):
                       engines, incl. cross-engine rejection)
   --test-acceptance   Like --test-e2e but against an already-built pack (e.g. the
                       downloaded signed NuGet in CI); forces the sandbox-engine
-                      leg on (the final multi-engine pack always carries v8jsisb.dll)
+                      leg on (the final multi-engine pack always carries v8jsisb.dll).
+                      The pack's sandbox binaries must be the shipped release-trust
+                      build: the x64/ARM64 sandbox smoke requires the unsigned
+                      consumer to be rejected; sign it, then run
+                      tests/run-smoke.ps1 -UseV8Sandbox -RunSigned
   --binskim           Run BinSkim security validation
   --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
   --check-size        Enforce the binary-size budget (v8jsisb.dll <= 18 MiB)
@@ -357,7 +374,7 @@ Examples:
   node scripts/build.ts --no-build --pack        # Package only
   node scripts/build.ts --clean-all              # Clean everything
 
-The Chromium sandbox binaries (sbox.dll / v8host.exe / test_app.exe) are built
+The Chromium sandbox binaries (sbox.exe / v8host.dll and their tests) are built
 by a separate gn/ninja toolchain — see: node scripts/sbox-build.ts --help
 `);
 }
@@ -420,6 +437,13 @@ async function runBuild(
 function runTests(platform: string, configuration: string): void {
   const engineName = args["build-v8jsisb"] ? "v8jsisb" : "v8jsi";
   console.log(`\n=== Testing ${engineName} (${platform} ${configuration}) ===\n`);
+
+  // The embedded Stela manifest gate is a static check, so it runs for
+  // cross-platform builds too: the DLL's exports match its manifest, and the
+  // manifest matches the current headers.
+  const engine = path.join(buildOutputDir(configuration), `${engineName}.dll`);
+  runStela(["verify", engine]);
+  runStela(["check", engine, "--config", stelaConfig]);
 
   if (isCrossPlatformBuild(platform)) {
     console.log(
@@ -537,7 +561,7 @@ function reportExports(platform: string, configuration: string): void {
     names.filter((n: string) => n.startsWith(prefix)).length;
 
   console.log(`napi_*:     ${count("napi_")}`);
-  console.log(`jsr_*:      ${count("jsr_")}`);
+  console.log(`v8_node_api_*: ${count("v8_node_api_")}`);
   console.log(`node_api_*: ${count("node_api_")}`);
   console.log(`v8_*:       ${count("v8_")}`);
   console.log(`total:      ${names.length}`);
@@ -653,11 +677,11 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 
       // Sandbox binaries: the jitless sandbox engine v8jsisb.dll (vcbuild
       // output, same out dir as v8jsi.dll) plus the Chromium-sandbox binaries
-      // sbox.dll / v8host.exe + sbox.dll.lib (gn output, per-arch out dir). All
-      // optional: a non-sandbox build won't have produced them, and the CI
+      // sbox.exe / v8host.dll + v8host.dll.lib (gn output, per-arch out dir).
+      // All optional: a non-sandbox build won't have produced them, and the CI
       // aggregator pre-stages them from the `sandbox-binaries` artifact, so a
       // missing local file just means "already staged / not built here".
-      // test_app.exe is the TEST harness and is deliberately NOT staged.
+      // The gn test binaries are deliberately NOT staged.
       stageSandboxBinaries(platform, outDir, ridDir);
     }
   }
@@ -681,7 +705,6 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
     "compat.h",
     "Readme.md",
     "ScriptStore.h",
-    "v8_api.h",
     "V8JsiRuntime.h",
   ]) {
     copyFile(file, path.join(srcDir, "public"), includeDir);
@@ -697,14 +720,15 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   }
 
   // JSI ABI headers + sources. Consumers compile JsiAbiRuntime.cpp locally;
-  // v8_jsi_config.h and v8_node_api_attach.h are the public C-stable surfaces
+  // v8_jsi_abi.h and v8_node_api_attach.h are the public C-stable surfaces
   // for runtime configuration and the dual-API attach seam respectively.
   for (const file of [
     "jsi_abi.h",
+    "jsi_abi_stela.h",
     "jsi_abi_helpers.h",
     "JsiAbiRuntime.h",
     "JsiAbiRuntime.cpp",
-    "v8_jsi_config.h",
+    "v8_jsi_abi.h",
     "v8_node_api_attach.h",
   ]) {
     copyFile(file, path.join(srcDir, "jsi_abi"), jsiAbiDir);
@@ -715,11 +739,12 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // file's <ClCompile> include.
   copyFile("V8JsiRuntime.cpp", path.join(srcDir, "public"), jsiPublicDir);
 
-  // Node-API headers
+  // V8's Node-API hosting header and its generated annotations.
   for (const file of [
     "js_native_api_types.h",
     "js_native_api.h",
-    "js_runtime_api.h",
+    "v8_node_api.h",
+    "v8_node_api_stela.h",
   ]) {
     copyFile(file, path.join(srcDir, "node-api"), nodeApiDir, true);
   }
@@ -750,18 +775,31 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
     );
   }
 
-  // sbox public C-ABI headers. sbox.dll has its own small C ABI (it is NOT
-  // a JSI surface): a broker host compiles against these to spawn + lock down
-  // v8host.exe. Staged RID-independently under build/native/include/sbox.
-  //   sbox.h        — broker + target C ABI (self-contained: <cstddef>/<cstdint>)
+  // Sandbox public C-ABI headers, staged RID-independently under
+  // build/native/include/sbox and build/native/include/v8host.
+  //   sbox.h        — the sbox.exe plugin ABI (self-contained: <stddef.h>/<stdint.h>)
+  //   sbox_stela.h  — the Stela annotation macros sbox.h includes
   //   sbox_harden.h — header-only DLL-search hardening + WinVerifyTrust helpers
-  // msg_channel.h is intentionally NOT shipped — it is internal to sbox.dll (the
-  // broker uses the channel via sbox_broker_post_message in sbox.h).
+  //   v8host_client.h — the client ABI an app compiles against to load
+  //                     v8host.dll and run sandboxed JavaScript
+  //   v8host_stela.h  — the Stela annotation macros v8host_client.h includes
+  // msg_channel.h and the sbox_*internal headers are NOT shipped — they're
+  // internal to the sandbox binaries.
   const sboxIncludeDir = path.join(includeDir, "sbox");
-  const sboxHeaderSrc = path.join(repoRoot, "deps", "chromium", "sandbox_dll");
-  for (const file of ["sbox.h", "sbox_harden.h"]) {
+  const sboxHeaderSrc = path.join(repoRoot, "deps", "chromium", "sbox");
+  for (const file of ["sbox.h", "sbox_stela.h", "sbox_harden.h"]) {
     copyFile(file, sboxHeaderSrc, sboxIncludeDir);
   }
+  for (const file of ["v8host_client.h", "v8host_stela.h"]) {
+    copyFile(file, path.join(srcDir, "public"), path.join(includeDir, "v8host"));
+  }
+
+  // Stela models of the shipped C ABI headers, extracted from the same source
+  // tree so they describe exactly the headers above. Each binary's embedded
+  // manifest names its libraries' model by SHA-256 (`stela show`).
+  const stelaModel = path.join(outputPath, "stela", "stela.model.json");
+  runStela(["extract", "--config", stelaConfig, "--out", stelaModel]);
+  runStela(["baseline", "--config", stelaConfig, "--model", stelaModel, "--out", path.join(pkgStagingPath, "build", "native", "stela"), ...shippedStelaLibraries]);
 
   // Root assets (LICENSE, NOTICE.txt, README.md, _._ placeholder)
   for (const file of ["LICENSE", "NOTICE.txt", "README.md", "_._"]) {
@@ -911,13 +949,17 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 // against the default engine (v8jsi) in the given consumer configs, then once
 // more on the sandbox engine (v8jsisb, -UseV8Sandbox). requireSandbox forces the
 // sandbox leg on (acceptance against a sandbox-complete pack); otherwise it runs
-// only when the pack actually staged a v8jsisb.dll for this RID.
+// only when the pack actually staged a v8jsisb.dll for this RID. The package
+// supports UseV8Sandbox for x64 and ARM64 consumers only, so on x86 the leg
+// asserts that the package rejects it. sandboxArgs are extra script arguments
+// for the sandbox leg only.
 function runHarnessScenario(
   scenario: string,
   outputPath: string,
   platforms: string[],
   consumerConfigs: string[],
   requireSandbox: boolean = false,
+  sandboxArgs: string[] = [],
 ): void {
   const harnessPlatforms = platforms.filter(
     (platform) =>
@@ -947,7 +989,7 @@ function runHarnessScenario(
         "-PkgDir",
         `"${pkgDir}"`,
       ];
-      if (sandbox) psArgs.push("-UseV8Sandbox");
+      if (sandbox) psArgs.push("-UseV8Sandbox", ...sandboxArgs);
       run("powershell.exe", psArgs);
     };
 
@@ -966,7 +1008,11 @@ function runHarnessScenario(
       "v8jsisb.dll",
     );
     if (requireSandbox || fs.existsSync(stagedV8jsisb)) {
-      console.log(`\n=== ${scenario} (${platform}, sandbox engine) ===\n`);
+      const leg =
+        platform === "x86"
+          ? "UseV8Sandbox must be rejected for x86 consumers"
+          : "sandbox engine";
+      console.log(`\n=== ${scenario} (${platform}, ${leg}) ===\n`);
       invoke("Release", /*sandbox*/ true);
     } else {
       console.log(
@@ -978,7 +1024,10 @@ function runHarnessScenario(
 
 // Real-consumer smoke: builds the consumer in Release + Debug against the
 // Release v8jsi.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
-// boundary) and runs the JSI ABI checks.
+// boundary) and runs the JSI ABI checks. Under acceptance the pack carries the
+// shipped release-trust sandbox binaries, which accept only a signed client:
+// the sandbox leg requires the unsigned consumer to be rejected, and CI signs
+// it and runs `tests/run-smoke.ps1 -UseV8Sandbox -RunSigned` for the positive.
 function runSmoke(
   outputPath: string,
   platforms: string[],
@@ -991,6 +1040,7 @@ function runSmoke(
     platforms,
     ["Release", "Debug"],
     requireSandbox,
+    requireSandbox ? ["-ReleaseTrustPayload"] : [],
   );
 }
 

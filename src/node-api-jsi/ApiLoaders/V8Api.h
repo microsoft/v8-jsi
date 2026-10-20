@@ -5,7 +5,7 @@
 #ifndef APILOADERS_V8API_H_
 #define APILOADERS_V8API_H_
 
-#include <v8_api.h>
+#include <v8_node_api.h>
 #include "JSRuntimeApi.h"
 
 namespace Microsoft::NodeApiJsi {
@@ -42,7 +42,7 @@ class V8Api : public JSRuntimeApi {
   };
 
  public:
-#define V8_FUNC(func) decltype(::func) *const func;
+#define V8_FUNC(func) func##_fn const func;
 #include "V8Api.inc"
 
  private:

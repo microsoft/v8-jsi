@@ -1,0 +1,294 @@
+{
+  "schema": "stela.raw/1",
+  "producer": {"stela": "0.1.0", "libclang": "clang version 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211)"},
+  "target": "i686-pc-windows-msvc",
+  "headers": ["probe.h", "probe_more.h"],
+  "declarations": [
+      {
+        "kind": "macro",
+        "name": "PROBE_H_",
+        "location": {"file": "probe.h", "line": 2, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": []
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_CDECL",
+        "location": {"file": "probe.h", "line": 13, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": ["__cdecl"]
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_ABI_VERSION",
+        "location": {"file": "probe.h", "line": 18, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": ["7u"],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"value": "7"}
+        }
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_BIG_VALUE",
+        "location": {"file": "probe.h", "line": 19, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": ["(", "1ull", "<<", "40", ")"],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"value": "1099511627776"}
+        }
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_ALIAS",
+        "location": {"file": "probe.h", "line": 20, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": ["PROBE_ABI_VERSION"],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"value": "7"}
+        }
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_TEXT",
+        "location": {"file": "probe.h", "line": 21, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": ["\"not an integer\""]
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_EMPTY",
+        "location": {"file": "probe.h", "line": 22, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": []
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_ADD",
+        "location": {"file": "probe.h", "line": 23, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": true
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_status",
+        "location": {"file": "probe.h", "line": 26, "column": 1},
+        "doc": "A fixed-width status.",
+        "annotations": [],
+        "type": {"name": "probe_status"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"name": "probe_status"}, "size": 4, "align": 4}
+        }
+      },
+      {
+        "kind": "enum",
+        "name": "probe_status",
+        "location": {"file": "probe.h", "line": 26, "column": 1},
+        "doc": "A fixed-width status.",
+        "annotations": [{"key": "enum", "value": "probe_status"}],
+        "type": {"name": "int32_t"},
+        "enumerators": [{"name": "probe_status_ok", "value": 0, "doc": null}, {"name": "probe_status_failed", "value": 28673, "doc": "An unexpected failure."}],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_flags",
+        "location": {"file": "probe.h", "line": 31, "column": 1},
+        "doc": null,
+        "annotations": [],
+        "type": {"name": "uint32_t"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}, "size": 4, "align": 4}
+        }
+      },
+      {
+        "kind": "enum",
+        "name": "probe_flags",
+        "location": {"file": "probe.h", "line": 31, "column": 1},
+        "doc": null,
+        "annotations": [{"key": "flags", "value": "probe_flags"}],
+        "type": {"name": "uint32_t"},
+        "enumerators": [{"name": "probe_flags_none", "value": 0, "doc": null}, {"name": "probe_flags_first", "value": 1, "doc": null}, {"name": "probe_flags_last", "value": 1073741824, "doc": null}],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}}
+        }
+      },
+      {
+        "kind": "struct",
+        "name": "probe_record",
+        "location": {"file": "probe.h", "line": 37, "column": 16},
+        "doc": null,
+        "annotations": [],
+        "fields": [{"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null}, {"name": "name", "type": {"pointer": {"builtin": "char", "const": true}}, "annotations": [{"key": "nullable"}], "doc": "A borrowed UTF-8 name."}, {"name": "bytes", "type": {"array": {"name": "uint8_t"}, "length": 4}, "annotations": [], "doc": null}, {"name": "ready", "type": {"builtin": "unsigned int"}, "annotations": [], "doc": null, "bitWidth": 1}],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"size": 16, "align": 4, "offsets": [0, 4, 8, 12]}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_record",
+        "location": {"file": "probe.h", "line": 42, "column": 3},
+        "doc": null,
+        "annotations": [],
+        "type": {"name": "probe_record"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"name": "probe_record"}, "size": 16, "align": 4}
+        }
+      },
+      {
+        "kind": "union",
+        "name": "probe_value",
+        "location": {"file": "probe.h", "line": 45, "column": 15},
+        "doc": "A union in the public layout.",
+        "annotations": [],
+        "fields": [{"name": "bits", "type": {"name": "uint64_t"}, "annotations": [], "doc": null}, {"name": "number", "type": {"builtin": "double"}, "annotations": [], "doc": null}],
+        "perTarget": {
+          "i686-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0, 0]}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_value",
+        "location": {"file": "probe.h", "line": 48, "column": 3},
+        "doc": "A union in the public layout.",
+        "annotations": [],
+        "type": {"name": "probe_value"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"name": "probe_value"}, "size": 8, "align": 8}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_event_cb",
+        "location": {"file": "probe.h", "line": 50, "column": 27},
+        "doc": null,
+        "annotations": [],
+        "type": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [{"name": "text", "type": {"pointer": {"builtin": "char", "const": true}}, "annotations": [{"key": "nullable"}]}, {"name": "user_data", "type": {"pointer": {"builtin": "void"}}, "annotations": [{"key": "scope", "value": "call"}]}], "variadic": false}}},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [{"name": "arg0", "type": {"pointer": {"builtin": "char", "const": true}}, "annotations": []}, {"name": "arg1", "type": {"pointer": {"builtin": "void"}}, "annotations": []}], "variadic": false}}}, "size": 4, "align": 4, "callingConvention": "c"}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_default_cb",
+        "location": {"file": "probe.h", "line": 54, "column": 15},
+        "doc": null,
+        "annotations": [],
+        "type": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [], "variadic": false}}},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [], "variadic": false}}}, "size": 4, "align": 4, "callingConvention": "stdcall"}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_event_alias_cb",
+        "location": {"file": "probe.h", "line": 55, "column": 24},
+        "doc": null,
+        "annotations": [],
+        "type": {"name": "probe_event_cb"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [{"name": "arg0", "type": {"pointer": {"builtin": "char", "const": true}}, "annotations": []}, {"name": "arg1", "type": {"pointer": {"builtin": "void"}}, "annotations": []}], "variadic": false}}}, "size": 4, "align": 4, "callingConvention": "c"}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_default_alias_cb",
+        "location": {"file": "probe.h", "line": 56, "column": 26},
+        "doc": null,
+        "annotations": [],
+        "type": {"name": "probe_default_cb"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"pointer": {"function": {"result": {"builtin": "void"}, "params": [], "variadic": false}}}, "size": 4, "align": 4, "callingConvention": "stdcall"}
+        }
+      },
+      {
+        "kind": "typedef",
+        "name": "probe_plain_comment",
+        "location": {"file": "probe.h", "line": 59, "column": 18},
+        "doc": null,
+        "annotations": [],
+        "type": {"name": "uint32_t"},
+        "perTarget": {
+          "i686-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}, "size": 4, "align": 4}
+        }
+      },
+      {
+        "kind": "function",
+        "name": "probe_run",
+        "location": {"file": "probe.h", "line": 67, "column": 26},
+        "doc": "Runs a probe.\n\\param record the record to update.\n\\param out_value receives the result.",
+        "annotations": [{"key": "since", "value": "2"}],
+        "result": {"type": {"name": "probe_status"}},
+        "params": [{"name": "record", "type": {"pointer": {"name": "probe_record"}}, "annotations": [{"key": "inout"}]}, {"name": "flags", "type": {"name": "probe_flags"}, "annotations": []}, {"name": "out_value", "type": {"pointer": {"name": "probe_value"}}, "annotations": [{"key": "optional"}, {"key": "out"}]}, {"name": "on_event", "type": {"name": "probe_event_cb"}, "annotations": [{"key": "scope", "value": "async"}]}, {"name": "user_data", "type": {"pointer": {"builtin": "void"}}, "annotations": [{"key": "nullable"}]}],
+        "variadic": false,
+        "perTarget": {
+          "i686-pc-windows-msvc": {"callingConvention": "c"}
+        }
+      },
+      {
+        "kind": "function",
+        "name": "probe_log",
+        "location": {"file": "probe.h", "line": 75, "column": 26},
+        "doc": "A variadic library-wide function.",
+        "annotations": [],
+        "result": {"type": {"name": "probe_status"}},
+        "params": [{"name": "format", "type": {"pointer": {"builtin": "char", "const": true}}, "annotations": [{"key": "zero_terminated"}]}],
+        "variadic": true,
+        "perTarget": {
+          "i686-pc-windows-msvc": {"callingConvention": "c"}
+        }
+      },
+      {
+        "kind": "function",
+        "name": "probe_default_call",
+        "location": {"file": "probe.h", "line": 77, "column": 14},
+        "doc": null,
+        "annotations": [],
+        "result": {"type": {"name": "probe_status"}},
+        "params": [{"name": "callback", "type": {"name": "probe_default_cb"}, "annotations": []}],
+        "variadic": false,
+        "perTarget": {
+          "i686-pc-windows-msvc": {"callingConvention": "stdcall"}
+        }
+      },
+      {
+        "kind": "macro",
+        "name": "PROBE_MORE_H_",
+        "location": {"file": "probe_more.h", "line": 2, "column": 9},
+        "doc": null,
+        "annotations": [],
+        "functionLike": false,
+        "replacement": []
+      },
+      {
+        "kind": "function",
+        "name": "probe_get_abi_version",
+        "location": {"file": "probe_more.h", "line": 7, "column": 22},
+        "doc": "Returns the ABI version.",
+        "annotations": [],
+        "result": {"type": {"name": "uint32_t"}},
+        "params": [],
+        "variadic": false,
+        "perTarget": {
+          "i686-pc-windows-msvc": {"callingConvention": "c"}
+        }
+      }
+  ]
+}

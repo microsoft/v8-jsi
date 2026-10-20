@@ -1,46 +1,521 @@
-# v8host.exe — app-defined sandbox target EXE. Loads the generic sbox.dll for
-# the target role and v8jsi.dll (by name, at runtime) for the JS workload.
+# v8host.dll — the engine payload driven by the product sbox.exe worker. It
+# exports only the single sbox_plugin_main plugin-ABI entry (sbox.exe resolves it
+# by name) and links the JSI C++ API (jsi_cpp) but NOT the sandbox core. This is
+# the control inversion from the retired two-image v8host.exe: the container owns
+# main() and drives configure (broker) + warmup (pre-lockdown) -> lower_token ->
+# run (post-lockdown) -> shutdown.
+#
+# REAL V8/JSI engine persona: v8host_engine.cc loads the engine DLL (v8jsisb.dll
+# jitless for Untrusted / v8jsi.dll for Trusted), creates a JSI runtime, installs
+# the `host` object, evaluates a guest, and runs the message loop — all under the
+# container-driven ACG lifecycle. Carved from the retired v8host.exe main.
+import("//sbox/trust.gni")
 
-executable("v8host") {
-  sources = [ "v8host.cc" ]
-
-  # //sandbox_dll for sbox.h; //../../src for the JSI C++ API headers
-  # (jsi/jsi.h, jsi_abi/JsiAbiRuntime.h) + the v8jsi config header
-  # (jsi_abi/v8_jsi_config.h). v8jsi.dll itself is LoadLibrary'd at runtime.
+config("v8host_common_config") {
   include_dirs = [
-    "//sandbox_dll",
+    "common",
+    "client",
+    "coordinator",
+    "//sbox",
+  ]
+
+  # Development posture for the whole identity/persona layer: unsigned payloads
+  # are tolerated only at compile time (see TrustAllowed / dev install-root /
+  # the dev-only sbox_broker_api self-test). Release builds omit this define,
+  # which fail-closes every one of those paths. Centralized here so a persona
+  # that adds a compile-gated dev path cannot silently miss the flag.
+  # `sbox_dev_allow_unsigned` (//sbox/trust.gni) is false for the shipped build.
+  if (sbox_dev_allow_unsigned) {
+    defines = [ "SBOX_DEV_ALLOW_UNSIGNED" ]
+  }
+}
+
+static_library("file_identity") {
+  sources = [
+    "common/v8host_file_identity.cc",
+    "common/v8host_file_identity.h",
+  ]
+  public_configs = [ ":v8host_common_config" ]
+  libs = [
+    "bcrypt.lib",
+    "wintrust.lib",
+  ]
+}
+
+static_library("payload_identity") {
+  sources = [
+    "common/v8host_payload_identity.cc",
+    "common/v8host_payload_identity.h",
+  ]
+  public_deps = [
+    ":file_identity",
+    ":protocol",
+  ]
+  public_configs = [ ":v8host_common_config" ]
+  libs = [ "bcrypt.lib" ]
+}
+
+# The Contract B framing codec is persona-neutral and dependency-free, so it
+# gets its own minimal public config: only protocol/ on the include path (no
+# sibling persona dirs, no SBOX_DEV_ALLOW_UNSIGNED). Anything that links it sees
+# just the codec header.
+config("protocol_config") {
+  include_dirs = [ "protocol" ]
+}
+
+# Hardened, persona-neutral Contract B codec: the framing core (byte
+# reader/writer, the fixed 32-byte header, strict UTF-8 strings,
+# one-frame-per-message validation, frozen limits) plus the message layer
+# (HELLO/HELLO_ACK/ACK/ERROR codecs, version negotiation, and the duplicate-
+# request cache with a self-contained SHA-256). No libs, no Windows; inherits
+# the default no-exceptions config, so it stays exception-free.
+static_library("protocol") {
+  sources = [
+    "protocol/v8host_protocol.cc",
+    "protocol/v8host_protocol.h",
+    "protocol/v8host_protocol_messages.cc",
+    "protocol/v8host_protocol_messages.h",
+  ]
+  public_configs = [ ":protocol_config" ]
+}
+
+# The neutral spawn/worker-profile codec: the two bounded little-endian encodings
+# (V8HostSpawnConfigV1 = the configure_data; V8HostWorkerProfileV1 = the
+# broker->worker plugin_data) shared only between the coordinator (producer)
+# and the engine/configure code (consumer). It reuses the Contract B
+# Writer/Reader (:protocol) and references no client/coordinator/engine symbol,
+# so the layering stays clean. Dependency-light: only common/ is on the include
+# path (for v8host_spawn_config.h).
+config("spawn_config_config") {
+  include_dirs = [ "common" ]
+}
+
+static_library("spawn_config") {
+  sources = [
+    "common/v8host_spawn_config.cc",
+    "common/v8host_spawn_config.h",
+  ]
+  public_deps = [ ":protocol" ]
+  public_configs = [ ":spawn_config_config" ]
+}
+
+# The neutral run-envelope codec: multiplexes per-run START/RELAY/CANCEL
+# and RESULT/RUN_ERROR over the worker channel's opaque frames. Neutral like
+# :spawn_config (no pipe/process/policy/auth symbol), so both the engine and the
+# coordinator may link it.
+config("run_envelope_config") {
+  include_dirs = [ "common" ]
+}
+
+static_library("run_envelope") {
+  sources = [
+    "common/v8host_run_envelope.cc",
+    "common/v8host_run_envelope.h",
+  ]
+  public_deps = [ ":protocol" ]
+  public_configs = [ ":run_envelope_config" ]
+}
+
+# The app-thread callback dispatcher: pure client-side threading that
+# marshals session/run/relay/disconnect callbacks onto the captured app thread
+# through a message-only window + bounded per-session queues. Deliberately
+# dependency-light — it needs only the public Contract C client header and
+# user32 (message window), NOT the sandbox core, protocol lib, or coordinator —
+# so the dispatcher can be built and unit-tested independently of the client
+# persona that wires real events into it. client/ is on the include path
+# for the dispatcher header; //../../src/public resolves the public header.
+config("dispatcher_config") {
+  include_dirs = [
+    "client",
+    "//../../src/public",
+  ]
+}
+
+source_set("dispatcher") {
+  sources = [
+    "client/v8host_dispatcher.cc",
+    "client/v8host_dispatcher.h",
+  ]
+  public_configs = [ ":dispatcher_config" ]
+  libs = [
+    "user32.lib",
+    "bcrypt.lib",
+  ]
+}
+
+source_set("client_persona") {
+  visibility = [
+    ":v8host",
+    ":v8host_broker_tests",
+  ]
+  sources = [
+    "client/v8host_broker_rendezvous.cc",
+    "client/v8host_broker_rendezvous.h",
+    "client/v8host_client.cc",
+    "client/v8host_client_pipe_transport.cc",
+    "client/v8host_client_transport.h",
+  ]
+  public_deps = [
+    ":dispatcher",
+    ":payload_identity",
+    ":peer_auth",
+    ":protocol",
+  ]
+  public_configs = [ ":v8host_common_config" ]
+  defines = [ "V8HOST_IMPL" ]
+  libs = [ "user32.lib" ]
+}
+
+source_set("peer_auth") {
+  sources = [
+    "coordinator/v8host_peer_auth.cc",
+    "coordinator/v8host_peer_auth.h",
+  ]
+  public_deps = [ ":payload_identity" ]
+  public_configs = [ ":v8host_common_config" ]
+}
+
+source_set("coordinator_persona") {
+  visibility = [ ":v8host" ]
+  sources = [
+    "coordinator/v8host_broker.cc",
+    "coordinator/v8host_broker.h",
+    "coordinator/v8host_router.cc",
+    "coordinator/v8host_router.h",
+  ]
+  public_deps = [
+    ":payload_identity",
+    ":peer_auth",
+    ":protocol",
+    ":run_envelope",
+
+    # The coordinator is the producer of V8HostSpawnConfigV1 (it encodes
+    # the session envelope + effective worker profile and hands it to configure).
+    ":spawn_config",
+  ]
+  public_configs = [ ":v8host_common_config" ]
+  libs = [ "advapi32.lib" ]
+}
+
+source_set("engine_persona") {
+  visibility = [
+    ":v8host",
+    ":v8host_layering_tests",
+  ]
+  sources = [
+    "v8host_engine.cc",
+    "v8host_engine.h",
+
+    # The spawn-config -> sbox setter lowering, shared with the unit test so the
+    # real configure() lowering is exercised in-process (not only by the smoke).
+    "v8host_spawn_apply.cc",
+    "v8host_spawn_apply.h",
+  ]
+
+  # //sbox for sbox.h (the plugin ABI) + sbox_harden.h (header-only
+  # ExeDir); //../../src for the JSI C++ API headers (jsi/jsi.h,
+  # jsi_abi/JsiAbiRuntime.h) + the v8jsi config header (jsi_abi/v8_jsi_abi.h).
+  # The engine DLL itself is LoadLibrary'd at runtime (resolved by name, no
+  # link-time bind).
+  include_dirs = [
+    "//sbox",
     "//../../src",
   ]
 
   # v8host drives v8jsi through the JSI C++ API (jsi::Runtime via JsiAbiRuntime),
   # not the raw ABI — so it pulls in jsi_cpp and must compile with exceptions
-  # (jsi.h throws jsi::JSError). RTTI stays off (unused).
+  # (jsi.h throws jsi::JSError). It deliberately does NOT dep on the sandbox core:
+  # the container drives the lifecycle and the payload reaches the message channel
+  # only through sbox.h's sbox_worker_api.
   deps = [
     "//jsi_cpp",
-    "//sandbox_dll:sbox",
+    ":run_envelope",
+    ":spawn_config",
   ]
-  libs = [
-    "advapi32.lib",  # token inspection + SID parsing
-    "wintrust.lib",  # WinVerifyTrust (signature check)
-  ]
+  defines = [ "SBOX_IMPL" ]
+  if (sbox_dev_allow_unsigned) {
+    defines += [ "SBOX_DEV_ALLOW_UNSIGNED" ]
+  }
 
   configs -= [ "//build/config/compiler:no_exceptions" ]
   configs += [ "//build/config/compiler:exceptions" ]
 
-  # /DEPENDENTLOADFLAG: resolve statically-imported DLLs (incl. sbox.dll) only
-  # from System32 + the application directory — neutralizes current-directory /
-  # PATH planting. version_info_v8host.res: the Microsoft.JavaScript.V8
-  # VERSIONINFO (VER_BINARY=5), compiled from src/version_info.rc with the
-  # Windows SDK rc.exe by scripts/sbox-build.ts before ninja and linked here
-  # (the pruned tree lacks the hermetic rc binary GN's rc tool needs). Path is
-  # relative to the out dir; lld-link embeds the resource.
+  # Resolve statically-imported DLLs only from System32 + the app dir.
+  ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+}
+
+shared_library("v8host") {
+  sources = [ "v8host_plugin.cc" ]
+  deps = [
+    ":client_persona",
+    ":coordinator_persona",
+    ":engine_persona",
+  ]
+  defines = [ "SBOX_IMPL" ]
+  if (sbox_dev_allow_unsigned) {
+    defines += [ "SBOX_DEV_ALLOW_UNSIGNED" ]
+  }
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+
+  # Out-dir inputs written by scripts/sbox-build.ts before ninja runs, which
+  # also forces the relink when one changes (GN doesn't track them): the
+  # VERSIONINFO (src/version_info.rc, VER_BINARY=5), the embedded Stela
+  # manifest (resource STELA 1; `stela verify` checks the exports), and the
+  # SourceLink map, injected as the PDB "sourcelink" stream.
+  # Delay-load user32: only the client persona's dispatcher uses it. The worker
+  # loads this DLL too, and must not initialize user32 (see //sbox:sbox).
   ldflags = [
+    "/DELAYLOAD:user32.dll",
     "/DEPENDENTLOADFLAG:0xA00",
     "version_info_v8host.res",
-    # SourceLink map (written to the out dir by scripts/sbox-build.ts before
-    # ninja) — injected as the PDB "sourcelink" named stream via /pdbstream
-    # (lld-link has no /SOURCELINK). GitHub source indexing for v8host.exe's PDB.
-    # Relative to the out dir, like the .res above.
+    "v8host.dll.stela.res",
     "/pdbstream:sourcelink=source_link_gen_gyp.json",
   ]
+}
+
+action("v8host_layering_tests") {
+  testonly = true
+  script = "tests/v8host_layering_check.py"
+  deps = [ ":engine_persona" ]
+
+  engine_objects = [
+    "$target_out_dir/engine_persona/v8host_engine.obj",
+    "$target_out_dir/engine_persona/v8host_spawn_apply.obj",
+  ]
+  inputs = engine_objects
+  outputs = [ "$target_out_dir/v8host_layering_tests.stamp" ]
+  args = [
+    "--stamp",
+    rebase_path(outputs[0], root_build_dir),
+  ]
+  args += rebase_path(engine_objects, root_build_dir)
+}
+
+executable("v8host_broker_tests") {
+  libs = [ "userenv.lib" ]
+  testonly = true
+  defines = [ "V8HOST_ROUTER_TESTING", "V8HOST_ENGINE_TESTING", "V8HOST_FILE_IDENTITY_TESTING" ]
+  include_dirs = [ "//../../src" ]
+  configs -= [ "//build/config/compiler:no_exceptions" ]
+  configs += [ "//build/config/compiler:exceptions" ]
+  sources = [
+    "common/v8host_file_identity.cc",
+    "coordinator/v8host_router.cc",
+    "coordinator/v8host_router.h",
+    "tests/v8host_broker_tests.cc",
+    "tests/v8host_client_test_config.h",
+    "v8host_engine.cc",
+    "v8host_spawn_apply.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  deps = [
+    ":client_persona",
+    ":payload_identity",
+    ":peer_auth",
+    ":protocol",
+    ":spawn_config",
+    ":run_envelope",
+    "//jsi_cpp",
+  ]
+  public_configs = [ ":v8host_common_config" ]
+  data_deps = [
+    ":v8host",
+    ":v8host_fake_plugin",
+    ":v8host_abi4_plugin",
+    "//sbox:sbox",
+    "//sbox:sbox_lifecycle_tests",
+  ]
+}
+
+# In-process codec conformance tests for //v8host:protocol. No pipes or spawned
+# processes (no data_deps), and only the codec header is needed: protocol/ is on
+# the include path via the :protocol public config, and v8host_test_support.h
+# resolves same-dir.
+executable("v8host_protocol_tests") {
+  testonly = true
+  sources = [
+    "tests/v8host_protocol_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  deps = [
+    ":protocol",
+    ":payload_identity",
+  ]
+}
+
+# Deterministic, in-process conformance tests for the neutral run-envelope codec
+# (:run_envelope): round-trips + reject paths over pure byte vectors, no pipes or
+# spawned processes. Mirrors v8host_protocol_tests.
+executable("v8host_run_envelope_tests") {
+  testonly = true
+  sources = [
+    "tests/v8host_run_envelope_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  deps = [ ":run_envelope" ]
+}
+
+# Deterministic in-process fuzz harness for //v8host:protocol. Mutates a built-in
+# + on-disk corpus and feeds the bytes to every decoder, proving robustness (no
+# crash/hang/unbounded allocation) on arbitrary input. NOT libFuzzer (that config
+# is x64+ASan-only and off by default here); a plain executable is portable
+# across x86/x64/arm64 and flake-free. Only the codec is linked — the corpus dir
+# is passed by path arg at run time (the lone bit of Win32 lives in the harness).
+executable("v8host_protocol_fuzz") {
+  testonly = true
+  sources = [ "tests/v8host_protocol_fuzz.cc" ]
+  deps = [ ":protocol" ]
+}
+
+# Deterministic, in-process unit tests for the app-thread callback dispatcher
+# (:dispatcher). The test IS the app thread: it initializes the dispatcher on
+# its main thread, drives posts from worker std::threads, pumps the message loop
+# with a bounded deadline, and asserts app-thread delivery, ordering, table
+# snapshots, backpressure, reentrancy, close suppression, and one-terminal-per-
+# run. No pipes or spawned processes (no data_deps); the dispatcher public
+# config supplies the client/ and public-header include paths, and
+# v8host_test_support.h resolves same-dir. user32 is needed for the message
+# pump in the test TU itself.
+executable("v8host_dispatcher_tests") {
+  testonly = true
+  defines = [ "V8HOST_DISPATCHER_TESTING" ]
+  configs += [ ":dispatcher_config" ]
+  sources = [
+    "client/v8host_dispatcher.cc",
+    "client/v8host_dispatcher.h",
+    "tests/v8host_dispatcher_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  # Without a manifest, Windows treats a 32-bit exe whose name contains "patch"
+  # (dis-patch-er) as an installer and demands elevation.
+  deps = [
+    "//build/win:default_exe_manifest",
+  ]
+  libs = [
+    "user32.lib",
+    "bcrypt.lib",
+  ]
+}
+
+executable("v8host_client_tests") {
+  testonly = true
+  sources = [
+    "client/v8host_client.cc",
+    "client/v8host_client_pipe_transport.cc",
+    "client/v8host_broker_rendezvous.cc",
+    "client/v8host_dispatcher.cc",
+    "client/v8host_dispatcher.h",
+    "tests/v8host_client_test_config.h",
+    "tests/v8host_client_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  deps = [ ":protocol", ":payload_identity", ":peer_auth" ]
+  include_dirs = [
+    "client",
+    "//../../src/public",
+  ]
+  defines = [
+    "V8HOST_CLIENT_TESTING",
+    "V8HOST_DISPATCHER_TESTING",
+  ]
+  libs = [ "user32.lib" ]
+  # Real rendezvous cases use the adjacent broker and plugin.
+  data_deps = [ ":v8host", "//sbox:sbox" ]
+}
+
+executable("v8host_cross_arch_tests") {
+  testonly = true
+  sources = [ "tests/v8host_cross_arch_tests.cc" ]
+  include_dirs = [ "//../../src/public" ]
+  libs = [
+    "bcrypt.lib",
+    "user32.lib",
+  ]
+}
+
+# Deterministic, in-process unit tests for the sbox_config builder: the
+# status-returning sbox_config_api setters + the MarshalSboxConfig discard gate
+# (//sbox:sbox_config). No pipes or spawned processes — it drives the real
+# setter vtable and the marshal gate directly, so every setter success/failure,
+# the 64/64 + 4 KiB limits, the AppContainer cross-field rules, and the key safety
+# property "a poisoned builder spawns no worker" are all checked without a worker.
+executable("v8host_config_tests") {
+  testonly = true
+  sources = [
+    "tests/v8host_config_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  deps = [ "//sbox:sbox_config" ]
+  public_configs = [ ":v8host_common_config" ]
+  defines = [ "SBOX_STATIC" ]
+}
+
+# Deterministic, in-process conformance tests for the neutral spawn/worker-profile
+# codec (:spawn_config) and the engine's real spawn-config -> sbox setter lowering
+# (v8host_spawn_apply.cc, compiled in). No pipes or spawned processes: the codec
+# round-trips/rejects are pure byte vectors, and the lowering is driven onto the
+# real MakeConfigApi builder + MarshalSboxConfig gate (//sbox:sbox_config)
+# so the configure() path is exercised without a worker. Mirrors
+# v8host_protocol_tests (byte vectors) + v8host_config_tests (real builder).
+executable("v8host_spawn_config_tests") {
+  testonly = true
+  sources = [
+    "tests/v8host_spawn_config_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+    "v8host_spawn_apply.cc",
+    "v8host_spawn_apply.h",
+  ]
+  deps = [
+    ":spawn_config",
+    "//sbox:sbox_config",
+  ]
+
+  # v8host_spawn_apply.h lives in the v8host root (next to v8host_engine.cc); put
+  # it on the include path so the test .cc (in tests/) can reach the lowering.
+  include_dirs = [ "." ]
+  defines = [ "SBOX_STATIC" ]
+}
+
+executable("v8host_layout_release_tests") {
+  testonly = true
+  # The identity code is compiled in here, not linked from :payload_identity,
+  # whose public config defines SBOX_DEV_ALLOW_UNSIGNED. This is the release policy.
+  sources = [
+    "common/v8host_file_identity.cc",
+    "common/v8host_file_identity.h",
+    "common/v8host_payload_identity.cc",
+    "common/v8host_payload_identity.h",
+    "tests/v8host_layout_release_tests.cc",
+    "tests/v8host_test_support.cc",
+    "tests/v8host_test_support.h",
+  ]
+  include_dirs = [ "common" ]
+  deps = [ ":protocol" ]
+  libs = [
+    "bcrypt.lib",
+    "wintrust.lib",
+  ]
+}
+
+# Deliberately invalid plugin used by the host-rejects-bad-plugin-abi case.
+shared_library("v8host_fake_plugin") {
+  testonly = true
+  sources = [ "tests/v8host_fake_plugin.cc" ]
+  public_configs = [ ":v8host_common_config" ]
+}
+
+# A complete old-version plugin, used only for mixed-ABI rejection tests.
+shared_library("v8host_abi4_plugin") {
+  testonly = true
+  sources = [ "tests/v8host_fake_plugin.cc" ]
+  include_dirs = [ "//sbox" ]
+  defines = [ "V8HOST_ABI4_FIXTURE" ]
 }

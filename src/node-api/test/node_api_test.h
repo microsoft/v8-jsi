@@ -19,7 +19,7 @@
 #include <vector>
 
 #define NAPI_EXPERIMENTAL
-#include "js_runtime_api.h"
+#include "v8_node_api.h"
 
 extern "C" {
 #include "js-native-api/common.h"
@@ -117,24 +117,25 @@ class NodeApiTaskRunner {
 
   static void PostTaskCallback(void* task_runner_data,
                                void* task_data,
-                               jsr_task_run_cb task_run_cb,
-                               jsr_data_delete_cb task_data_delete_cb,
+                               v8_node_api_task_run_cb task_run_cb,
+                               v8_node_api_data_delete_cb task_data_delete_cb,
                                void* deleter_data) {
     NodeApiTaskRunner* taskRunnerPtr =
         static_cast<std::shared_ptr<NodeApiTaskRunner>*>(task_runner_data)
             ->get();
     taskRunnerPtr->PostTask(
         [task_run_cb, task_data, task_data_delete_cb, deleter_data]() {
+          CRASH_IF_FALSE(task_data != deleter_data);
           if (task_run_cb != nullptr) {
             task_run_cb(task_data);
           }
           if (task_data_delete_cb != nullptr) {
-            task_data_delete_cb(task_data, deleter_data);
+            task_data_delete_cb(deleter_data, task_data);
           }
         });
   }
 
-  static void DeleteCallback(void* data, void* /*deleter_data*/) {
+  static void DeleteCallback(void* /*delete_data*/, void* data) {
     delete static_cast<std::shared_ptr<NodeApiTaskRunner>*>(data);
   }
 
@@ -219,12 +220,12 @@ struct NodeApiHandleScope {
 
 struct NodeApiEnvScope {
   NodeApiEnvScope(napi_env env) noexcept : m_env{env} {
-    CRASH_IF_FALSE(jsr_open_napi_env_scope(env, &m_scope) == napi_ok);
+    CRASH_IF_FALSE(v8_node_api_env_scope_open(env, &m_scope) == napi_ok);
   }
 
   ~NodeApiEnvScope() noexcept {
     if (m_env != nullptr) {
-      CRASH_IF_FALSE(jsr_close_napi_env_scope(m_env, m_scope) == napi_ok);
+      CRASH_IF_FALSE(v8_node_api_env_scope_close(m_scope, m_env) == napi_ok);
     }
   }
 
@@ -246,7 +247,7 @@ struct NodeApiEnvScope {
 
  private:
   napi_env m_env{};
-  jsr_napi_env_scope m_scope{};
+  v8_node_api_env_scope m_scope{};
 };
 
 // The context to run a NAPI test.

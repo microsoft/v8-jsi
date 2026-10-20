@@ -1,0 +1,1839 @@
+{
+  "schema": "stela.model/1",
+  "producer": {
+    "stela": "0.1.0",
+    "libclang": "clang version 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211)"
+  },
+  "targets": ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "libraries": [
+    {
+      "name": "sbox",
+      "prefix": "sbox",
+      "macroPrefix": "SBOX",
+      "status": "sbox_status",
+      "headers": ["deps/chromium/sbox/sbox.h"],
+      "includeDirs": ["deps/chromium/sbox"],
+      "defines": [],
+      "stelaHeader": "deps/chromium/sbox/sbox_stela.h",
+      "declarations": [
+        {
+          "kind": "macro",
+          "name": "SBOX_H_",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 33, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_CDECL",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 49, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["__cdecl"]
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_API",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 65, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_ABI_VERSION",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 69, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["1u"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "1"},
+            "i686-pc-windows-msvc": {"value": "1"},
+            "aarch64-pc-windows-msvc": {"value": "1"}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_char16",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 79, "column": 18},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "uint16_t"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_config_s",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 85, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_config",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 85, "column": 31},
+          "doc": "Broker role: the sandbox policy builder passed to configure.",
+          "annotations": [],
+          "type": {"pointer": {"name": "sbox_config_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_config_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_config_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_config_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_worker_s",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 87, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_worker",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 87, "column": 31},
+          "doc": "Worker role: the run context passed to warmup, run, and shutdown.",
+          "annotations": [],
+          "type": {"pointer": {"name": "sbox_worker_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_worker_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_worker_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_worker_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_broker_s",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 89, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_broker",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 89, "column": 31},
+          "doc": "Broker role: the coordinator context passed to broker_run.",
+          "annotations": [],
+          "type": {"pointer": {"name": "sbox_broker_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_broker_worker_s",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 91, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_broker_worker",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 91, "column": 38},
+          "doc": "Broker role: a worker spawned by sbox_broker_api.configure_and_spawn.",
+          "annotations": [],
+          "type": {"pointer": {"name": "sbox_broker_worker_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_worker_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_worker_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "sbox_broker_worker_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_status",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 98, "column": 1},
+          "doc": "Result codes. 0 is success; errors are grouped into bands by failure class,\nso a consumer can map an unknown code to its band (status & 0xF000):\n0x1000 caller contract, 0x7000 the operation failed.",
+          "annotations": [],
+          "type": {"name": "sbox_status"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_status"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_status"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_status"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_status",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 98, "column": 1},
+          "doc": "Result codes. 0 is success; errors are grouped into bands by failure class,\nso a consumer can map an unknown code to its band (status & 0xF000):\n0x1000 caller contract, 0x7000 the operation failed.",
+          "annotations": [{"key": "enum", "value": "sbox_status"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "sbox_status_ok", "value": 0, "doc": null},
+            {
+              "name": "sbox_status_invalid_arg",
+              "value": 4097,
+              "doc": "bad argument, or a rejected setter"
+            },
+            {
+              "name": "sbox_status_version_mismatch",
+              "value": 4098,
+              "doc": "the host and plugin ABI versions differ"
+            },
+            {
+              "name": "sbox_status_failed",
+              "value": 28673,
+              "doc": "The operation failed. From sbox_broker_api.post_message it means nothing\n/// was written."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_msg_kind",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 114, "column": 1},
+          "doc": "Message kinds on the duplex worker channel. string and binary are the\nengine's opaque guest frames. lifecycle is container- or host-emitted and\nplugin-forbidden (the worker-api post_message rejects it), so a readiness\nmarker can never be forged by the engine or a guest. The values are on the\nwire.",
+          "annotations": [],
+          "type": {"name": "sbox_msg_kind"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_msg_kind"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_msg_kind"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_msg_kind"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_msg_kind",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 114, "column": 1},
+          "doc": "Message kinds on the duplex worker channel. string and binary are the\nengine's opaque guest frames. lifecycle is container- or host-emitted and\nplugin-forbidden (the worker-api post_message rejects it), so a readiness\nmarker can never be forged by the engine or a guest. The values are on the\nwire.",
+          "annotations": [{"key": "enum", "value": "sbox_msg_kind"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "sbox_msg_kind_string", "value": 0, "doc": null},
+            {"name": "sbox_msg_kind_binary", "value": 1, "doc": null},
+            {"name": "sbox_msg_kind_lifecycle", "value": 2, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_lifecycle_phase",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 125, "column": 1},
+          "doc": "Lifecycle payload: exactly four bytes, a little-endian u32 phase. startup and\nsecurity are container observations; exit is broker-origin only. Unknown\nphases are never delivered. The values are on the wire.",
+          "annotations": [],
+          "type": {"name": "sbox_lifecycle_phase"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_lifecycle_phase"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_lifecycle_phase"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_lifecycle_phase"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_lifecycle_phase",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 125, "column": 1},
+          "doc": "Lifecycle payload: exactly four bytes, a little-endian u32 phase. startup and\nsecurity are container observations; exit is broker-origin only. Unknown\nphases are never delivered. The values are on the wire.",
+          "annotations": [{"key": "enum", "value": "sbox_lifecycle_phase"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "sbox_lifecycle_phase_startup", "value": 1, "doc": null},
+            {"name": "sbox_lifecycle_phase_security", "value": 2, "doc": null},
+            {"name": "sbox_lifecycle_phase_exit", "value": 3, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_broker_mode",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 132, "column": 1},
+          "doc": "How the broker was started; see sbox_broker_start.mode.",
+          "annotations": [],
+          "type": {"name": "sbox_broker_mode"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_mode"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_mode"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_mode"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_broker_mode",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 132, "column": 1},
+          "doc": "How the broker was started; see sbox_broker_start.mode.",
+          "annotations": [{"key": "enum", "value": "sbox_broker_mode"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "sbox_broker_mode_dedicated", "value": 0, "doc": null},
+            {"name": "sbox_broker_mode_shared", "value": 1, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_integrity_level",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 141, "column": 1},
+          "doc": "Mandatory integrity levels for set_integrity. Mirrors the OS integrity the\ncontainer applies; the host maps these 1:1 to its internal enum.",
+          "annotations": [],
+          "type": {"name": "sbox_integrity_level"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_integrity_level"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_integrity_level"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_integrity_level"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_integrity_level",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 141, "column": 1},
+          "doc": "Mandatory integrity levels for set_integrity. Mirrors the OS integrity the\ncontainer applies; the host maps these 1:1 to its internal enum.",
+          "annotations": [{"key": "enum", "value": "sbox_integrity_level"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "sbox_integrity_level_low", "value": 0, "doc": null},
+            {"name": "sbox_integrity_level_untrusted", "value": 1, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_token_level",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 151, "column": 1},
+          "doc": "Restricted-token levels for set_tokens: the worker's initial token and its\nlowered lockdown token (ordinary non-AppContainer mode). The host maps these\n1:1 to its internal enum (static_assert'd in sbox_config.cc).",
+          "annotations": [],
+          "type": {"name": "sbox_token_level"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_token_level"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_token_level"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_token_level"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "sbox_token_level",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 151, "column": 1},
+          "doc": "Restricted-token levels for set_tokens: the worker's initial token and its\nlowered lockdown token (ordinary non-AppContainer mode). The host maps these\n1:1 to its internal enum (static_assert'd in sbox_config.cc).",
+          "annotations": [{"key": "enum", "value": "sbox_token_level"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {
+              "name": "sbox_token_level_lockdown",
+              "value": 0,
+              "doc": "null SID only; most restrictive"
+            },
+            {"name": "sbox_token_level_limited", "value": 1, "doc": "restricting SIDs"},
+            {"name": "sbox_token_level_interactive", "value": 2, "doc": "plus Owner"},
+            {
+              "name": "sbox_token_level_restricted_non_admin",
+              "value": 3,
+              "doc": "keeps user/authenticated SIDs"
+            },
+            {
+              "name": "sbox_token_level_restricted_same_access",
+              "value": 4,
+              "doc": "all SIDs; least restrictive"
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_message_cb",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 163, "column": 26},
+          "doc": "Receives one message from the worker channel. `data` is borrowed for the\nduration of the call only, and is NULL when `size` is 0.",
+          "annotations": [],
+          "type": {
+            "pointer": {
+              "function": {
+                "result": {"builtin": "void"},
+                "params": [
+                  {
+                    "name": "user_data",
+                    "type": {"pointer": {"builtin": "void"}},
+                    "annotations": [{"key": "nullable"}]
+                  },
+                  {"name": "kind", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                  {
+                    "name": "data",
+                    "type": {"pointer": {"builtin": "void", "const": true}},
+                    "annotations": [{"key": "nullable"}]
+                  },
+                  {"name": "size", "type": {"name": "size_t"}, "annotations": []}
+                ],
+                "variadic": false
+              }
+            }
+          },
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                      {
+                        "name": "arg2",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": []
+                      },
+                      {"name": "arg3", "type": {"builtin": "unsigned long long"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                      {
+                        "name": "arg2",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": []
+                      },
+                      {"name": "arg3", "type": {"builtin": "unsigned int"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 4,
+              "align": 4,
+              "callingConvention": "c"
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                      {
+                        "name": "arg2",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": []
+                      },
+                      {"name": "arg3", "type": {"builtin": "unsigned long long"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_broker_start",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 173, "column": 16},
+          "doc": "Host-owned identity storage borrowed only for broker_run. The opaque tokens\nare never serialized and must not be closed by the plugin. The endpoint name\nand final paths are read through sbox_broker_api.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "struct_size",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "sizeof(sbox_broker_start)"
+            },
+            {
+              "name": "mode",
+              "type": {"name": "sbox_broker_mode"},
+              "annotations": [],
+              "doc": "how the broker was started"
+            },
+            {
+              "name": "native_machine",
+              "type": {"name": "uint16_t"},
+              "annotations": [],
+              "doc": "sbox.exe's PE machine (IMAGE_FILE_MACHINE_*)"
+            },
+            {"name": "reserved", "type": {"name": "uint16_t"}, "annotations": [], "doc": "zero"},
+            {
+              "name": "container_sha256",
+              "type": {"pointer": {"name": "uint8_t", "const": true}},
+              "annotations": [],
+              "doc": "32-byte hash of sbox.exe"
+            },
+            {
+              "name": "plugin_sha256",
+              "type": {"pointer": {"name": "uint8_t", "const": true}},
+              "annotations": [],
+              "doc": "32-byte hash of the plugin DLL"
+            },
+            {
+              "name": "container_file_token",
+              "type": {"pointer": {"builtin": "void", "const": true}},
+              "annotations": [],
+              "doc": "opaque host token for sbox.exe"
+            },
+            {
+              "name": "plugin_file_token",
+              "type": {"pointer": {"builtin": "void", "const": true}},
+              "annotations": [],
+              "doc": "opaque host token for the plugin"
+            },
+            {
+              "name": "dedicated_nonce",
+              "type": {"pointer": {"name": "uint8_t", "const": true}},
+              "annotations": [{"key": "nullable"}],
+              "doc": "The dedicated-mode launch nonce; NULL in shared mode."
+            },
+            {
+              "name": "dedicated_nonce_size",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "the nonce's size in bytes"
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 64,
+              "align": 8,
+              "offsets": [0, 4, 8, 10, 16, 24, 32, 40, 48, 56]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 36,
+              "align": 4,
+              "offsets": [0, 4, 8, 10, 12, 16, 20, 24, 28, 32]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 64,
+              "align": 8,
+              "offsets": [0, 4, 8, 10, 16, 24, 32, 40, 48, 56]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_broker_start",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 185, "column": 3},
+          "doc": "Host-owned identity storage borrowed only for broker_run. The opaque tokens\nare never serialized and must not be closed by the plugin. The endpoint name\nand final paths are read through sbox_broker_api.",
+          "annotations": [],
+          "type": {"name": "sbox_broker_start"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_start"},
+              "size": 64,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_start"},
+              "size": 36,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_start"},
+              "size": 64,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_BROKER_START_INIT",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 186, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": [
+            "{",
+            "sizeof",
+            "(",
+            "sbox_broker_start",
+            ")",
+            ",",
+            "sbox_broker_mode_dedicated",
+            ",",
+            "0",
+            ",",
+            "0",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "0",
+            "}"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_broker_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 212, "column": 16},
+          "doc": "sbox.exe -> plugin, BROKER role: worker spawning and the broker side of the\nworker channel. The host owns this table and every opaque host token.\n\nconfigure_and_spawn copies configure_data before the call returns. Message\nbuffers are borrowed only for callback duration. After a successful spawn,\nthe plugin owns the worker: close is called at most once and wait exactly\nonce. wait is destructive and invalidates the handle; callbacks have stopped\nwhen it returns. EXIT arrives at most once, after all queued worker output,\nbut may be absent once close/wait starts. It carries no exit code, does not\nreplace the single wait, and is not permission to free handles or context.\nCallbacks must return promptly and never block or call close/wait; wait\ngives the reader 5 s to join; a callback still running after that budget is\nunsupported.\n\nThe get_* text slots copy host text into a caller-owned buffer. Each sets\n*out_length to the text's length in sbox_char16 units, without the NUL.\nWith a NULL buffer and buffer_length 0 it only reports the length. Otherwise\nbuffer_length must exceed the length; the slot then writes the text and a\nNUL. A buffer that is too small gets sbox_status_invalid_arg, nothing\nwritten, and the required length in *out_length.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "struct_size",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "sizeof(sbox_broker_api)"
+            },
+            {
+              "name": "configure_and_spawn",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "broker", "type": {"name": "sbox_broker"}, "annotations": []},
+                      {
+                        "name": "configure_data",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "configure_data_size", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "on_message",
+                        "type": {"name": "sbox_message_cb"},
+                        "annotations": [{"key": "scope", "value": "object"}]
+                      },
+                      {
+                        "name": "user_data",
+                        "type": {"pointer": {"builtin": "void"}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {
+                        "name": "out_worker",
+                        "type": {"pointer": {"name": "sbox_broker_worker"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Spawns a worker whose configure call receives a copy of configure_data.\n/// on_message runs on the host's reader thread until wait returns."
+            },
+            {
+              "name": "post_message",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_broker_worker"}, "annotations": []},
+                      {"name": "kind", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                      {
+                        "name": "data",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "size", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Writes one message to the worker. sbox_status_failed means nothing was\n/// written."
+            },
+            {
+              "name": "close",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_broker_worker"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Asks the worker to close. Called at most once per worker."
+            },
+            {
+              "name": "wait",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_broker_worker"}, "annotations": []},
+                      {
+                        "name": "out_exit_code",
+                        "type": {"pointer": {"name": "int32_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Waits for the worker to exit and invalidates the handle. Called exactly\n/// once per worker."
+            },
+            {
+              "name": "get_endpoint_name",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "broker", "type": {"name": "sbox_broker"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "sbox_char16"}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "buffer_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_length",
+                        "type": {"pointer": {"name": "size_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Copies the rendezvous endpoint name."
+            },
+            {
+              "name": "get_container_final_path",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "broker", "type": {"name": "sbox_broker"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "sbox_char16"}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "buffer_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_length",
+                        "type": {"pointer": {"name": "size_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Copies sbox.exe's final path."
+            },
+            {
+              "name": "get_plugin_final_path",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "broker", "type": {"name": "sbox_broker"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "sbox_char16"}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "buffer_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_length",
+                        "type": {"pointer": {"name": "size_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Copies the plugin DLL's final path."
+            },
+            {
+              "name": "get_process_id",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_broker_worker"}, "annotations": []},
+                      {
+                        "name": "out_process_id",
+                        "type": {"pointer": {"name": "uint32_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "The worker's process ID, valid while the worker handle is live and before\n/// wait, even after the worker exits. After wait the OS may reuse the ID.\n/// Failure zeroes a non-NULL output."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 72,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48, 56, 64],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 36,
+              "align": 4,
+              "offsets": [0, 4, 8, 12, 16, 20, 24, 28, 32],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 72,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48, 56, 64],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_broker_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 257, "column": 3},
+          "doc": "sbox.exe -> plugin, BROKER role: worker spawning and the broker side of the\nworker channel. The host owns this table and every opaque host token.\n\nconfigure_and_spawn copies configure_data before the call returns. Message\nbuffers are borrowed only for callback duration. After a successful spawn,\nthe plugin owns the worker: close is called at most once and wait exactly\nonce. wait is destructive and invalidates the handle; callbacks have stopped\nwhen it returns. EXIT arrives at most once, after all queued worker output,\nbut may be absent once close/wait starts. It carries no exit code, does not\nreplace the single wait, and is not permission to free handles or context.\nCallbacks must return promptly and never block or call close/wait; wait\ngives the reader 5 s to join; a callback still running after that budget is\nunsupported.\n\nThe get_* text slots copy host text into a caller-owned buffer. Each sets\n*out_length to the text's length in sbox_char16 units, without the NUL.\nWith a NULL buffer and buffer_length 0 it only reports the length. Otherwise\nbuffer_length must exceed the length; the slot then writes the text and a\nNUL. A buffer that is too small gets sbox_status_invalid_arg, nothing\nwritten, and the required length in *out_length.",
+          "annotations": [],
+          "type": {"name": "sbox_broker_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_api"},
+              "size": 72,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_api"},
+              "size": 36,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_broker_api"},
+              "size": 72,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_BROKER_API_INIT",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 258, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": [
+            "{",
+            "sizeof",
+            "(",
+            "sbox_broker_api",
+            ")",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            "}"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_config_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 268, "column": 16},
+          "doc": "sbox.exe -> plugin, BROKER role: services configure() uses to describe the\nsandbox. sbox speaks ACG (a mitigation), never JIT. Every setter returns\nsbox_status; a rejected setter poisons the builder so a partial or invalid\nconfig can never spawn (fail closed). Limits: at most 64 file rules, 64\ncapabilities, and 4096 plugin-data bytes.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "struct_size",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "sizeof(sbox_config_api); lets the plugin version-check"
+            },
+            {
+              "name": "set_acg",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {"name": "enabled", "type": {"builtin": "bool"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Arbitrary Code Guard."
+            },
+            {
+              "name": "set_integrity",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "initial",
+                        "type": {"name": "sbox_integrity_level"},
+                        "annotations": []
+                      },
+                      {
+                        "name": "delayed",
+                        "type": {"name": "sbox_integrity_level"},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "The worker's initial and delayed mandatory integrity levels."
+            },
+            {
+              "name": "add_file_rule",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "pattern",
+                        "type": {"pointer": {"name": "sbox_char16", "const": true}},
+                        "annotations": [{"key": "zero_terminated"}]
+                      },
+                      {"name": "readonly", "type": {"builtin": "bool"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Adds a path pattern the worker may access."
+            },
+            {
+              "name": "add_capability",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "capability_sid",
+                        "type": {"pointer": {"name": "sbox_char16", "const": true}},
+                        "annotations": [{"key": "zero_terminated"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Adds an AppContainer capability SID."
+            },
+            {
+              "name": "set_app_container",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {"name": "enabled", "type": {"builtin": "bool"}, "annotations": []},
+                      {"name": "lpac", "type": {"builtin": "bool"}, "annotations": []},
+                      {
+                        "name": "profile",
+                        "type": {"pointer": {"name": "sbox_char16", "const": true}},
+                        "annotations": [{"key": "nullable"}, {"key": "zero_terminated"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "AppContainer mode, optionally less-privileged (LPAC), with its profile\n/// name. The profile may be NULL or empty only when enabled is false."
+            },
+            {
+              "name": "allow_engine_dll",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "filename",
+                        "type": {"pointer": {"name": "sbox_char16", "const": true}},
+                        "annotations": [{"key": "zero_terminated"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "A DLL the worker will LoadLibrary pre-lockdown. sbox verifies each\n/// (app-dir filename only, Authenticode). The plugin DLL itself is implicit."
+            },
+            {
+              "name": "set_plugin_data",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "data",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "size", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Opaque app-knowledge blob carried broker -> worker; sbox NEVER interprets\n/// it. The plugin encodes its own run profile here (e.g. jitless engine\n/// choice, snapshot path) and reads it back in warmup via\n/// sbox_worker_api.get_plugin_data."
+            },
+            {
+              "name": "set_tokens",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "initial_token",
+                        "type": {"name": "sbox_token_level"},
+                        "annotations": []
+                      },
+                      {
+                        "name": "lockdown_token",
+                        "type": {"name": "sbox_token_level"},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Restricted-token levels for ordinary (non-AppContainer) mode: the\n/// worker's initial token and the lowered lockdown token."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 72,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48, 56, 64],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 36,
+              "align": 4,
+              "offsets": [0, 4, 8, 12, 16, 20, 24, 28, 32],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 72,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48, 56, 64],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c", "c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_config_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 309, "column": 3},
+          "doc": "sbox.exe -> plugin, BROKER role: services configure() uses to describe the\nsandbox. sbox speaks ACG (a mitigation), never JIT. Every setter returns\nsbox_status; a rejected setter poisons the builder so a partial or invalid\nconfig can never spawn (fail closed). Limits: at most 64 file rules, 64\ncapabilities, and 4096 plugin-data bytes.",
+          "annotations": [],
+          "type": {"name": "sbox_config_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_config_api"},
+              "size": 72,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_config_api"},
+              "size": 36,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_config_api"},
+              "size": 72,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_CONFIG_API_INIT",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 310, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": [
+            "{",
+            "sizeof",
+            "(",
+            "sbox_config_api",
+            ")",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            "}"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_worker_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 314, "column": 16},
+          "doc": "sbox.exe -> plugin, WORKER role: services warmup() and run() use.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "struct_size",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "sizeof(sbox_worker_api)"
+            },
+            {
+              "name": "get_plugin_data",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []},
+                      {
+                        "name": "out_data",
+                        "type": {"pointer": {"pointer": {"builtin": "void", "const": true}}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_size",
+                        "type": {"pointer": {"name": "size_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "The broker-set opaque blob (app knowledge); valid for the worker lifetime."
+            },
+            {
+              "name": "acg_enabled",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "True if ACG is or will be armed."
+            },
+            {
+              "name": "post_message",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []},
+                      {"name": "kind", "type": {"name": "sbox_msg_kind"}, "annotations": []},
+                      {
+                        "name": "data",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "size", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Writes to the WebView2-style duplex message channel (opaque frames;\n/// host-untrusted input). sbox_msg_kind_lifecycle is rejected."
+            },
+            {
+              "name": "inbound_event",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"pointer": {"builtin": "void"}},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "A HANDLE that is signaled when inbound messages are waiting."
+            },
+            {
+              "name": "drain_messages",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []},
+                      {"name": "on_message", "type": {"name": "sbox_message_cb"}, "annotations": []},
+                      {
+                        "name": "user_data",
+                        "type": {"pointer": {"builtin": "void"}},
+                        "annotations": [{"key": "nullable"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Delivers every waiting inbound message to on_message before returning."
+            },
+            {
+              "name": "close_event",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"pointer": {"builtin": "void"}},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "A HANDLE that is signaled when the host asks the worker to close."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 56,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 28,
+              "align": 4,
+              "offsets": [0, 4, 8, 12, 16, 20, 24],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 56,
+              "align": 8,
+              "offsets": [0, 8, 16, 24, 32, 40, 48],
+              "fieldCallingConventions": [null, "c", "c", "c", "c", "c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_worker_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 336, "column": 3},
+          "doc": "sbox.exe -> plugin, WORKER role: services warmup() and run() use.",
+          "annotations": [],
+          "type": {"name": "sbox_worker_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_worker_api"},
+              "size": 56,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_worker_api"},
+              "size": 28,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_worker_api"},
+              "size": 56,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_WORKER_API_INIT",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 337, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": [
+            "{",
+            "sizeof",
+            "(",
+            "sbox_worker_api",
+            ")",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            "}"
+          ]
+        },
+        {
+          "kind": "struct",
+          "name": "sbox_plugin_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 341, "column": 16},
+          "doc": "The plugin interface: the plugin implements it; sbox.exe calls by role.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "struct_size",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "sizeof(sbox_plugin_api)"
+            },
+            {
+              "name": "abi_version",
+              "type": {"name": "uint32_t"},
+              "annotations": [],
+              "doc": "the SBOX_ABI_VERSION the plugin was built against"
+            },
+            {
+              "name": "configure",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "config", "type": {"name": "sbox_config"}, "annotations": []},
+                      {
+                        "name": "api",
+                        "type": {"pointer": {"name": "sbox_config_api", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "configure_data",
+                        "type": {"pointer": {"builtin": "void", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "configure_data_size", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "BROKER: describes the sandbox the worker will run in. configure_data is\n/// copied host storage valid only for this call."
+            },
+            {
+              "name": "broker_run",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "broker", "type": {"name": "sbox_broker"}, "annotations": []},
+                      {
+                        "name": "api",
+                        "type": {"pointer": {"name": "sbox_broker_api", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "start",
+                        "type": {"pointer": {"name": "sbox_broker_start", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "BROKER: the blocking coordinator entry. It must stop accepts and join\n/// every task and broker worker before returning."
+            },
+            {
+              "name": "warmup",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []},
+                      {
+                        "name": "api",
+                        "type": {"pointer": {"name": "sbox_worker_api", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "WORKER, PRE-lockdown: the first worker call. Any code generation or\n/// patching must happen here."
+            },
+            {
+              "name": "run",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []},
+                      {
+                        "name": "api",
+                        "type": {"pointer": {"name": "sbox_worker_api", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "WORKER, POST-lockdown: sbox.exe has lowered the token and armed ACG."
+            },
+            {
+              "name": "shutdown",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "worker", "type": {"name": "sbox_worker"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "WORKER: called once after any warmup attempt, even without run."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 48,
+              "align": 8,
+              "offsets": [0, 4, 8, 16, 24, 32, 40],
+              "fieldCallingConventions": [null, null, "c", "c", "c", "c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 28,
+              "align": 4,
+              "offsets": [0, 4, 8, 12, 16, 20, 24],
+              "fieldCallingConventions": [null, null, "c", "c", "c", "c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 48,
+              "align": 8,
+              "offsets": [0, 4, 8, 16, 24, 32, 40],
+              "fieldCallingConventions": [null, null, "c", "c", "c", "c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_plugin_api",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 363, "column": 3},
+          "doc": "The plugin interface: the plugin implements it; sbox.exe calls by role.",
+          "annotations": [],
+          "type": {"name": "sbox_plugin_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_plugin_api"},
+              "size": 48,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_plugin_api"},
+              "size": 28,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "sbox_plugin_api"},
+              "size": 48,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_PLUGIN_API_INIT",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 364, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": [
+            "{",
+            "sizeof",
+            "(",
+            "sbox_plugin_api",
+            ")",
+            ",",
+            "0",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            ",",
+            "NULL",
+            "}"
+          ]
+        },
+        {
+          "kind": "macro",
+          "name": "SBOX_PLUGIN_ENTRY",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 368, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["\"sbox_plugin_main\""]
+        },
+        {
+          "kind": "typedef",
+          "name": "sbox_plugin_main_fn",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 370, "column": 33},
+          "doc": "The function-pointer type of sbox_plugin_main, for GetProcAddress.",
+          "annotations": [],
+          "type": {
+            "pointer": {
+              "function": {
+                "result": {"name": "sbox_status"},
+                "params": [
+                  {"name": "host_abi_version", "type": {"name": "uint32_t"}, "annotations": []},
+                  {
+                    "name": "out_plugin",
+                    "type": {"pointer": {"pointer": {"name": "sbox_plugin_api", "const": true}}},
+                    "annotations": []
+                  }
+                ],
+                "variadic": false
+              }
+            }
+          },
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"builtin": "unsigned int"}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"pointer": {"name": "sbox_plugin_api", "const": true}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"builtin": "unsigned int"}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"pointer": {"name": "sbox_plugin_api", "const": true}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 4,
+              "align": 4,
+              "callingConvention": "c"
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "sbox_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"builtin": "unsigned int"}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"pointer": {"name": "sbox_plugin_api", "const": true}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            }
+          }
+        },
+        {
+          "kind": "function",
+          "name": "sbox_plugin_main",
+          "location": {"file": "deps/chromium/sbox/sbox.h", "line": 385, "column": 1},
+          "doc": "The plugin's single required export (cf. Node-API napi_register_module_v1).\nsbox.exe resolves it by name from the --plugin DLL - no import lib, so the\nhost EXE can be renamed. Both sides version-check host_abi_version against\nSBOX_ABI_VERSION. The returned sbox_plugin_api is owned by the plugin\n(typically a file-scope static) and must outlive every call sbox.exe makes\nthrough it.\n\n\\param host_abi_version the SBOX_ABI_VERSION sbox.exe was built against\n\\param out_plugin receives the plugin's function table",
+          "annotations": [],
+          "result": {"type": {"name": "sbox_status"}},
+          "params": [
+            {"name": "host_abi_version", "type": {"name": "uint32_t"}, "annotations": []},
+            {
+              "name": "out_plugin",
+              "type": {"pointer": {"pointer": {"name": "sbox_plugin_api", "const": true}}},
+              "annotations": []
+            }
+          ],
+          "variadic": false,
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"callingConvention": "c"},
+            "i686-pc-windows-msvc": {"callingConvention": "c"},
+            "aarch64-pc-windows-msvc": {"callingConvention": "c"}
+          }
+        }
+      ]
+    }
+  ]
+}

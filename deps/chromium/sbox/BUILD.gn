@@ -1,0 +1,130 @@
+# The trust policy of the product binaries (sbox.exe, v8host.dll).
+import("//sbox/trust.gni")
+
+# The product single-image sbox.exe (broker + worker, persona by argv) + the
+# broker/target C ABI it links statically. Built with the Chromium toolchain;
+# the EXE loads v8host.dll (the engine payload) at runtime.
+# Build everything: `ninja -C out/sandbox-x64 generic`.
+
+# The broker's sandbox-policy builder (host side of sbox.h's sbox_config_api) +
+# the fail-closed marshal/discard gate. Factored out of sbox_main.cc so the
+# status-returning setters and the gate are unit-testable (see
+# //v8host:v8host_config_tests) without the sbox.exe role dispatch or a spawned
+# worker. SBOX_STATIC keeps sbox_core_internal.h's SBOX_CORE_API as plain extern "C".
+config("sbox_config_public") {
+  include_dirs = [ "." ]  # sbox.h, sbox_core_internal.h, sbox_config.h
+}
+
+static_library("sbox_config") {
+  sources = [
+    "sbox_config.cc",
+    "sbox_config.h",
+  ]
+  public_configs = [ ":sbox_config_public" ]
+  defines = [ "SBOX_STATIC" ]
+}
+
+# sbox.exe — the V8-agnostic sandbox container. Statically links the broker/
+# target core (sbox_broker.cc) and the role-dispatch + fail-closed lifecycle driver
+# (sbox_main.cc). SBOX_STATIC makes SBOX_CORE_API plain extern "C" so the core's
+# sbox_* symbols stay out of the EXE's export table (it must export nothing).
+executable("sbox") {
+  sources = [
+    "sbox_broker.cc",
+    "sbox_main.cc",
+  ]
+  include_dirs = [ "." ]  # sbox_core_internal.h, sbox.h, msg_channel.h, sbox_harden.h
+  defines = [ "SBOX_STATIC" ]
+  if (sbox_dev_allow_unsigned) {
+    defines += [ "SBOX_DEV_ALLOW_UNSIGNED" ]
+  }
+  deps = [
+    ":sbox_config",
+    "//base",
+    "//sandbox/win:sandbox",
+    "//v8host:file_identity",
+  ]
+  libs = [
+    "advapi32.lib",  # token / SID plumbing pulled in by the sandbox core
+    "bcrypt.lib",
+    "wintrust.lib",  # WinVerifyTrust (sbox_harden.h)
+  ]
+
+  # Resolve statically-imported DLLs only from System32 + the app dir. The
+  # out-dir inputs are written by scripts/sbox-build.ts before ninja runs, which
+  # also forces the relink when one changes (GN doesn't track them):
+  #   version_info_sbox.res — the Microsoft.JavaScript.V8 VERSIONINFO
+  #     (src/version_info.rc, VER_BINARY=4), compiled with the SDK rc.exe;
+  #   sbox.exe.stela.res — the embedded Stela manifest (resource STELA 1);
+  #   source_link_gen_gyp.json — the SourceLink map, injected as the PDB
+  #     "sourcelink" stream (lld-link has no /SOURCELINK).
+  # Delay-load user32/shell32/ole32 (ole32 imports user32): only the broker
+  # role calls them. An AppContainer worker that loads user32 dies with
+  # STATUS_DLL_INIT_FAILED when its desktop doesn't grant app packages, as on a
+  # service logon's Service-0x0-<luid>$ window station.
+  ldflags = [
+    "/DELAYLOAD:user32.dll",
+    "/DELAYLOAD:shell32.dll",
+    "/DELAYLOAD:ole32.dll",
+    "/DEPENDENTLOADFLAG:0xA00",
+    "version_info_sbox.res",
+    "sbox.exe.stela.res",
+    "/pdbstream:sourcelink=source_link_gen_gyp.json",
+  ]
+
+  # Copy the engine payload (v8host.dll) beside sbox.exe so the worker loads it.
+  data_deps = [ "//v8host" ]
+}
+
+# The instrumented single-image trust-transition test (S1). ONE testonly exe that
+# is BOTH the sandbox broker/case-runner and the sandbox worker/fault-harness,
+# selected by argv, statically linking sbox_broker.cc + the sandbox trust-transition
+# core (which also carries sbox_trust_transition_test_private.cc). It proves the
+# same-image seed: the broker role spawns itself --worker and seeds the worker's
+# sandbox globals + control struct by RVA. This folded suite replaces the retired
+# two-image topology (a separate case-runner EXE + fault-injection target EXE
+# joined by the export-table relay).
+if (current_cpu == "x64") {
+  executable("sbox_trust_transition_test") {
+    testonly = true
+    sources = [
+      "sbox_broker.cc",
+      "sbox_trust_transition_main.cc",
+    ]
+    include_dirs = [
+      ".",           # sbox.h, msg_channel.h
+      "//test_app",  # sbox_trust_transition_test_private.h
+    ]
+    # SBOX_STATIC: SBOX_CORE_API -> plain extern "C" so this exe (which also compiles
+    # sbox_broker.cc) exports nothing, like the product sbox.exe.
+    defines = [
+      "SBOX_TRUST_TRANSITION_TESTING",
+      "SBOX_STATIC",
+    ]
+    deps = [
+      "//base",
+      "//sandbox/win:sandbox_trust_transition_test",
+    ]
+    libs = [ "userenv.lib" ]  # AppContainer profile APIs (broker/case role)
+
+    # Resolve statically-imported DLLs only from System32 + the app dir.
+    ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+  }
+}
+
+# Compile the production reader and host consumers into a test-only fixture.
+executable("sbox_lifecycle_tests") {
+  testonly = true
+  sources = [
+    "sbox_broker.cc",
+    "sbox_main.cc",
+    "sbox_lifecycle_test.h",
+    "sbox_lifecycle_tests.cc",
+    "//v8host/tests/v8host_test_support.cc",
+  ]
+  include_dirs = [ ".", "//v8host/tests" ]
+  defines = [ "SBOX_STATIC", "SBOX_LIFECYCLE_TESTING" ]
+  deps = [ ":sbox_config", "//base", "//sandbox/win:sandbox", "//v8host:file_identity" ]
+  libs = [ "advapi32.lib", "bcrypt.lib", "wintrust.lib" ]
+  ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
+}

@@ -64,7 +64,7 @@ v8::Isolate* createIsolate(const IsolateConfig& config) {
   // isolate's lifetime, so it must point at storage that outlives Initialize —
   // hence IsolateData::snapshot_blob_ (the blob bytes are owned by the runtime).
   // external_references must be a non-null, null-terminated array matching the
-  // one used at snapshot-creation time (v8_create_startup_snapshot); nullptr
+  // one used at snapshot-creation time (v8_jsi_abi_snapshot_create); nullptr
   // makes V8 ignore the serialized context table.
   static const intptr_t kNoExternalRefs[] = {0};
   if (config.startup_snapshot_blob != nullptr &&
@@ -74,7 +74,7 @@ v8::Isolate* createIsolate(const IsolateConfig& config) {
     // inner bytes to V8. On any mismatch, skip the snapshot and fall back to a
     // normal isolate — never feed V8 an incompatible blob (that crashes). This
     // is the engine's safety net; consumers that want to pick their own
-    // fallback should pre-check via v8_startup_snapshot_compatible. V8 is
+    // fallback should pre-check via v8_jsi_abi_snapshot_check. V8 is
     // already initialized here (platform init precedes createIsolate), so the
     // version tag is read in its final state.
     const int compat = v8rt_snapshot::validate(

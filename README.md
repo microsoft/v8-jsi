@@ -71,6 +71,11 @@ Setup*, the new build also needs:
 
 1. **Python 3.x** on PATH (required by the Node.js `configure` step).
 1. **Node.js v24+** on PATH (required by [`scripts/build.ts`](scripts/build.ts)).
+1. The Visual Studio **C++ Clang Compiler for Windows** component
+   (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`). The build uses its
+   libclang to embed the API manifest in `v8jsi.dll` (see
+   [`tools/stela/README.md`](tools/stela/README.md)), and the sandbox build
+   ([`scripts/sbox-build.ts`](scripts/sbox-build.ts)) compiles with its clang.
 
 ###### Developer task runner: `dev.ps1`
 
@@ -134,6 +139,9 @@ To regenerate after manual fix-ups, run:
 * `git diff --output=..\..\..\scripts\patch\build.diff --ignore-cr-at-eol` from `\build\v8\build\`.
 * `git diff --output=..\..\scripts\patch\src.diff --ignore-cr-at-eol` from `\build\v8\`.
 * `git diff --output=..\..\..\..\scripts\patch\zlib.diff --ignore-cr-at-eol` from `\build\v8\third_party\zlib\`.
+
+For the experimental Windows sandbox client API, see
+[Sandboxed JavaScript through v8host.dll](docs/v8host-sandbox.md).
 
 ## Contributing
 See [Contributing guidelines](./docs/CONTRIBUTING.md) for how to setup your fork of the repo and start a PR to contribute to React Native V8 JSI adapter.

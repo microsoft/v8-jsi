@@ -29,8 +29,13 @@
 #include "sandbox/win/src/target_process.h"
 #include "sandbox/win/src/threadpool.h"
 #include "sandbox/win/src/win_utils.h"
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+#include "sbox_trust_transition_test_private.h"
+#endif
 
 namespace sandbox {
+
+extern bool g_sbox_hosted_mode;
 
 namespace {
 
@@ -263,7 +268,7 @@ bool CheckImpersonationToken(HANDLE thread) {
 // it can be passed directly to CreateProcessAsUser.
 ResultCode CreateSandboxProcess(
     const base::CommandLine& command_line,
-    const TargetTokens& tokens,
+    const std::optional<TargetTokens>& tokens,
     StartupInformationHelper* startup_info_helper,
     base::win::ScopedProcessInformation& process_info,
     DWORD& win_error) {
@@ -281,9 +286,9 @@ ResultCode CreateSandboxProcess(
   PROCESS_INFORMATION temp_process_info = {};
   std::wstring args = command_line.GetCommandLineString();
 
-  // AppContainer/LPAC targets must be spawned with CreateProcess so the OS builds the
-  // AppContainer token from the security-capabilities attributes; passing a primary token
-  // to CreateProcessAsUser would defeat the AppContainer identity (plain restricted token).
+  // This profile-based path uses the broker identity and security-capabilities
+  // attributes, without an explicit restricted primary or impersonation token.
+  // Explicit LowBox and ordinary restricted-token policies use the path below.
   if (startup_info_helper->HasAppContainer()) {
     if (!::CreateProcessW(
             command_line.GetProgram().value().c_str(), std::data(args),
@@ -299,8 +304,12 @@ ResultCode CreateSandboxProcess(
     return SBOX_ALL_OK;
   }
 
+  if (!tokens) {
+    win_error = ERROR_INVALID_PARAMETER;
+    return SBOX_ERROR_BAD_PARAMS;
+  }
   if (!::CreateProcessAsUserW(
-          tokens.lockdown_.get(), command_line.GetProgram().value().c_str(),
+          tokens->lockdown_.get(), command_line.GetProgram().value().c_str(),
           std::data(args),
           nullptr,  // No security attribute.
           nullptr,  // No thread attribute.
@@ -316,7 +325,7 @@ ResultCode CreateSandboxProcess(
   // impersonation token with more rights. This allows the target to start;
   // otherwise it will crash too early for us to help.
   HANDLE temp_thread = process_info.thread_handle();
-  if (!::SetThreadToken(&temp_thread, tokens.initial_.get())) {
+  if (!::SetThreadToken(&temp_thread, tokens->initial_.get())) {
     win_error = ::GetLastError();
     ::TerminateProcess(process_info.process_handle(), 0);
     return SBOX_ERROR_SET_THREAD_TOKEN;
@@ -485,11 +494,11 @@ void BrokerServicesBase::SpawnTargetAsync(const base::CommandLine& command_line,
 
 base::expected<BrokerServicesBase::CreateTargetInfo, ResultCode>
 BrokerServicesBase::PreSpawnTarget(PolicyBase* policy_base) {
-  // Hosted (decoupled-DLL) mode: the sandbox engine may live in a shared
-  // sandbox.dll loaded by a broker host (e.g. an app host process) that is a
-  // DIFFERENT binary from the target. The original guard required the sandbox to
-  // be linked into the main EXE (CURRENT_MODULE() == exe_module); that is
-  // relaxed here so a DLL-hosted broker can spawn a separate target binary.
+  // Only hosted bootstrap supports a sandbox implementation in a separate DLL.
+  if (!g_sbox_hosted_mode && CURRENT_MODULE() != ::GetModuleHandleW(nullptr)) {
+    ::SetLastError(ERROR_NOT_SUPPORTED);
+    return base::unexpected(SBOX_ERROR_INVALID_LINK_STATE);
+  }
   if (!policy_base) {
     return base::unexpected(SBOX_ERROR_BAD_PARAMS);
   }
@@ -518,10 +527,23 @@ BrokerServicesBase::PreSpawnTarget(PolicyBase* policy_base) {
     launcher_thread_opted_out = true;
   }
 
-  // Make the tokens that we are going to associate with the target process.
-  auto tokens = policy_base->MakeTokens();
-  if (!tokens.has_value()) {
-    return base::unexpected(tokens.error());
+  AppContainer* container = config_base->GetAppContainer();
+  const bool profile_container =
+      container && container->GetAppContainerType() != AppContainerType::kLowbox;
+  std::optional<TargetTokens> tokens;
+  if (!profile_container) {
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+    if (trust_transition_test::ConsumeBrokerFault(
+            SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE)) {
+      ::SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+      return base::unexpected(SBOX_ERROR_CANNOT_CREATE_RESTRICTED_TOKEN);
+    }
+#endif
+    auto created_tokens = policy_base->MakeTokens();
+    if (!created_tokens.has_value()) {
+      return base::unexpected(created_tokens.error());
+    }
+    tokens.emplace(std::move(created_tokens.value()));
   }
 
   ResultCode result = UpdateDesktopIntegrity(config_base->desktop(),
@@ -560,7 +582,6 @@ BrokerServicesBase::PreSpawnTarget(PolicyBase* policy_base) {
     startup_info->AddInheritedHandle(handle.get());
   }
 
-  AppContainer* container = config_base->GetAppContainer();
   if (container) {
     CHECK(config_base->is_csrss_connected() ||
           config_base->GetLockdownTokenLevel() == USER_LOCKDOWN)
@@ -574,7 +595,7 @@ BrokerServicesBase::PreSpawnTarget(PolicyBase* policy_base) {
     return base::unexpected(SBOX_ERROR_PROC_THREAD_ATTRIBUTES);
   }
 
-  return CreateTargetInfo(std::move(startup_info), std::move(tokens.value()));
+  return CreateTargetInfo(std::move(startup_info), std::move(tokens));
 }
 
 // Does all the interesting sandbox setup and creates the target process inside
@@ -612,7 +633,7 @@ CreateTargetResult BrokerServicesBase::CreateTarget(
   // Spawn the target process suspended.
   CreateTargetResult result;
   result.result_code = CreateSandboxProcess(
-      command_line, std::get<TargetTokens>(target_info),
+      command_line, std::get<std::optional<TargetTokens>>(target_info),
       std::get<std::unique_ptr<StartupInformationHelper>>(target_info).get(),
       result.process_info, result.last_error);
 

@@ -88,7 +88,8 @@ class BrokerServicesBase final : public BrokerServices,
   ResultCode UpdateDesktopIntegrity(Desktop desktop, IntegrityLevel integrity);
 
   using CreateTargetInfo =
-      std::pair<std::unique_ptr<StartupInformationHelper>, TargetTokens>;
+      std::pair<std::unique_ptr<StartupInformationHelper>,
+                std::optional<TargetTokens>>;
 
   // Creates the suspended target process and returns the new process handle in
   // the result.

@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/stela/schema/stela.config.schema.json",
+  "title": "Stela configuration",
+  "description": "stela.config.json (design §8.2). Paths are relative to the file's directory. The CLI also checks what a schema can't: unique names, generated files, and macro prefixes; and that each library's targets are a subset of the global list.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "libraries"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schema": {"const": "stela.config/1"},
+    "targets": {
+      "$ref": "#/$defs/targets",
+      "description": "Every target the model covers, in model order. Required by `stela extract`."
+    },
+    "libraries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/library"}
+    },
+    "lint": {"$ref": "#/$defs/lint"},
+    "diff": {"$ref": "#/$defs/diff"},
+    "binaries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/binary"},
+      "description": "The binaries that implement libraries and embed their manifest (`stela gen embed`, design §12)."
+    }
+  },
+  "$defs": {
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "libraries"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*\\.(?:[dD][lL][lL]|[eE][xX][eE])$", "description": "The binary's file name."},
+        "libraries": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/lowerSnake"},
+          "description": "The libraries the binary implements."
+        },
+        "exports": {
+          "enum": ["all", "none"],
+          "description": "all (default): the binary exports every function of its libraries. none: it exports none of them and implements them only through function tables."
+        },
+        "otherExports": {
+          "type": "boolean",
+          "description": "Whether the binary may export names outside its libraries (default true). `stela verify` rejects any other export when false."
+        }
+      }
+    },
+    "lowerSnake": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$"},
+    "upperSnake": {"type": "string", "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$"},
+    "paths": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_.]+)+$"}
+    },
+    "lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "type": "object",
+          "additionalProperties": {
+            "enum": ["error", "warning", "info", "off"]
+          },
+          "description": "Per-rule severity overrides."
+        },
+        "macroConstants": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"},
+          "description": "Integer macros allowed by the macro_constants rule."
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "baselines": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "\\.json$"},
+          "description": "Library name → its baseline stela.model/1, written by `stela baseline` and compared by `stela diff`."
+        },
+        "experimental": {
+          "$ref": "#/$defs/paths",
+          "description": "Headers whose declarations are experimental: `stela diff` reports their breaks as notes."
+        }
+      }
+    },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "prefix", "macroPrefix"],
+      "properties": {
+        "name": {"$ref": "#/$defs/lowerSnake"},
+        "prefix": {"$ref": "#/$defs/lowerSnake"},
+        "macroPrefix": {"$ref": "#/$defs/upperSnake"},
+        "headers": {"$ref": "#/$defs/paths", "description": "Entry headers, in include order."},
+        "includeDirs": {
+          "$ref": "#/$defs/paths",
+          "description": "Include directories, as a consumer sets them; generated tests include each entry header relative to the first one that holds it."
+        },
+        "owns": {
+          "$ref": "#/$defs/paths",
+          "description": "Files or directories whose declarations belong to the library. Default: the entry headers."
+        },
+        "defines": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:=.*)?$"},
+          "description": "NAME or NAME=VALUE, defined before the entry headers when extracting and in generated tests."
+        },
+        "targets": {
+          "allOf": [{"$ref": "#/$defs/targets"}, {"minItems": 1}],
+          "description": "The library's targets when it doesn't ship on every global target."
+        },
+        "status": {"$ref": "#/$defs/lowerSnake", "description": "Status type name. Default: <prefix>_status."},
+        "stelaHeader": {
+          "oneOf": [
+            {"type": "string", "pattern": "\\.h$"},
+            {"const": false}
+          ],
+          "description": "The generated <lib>_stela.h, or false for an extension library that uses another library's. Default: <macroPrefix lowercased>_stela.h next to the first header."
+        },
+        "stelaNames": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        }
+      },
+      "anyOf": [
+        {"required": ["headers"]},
+        {"required": ["stelaHeader"], "properties": {"stelaHeader": {"type": "string"}}}
+      ]
+    }
+  }
+}

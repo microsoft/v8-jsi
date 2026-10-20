@@ -5,20 +5,17 @@
     <ClCompile>
       <AdditionalIncludeDirectories Condition="'$(V8JsiIncludePublicHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include;$(MSBuildThisFileDirectory)jsi</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories Condition="'$(V8JsiIncludeNodeApiHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\node-api;$(MSBuildThisFileDirectory)include\node-api-jsi</AdditionalIncludeDirectories>
-      <!-- The sbox C-ABI headers (sbox.h / sbox_harden.h) for a broker host. -->
-      <AdditionalIncludeDirectories Condition="'$(UseV8Sandbox)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\sbox</AdditionalIncludeDirectories>
+      <!-- The public client C ABI for sandbox consumers. -->
+      <AdditionalIncludeDirectories Condition="'$(UseV8Sandbox)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\v8host</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
 
-  <!-- Link the sbox.dll import lib for a broker host (opt-in + present). The
-       broker delay-loads sbox.dll so a non-sandbox code path never forces the
-       load; v8jsisb.dll has no import lib (v8host LoadLibrary's the engine by
-       name). -->
-  <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' AND Exists('$(MSBuildThisFileDirectory)$rid$\sbox.dll.lib') ">
+  <!-- The client import must load normally, not through delayimp. The engine
+       v8jsisb.dll is loaded by the worker and needs no consumer import lib. -->
+  <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' ">
     <Link>
-      <AdditionalDependencies>sbox.dll.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>v8host.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)$rid$;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <DelayLoadDLLs>sbox.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
     </Link>
   </ItemDefinitionGroup>
 
@@ -40,7 +37,7 @@
        V8JsiRuntime.cpp holds makeV8Runtime + the V8ScriptCache and V8TaskRunner
        adapters. JsiAbiRuntime.cpp is the C++ wrapper that implements
        jsi::Runtime over the JSI ABI vtable. Both compile against v8jsi.dll's
-       stable C exports (v8_jsi_config_*, get_jsi_abi_v8_vtable, etc.). -->
+       C exports (v8_jsi_abi_runtime_create, v8_jsi_abi_config_set_*, etc.). -->
   <ItemGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(V8JsiAddConsumerSourceTUs)' == 'True' ">
     <ClCompile Include="$(MSBuildThisFileDirectory)jsi\jsi\jsi.cpp" />
     <ClCompile Include="$(MSBuildThisFileDirectory)jsi\public\V8JsiRuntime.cpp" />
@@ -57,17 +54,43 @@
                              Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsi.dll.pdb')" />
   </ItemGroup>
 
-  <!-- Copy the sandbox binaries (v8jsisb.dll + sbox.dll + v8host.exe, ~19 MB)
-       to the consumer output ONLY when UseV8Sandbox=True. Each is Exists()-guarded
-       so a RID without sandbox binaries (or a v8host-less consumer) still builds.
-      test_app.exe is the test harness and is not in the package. -->
+  <!-- Sandbox opt-in requires all three shipped binaries. Test executables
+       are never packaged.
+       Supported: same-architecture x64 and ARM64 clients. The shipped binaries
+       require the payload and the client DLL in `<install-root>\<arch>\`
+       (docs\v8host-sandbox.md). Copy-local keeps the app and payload together;
+       validate the output directory rather than relocating it.
+       x86 and ARM64EC consumers need a cross-architecture
+       layout this package does not stage yet. -->
+  <Target Name="V8HostSandboxUnsupportedPlatform_$rid$" BeforeTargets="PrepareForBuild"
+          Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' AND (('$rid$' != 'win-x64' AND '$rid$' != 'win-arm64') OR 'win-$(Platform)' != '$rid$' OR ('$(V8Platform)' != '' AND 'win-$(V8Platform)' != '$rid$')) ">
+    <Error Text="UseV8Sandbox supports x64 and ARM64 consumers only. x86 and ARM64EC clients need the cross-architecture install layout described in docs\v8host-sandbox.md, which this package does not stage." />
+  </Target>
+  <Target Name="V8HostSandboxValidateOutputDirectory_$rid$" AfterTargets="PrepareForBuild"
+          BeforeTargets="AssignTargetPaths;CopyFilesToOutputDirectory"
+          DependsOnTargets="V8HostSandboxUnsupportedPlatform_$rid$"
+          Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' ">
+    <PropertyGroup>
+      <_V8HostSandboxArch>$rid$</_V8HostSandboxArch>
+      <_V8HostSandboxArch>$(_V8HostSandboxArch.Replace('win-', ''))</_V8HostSandboxArch>
+      <_V8HostSandboxOutDir>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(OutDir)'))</_V8HostSandboxOutDir>
+      <_V8HostSandboxOutLeaf>$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('$(_V8HostSandboxOutDir)'))))</_V8HostSandboxOutLeaf>
+      <_V8HostSandboxTargetDir Condition="'$(TargetDir)' != ''">$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(TargetDir)'))</_V8HostSandboxTargetDir>
+    </PropertyGroup>
+    <Error Code="V8HOST001"
+           Condition="'$(OutDir)' == '' OR '$(_V8HostSandboxOutLeaf)' != '$(_V8HostSandboxArch)' OR ('$(TargetDir)' != '' AND '$(_V8HostSandboxTargetDir)' != '$(_V8HostSandboxOutDir)')"
+           Text="UseV8Sandbox requires the application and payload together in an output directory named '$(_V8HostSandboxArch)'. Set &lt;OutDir&gt;...\$(_V8HostSandboxArch)\&lt;/OutDir&gt; and keep TargetDir equal to OutDir. The sandbox payload is one signed same-architecture version set; do not mix files from different versions." />
+  </Target>
   <ItemGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' AND '$(UseV8Sandbox)' == 'True' ">
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll"
-                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll')" />
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.dll"
-                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.dll')" />
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.exe"
-                             Condition="Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.exe')" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.exe" />
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.dll" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8jsisb.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\sbox.exe"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\v8host.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

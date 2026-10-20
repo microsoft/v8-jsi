@@ -14,6 +14,12 @@
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
+  <!-- The legacy package carries no sandbox payload. Sandbox consumers use the
+       Microsoft.JavaScript.V8 package (docs\v8host-sandbox.md). -->
+  <Target Name="V8HostSandboxUnsupportedPackage" BeforeTargets="PrepareForBuild"
+          Condition="'$(UseV8Sandbox)' == 'True'">
+    <Error Text="UseV8Sandbox is not supported by the ReactNative.V8Jsi.Windows package. Use the Microsoft.JavaScript.V8 package, which carries the sandbox payload (docs\v8host-sandbox.md)." />
+  </Target>
   <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
     <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\win32\$(Configuration)\$(V8Platform)\v8jsi.dll" />
     <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\win32\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />

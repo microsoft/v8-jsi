@@ -1,3 +1,12 @@
 # Vendored gn build tool for the Chromium sandbox build (sbox-build.ts).
 # VS never ships gn, so we vendor the pinned binary (~2.5 MB) via Git LFS.
 deps/gn/gn.exe filter=lfs diff=lfs merge=lfs -text
+
+# The Stela template and the files `stela vendor` generates from it are LF on
+# every checkout, so regenerating them is byte-identical.
+tools/stela/include/stela.h text eol=lf
+tools/stela/test/golden/*.json text eol=lf
+tools/stela/third_party/** text eol=lf
+*_stela.h text eol=lf
+# `stela baseline` writes LF; keep checkouts byte-identical to what it writes.
+api/*.model.json text eol=lf

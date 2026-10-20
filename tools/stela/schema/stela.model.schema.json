@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/stela/schema/stela.model.schema.json",
+  "title": "Stela model",
+  "description": "stela.model/1 (design §7): every library's declarations, merged across targets. Types, annotations, and per-target facts use the stela.raw/1 definitions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "producer", "targets", "libraries"],
+  "properties": {
+    "schema": {"const": "stela.model/1"},
+    "producer": {"$ref": "stela.raw.schema.json#/properties/producer"},
+    "targets": {"$ref": "#/$defs/targets"},
+    "libraries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/library"}
+    }
+  },
+  "$defs": {
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "prefix", "macroPrefix", "status", "headers", "includeDirs", "defines", "declarations"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "prefix": {"type": "string", "minLength": 1},
+        "macroPrefix": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "minLength": 1},
+        "headers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1},
+          "description": "Entry headers, relative to the configuration's directory, with / separators."
+        },
+        "includeDirs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "The configured include directories, plus the directory of each entry header none of them holds."
+        },
+        "defines": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "stelaHeader": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The generated <lib>_stela.h, relative to the configuration's directory, with / separators. Absent for a library that uses another library's."
+        },
+        "targets": {
+          "$ref": "#/$defs/targets",
+          "description": "Present only when the library covers fewer targets than the model, in the model's order."
+        },
+        "declarations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/declaration"},
+          "description": "In source order: entry-header order, then line and column."
+        }
+      }
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "location", "doc", "annotations"],
+      "properties": {
+        "kind": {"enum": ["function", "typedef", "struct", "union", "enum", "macro"]},
+        "name": {"type": "string", "minLength": 1},
+        "location": {"$ref": "stela.raw.schema.json#/$defs/location"},
+        "doc": {"type": ["string", "null"]},
+        "annotations": {
+          "type": "array",
+          "items": {"$ref": "stela.raw.schema.json#/$defs/annotation"}
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {"type": {"$ref": "stela.raw.schema.json#/$defs/type"}}
+        },
+        "params": {
+          "type": "array",
+          "items": {"$ref": "stela.raw.schema.json#/$defs/parameter"}
+        },
+        "variadic": {"type": "boolean"},
+        "type": {"$ref": "stela.raw.schema.json#/$defs/type"},
+        "tagless": {
+          "const": true,
+          "description": "A struct or union defined without a tag; only its typedef names it."
+        },
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "stela.raw.schema.json#/$defs/field"}
+        },
+        "enumerators": {
+          "type": "array",
+          "items": {"$ref": "stela.raw.schema.json#/$defs/enumerator"}
+        },
+        "incomplete": {
+          "const": true,
+          "description": "A struct or union declared without a definition, such as an opaque handle's target. It has no layout."
+        },
+        "functionLike": {"type": "boolean"},
+        "replacement": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "targets": {
+          "$ref": "#/$defs/targets",
+          "description": "Present only when the declaration exists on some of its library's targets."
+        },
+        "perTarget": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "stela.raw.schema.json#/$defs/targetFacts"},
+          "description": "Keyed by target, in the library's target order."
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "function"}}},
+          "then": {"required": ["result", "params", "variadic", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "typedef"}}},
+          "then": {"required": ["type", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"enum": ["struct", "union"]}}},
+          "then": {
+            "required": ["fields"],
+            "if": {"required": ["incomplete"]},
+            "then": {"not": {"required": ["perTarget"]}},
+            "else": {"required": ["perTarget"]}
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "enum"}}},
+          "then": {"required": ["type", "enumerators", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "macro"}}},
+          "then": {
+            "required": ["functionLike"],
+            "if": {"properties": {"functionLike": {"const": false}}},
+            "then": {"required": ["replacement"]}
+          }
+        }
+      ]
+    }
+  }
+}

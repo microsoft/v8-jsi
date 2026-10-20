@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/stela/schema/stela.raw.schema.json",
+  "title": "Stela raw extraction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "producer", "target", "headers", "declarations"],
+  "properties": {
+    "schema": {"const": "stela.raw/1"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stela", "libclang"],
+      "properties": {
+        "stela": {"type": "string"},
+        "libclang": {"type": "string"}
+      }
+    },
+    "target": {"type": "string", "minLength": 1},
+    "headers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "declarations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/declaration"}
+    }
+  },
+  "$defs": {
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "line", "column"],
+      "properties": {
+        "file": {"type": "string"},
+        "line": {"type": "integer", "minimum": 1},
+        "column": {"type": "integer", "minimum": 1}
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key"],
+      "properties": {
+        "key": {"type": "string"},
+        "value": {"type": "string"}
+      }
+    },
+    "type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["builtin"],
+          "properties": {
+            "builtin": {"type": "string"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {"type": "string"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pointer"],
+          "properties": {
+            "pointer": {"$ref": "#/$defs/type"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["array"],
+          "properties": {
+            "array": {"$ref": "#/$defs/type"},
+            "length": {"type": "integer"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["function"],
+          "properties": {
+            "function": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["result", "params", "variadic"],
+              "properties": {
+                "result": {"$ref": "#/$defs/type"},
+                "params": {
+                  "type": "array",
+                  "items": {"$ref": "#/$defs/parameter"}
+                },
+                "variadic": {"type": "boolean"}
+              }
+            },
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["struct"],
+          "description": "A struct with neither a tag nor a typedef name, written inline.",
+          "properties": {
+            "struct": {"$ref": "#/$defs/inlineRecord"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["union"],
+          "description": "A union with neither a tag nor a typedef name, written inline.",
+          "properties": {
+            "union": {"$ref": "#/$defs/inlineRecord"},
+            "const": {"const": true}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enum"],
+          "description": "An enum with neither a tag nor a typedef name, written inline.",
+          "properties": {
+            "enum": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "enumerators"],
+              "properties": {
+                "type": {"$ref": "#/$defs/type"},
+                "enumerators": {
+                  "type": "array",
+                  "items": {"$ref": "#/$defs/enumerator"}
+                }
+              }
+            },
+            "const": {"const": true}
+          }
+        }
+      ]
+    },
+    "inlineRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fields"],
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/field"}
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "annotations"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"$ref": "#/$defs/type"},
+        "annotations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/annotation"}
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "annotations", "doc"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"$ref": "#/$defs/type"},
+        "annotations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/annotation"}
+        },
+        "doc": {"type": ["string", "null"]},
+        "bitWidth": {"type": "integer"}
+      }
+    },
+    "enumerator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "doc"],
+      "properties": {
+        "name": {"type": "string"},
+        "value": {"type": "integer"},
+        "doc": {"type": ["string", "null"]}
+      }
+    },
+    "targetFacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "canonicalType": {"$ref": "#/$defs/type"},
+        "size": {"type": "integer"},
+        "align": {"type": "integer"},
+        "offsets": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "fieldCallingConventions": {
+          "type": "array",
+          "items": {"type": ["string", "null"]},
+          "description": "Effective calling convention for each function-pointer field; null for other fields."
+        },
+        "callingConvention": {"type": "string"},
+        "value": {"type": "string", "pattern": "^-?[0-9]+$"}
+      }
+    },
+    "declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "location", "doc", "annotations"],
+      "properties": {
+        "kind": {
+          "enum": ["function", "typedef", "struct", "union", "enum", "macro"]
+        },
+        "name": {"type": "string", "minLength": 1},
+        "location": {"$ref": "#/$defs/location"},
+        "doc": {"type": ["string", "null"]},
+        "annotations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/annotation"}
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {"type": {"$ref": "#/$defs/type"}}
+        },
+        "params": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/parameter"}
+        },
+        "variadic": {"type": "boolean"},
+        "type": {"$ref": "#/$defs/type"},
+        "tagless": {
+          "const": true,
+          "description": "A struct or union defined without a tag (typedef struct { ... } name;); C can't spell it `struct name`."
+        },
+        "fields": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/field"}
+        },
+        "enumerators": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/enumerator"}
+        },
+        "functionLike": {"type": "boolean"},
+        "replacement": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "perTarget": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"$ref": "#/$defs/targetFacts"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "function"}}},
+          "then": {"required": ["result", "params", "variadic", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "typedef"}}},
+          "then": {"required": ["type", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"enum": ["struct", "union"]}}},
+          "then": {"required": ["fields", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "enum"}}},
+          "then": {"required": ["type", "enumerators", "perTarget"]}
+        },
+        {
+          "if": {"properties": {"kind": {"const": "macro"}}},
+          "then": {"required": ["functionLike"]}
+        }
+      ]
+    }
+  }
+}

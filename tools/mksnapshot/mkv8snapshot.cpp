@@ -4,7 +4,7 @@
 // mkv8snapshot — offline tool that builds a V8 startup-snapshot blob from a
 // pure-JS builder script. It LoadLibrary's a chosen v8jsi engine DLL
 // (v8jsi.dll or the sandbox variant v8jsisb.dll) and calls its
-// `v8_create_startup_snapshot` C export, then writes the blob to a file.
+// `v8_jsi_abi_snapshot_create` C export, then writes the blob to a file.
 //
 // Using the actual shipped engine DLL guarantees the blob matches that engine's
 // V8 build flags (pointer-compression / cage / lite-mode / CachedDataVersionTag)
@@ -34,16 +34,16 @@
 
 namespace {
 
-// Mirrors the engine's extern "C" exports (see src/jsi_abi/v8_jsi_config.h).
-// The return is jsi_error_code; 0 == jsi_no_error == success.
+// Mirrors the engine's extern "C" exports (see src/jsi_abi/v8_jsi_abi.h).
+// The return is jsi_status; 0 == jsi_status_ok == success.
 using CreateSnapshotFn = int(__cdecl*)(
-    const char* script_utf8,
-    size_t script_size,
+    const char* script,
+    size_t script_length,
     const char* source_url,
     bool jitless,
-    uint8_t** out_blob,
-    size_t* out_blob_size);
-using FreeSnapshotFn = void(__cdecl*)(uint8_t* blob);
+    uint8_t** out_data,
+    size_t* out_size);
+using FreeSnapshotFn = void(__cdecl*)(uint8_t* data);
 
 std::wstring Widen(const std::string& s) {
   if (s.empty()) return std::wstring();
@@ -149,12 +149,12 @@ int main(int argc, char** argv) {
   }
 
   auto create = reinterpret_cast<CreateSnapshotFn>(
-      ::GetProcAddress(engine, "v8_create_startup_snapshot"));
+      ::GetProcAddress(engine, "v8_jsi_abi_snapshot_create"));
   auto freeBlob = reinterpret_cast<FreeSnapshotFn>(
-      ::GetProcAddress(engine, "v8_free_startup_snapshot"));
+      ::GetProcAddress(engine, "v8_jsi_abi_snapshot_destroy"));
   if (!create || !freeBlob) {
     std::fprintf(stderr,
-        "[mkv8snapshot] engine %ls does not export v8_create_startup_snapshot "
+        "[mkv8snapshot] engine %ls does not export v8_jsi_abi_snapshot_create "
         "(rebuild the engine with snapshot support)\n", enginePath.c_str());
     return 5;
   }
@@ -168,7 +168,7 @@ int main(int argc, char** argv) {
   int rc = create(builderJs.data(), builderJs.size(), "snapshot-builder.js",
                   jitless, &blob, &blobSize);
   if (rc != 0 || !blob || blobSize == 0) {
-    std::fprintf(stderr, "[mkv8snapshot] v8_create_startup_snapshot failed (rc=%d)\n", rc);
+    std::fprintf(stderr, "[mkv8snapshot] v8_jsi_abi_snapshot_create failed (rc=%d)\n", rc);
     return 6;
   }
 

@@ -18,7 +18,7 @@ thread_local V8Api *V8Api::current_{};
 
 V8Api::V8Api(IFuncResolver *funcResolver)
     : JSRuntimeApi(funcResolver)
-#define V8_FUNC(func) , func(&ApiFuncResolver<V8Api, decltype(::func) *, V8ApiNames::func, offsetof(V8Api, func)>::stub)
+#define V8_FUNC(func) , func(&ApiFuncResolver<V8Api, func##_fn, V8ApiNames::func, offsetof(V8Api, func)>::stub)
 #include "V8Api.inc"
 {
 }

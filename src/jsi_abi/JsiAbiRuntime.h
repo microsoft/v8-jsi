@@ -35,34 +35,36 @@
 namespace jsi::abi {
 
 /// The engine's flat runtime-creation export, as a function-pointer type.
-/// Each engine provides one (e.g. v8_create_runtime). Takes the consumer's
-/// compiled JSI_ABI_VERSION + a configure callback/context; returns a runtime
-/// with refcount 1, or nullptr on version mismatch / configure failure.
-using jsi_create_runtime_fn = jsi_runtime *(JSI_CDECL *)(
-    uint32_t requested_abi_version,
+/// Each engine provides one (e.g. v8_jsi_abi_runtime_create). Takes the
+/// consumer's compiled JSI_ABI_VERSION + a configure callback/context; on
+/// success sets *out_runtime to a runtime with refcount 1.
+using jsi_create_runtime_fn = jsi_status(JSI_ABI_CDECL *)(
+    uint32_t abi_version,
     jsi_configure_runtime_cb configure,
-    void *configure_data);
+    void *user_data,
+    jsi_runtime **out_runtime);
 
 /// Create a new JSI runtime via the engine's flat create function. This wrapper
 /// is compiled into the consumer, so it injects the consumer's JSI_ABI_VERSION
-/// for free (Node-API Model B).
-/// \param create_runtime The engine's create export (e.g. v8_create_runtime).
+/// for free (Node-API Model B). Throws facebook::jsi::JSINativeException
+/// naming the status if creation fails.
+/// \param create_runtime The engine's create export (e.g. v8_jsi_abi_runtime_create).
 /// \param configure Optional callback that populates the factory-owned config
-///   via engine-specific setters (e.g. v8_jsi_config_set_*); nullptr = defaults.
-/// \param configure_data Opaque context passed through to configure.
+///   via engine-specific setters (e.g. v8_jsi_abi_config_set_*); nullptr = defaults.
+/// \param user_data Opaque context passed through to configure.
 /// \return A facebook::jsi::Runtime that owns one ref on the new runtime.
 std::unique_ptr<facebook::jsi::Runtime> makeJsiAbiRuntime(
     jsi_create_runtime_fn create_runtime,
     jsi_configure_runtime_cb configure = nullptr,
-    void *configure_data = nullptr);
+    void *user_data = nullptr);
 
 /// Wrap an existing jsi_runtime. The returned wrapper holds its own ref
 /// (add_ref is called on entry), so the caller's ref is independent.
 ///
-/// Used when a runtime created via jsr_create_runtime (the Node-API entry
+/// Used when a runtime created via v8_node_api_runtime_create (the Node-API entry
 /// point) also needs to be driven through facebook::jsi::Runtime — the same
 /// V8 isolate exposed through both surfaces. Retrieve the jsi_runtime with
-/// jsr_runtime_get_jsi_runtime, then pass it here.
+/// v8_node_api_runtime_get_jsi_runtime, then pass it here.
 std::unique_ptr<facebook::jsi::Runtime> wrapJsiRuntime(jsi_runtime *abiRuntime);
 
 /// Retrieve the underlying jsi_runtime pointer from a facebook::jsi::Runtime
@@ -70,7 +72,7 @@ std::unique_ptr<facebook::jsi::Runtime> wrapJsiRuntime(jsi_runtime *abiRuntime);
 /// borrowed (no add_ref); it stays alive as long as the wrapping Runtime does.
 ///
 /// Intended for test hooks and advanced consumers that need to call
-/// ABI-specific extensions (e.g., v8_open_inspector). Returns nullptr if
+/// ABI-specific extensions (e.g., v8_jsi_abi_runtime_open_inspector). Returns nullptr if
 /// the supplied Runtime was not created by this factory.
 jsi_runtime *getAbiRuntime(facebook::jsi::Runtime &runtime) noexcept;
 

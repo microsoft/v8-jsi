@@ -5,14 +5,14 @@
 //
 // This translation unit ships as source in the NuGet alongside V8JsiRuntime.h
 // (see also include/node-api-jsi/NodeApiJsiRuntime.cpp for the same pattern).
-// The consumer compiles it locally; only the C-stable v8_jsi_config_* setters,
-// the v8_create_runtime entry point, and the JsiAbiRuntime C++ wrapper (also
+// The consumer compiles it locally; only the C-stable v8_jsi_abi_config_* setters,
+// the v8_jsi_abi_runtime_create entry point, and the JsiAbiRuntime C++ wrapper (also
 // compiled in the consumer) cross into v8jsi.dll.
 
 #include "V8JsiRuntime.h"
 
 #include "jsi_abi/JsiAbiRuntime.h"
-#include "jsi_abi/v8_jsi_config.h"
+#include "jsi_abi/v8_jsi_abi.h"
 #include "ScriptStore.h"
 
 namespace v8runtime {
@@ -30,16 +30,16 @@ class V8JsiBuffer final : public facebook::jsi::Buffer {
       const uint8_t *buffer,
       size_t bufferSize,
       jsi_data_delete_cb bufferDeleteCallback,
-      void *deleterData) noexcept
+      void *bufferDeleteData) noexcept
       : buffer_(buffer),
         bufferSize_(bufferSize),
         bufferDeleteCallback_(bufferDeleteCallback),
-        deleterData_(deleterData) {}
+        bufferDeleteData_(bufferDeleteData) {}
 
   ~V8JsiBuffer() override {
     if (bufferDeleteCallback_) {
       bufferDeleteCallback_(
-          const_cast<uint8_t *>(buffer_), deleterData_);
+          bufferDeleteData_, const_cast<uint8_t *>(buffer_));
     }
   }
 
@@ -53,11 +53,11 @@ class V8JsiBuffer final : public facebook::jsi::Buffer {
   const uint8_t *buffer_;
   size_t bufferSize_;
   jsi_data_delete_cb bufferDeleteCallback_;
-  void *deleterData_;
+  void *bufferDeleteData_;
 };
 
 // Adapter from the consumer's std::shared_ptr<facebook::jsi::PreparedScriptStore>
-// to the C-callback shape expected by v8_jsi_config_set_script_cache. Modeled
+// to the C-callback shape expected by v8_jsi_abi_config_set_script_cache. Modeled
 // on react-native-windows/vnext/Shared/JSI/V8RuntimeHolder.cpp's V8ScriptCache.
 //
 // Allocated and freed entirely in the consumer's CRT — the DLL only sees an
@@ -67,11 +67,11 @@ class V8ScriptCache {
   static void Create(
       jsi_config config,
       std::shared_ptr<facebook::jsi::PreparedScriptStore> scriptStore) {
-    v8_jsi_config_set_script_cache(
+    v8_jsi_abi_config_set_script_cache(
         config,
-        new V8ScriptCache(std::move(scriptStore)),
         &LoadScript,
         &StoreScript,
+        new V8ScriptCache(std::move(scriptStore)),
         &Delete,
         nullptr);
   }
@@ -91,7 +91,7 @@ class V8ScriptCache {
       const uint8_t **buffer,
       size_t *bufferSize,
       jsi_data_delete_cb *bufferDeleteCallback,
-      void **deleterData) {
+      void **bufferDeleteData) {
     auto &scriptStore =
         reinterpret_cast<V8ScriptCache *>(scriptCache)->scriptStore_;
     std::shared_ptr<const facebook::jsi::Buffer> preparedScript =
@@ -102,17 +102,17 @@ class V8ScriptCache {
     if (preparedScript) {
       *buffer = preparedScript->data();
       *bufferSize = preparedScript->size();
-      *bufferDeleteCallback = [](void * /*data*/, void *deleterData) {
+      *bufferDeleteCallback = [](void *deleteData, void * /*data*/) {
         delete reinterpret_cast<
-            std::shared_ptr<const facebook::jsi::Buffer> *>(deleterData);
+            std::shared_ptr<const facebook::jsi::Buffer> *>(deleteData);
       };
-      *deleterData = new std::shared_ptr<const facebook::jsi::Buffer>(
+      *bufferDeleteData = new std::shared_ptr<const facebook::jsi::Buffer>(
           std::move(preparedScript));
     } else {
       *buffer = nullptr;
       *bufferSize = 0;
       *bufferDeleteCallback = nullptr;
-      *deleterData = nullptr;
+      *bufferDeleteData = nullptr;
     }
   }
 
@@ -126,18 +126,18 @@ class V8ScriptCache {
       const uint8_t *buffer,
       size_t bufferSize,
       jsi_data_delete_cb bufferDeleteCallback,
-      void *deleterData) {
+      void *bufferDeleteData) {
     auto &scriptStore =
         reinterpret_cast<V8ScriptCache *>(scriptCache)->scriptStore_;
     scriptStore->persistPreparedScript(
         std::make_shared<V8JsiBuffer>(
-            buffer, bufferSize, bufferDeleteCallback, deleterData),
+            buffer, bufferSize, bufferDeleteCallback, bufferDeleteData),
         facebook::jsi::ScriptSignature{sourceUrl, sourceHash},
         facebook::jsi::JSRuntimeSignature{runtimeName, runtimeVersion},
         cacheTag);
   }
 
-  static void __cdecl Delete(void *scriptCache, void * /*deleterData*/) {
+  static void __cdecl Delete(void * /*deleteData*/, void *scriptCache) {
     delete reinterpret_cast<V8ScriptCache *>(scriptCache);
   }
 
@@ -145,7 +145,7 @@ class V8ScriptCache {
 };
 
 // Adapter from the consumer's std::shared_ptr<JSITaskRunner> to the C-callback
-// shape expected by v8_jsi_config_set_task_runner. Modeled on
+// shape expected by v8_jsi_abi_config_set_task_runner. Modeled on
 // react-native-windows/vnext/Shared/JSI/V8RuntimeHolder.cpp's V8TaskRunner.
 //
 // Allocated and freed entirely in the consumer's CRT — the DLL only sees an
@@ -154,10 +154,10 @@ class V8TaskRunner {
  public:
   static void Create(jsi_config config,
                      std::shared_ptr<JSITaskRunner> taskRunner) {
-    v8_jsi_config_set_task_runner(
+    v8_jsi_abi_config_set_task_runner(
         config,
-        new V8TaskRunner(std::move(taskRunner)),
         &PostTask,
+        new V8TaskRunner(std::move(taskRunner)),
         &Delete,
         nullptr);
   }
@@ -172,17 +172,17 @@ class V8TaskRunner {
   class CTask final : public JSITask {
    public:
     CTask(void *taskData,
-          v8_jsi_task_run_cb taskRunCb,
+          v8_jsi_abi_task_run_cb taskRunCb,
           jsi_data_delete_cb taskDataDeleteCb,
-          void *deleterData) noexcept
+          void *taskDataDeleteData) noexcept
         : taskData_(taskData),
           taskRunCb_(taskRunCb),
           taskDataDeleteCb_(taskDataDeleteCb),
-          deleterData_(deleterData) {}
+          taskDataDeleteData_(taskDataDeleteData) {}
 
     ~CTask() override {
       if (taskDataDeleteCb_) {
-        taskDataDeleteCb_(taskData_, deleterData_);
+        taskDataDeleteCb_(taskDataDeleteData_, taskData_);
       }
     }
 
@@ -197,24 +197,24 @@ class V8TaskRunner {
 
    private:
     void *taskData_;
-    v8_jsi_task_run_cb taskRunCb_;
+    v8_jsi_abi_task_run_cb taskRunCb_;
     jsi_data_delete_cb taskDataDeleteCb_;
-    void *deleterData_;
+    void *taskDataDeleteData_;
   };
 
   static void __cdecl PostTask(
       void *taskRunnerData,
       void *taskData,
-      v8_jsi_task_run_cb taskRunCb,
+      v8_jsi_abi_task_run_cb taskRunCb,
       jsi_data_delete_cb taskDataDeleteCb,
-      void *deleterData) {
+      void *taskDataDeleteData) {
     auto &taskRunner =
         reinterpret_cast<V8TaskRunner *>(taskRunnerData)->taskRunner_;
     taskRunner->postTask(std::make_unique<CTask>(
-        taskData, taskRunCb, taskDataDeleteCb, deleterData));
+        taskData, taskRunCb, taskDataDeleteCb, taskDataDeleteData));
   }
 
-  static void __cdecl Delete(void *taskRunnerData, void * /*deleterData*/) {
+  static void __cdecl Delete(void * /*deleteData*/, void *taskRunnerData) {
     delete reinterpret_cast<V8TaskRunner *>(taskRunnerData);
   }
 
@@ -222,28 +222,28 @@ class V8TaskRunner {
 };
 
 void applyArgs(jsi_config cfg, const V8RuntimeArgs &args) {
-  v8_jsi_config_set_initial_heap_size(cfg, args.initial_heap_size_in_bytes);
-  v8_jsi_config_set_maximum_heap_size(cfg, args.maximum_heap_size_in_bytes);
-  v8_jsi_config_set_thread_pool_size(cfg, args.flags.thread_pool_size);
-  v8_jsi_config_set_debugger_runtime_name(
-      cfg, args.debuggerRuntimeName.c_str());
-  v8_jsi_config_enable_inspector(cfg, args.flags.enableInspector);
-  v8_jsi_config_set_inspector_port(cfg, args.inspectorPort);
-  v8_jsi_config_set_inspector_break_on_start(cfg, args.flags.waitForDebugger);
-  v8_jsi_config_set_explicit_microtask_policy(
+  v8_jsi_abi_config_set_initial_heap_size(cfg, args.initial_heap_size_in_bytes);
+  v8_jsi_abi_config_set_maximum_heap_size(cfg, args.maximum_heap_size_in_bytes);
+  v8_jsi_abi_config_set_thread_pool_size(cfg, args.flags.thread_pool_size);
+  v8_jsi_abi_config_set_debugger_runtime_name_utf8(
+      cfg, args.debuggerRuntimeName.data(), args.debuggerRuntimeName.size());
+  v8_jsi_abi_config_set_inspector_enabled(cfg, args.flags.enableInspector);
+  v8_jsi_abi_config_set_inspector_port(cfg, args.inspectorPort);
+  v8_jsi_abi_config_set_inspector_break_on_start(cfg, args.flags.waitForDebugger);
+  v8_jsi_abi_config_set_explicit_microtask_policy(
       cfg, args.flags.explicitMicrotaskPolicy);
-  v8_jsi_config_set_ignore_unhandled_promises(
+  v8_jsi_abi_config_set_ignore_unhandled_promises(
       cfg, args.flags.ignoreUnhandledPromises);
-  v8_jsi_config_enable_gc_api(cfg, args.flags.enableGCApi);
-  v8_jsi_config_enable_multi_thread(cfg, args.flags.enableMultiThread);
-  v8_jsi_config_enable_jit_tracing(cfg, args.flags.enableJitTracing);
-  v8_jsi_config_enable_message_tracing(cfg, args.flags.enableMessageTracing);
-  v8_jsi_config_enable_gc_tracing(cfg, args.flags.enableGCTracing);
-  v8_jsi_config_enable_system_instrumentation(
+  v8_jsi_abi_config_set_gc_api_enabled(cfg, args.flags.enableGCApi);
+  v8_jsi_abi_config_set_multi_thread_enabled(cfg, args.flags.enableMultiThread);
+  v8_jsi_abi_config_set_jit_tracing_enabled(cfg, args.flags.enableJitTracing);
+  v8_jsi_abi_config_set_message_tracing_enabled(cfg, args.flags.enableMessageTracing);
+  v8_jsi_abi_config_set_gc_tracing_enabled(cfg, args.flags.enableGCTracing);
+  v8_jsi_abi_config_set_system_instrumentation_enabled(
       cfg, args.flags.enableSystemInstrumentation);
   // Process-global V8 engine flags (sparkplug, predictable, optimize_for_size,
   // always_compact, jitless, lite_mode) are NOT set here — they go through the
-  // process-level v8_jsi_set_v8_flags in makeV8Runtime (see applyV8Flags).
+  // process-level v8_jsi_abi_set_v8_flags in makeV8Runtime (see applyV8Flags).
   if (args.preparedScriptStore) {
     V8ScriptCache::Create(cfg, args.preparedScriptStore);
   }
@@ -257,25 +257,25 @@ void applyArgs(jsi_config cfg, const V8RuntimeArgs &args) {
     // destroy — mirrors the V8ScriptCache buffer-ownership pattern above.
     auto *held =
         new std::shared_ptr<const facebook::jsi::Buffer>(args.startupSnapshotBlob);
-    v8_jsi_config_set_startup_snapshot(
+    v8_jsi_abi_config_set_startup_snapshot(
         cfg,
         (*held)->data(),
         (*held)->size(),
-        [](void * /*data*/, void *deleterData) {
+        [](void *deleteData, void * /*data*/) {
           delete reinterpret_cast<
-              std::shared_ptr<const facebook::jsi::Buffer> *>(deleterData);
+              std::shared_ptr<const facebook::jsi::Buffer> *>(deleteData);
         },
         held);
   }
 }
 
-// Configure trampoline: v8_create_runtime hands us a factory-owned config and
-// we populate it from the V8RuntimeArgs carried in cb_data. The args outlive
+// Configure trampoline: v8_jsi_abi_runtime_create hands us a factory-owned config and
+// we populate it from the V8RuntimeArgs carried in user_data. The args outlive
 // the synchronous create call, so the pointer stays valid. (Pull in the ABI
 // does not mean pull in C++ — V8RuntimeArgs stays a plain struct.)
-jsi_error_code JSI_CDECL configureFromArgs(void *cb_data, jsi_config cfg) {
-  applyArgs(cfg, *static_cast<const V8RuntimeArgs *>(cb_data));
-  return jsi_no_error;
+jsi_status JSI_ABI_CDECL configureFromArgs(void *user_data, jsi_config cfg) {
+  applyArgs(cfg, *static_cast<const V8RuntimeArgs *>(user_data));
+  return jsi_status_ok;
 }
 
 // Forward the process-global V8 engine flags carried on V8RuntimeArgs to the
@@ -304,7 +304,7 @@ void applyV8Flags(const V8RuntimeArgs &args) {
   if (argc == 0) return;
 
   // remove_flags=false: we pass only known flags, nothing to report back.
-  v8_jsi_set_v8_flags(&argc, argv, /*remove_flags:*/ false);
+  v8_jsi_abi_set_v8_flags(&argc, argv, /*remove_flags:*/ false);
 }
 
 } // namespace
@@ -315,7 +315,7 @@ std::unique_ptr<facebook::jsi::Runtime> __cdecl makeV8Runtime(
   // V8 init; per-runtime config flows through the configure callback.
   applyV8Flags(args);
   return ::jsi::abi::makeJsiAbiRuntime(
-      &v8_create_runtime, &configureFromArgs, &args);
+      &v8_jsi_abi_runtime_create, &configureFromArgs, &args);
 }
 
 } // namespace v8runtime

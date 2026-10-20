@@ -152,7 +152,7 @@
 /.gn
 /BUILD.gn
 /out/**
-/sandbox_dll/**
+/sbox/**
 /v8host/**
 /test_app/**
 /jsi_cpp/**

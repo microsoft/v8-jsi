@@ -16,7 +16,7 @@
 // UseV8Sandbox=true), the harness additionally validates the sandbox package
 // surface: it drives the jitless sandbox engine v8jsisb.dll through the same JSI
 // C++ API (via a delay-load redirect) and confirms the broker ABI is consumable
-// (compiles against sbox.h + links sbox.dll.lib + loads sbox.dll).
+// (compiles against v8host_client.h, imports v8host.dll, and runs a session).
 //
 // Scenario selection (argv):
 //   (no args)                  cross-CRT / sandbox-surface smoke (runJsiChecks).
@@ -46,7 +46,7 @@
 #include <string>
 
 #ifdef SMOKE_SANDBOX
-#include <sbox.h>
+#include <v8host_client.h>
 
 #include <windows.h>
 #include <delayimp.h>
@@ -79,11 +79,89 @@ static FARPROC WINAPI SmokeDelayHook(unsigned notify, PDelayLoadInfo info) {
 
 extern "C" const PfnDliHook __pfnDliNotifyHook2 = SmokeDelayHook;
 
-// Reference an sbox export so the linker pulls in sbox.dll.lib: the build fails
-// with an unresolved external if UseV8Sandbox did not wire the import lib. This
-// only forces the link; it never calls into the broker (no target is spawned).
-static void* volatile g_sboxLinkProbe =
-    reinterpret_cast<void*>(&sbox_broker_run);
+struct SandboxSmoke {
+  bool ready = false;
+  bool done = false;
+  bool completed = false;
+  v8host_status status = v8host_status_ok;
+};
+
+static void V8HOST_CDECL smokeSessionState(
+    void *data, v8host_session, v8host_session_state state, v8host_status status) {
+  auto &smoke = *static_cast<SandboxSmoke *>(data);
+  smoke.ready = state == v8host_session_state_ready;
+  if (status != v8host_status_ok || state == v8host_session_state_closed) {
+    smoke.status = status;
+    smoke.done = true;
+  }
+}
+
+static void V8HOST_CDECL smokeRunEvent(
+    void *data, v8host_run, v8host_run_event event, v8host_status status) {
+  if (event == v8host_run_event_started) return;
+  auto &smoke = *static_cast<SandboxSmoke *>(data);
+  smoke.completed = event == v8host_run_event_completed;
+  smoke.status = status;
+  smoke.done = true;
+}
+
+static bool pumpSandbox(SandboxSmoke &smoke, bool waitForRun) {
+  const ULONGLONG deadline = ::GetTickCount64() + 30000;
+  while (!smoke.done && (waitForRun || !smoke.ready)) {
+    if (::GetTickCount64() >= deadline) return false;
+    MSG msg;
+    if (::PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
+      ::DispatchMessageW(&msg);
+    else
+      ::MsgWaitForMultipleObjectsEx(0, nullptr, 10, QS_ALLINPUT,
+                                   MWMO_INPUTAVAILABLE);
+  }
+  return !smoke.done || (smoke.completed && smoke.status == v8host_status_ok);
+}
+
+static v8host_status V8HOST_CDECL configureSmokeSession(
+    void *, v8host_config config) {
+  auto status = v8host_config_set_broker_mode(config, v8host_broker_mode_dedicated);
+  if (status != v8host_status_ok) return status;
+  return v8host_config_set_prohibit_dynamic_code(config, true);
+}
+
+static v8host_status V8HOST_CDECL configureSmokeRun(
+    void *, v8host_run_config config) {
+  static const char script[] =
+      "if (1 + 2 !== 3) throw new Error('smoke'); host.complete();";
+  return v8host_run_config_set_payload(config, script, sizeof(script) - 1);
+}
+
+static int runSandboxClientChecks() {
+  MSG msg;
+  ::PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
+  if (v8host_initialize(V8HOST_ABI_VERSION) != v8host_status_ok)
+    FAIL("v8host_initialize failed");
+
+  SandboxSmoke smoke;
+  v8host_session session = nullptr;
+  if (v8host_session_open(configureSmokeSession, nullptr, &session) !=
+      v8host_status_ok)
+    FAIL("v8host_session_open failed");
+  v8host_callbacks callbacks = V8HOST_CALLBACKS_INIT;
+  callbacks.user_data = &smoke;
+  callbacks.on_session_state = smokeSessionState;
+  callbacks.on_run_event = smokeRunEvent;
+  bool ok = v8host_session_set_callbacks(session, &callbacks) == v8host_status_ok &&
+      pumpSandbox(smoke, false);
+  v8host_run run = nullptr;
+  if (ok)
+    ok = v8host_session_start_run(session, configureSmokeRun, nullptr, &run) ==
+        v8host_status_ok && pumpSandbox(smoke, true);
+  v8host_session_close(session);
+  if (!ok) {
+    std::fprintf(stderr, "test-harness: sandbox client failed/timed out (0x%x)\n",
+                 static_cast<unsigned>(smoke.status));
+    return 1;
+  }
+  return 0;
+}
 #endif
 
 // The shared JSI-ABI exercises. Run identically against v8jsi.dll (default) and
@@ -249,19 +327,11 @@ int main(int argc, char **argv) {
     if (!::GetModuleHandleW(L"v8jsisb.dll"))
       FAIL("v8jsisb.dll was not loaded — delay-load redirect did not take");
 
-    // Prove sbox.dll is shipped, loadable, and exports the broker C ABI —
-    // without spawning a sandboxed target (the full broker/target path is
-    // covered by the lockdown tier, not this surface smoke). g_sboxLinkProbe
-    // already forced the sbox.dll.lib import at link time.
-    (void)g_sboxLinkProbe;
-    HMODULE sb = ::LoadLibraryW(L"sbox.dll");
-    if (!sb) FAIL("LoadLibrary(sbox.dll) failed");
-    if (!::GetProcAddress(sb, "sbox_broker_run"))
-      FAIL("sbox.dll missing the sbox_broker_run export");
+    if (int rc = runSandboxClientChecks()) return rc;
 
     std::printf(
         "test-harness: sandbox smoke OK "
-        "(v8jsisb.dll via the JSI C++ API + sbox.dll broker surface)\n");
+        "(v8jsisb.dll via JSI + v8host.dll client/session/run API)\n");
 #else
     std::printf("test-harness: cross-CRT smoke OK\n");
 #endif

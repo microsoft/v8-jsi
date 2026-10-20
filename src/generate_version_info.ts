@@ -1,6 +1,6 @@
 // Generate src/version_info_gen.h from config.json for the **new**
 // Microsoft.JavaScript.V8 package binaries (v8jsi.dll, v8jsisb.dll,
-// mkv8snapshot.exe, sbox.dll, v8host.exe). It emits only the version NUMBERS;
+// mkv8snapshot.exe, sbox.exe, v8host.dll). It emits only the version NUMBERS;
 // the shared + per-binary strings live in src/version_info.rc.
 //
 // The version comes from config.json.v8jsi_version (the Node.js-aligned 24.x

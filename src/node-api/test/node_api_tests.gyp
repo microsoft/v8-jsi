@@ -70,7 +70,7 @@
 
     #
     # node_lite.exe — JS-runner used as a child process by node_api_tests.exe.
-    # Initializes a jsr_runtime, evaluates a single .js file, and dynamically
+    # Initializes a v8_node_api_runtime, evaluates a single .js file, and dynamically
     # loads addon DLLs through JSRequire().
     #
     {
@@ -80,6 +80,7 @@
         'v8jsi',
       ],
       'include_dirs': [
+        '<(v8jsi_root)/src',
         '<(v8jsi_root)/src/node-api',
         '<(v8jsi_root)/src/node-api/test',
         '<(v8jsi_root)/src/node-api/test/js-native-api',

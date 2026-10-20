@@ -6,7 +6,7 @@
 #endif
 
 // The V8 runtime functions sorted alphabetically.
-V8_FUNC(v8_config_enable_multithreading)
-V8_FUNC(v8_platform_dispose)
+V8_FUNC(v8_node_api_config_set_multithreading_enabled)
+V8_FUNC(v8_node_api_dispose_platform)
 
 #undef V8_FUNC

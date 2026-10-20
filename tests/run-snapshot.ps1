@@ -45,6 +45,13 @@ $PkgDir = Get-PkgDir -RepoRoot $RepoRoot -PkgDir $PkgDir
 $rid = Get-Rid -Platform $Platform
 $pkg = Restore-V8Package -HarnessDir $harnessDir -PkgDir $PkgDir -Rid $rid
 
+if ($UseV8Sandbox -and -not (Test-SandboxConsumerPlatform $Platform)) {
+    Assert-SandboxUnsupported -HarnessDir $harnessDir -Configuration $Configuration `
+        -Platform $Platform -Rid $rid -PkgProps $pkg.PkgProps -PkgTargets $pkg.PkgTargets
+    Write-Host "tests: snapshot e2e OK (no sandbox leg for $Platform consumers)"
+    exit 0
+}
+
 # The packaged offline snapshot builder + engine DLLs all live in the per-RID
 # native dir. mkv8snapshot LoadLibrary's the engine from --engine-dir.
 $nativeDir = $pkg.NativeDir
