@@ -108,8 +108,42 @@ function Get-MSBuild {
     return $msbuild
 }
 
+# VC++ has no 'x86' platform - 32-bit is 'Win32'.
+function Get-MSBuildPlatform {
+    param([string]$Platform)
+    if ($Platform -eq 'x86') { return 'Win32' }
+    return $Platform
+}
+
+# The package supports UseV8Sandbox for x64 and ARM64 consumers only.
+function Test-SandboxConsumerPlatform {
+    param([string]$Platform)
+    return @('x64', 'arm64') -contains $Platform.ToLower()
+}
+
+# For any other consumer platform, assert that the package rejects
+# UseV8Sandbox before compiling (MSBuild target only: no compilation or copy).
+function Assert-SandboxUnsupported {
+    param(
+        [string]$HarnessDir, [string]$Configuration, [string]$Platform,
+        [string]$Rid, [string]$PkgProps, [string]$PkgTargets
+    )
+    $msbuild = Get-MSBuild
+    $output = & $msbuild (Join-Path $HarnessDir 'consumer.vcxproj') `
+        "/t:V8HostSandboxUnsupportedPlatform_$Rid" `
+        "/p:Configuration=$Configuration" "/p:Platform=$(Get-MSBuildPlatform $Platform)" `
+        "/p:V8JsiPackageProps=$PkgProps" "/p:V8JsiPackageTargets=$PkgTargets" `
+        "/p:V8JsiRuntimeIdentifier=$Rid" /p:UseV8Sandbox=true /nologo /v:minimal 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | Out-Host
+    if ($exitCode -eq 0 -or ($output -join "`n") -notmatch 'UseV8Sandbox supports x64 and ARM64 consumers only') {
+        throw "Expected UseV8Sandbox to be rejected for $Platform consumers."
+    }
+    Write-Host "tests: UseV8Sandbox rejected for $Platform consumers (x64 and ARM64 only)"
+}
+
 # Build consumer.vcxproj against the restored package. -UseV8Sandbox opts into
-# the sandbox surface (sbox include + sbox.dll.lib, v8jsisb.dll/sbox.dll copied,
+# the sandbox surface (v8host include + v8host.dll.lib, all three binaries copied,
 # SMOKE_SANDBOX defined). Returns the path to the produced v8jsi_smoke.exe.
 function Build-Consumer {
     param(
@@ -118,11 +152,11 @@ function Build-Consumer {
     )
     $msbuild = Get-MSBuild
     $vcxproj = Join-Path $HarnessDir 'consumer.vcxproj'
-    # VC++ has no 'x86' platform - 32-bit is 'Win32'. Translate the harness
-    # platform vocabulary (x64/x86/arm64, matching the RID and CI buildPlatform)
-    # to the MSBuild platform the consumer project defines. The explicit
-    # V8JsiRuntimeIdentifier below still selects the win-x86 package payload.
-    $msbuildPlatform = if ($Platform -eq 'x86') { 'Win32' } else { $Platform }
+    # Translate the harness platform vocabulary (x64/x86/arm64, matching the
+    # RID and CI buildPlatform) to the MSBuild platform the consumer project
+    # defines. The explicit V8JsiRuntimeIdentifier below still selects the
+    # win-x86 package payload.
+    $msbuildPlatform = Get-MSBuildPlatform $Platform
     # Pass V8JsiRuntimeIdentifier explicitly to bypass the .props RID
     # auto-detection (a real PackageReference consumer lets that run on its own).
     $mbArgs = @(

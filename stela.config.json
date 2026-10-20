@@ -1,0 +1,64 @@
+{
+  "schema": "stela.config/1",
+  "targets": ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "lint": {
+    "macroConstants": ["JSI_ABI_POINTER_MASK"]
+  },
+  "diff": {
+    "baselines": {
+      "sbox": "api/sbox.model.json",
+      "v8host": "api/v8host.model.json",
+      "jsi_abi": "api/jsi_abi.model.json",
+      "v8_jsi_abi": "api/v8_jsi_abi.model.json",
+      "v8_node_api": "api/v8_node_api.model.json"
+    }
+  },
+  "libraries": [
+    {
+      "name": "sbox",
+      "prefix": "sbox",
+      "macroPrefix": "SBOX",
+      "headers": ["deps/chromium/sbox/sbox.h"],
+      "stelaHeader": "deps/chromium/sbox/sbox_stela.h"
+    },
+    {
+      "name": "v8host",
+      "prefix": "v8host",
+      "macroPrefix": "V8HOST",
+      "headers": ["src/public/v8host_client.h"],
+      "stelaHeader": "src/public/v8host_stela.h"
+    },
+    {
+      "name": "jsi_abi",
+      "prefix": "jsi",
+      "macroPrefix": "JSI_ABI",
+      "headers": ["src/jsi_abi/jsi_abi.h"],
+      "includeDirs": ["src"],
+      "stelaHeader": "src/jsi_abi/jsi_abi_stela.h"
+    },
+    {
+      "name": "v8_jsi_abi",
+      "prefix": "v8_jsi_abi",
+      "macroPrefix": "V8_JSI_ABI",
+      "headers": ["src/jsi_abi/v8_jsi_abi.h"],
+      "includeDirs": ["src"],
+      "status": "jsi_status",
+      "stelaHeader": false
+    },
+    {
+      "name": "v8_node_api",
+      "prefix": "v8_node_api",
+      "macroPrefix": "V8_NODE_API",
+      "headers": ["src/node-api/v8_node_api.h"],
+      "includeDirs": ["src"],
+      "status": "napi_status",
+      "stelaHeader": "src/node-api/v8_node_api_stela.h"
+    }
+  ],
+  "binaries": [
+    { "name": "v8jsi.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
+    { "name": "v8jsisb.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
+    { "name": "v8host.dll", "libraries": ["sbox", "v8host"], "otherExports": false },
+    { "name": "sbox.exe", "libraries": ["sbox"], "exports": "none", "otherExports": false }
+  ]
+}

@@ -1,0 +1,40 @@
+Contract B protocol fuzz corpus
+===============================
+
+Small binary seed files for v8host_protocol_fuzz (the deterministic in-process
+protocol fuzz harness). These are SEEDS, not a coverage set: the harness mutates
+copies of them (bit flips, truncation, extension, splicing, length-field
+perturbation) and feeds the bytes to every decoder in //v8host:protocol. They
+were emitted from the real encoders (EncodeHeader / the Build*Frame builders),
+so they can never drift from the codec.
+
+The harness also carries an equivalent built-in seed set, so it runs with or
+without this directory; passing the directory just adds these on-disk seeds.
+
+Files
+-----
+  hello.bin            valid HELLO frame (client -> broker)
+  hello_ack.bin        valid HELLO_ACK frame (broker -> client, frozen limits)
+  ack.bin              valid ACK frame
+  error.bin            valid ERROR frame (ERROR_QUOTA + short message)
+  create_session.bin   valid CREATE_SESSION frame (AppContainer, 2 rules, 2 caps)
+  create_worker.bin    valid CREATE_WORKER frame (one runtime, no snapshots)
+  close_worker.bin     valid header-only CLOSE_WORKER frame
+  create_runtime.bin   valid CREATE_RUNTIME frame (worker 2, no snapshot)
+  close_runtime.bin    valid header-only CLOSE_RUNTIME frame
+  start_run.bin        valid START_RUN frame (engine override + snapshot + guest)
+  cancel_run.bin       valid header-only CANCEL_RUN frame
+  close_session.bin    valid header-only CLOSE_SESSION frame
+  relay.bin            valid RELAY_TO_WORKER frame (i32 kind + opaque bytes)
+  max_payload.bin      header with payload_length at the ceiling (65528) + body
+  truncated.bin        a HELLO frame cut short (incomplete header)
+  reserved_flags.bin   a valid HELLO with a reserved flag bit set
+  oversize_length.bin   a 32-byte header declaring payload_length 65529 (> ceiling)
+  zeros.bin            a 64-byte all-zero buffer (bad magic)
+
+Regenerating
+------------
+The files are deterministic. If a deliberate wire change alters them, re-emit
+from the encoders (a throwaway generator calling the Build*Frame builders /
+EncodeHeader, exactly as the harness builds its built-in seeds) and re-run the
+harness to confirm it still completes with no crash.

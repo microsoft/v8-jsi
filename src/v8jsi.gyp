@@ -88,14 +88,15 @@
       '<(v8jsi_root)/src/jsi_abi/jsi_abi_helpers.h',
       '<(v8jsi_root)/src/jsi_abi/jsi_abi_v8.cpp',
       '<(v8jsi_root)/src/jsi_abi/jsi_abi_v8_internal.h',
-      '<(v8jsi_root)/src/jsi_abi/v8_jsi_config.h',
+      '<(v8jsi_root)/src/jsi_abi/v8_jsi_abi.h',
       '<(v8jsi_root)/src/jsi_abi/v8_snapshot_container.h',
       '<(v8jsi_root)/src/jsi_abi/v8_node_api_attach.h',
     ],
 
     # Node-API sources — restored to the GYP build after being lost in the
     # GN→GYP migration. Always-on; v8jsi.dll ships with Node-API support.
-    # Office, RNW, and other consumers depend on the napi_* / jsr_* exports.
+    # Office, RNW, and other consumers depend on the napi_* /
+    # v8_node_api_* exports.
     'v8jsi_node_api_sources': [
       '<(v8jsi_root)/src/node-api/env-inl.h',
       '<(v8jsi_root)/src/node-api/js_native_api.h',
@@ -104,11 +105,11 @@
       '<(v8jsi_root)/src/node-api/js_native_api_v8.h',
       '<(v8jsi_root)/src/node-api/js_native_api_v8_internals.h',
       '<(v8jsi_root)/src/node-api/js_native_api_v8_internals_abi.h',
-      '<(v8jsi_root)/src/node-api/js_runtime_api.h',
+      '<(v8jsi_root)/src/node-api/v8_node_api.h',
+      '<(v8jsi_root)/src/node-api/v8_node_api_stela.h',
       '<(v8jsi_root)/src/node-api/util-inl.h',
       '<(v8jsi_root)/src/node-api/v8_api_abi.cpp',
       '<(v8jsi_root)/src/public/compat.h',
-      '<(v8jsi_root)/src/public/v8_api.h',
     ],
 
     # Windows-specific sources
@@ -196,6 +197,88 @@
     },  # v8jsi_source_link_gen target
 
     {
+      # The embedded Stela manifest (tools/stela/README.md): extracts the
+      # binary's libraries from their headers and writes
+      # <binary>.stela.gz plus a .rc that links it as resource STELA 1, which
+      # `stela show`, `verify`, and `check` read back from the DLL.
+      'target_name': 'v8jsi_stela_gen',
+      'type': 'none',
+      'variables': {
+        'conditions': [
+          ['build_v8jsisb==1', {
+            'v8jsi_stela_binary': 'v8jsisb.dll',
+          }, {
+            'v8jsi_stela_binary': 'v8jsi.dll',
+          }],
+          ['target_arch=="ia32"', {
+            'v8jsi_stela_target': 'i686-pc-windows-msvc',
+          }, 'target_arch=="arm64"', {
+            'v8jsi_stela_target': 'aarch64-pc-windows-msvc',
+          }, {
+            'v8jsi_stela_target': 'x86_64-pc-windows-msvc',
+          }],
+        ],
+        'v8jsi_stela_out': '<(SHARED_INTERMEDIATE_DIR)/v8jsi_stela',
+      },
+      'conditions': [
+        ['OS=="win"', {
+          'actions': [
+            {
+              'action_name': 'generate_stela_manifest',
+              'inputs': [
+                '<(v8jsi_root)/stela.config.json',
+                '<(v8jsi_root)/src/jsi_abi/jsi_abi.h',
+                '<(v8jsi_root)/src/jsi_abi/jsi_abi_stela.h',
+                '<(v8jsi_root)/src/jsi_abi/v8_jsi_abi.h',
+                '<(v8jsi_root)/src/node-api/v8_node_api.h',
+                '<(v8jsi_root)/src/node-api/v8_node_api_stela.h',
+                '<(v8jsi_root)/src/node-api/js_native_api.h',
+                '<(v8jsi_root)/src/node-api/js_native_api_types.h',
+                '<(v8jsi_root)/tools/stela/extract/stela_extract.c',
+                '<(v8jsi_root)/tools/stela/schema/stela.embedded.schema.json',
+                '<(v8jsi_root)/tools/stela/schema/stela.model.schema.json',
+                '<(v8jsi_root)/tools/stela/schema/stela.raw.schema.json',
+                '<(v8jsi_root)/tools/stela/src/config.ts',
+                '<(v8jsi_root)/tools/stela/src/diff.ts',
+                '<(v8jsi_root)/tools/stela/src/embed.ts',
+                '<(v8jsi_root)/tools/stela/src/extract.ts',
+                '<(v8jsi_root)/tools/stela/src/extractor.ts',
+                '<(v8jsi_root)/tools/stela/src/model.ts',
+                '<(v8jsi_root)/tools/stela/src/pe.ts',
+                '<(v8jsi_root)/tools/stela/src/schema.ts',
+                '<(v8jsi_root)/tools/stela/src/stela.ts',
+              ],
+              # The stamp is the only declared output: gen embed leaves an
+              # unchanged .gz/.rc alone (so rc and the link don't rerun), and
+              # MSBuild would rerun an action whose outputs stay older than
+              # its inputs on every build. The .rc is reached through the
+              # dependency order below.
+              'outputs': [
+                '<(v8jsi_stela_out)/<(v8jsi_stela_binary).stela.stamp',
+              ],
+              'action': [
+                'node',
+                '<(v8jsi_root)/tools/stela/src/stela.ts',
+                'gen', 'embed',
+                '--config', '<(v8jsi_root)/stela.config.json',
+                '--extract',
+                '--binary', '<(v8jsi_stela_binary)',
+                '--target', '<(v8jsi_stela_target)',
+                '--out', '<(v8jsi_stela_out)',
+                '--stamp', '<(v8jsi_stela_out)/<(v8jsi_stela_binary).stela.stamp',
+              ],
+            },
+          ],
+          'direct_dependent_settings': {
+            'sources': [
+              '<(v8jsi_stela_out)/<(v8jsi_stela_binary).stela.rc',
+            ],
+          },
+        }],
+      ],
+    },  # v8jsi_stela_gen target
+
+    {
       'target_name': 'v8jsi',
       'type': 'shared_library',
 
@@ -209,6 +292,8 @@
         'v8jsi_version_gen',
         # Generate the SourceLink map before linking (feeds /SOURCELINK:).
         'v8jsi_source_link_gen',
+        # Generate the embedded Stela manifest and its .rc (Windows only).
+        'v8jsi_stela_gen',
       ],
 
       'include_dirs': [
@@ -231,6 +316,9 @@
       'defines': [
         'BUILDING_V8JSI_SHARED',
         'JSI_ABI_BUILDING',
+        'JSI_ABI_IMPL',
+        'V8_JSI_ABI_IMPL',
+        'V8_NODE_API_IMPL',
         'V8JSI_ENABLE_NODE_API',
       ],
 
@@ -271,6 +359,7 @@
               'ExceptionHandling': 1,
             },
             'VCLinkerTool': {
+              'GenerateManifest': 'false',
               'AdditionalDependencies': [
                 'dbghelp.lib',
                 'bcrypt.lib',
@@ -379,7 +468,7 @@
         '<(v8jsi_root)/src/jsi_abi/JsiAbiRuntime.cpp',
         '<(v8jsi_root)/src/jsi_abi/jsi_abi.h',
         '<(v8jsi_root)/src/jsi_abi/jsi_abi_helpers.h',
-        '<(v8jsi_root)/src/jsi_abi/v8_jsi_config.h',
+        '<(v8jsi_root)/src/jsi_abi/v8_jsi_abi.h',
         # Consumer-side definition of makeV8Runtime. Ships as source in
         # the NuGet; compiled here to prove the round-trip works end-to-end.
         '<(v8jsi_root)/src/public/V8JsiRuntime.cpp',
@@ -443,7 +532,7 @@
       'type': 'executable',
 
       # Offline startup-snapshot builder. It LoadLibrary's the engine DLL
-      # (v8jsi.dll / v8jsisb.dll) and resolves v8_create_startup_snapshot at
+      # (v8jsi.dll / v8jsisb.dll) and resolves v8_jsi_abi_snapshot_create at
       # runtime, so it links NO V8 and has NO build dependency on the v8jsi
       # target: the SAME exe drives either engine, and using the actual shipped
       # DLL guarantees the blob matches that engine's V8 build flags. Built

@@ -4,13 +4,97 @@
 # not vendored (it pulls in the whole product), so this minimal one only wires
 # the sandbox targets this project needs.
 
-# Generic packaging (Architecture C): a V8-agnostic sbox.dll + an app-defined
-# target EXE (v8host) + a generic broker test harness (test_app).
+# Generic packaging: the product single-image sbox.exe (broker + worker by argv)
+# + the v8host.dll engine payload it drives. sbox.exe data_deps on v8host so it is
+# staged alongside; both are listed here for clarity.
 # `ninja -C out/sandbox-x64 generic`.
 group("generic") {
   deps = [
-    "//sandbox_dll:sbox",
+    "//sbox:sbox",
     "//v8host",
-    "//test_app",
   ]
+}
+
+group("v8host_broker_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_broker_tests" ]
+}
+
+group("v8host_config_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_config_tests" ]
+}
+
+group("v8host_protocol_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_protocol_tests" ]
+}
+
+group("v8host_run_envelope_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_run_envelope_tests" ]
+}
+
+group("v8host_dispatcher_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_dispatcher_tests" ]
+}
+
+group("v8host_client_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_client_tests" ]
+}
+
+group("v8host_cross_arch_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_cross_arch_tests" ]
+}
+
+group("v8host_layering_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_layering_tests" ]
+}
+
+group("v8host_spawn_config_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_spawn_config_tests" ]
+}
+
+group("v8host_protocol_fuzz") {
+  testonly = true
+  deps = [ "//v8host:v8host_protocol_fuzz" ]
+}
+
+group("v8host_layout_release_tests") {
+  testonly = true
+  deps = [ "//v8host:v8host_layout_release_tests" ]
+}
+
+# Every test executable and action. Building this group is not evidence: each
+# binary must be run (see scripts of the qualification gate).
+group("v8host_all_tests") {
+  testonly = true
+  deps = [
+    ":v8host_broker_tests",
+    ":v8host_client_tests",
+    ":v8host_config_tests",
+    ":v8host_cross_arch_tests",
+    ":v8host_dispatcher_tests",
+    ":v8host_layering_tests",
+    ":v8host_layout_release_tests",
+    ":v8host_protocol_fuzz",
+    ":v8host_protocol_tests",
+    ":v8host_run_envelope_tests",
+    ":v8host_spawn_config_tests",
+  ]
+  if (current_cpu == "x64") {
+    deps += [ ":sbox_trust_transition_tests" ]
+  }
+}
+
+if (current_cpu == "x64") {
+  group("sbox_trust_transition_tests") {
+    testonly = true
+    deps = [ "//sbox:sbox_trust_transition_test" ]
+  }
 }

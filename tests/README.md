@@ -26,14 +26,31 @@ auto-skip.
 - `consumer.vcxproj` / `main.cpp` — one consumer exe (`v8jsi_smoke.exe`) that
   serves every scenario. It links `v8jsi.dll.lib` and consumes the public JSI C++
   API (`makeV8Runtime`, `jsi::Runtime`). Built with `/p:UseV8Sandbox=true` it
-  delay-load-redirects to `v8jsisb.dll` and links the `sbox.dll` surface. Scenario
+  delay-load-redirects to `v8jsisb.dll` and normally imports `v8host.dll` through
+  `v8host_client.h` and `v8host.dll.lib` (no client delay-load). Scenario
   is chosen by argv (see `main.cpp`).
 - `test-helpers.ps1` — shared helpers: restore the per-RID `.nupkg`, locate MSBuild,
   build the consumer. Dot-sourced by every driver.
 - `run-smoke.ps1` — **scenario 1 (smoke):** evaluates `1 + 2` and four cross-CRT
   exercises (utf8 round-trip, global set/get, HostFunction, JSError) through the
-  JSI ABI; with `-UseV8Sandbox` also proves the `v8jsisb.dll` + `sbox.dll`
-  consumer surface.
+  JSI ABI; with `-UseV8Sandbox` also initializes the client API, opens a dedicated
+  broker/session, runs a guest assertion, pumps callbacks with a bounded timeout,
+  and closes the session. Requires `sbox.exe`, `v8host.dll`, and `v8jsisb.dll`
+  beside the consumer in `bin\<Configuration>\<arch>\` (`x64` or
+  `arm64`, case-insensitive); signed payloads are required by production
+  verification. The smoke first checks, with MSBuild only, that an output
+  directory not named for the architecture fails with `V8HOST001`.
+  x86 consumers require an installed native payload layout (x64 on x64 Windows),
+  not an x86 worker; this package-surface smoke does not qualify cross-arch pairs.
+  With `-UseV8Sandbox` on x86 it only asserts that the package rejects
+  `UseV8Sandbox` (`run-snapshot.ps1` does the same).
+  Shipped (release-trust) sandbox binaries accept only a validly signed client,
+  so the signed-pack acceptance (`build.ts --test-acceptance`) passes
+  `-ReleaseTrustPayload`: the unsigned consumer must be rejected with
+  `TRUST_E_NOSIGNATURE` (`0x800b0100`). CI then signs
+  `bin\Release\<arch>\v8jsi_smoke.exe` and runs
+  `run-smoke.ps1 -UseV8Sandbox -RunSigned`, which requires a valid signature and
+  a successful session.
 - `run-snapshot.ps1` — **scenario 2 (startup snapshot):** builds a snapshot with
   the packaged `mkv8snapshot.exe` and consumes it via the public
   `V8RuntimeArgs::startupSnapshotBlob`, asserting the baked-in global is restored

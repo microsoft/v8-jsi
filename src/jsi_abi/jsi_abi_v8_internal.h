@@ -13,7 +13,7 @@
 #pragma once
 
 #include "jsi_abi/jsi_abi.h"
-#include "jsi_abi/v8_jsi_config.h"
+#include "jsi_abi/v8_jsi_abi.h"
 #include "../v8_core.h"
 #include "v8.h"
 
@@ -48,8 +48,8 @@ takeLastUnhandledPromiseRejection(jsi_runtime *runtime) noexcept;
 /// these to honor the same cache the JSI side honors.
 struct ScriptCacheCallbacks {
   void *data;
-  v8_jsi_script_cache_load_cb load_cb;
-  v8_jsi_script_cache_store_cb store_cb;
+  v8_jsi_abi_script_cache_load_cb load_cb;
+  v8_jsi_abi_script_cache_store_cb store_cb;
 };
 ScriptCacheCallbacks getScriptCacheCallbacks(jsi_runtime *runtime) noexcept;
 

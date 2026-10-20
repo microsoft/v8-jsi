@@ -21,7 +21,7 @@
   single Release config, so Debug consumers link the Release v8jsi.dll).
 
   When the driver passes /p:UseV8Sandbox=true, the package .targets add the
-  sbox include dir + sbox.dll.lib and copy the sandbox binaries, and this
+  v8host include dir + v8host.dll.lib and copy the sandbox binaries, and this
   project defines SMOKE_SANDBOX so main.cpp compiles the sandbox-surface path.
 -->
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
@@ -206,7 +206,7 @@
 
   <!-- Sandbox-surface smoke: when the driver opts in with /p:UseV8Sandbox=true,
        compile main.cpp's SMOKE_SANDBOX path (drives v8jsisb.dll via a delay-load
-       redirect + validates the sbox.h / sbox.dll.lib surface). -->
+       redirect + validates the v8host_client.h / v8host.dll.lib surface). -->
   <ItemDefinitionGroup Condition="'$(UseV8Sandbox)' == 'True'">
     <ClCompile>
       <PreprocessorDefinitions>SMOKE_SANDBOX;%(PreprocessorDefinitions)</PreprocessorDefinitions>

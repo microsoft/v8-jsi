@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://microsoft.github.io/stela/schema/stela.embedded.schema.json",
+  "title": "Stela embedded manifest",
+  "description": "stela.embedded/1 (design §12.1): the API one binary implements, as linked into it as resource STELA 1 (gzip-compressed). Libraries use the stela.model/1 shape, restricted to the binary's targets, plus each library's ABI versions, exports, and the hash of its published model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "producer", "binary", "targets", "otherExports", "libraries"],
+  "properties": {
+    "schema": {"const": "stela.embedded/1"},
+    "producer": {"$ref": "stela.raw.schema.json#/properties/producer"},
+    "binary": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*\\.(?:[dD][lL][lL]|[eE][xX][eE])$",
+      "description": "The binary's file name."
+    },
+    "targets": {
+      "$ref": "stela.model.schema.json#/$defs/targets",
+      "description": "The binary's own targets: one, or two for an ARM64X binary."
+    },
+    "otherExports": {
+      "type": "boolean",
+      "description": "Whether the binary may export names outside its libraries."
+    },
+    "libraries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/library"}
+    }
+  },
+  "$defs": {
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "prefix",
+        "macroPrefix",
+        "status",
+        "headers",
+        "includeDirs",
+        "defines",
+        "modelSha256",
+        "abiVersions",
+        "exports",
+        "declarations"
+      ],
+      "properties": {
+        "name": {"$ref": "stela.model.schema.json#/$defs/library/properties/name"},
+        "prefix": {"$ref": "stela.model.schema.json#/$defs/library/properties/prefix"},
+        "macroPrefix": {"$ref": "stela.model.schema.json#/$defs/library/properties/macroPrefix"},
+        "status": {"$ref": "stela.model.schema.json#/$defs/library/properties/status"},
+        "headers": {"$ref": "stela.model.schema.json#/$defs/library/properties/headers"},
+        "includeDirs": {"$ref": "stela.model.schema.json#/$defs/library/properties/includeDirs"},
+        "defines": {"$ref": "stela.model.schema.json#/$defs/library/properties/defines"},
+        "stelaHeader": {"$ref": "stela.model.schema.json#/$defs/library/properties/stelaHeader"},
+        "targets": {
+          "$ref": "stela.model.schema.json#/$defs/targets",
+          "description": "Present only when the library covers fewer of the binary's targets than the manifest lists."
+        },
+        "modelSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the library's published model: `stela baseline` output, all targets, with docs."
+        },
+        "abiVersions": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^-?[0-9]+$"},
+          "description": "The library's *_ABI_VERSION macros and their values."
+        },
+        "exports": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1},
+          "description": "The library's functions the binary exports; empty when it implements them only through function tables."
+        },
+        "declarations": {"$ref": "stela.model.schema.json#/$defs/library/properties/declarations"}
+      }
+    }
+  }
+}

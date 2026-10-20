@@ -37,17 +37,9 @@ parameters:
         AppPlatform: win32
     # Matrix with target platforms for the sandbox binaries. A separate list
     # from BuildMatrix because the sandbox cells carry extra per-arch knobs: the
-    # gn out dir (sbox.dll/v8host.exe land in out/sandbox-<cpu>) and whether the
-    # lockdown tier runs in this job (RunTier).
-    # RunTier is true for every arch: x64/x86 run on the x64 agent (x86 via
-    # WOW64) and arm64 runs natively on the ARM64 managed-image pool, so each
-    # cell executes its own Untrusted lockdown tier (hooks-off unsigned reject +
-    # restricted-token). RunLpac additionally runs the LPAC lockdown tier and is
-    # x64-only: the LPAC target fails to start on the ARM64 image
-    # (STATUS_DLL_INIT_FAILED) and, on x86 (no sandbox interception layer), the
-    # post-lockdown token self-check is denied, so LPAC is validated on x64 until
-    # those platforms are sorted out. The restricted-token tier passes on all
-    # three arches regardless.
+    # gn out dir (sbox.exe/v8host.dll land in out/sandbox-<cpu>).
+    # x64/x86 run on the x64 agent (x86 via WOW64); arm64 runs natively on the
+    # ARM64 managed-image pool. The trust-transition suite is x64-only.
   - name: SandboxMatrix
     type: object
     default:
@@ -55,20 +47,14 @@ parameters:
         BuildPlatform: x64
         Rid: win-x64
         SboxOutDir: deps/chromium/out/sandbox-x64
-        RunTier: true
-        RunLpac: true
       - Name: x86
         BuildPlatform: x86
         Rid: win-x86
         SboxOutDir: deps/chromium/out/sandbox-x86
-        RunTier: true
-        RunLpac: false
       - Name: arm64
         BuildPlatform: arm64
         Rid: win-arm64
         SboxOutDir: deps/chromium/out/sandbox-arm64
-        RunTier: true
-        RunLpac: false
 
 resources:
   repositories:
@@ -283,16 +269,13 @@ extends:
         #                         scripts/build.ts --build-v8jsisb). x64/arm64
         #                         carry the V8 cage; x86 is the degraded no-cage
         #                         variant (the cage is 64-bit-only).
-        #   * sbox.dll/v8host.exe -- the Chromium sandbox (gn + VS clang/ninja, via
+        #   * sbox.exe/v8host.dll -- the Chromium sandbox (gn + VS clang/ninja, via
         #                         scripts/sbox-build.ts --target-cpu). x64/x86
         #                         build on the x64 agent; arm64 builds natively on
-        #                         the ARM64 pool. test_app.exe is the TEST harness
-        #                         and is NOT shipped/signed.
+        #                         the ARM64 pool. Test suites are NOT shipped.
         # Hygiene gates (export allowlist + Hybrid CRT + BinSkim) run via --check.
-        # The Untrusted lockdown tier runs as a CI test for every arch: x64 + x86
-        # on the x64 agent (x86 via WOW64) and arm64 natively on the ARM64 pool
-        # (RunTier: true). The three shipped binaries are signed on the publishing
-        # build.
+        # The v8host suites run on every arch; trust-transition runs on x64.
+        # The three shipped binaries are signed on the publishing build.
         # =====================================================================
       - ${{ each sb in parameters.SandboxMatrix }}:
         - job: V8JsiBuildSandbox_${{ sb.Name }}
@@ -354,6 +337,31 @@ extends:
               version: '24.x'
 
           - ${{ if eq(parameters.fakeBuild, false) }}:
+              # C ABI header gates, before the long builds so they fail fast.
+              # x64 only: the checks cross-compile for x64, x86, and arm64. The
+              # generated <lib>_stela.h files must be current, Stela's tests
+              # must pass, and scripts/header-check.ts must pass: every public
+              # C ABI header compiles on its own as C and C++ with MSVC and VS
+              # clang, the layout tests pass, `stela lint` is clean, and
+              # `stela diff` finds no breaks against the committed baselines
+              # (api/*.model.json).
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
+                  node tools/stela/src/stela.ts vendor --check
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Generated <lib>_stela.h files are stale (exit $LASTEXITCODE); run: node tools/stela/src/stela.ts vendor"
+                  }
+                  node --test "tools/stela/test/**/*.test.ts"
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Stela tests FAILED (exit $LASTEXITCODE)"
+                  }
+                  node --test scripts/header-check.ts
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Public C ABI header checks FAILED (exit $LASTEXITCODE)"
+                  }
+                displayName: C ABI header gates (Stela vendor check, Stela tests, header, layout, lint, and ABI diff checks)
+                workingDirectory: $(Build.SourcesDirectory)
+
               # BinSkim (run by --check) installs from the react-native-public ADO
               # feed; authenticate the NuGet client for that restore.
             - task: NuGetToolInstaller@1
@@ -369,22 +377,31 @@ extends:
               # clang junction, writes args.gn, and builds into the per-arch out
               # dir (out/sandbox-<cpu>).
             - pwsh: |
-                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }}
-              displayName: Build sbox.dll + v8host.exe (gn/ninja, VS clang)
+                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target generic
+                if ($LASTEXITCODE -ne 0) { throw "Sandbox build FAILED (exit $LASTEXITCODE)" }
+              displayName: Build sbox.exe + v8host.dll (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
-            - ${{ if eq(sb.RunTier, true) }}:
-              - pwsh: |
-                  node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} `
-                      --test-hooks --out-dir ${{ sb.SboxOutDir }}-test
-                displayName: Build sandbox test binaries with test hooks
-                workingDirectory: $(Build.SourcesDirectory)
-
-              # The jitless sandbox engine (MSVC/vcbuild). Fresh agent => clean
-              # engine out, so the lite-flag stale-snapshot gotcha doesn't apply.
+              # The normal engine (trusted tier). Built before v8jsisb because both
+              # share deps\nodejs\out\Release; the broker suites stage it beside the plugin.
             - pwsh: |
-                node scripts/build.ts --platform ${{ sb.BuildPlatform }} --configuration release `
-                    --build-v8jsisb --no-test
+                node scripts/build.ts --platform ${{ sb.BuildPlatform }} --configuration release --no-test
+                if ($LASTEXITCODE -ne 0) { throw "v8jsi build FAILED (exit $LASTEXITCODE)" }
+                $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                New-Item -ItemType Directory -Force -Path $sandboxOut | Out-Null
+                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsi.dll" $sandboxOut -Force
+              displayName: Build v8jsi.dll (trusted-tier engine, MSVC)
+              workingDirectory: $(Build.SourcesDirectory)
+
+              # The jitless sandbox engine (MSVC/vcbuild). Same output folder as
+              # v8jsi: the build leaves stale embedded builtins after a variant
+              # switch, so build it twice (the second is nearly a no-op).
+            - pwsh: |
+                foreach ($pass in 1, 2) {
+                  node scripts/build.ts --platform ${{ sb.BuildPlatform }} --configuration release `
+                      --build-v8jsisb --no-test
+                  if ($LASTEXITCODE -ne 0) { throw "v8jsisb build FAILED (exit $LASTEXITCODE)" }
+                }
               displayName: Build v8jsisb.dll (jitless sandbox engine, MSVC)
               workingDirectory: $(Build.SourcesDirectory)
 
@@ -409,72 +426,117 @@ extends:
               displayName: Sandbox hygiene gates (exports + Hybrid CRT + BinSkim)
               workingDirectory: $(Build.SourcesDirectory)
 
-              # Lockdown tier test (product-default Untrusted = jitless + ACG):
-              # stage the engine next to v8host (it LoadLibrary's v8jsisb.dll by
-              # name) and run the test_app broker harness. RESULT: PASS +
-              # target exit=0 is the success signal. Runs for every arch: x64 + x86
-              # on the x64 agent (x86 via WOW64) and arm64 natively on the ARM64
-              # pool.
-            - ${{ if eq(sb.RunTier, true) }}:
-              - pwsh: |
-                  $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
-                  $engine = "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll"
-                  Copy-Item $engine $sandboxOut -Force
-                  $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                  $env:SBOX_ALLOW_UNSIGNED = '1'
-                  Remove-Item Env:SBOX_USE_LPAC -ErrorAction SilentlyContinue
-                  & "$sandboxOut\test_app.exe"
-                  if ($LASTEXITCODE -ne -1073740760) {
-                    throw "Hooks-off sandbox did not reject the unsigned image with 0xC0000428 (exit $LASTEXITCODE)"
-                  }
-                  Write-Host "Hooks-off sandbox rejected unsigned target as expected"
-                  $global:LASTEXITCODE = 0
+              # Stage the engine beside the plugin before the broker suites.
+              # The all-tests group includes trust-transition only on x64.
+            - pwsh: |
+                $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxOut -Force
+                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target v8host_all_tests --no-gen
+                if ($LASTEXITCODE -ne 0) { throw "Sandbox test build FAILED (exit $LASTEXITCODE)" }
+                $suites = @(
+                  'v8host_protocol_tests', 'v8host_run_envelope_tests',
+                  'v8host_dispatcher_tests', 'v8host_config_tests',
+                  'v8host_spawn_config_tests', 'v8host_layout_release_tests'
+                )
+                # The real-broker suites use the client's own architecture as the
+                # native payload; an x86 client's native payload is x64, which the
+                # cross-architecture step below covers.
+                if ('${{ sb.BuildPlatform }}' -ne 'x86') { $suites += 'v8host_client_tests', 'v8host_broker_tests' }
+                if ('${{ sb.BuildPlatform }}' -eq 'x64') { $suites += 'sbox_trust_transition_test' }
+                foreach ($suite in $suites) {
+                  & "$sandboxOut\$suite.exe" --all
+                  if ($LASTEXITCODE -ne 0) { throw "$suite FAILED (exit $LASTEXITCODE)" }
+                }
+                & "$sandboxOut\v8host_protocol_fuzz.exe" -runs=200000 "$(Build.SourcesDirectory)\deps\chromium\v8host\protocol\corpus"
+                if ($LASTEXITCODE -ne 0) { throw "v8host_protocol_fuzz FAILED (exit $LASTEXITCODE)" }
+              displayName: Sandbox suites (--all; trust-transition on x64 only)
+              workingDirectory: $(Build.SourcesDirectory)
 
-                  Copy-Item $engine $sandboxTestOut -Force
-                  & "$sandboxTestOut\test_app.exe"
-                  if ($LASTEXITCODE -ne 0) { Write-Error "Untrusted tier FAILED (exit $LASTEXITCODE)" }
-                displayName: Lockdown tier tests (hooks-off reject + Untrusted restricted token)
+              # Cross-architecture qualification. Compile-only is not evidence: each
+              # scenario runs. A second payload build (different stamped version) is
+              # the "update" in the side-by-side scenario; v8jsisb.dll is shared.
+              # Independent verification still runs after suite failure, but never on cancellation.
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
+                  $out = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                  $v2 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-x64-v2"
+                  $x86 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-x86"
+                  node scripts/sbox-build.ts --target-cpu x86 --target generic
+                  if ($LASTEXITCODE -ne 0) { throw "x86 client build FAILED" }
+                  node scripts/sbox-build.ts --target-cpu x86 --target v8host_cross_arch_tests --no-gen
+                  if ($LASTEXITCODE -ne 0) { throw "x86 harness build FAILED" }
+                  node scripts/sbox-build.ts --target-cpu x64 --out-dir $v2 --version-stamp 7 --target generic
+                  if ($LASTEXITCODE -ne 0) { throw "second payload build FAILED" }
+                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsisb.dll" -Target "$out\v8jsisb.dll" | Out-Null
+                  & "$x86\v8host_cross_arch_tests.exe" --scenario=x86-client-x64-payload --client-root $x86 --payload-root $out
+                  if ($LASTEXITCODE -ne 0) { throw "x86-client-x64-payload FAILED" }
+                  & "$out\v8host_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
+                  if ($LASTEXITCODE -ne 0) { throw "side-by-side-update-rollback FAILED" }
+                displayName: Cross-arch - x86 client / x64 payload, side-by-side update and rollback
+                condition: succeededOrFailed()
+                workingDirectory: $(Build.SourcesDirectory)
+            - ${{ if eq(sb.BuildPlatform, 'arm64') }}:
+              - pwsh: |
+                  $out = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+                  $v2 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-arm64-v2"
+                  $x64 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-x64"
+                  node scripts/sbox-build.ts --target-cpu x64 --target v8host
+                  if ($LASTEXITCODE -ne 0) { throw "x64 client build FAILED" }
+                  node scripts/cross-arch-build.ts
+                  if ($LASTEXITCODE -ne 0) { throw "ARM64EC harness build FAILED" }
+                  node scripts/sbox-build.ts --target-cpu arm64 --out-dir $v2 --version-stamp 7 --target generic
+                  if ($LASTEXITCODE -ne 0) { throw "second payload build FAILED" }
+                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsisb.dll" -Target "$out\v8jsisb.dll" | Out-Null
+                  & "$(Build.SourcesDirectory)\deps\chromium\out\cross-arch-arm64ec\v8host_cross_arch_tests.exe" --scenario=arm64ec-client-arm64-payload --client-root $x64 --payload-root $out
+                  if ($LASTEXITCODE -ne 0) { throw "arm64ec-client-arm64-payload FAILED" }
+                  & "$out\v8host_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
+                  if ($LASTEXITCODE -ne 0) { throw "side-by-side-update-rollback FAILED" }
+                displayName: Cross-arch - ARM64EC client / ARM64 payload, side-by-side update and rollback
+                condition: succeededOrFailed()
                 workingDirectory: $(Build.SourcesDirectory)
 
-              # Genuine-LPAC process-creation smoke test (x64-only, RunLpac).
-              # Verify the relayed bootstrap, IPC, AppContainer identity,
-              # ALL_APPLICATION_PACKAGES opt-out, and requested capability
-              # without loading V8. Full V8 warmup needs product capabilities
-              # and install-path ACLs that a generic CI workspace does not have.
-              # Skipped on x86/arm64; the full restricted-token tier above still
-              # runs on every architecture.
-            - ${{ if eq(sb.RunLpac, true) }}:
-              - pwsh: |
-                  $sandboxTestOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-test"
-                  $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                  $env:SBOX_ALLOW_UNSIGNED = '1'
-                  $env:SBOX_USE_LPAC = '1'
-                  $env:SBOX_LPAC_SMOKE = '1'
-                  & "$sandboxTestOut\test_app.exe"
-                  if ($LASTEXITCODE -ne 0) {
-                    Write-Error "LPAC bootstrap/identity smoke test FAILED (exit $LASTEXITCODE)"
-                  }
-                displayName: LPAC bootstrap and identity smoke test
-                workingDirectory: $(Build.SourcesDirectory)
+              # Shipped build: the release trust policy (no SBOX_DEV_ALLOW_UNSIGNED,
+              # so unsigned payloads and non-architecture layouts fail closed),
+              # built beside the developer build the suites above ran against.
+              # The gate fails if any developer-policy hook is left in the binaries.
+              # Signed after staging (below); an unsigned release build can't run.
+          - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
+            - pwsh: |
+                $rel = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}-release"
+                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --out-dir $rel --release-trust --target generic
+                if ($LASTEXITCODE -ne 0) { throw "Release-trust sandbox build FAILED (exit $LASTEXITCODE)" }
+                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --out-dir $rel --release-trust --no-gen --no-build --check `
+                    --output-path $(Build.StagingDirectory)\out
+                if ($LASTEXITCODE -ne 0) { throw "Release-trust hygiene gates FAILED (exit $LASTEXITCODE)" }
+              displayName: Build shipped sandbox binaries (release trust policy) and run hygiene gates
+              condition: succeededOrFailed()
+              workingDirectory: $(Build.SourcesDirectory)
 
             # Stage the shipped sandbox binaries under a build/native/<rid>/
             # layout so the aggregator can merge the downloaded artifact straight
             # into pkg-staging. v8jsisb.pdb is renamed to v8jsisb.dll.pdb (the
-            # nuspec/symbol globs expect <dll>.pdb). test_app.exe (test harness)
-            # is deliberately excluded. Always runs so the artifact path exists.
+            # nuspec/symbol globs expect <dll>.pdb). Test executables are
+            # deliberately excluded. Always runs so the artifact path exists.
+            # Publishing builds stage the release-trust build; PR builds stage the
+            # developer build, whose unsigned packages the consumer smoke can run.
           - pwsh: |
               $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
+              if ('${{ and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}' -eq 'True') { $sandboxOut = "$sandboxOut-release" }
               $eng = "$(Build.SourcesDirectory)\deps\nodejs\out\Release"
               $dst = "$(Build.StagingDirectory)\sandbox\build\native\${{ sb.Rid }}"
               New-Item -ItemType Directory -Force -Path $dst | Out-Null
-              foreach ($f in 'sbox.dll','sbox.dll.lib','sbox.dll.pdb','v8host.exe','v8host.exe.pdb') {
+              # An x86 client needs only its client DLL: the broker and worker are
+              # always the native x64 payload, so no x86 sbox.exe or engine ships.
+              $native = '${{ sb.BuildPlatform }}' -ne 'x86'
+              $files = @('v8host.dll','v8host.dll.pdb','v8host.dll.lib')
+              if ($native) { $files += 'sbox.exe','sbox.exe.pdb' }
+              foreach ($f in $files) {
                 $p = Join-Path $sandboxOut $f
                 if (Test-Path $p) { Copy-Item $p $dst }
               }
-              if (Test-Path "$eng\v8jsisb.dll") { Copy-Item "$eng\v8jsisb.dll" $dst }
-              if (Test-Path "$eng\v8jsisb.dll.pdb") { Copy-Item "$eng\v8jsisb.dll.pdb" $dst }
-              elseif (Test-Path "$eng\v8jsisb.pdb") { Copy-Item "$eng\v8jsisb.pdb" (Join-Path $dst 'v8jsisb.dll.pdb') }
+              if ($native -and (Test-Path "$eng\v8jsisb.dll")) { Copy-Item "$eng\v8jsisb.dll" $dst }
+              if ($native -and (Test-Path "$eng\v8jsisb.dll.pdb")) { Copy-Item "$eng\v8jsisb.dll.pdb" $dst }
+              elseif ($native -and (Test-Path "$eng\v8jsisb.pdb")) { Copy-Item "$eng\v8jsisb.pdb" (Join-Path $dst 'v8jsisb.dll.pdb') }
               # mkv8snapshot.exe: the offline snapshot builder (vcbuild output,
               # same dir as the engine — it links no V8). Ships per-RID beside
               # the engine it LoadLibrary's. PDB renamed to <exe>.pdb for the glob.
@@ -484,9 +546,9 @@ extends:
             displayName: Stage sandbox binaries (build/native/${{ sb.Rid }})
             workingDirectory: $(Build.SourcesDirectory)
 
-              # Sign the SHIPPED sandbox binaries (v8jsisb.dll, sbox.dll,
-              # v8host.exe, mkv8snapshot.exe) only on the publishing CI build.
-              # test_app.exe is never staged, so it is never signed.
+              # Sign the SHIPPED sandbox binaries (v8jsisb.dll, sbox.exe,
+              # v8host.dll, mkv8snapshot.exe) only on the publishing CI build.
+              # Test executables are never staged or signed.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
             - template: /.ado/templates/esrp-codesign-binaries.yml@self
               parameters:
@@ -494,31 +556,9 @@ extends:
                 folderPath: $(Build.StagingDirectory)\sandbox
                 pattern: |
                   **\v8jsisb.dll
-                  **\sbox.dll
-                  **\v8host.exe
+                  **\sbox.exe
+                  **\v8host.dll
                   **\mkv8snapshot.exe
-
-              # Signed lockdown tier (publishing build only): re-run the
-              # Untrusted broker harness against the ESRP-signed binaries with
-              # NO SBOX_ALLOW_UNSIGNED override, so test_app.exe's WinVerifyTrust
-              # gate enforces genuine Authenticode on the exact sbox.dll /
-              # v8host.exe / v8jsisb.dll bytes that ship. Runs in ADDITION to the
-              # unsigned tier above and depends on the signing step, hence the
-              # isPublish gate. test_app.exe is the broker (never signature-
-              # checked), so overlaying the three signed images suffices.
-          - ${{ if and(eq(sb.RunTier, true), eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
-            - pwsh: |
-                $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                $signed = "$(Build.StagingDirectory)\sandbox\build\native\${{ sb.Rid }}"
-                foreach ($f in 'sbox.dll', 'v8host.exe', 'v8jsisb.dll') {
-                  Copy-Item (Join-Path $signed $f) $sandboxOut -Force
-                }
-                $env:DEPOT_TOOLS_WIN_TOOLCHAIN = '0'
-                # SBOX_ALLOW_UNSIGNED intentionally unset: enforce real signatures.
-                & "$sandboxOut\test_app.exe"
-                if ($LASTEXITCODE -ne 0) { Write-Error "Signed Untrusted tier FAILED (exit $LASTEXITCODE)" }
-              displayName: Lockdown tier test (Untrusted, signed)
-              workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Node.js-source NuGet aggregator: Microsoft.JavaScript.V8. Collects the
@@ -674,12 +714,32 @@ extends:
               # Restore the signed per-RID package as a real consumer and run the
               # smoke + snapshot suite (both engines) against it. --test-acceptance
               # forces the sandbox leg on: the final pack MUST carry v8jsisb.dll.
+              # The shipped sandbox binaries accept only a validly signed client
+              # image, so on x64/ARM64 the sandbox smoke runs the consumer unsigned
+              # and requires the broker to reject it (0x800b0100); x86 consumers
+              # must get the package's UseV8Sandbox rejection instead.
             - pwsh: |
                 node scripts/build.ts --no-build --no-test --test-acceptance `
                     --platform ${{ matrix.BuildPlatform }} `
                     --output-path $(Build.StagingDirectory)\acceptance
               displayName: Acceptance tests against signed pack
               workingDirectory: $(Build.SourcesDirectory)
+
+              # Sign that same consumer in place (a test executable: it is never
+              # staged or shipped), then require the signed session to succeed
+              # against the shipped sandbox bytes.
+            - ${{ if ne(matrix.BuildPlatform, 'x86') }}:
+              - template: /.ado/templates/esrp-codesign-binaries.yml@self
+                parameters:
+                  displayName: CodeSign acceptance consumer (test only, not shipped)
+                  folderPath: $(Build.SourcesDirectory)\tests\bin\Release\${{ matrix.BuildPlatform }}
+                  pattern: v8jsi_smoke.exe
+              - pwsh: |
+                  powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\run-smoke.ps1 `
+                      -Configuration Release -Platform ${{ matrix.BuildPlatform }} -UseV8Sandbox -RunSigned
+                  if ($LASTEXITCODE -ne 0) { throw "Signed sandbox smoke FAILED (exit $LASTEXITCODE)" }
+                displayName: Acceptance - signed consumer against the shipped sandbox
+                workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Tag published versions (publishing CI build only). After the NuGet

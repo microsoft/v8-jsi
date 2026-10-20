@@ -17,19 +17,19 @@ makeNodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> 
 
 struct NodeApiEnvScope {
   NodeApiEnvScope(napi_env env) : env_(env) {
-    JSRuntimeApi::current()->jsr_open_napi_env_scope(env, &scope_);
+    JSRuntimeApi::current()->v8_node_api_env_scope_open(env, &scope_);
   }
 
   NodeApiEnvScope(const NodeApiEnvScope &) = delete;
   NodeApiEnvScope &operator=(const NodeApiEnvScope &) = delete;
 
   ~NodeApiEnvScope() {
-    JSRuntimeApi::current()->jsr_close_napi_env_scope(env_, scope_);
+    JSRuntimeApi::current()->v8_node_api_env_scope_close(scope_, env_);
   }
 
  private:
   napi_env env_{};
-  jsr_napi_env_scope scope_{};
+  v8_node_api_env_scope scope_{};
 };
 } // namespace Microsoft::NodeApiJsi
 

@@ -1,0 +1,7 @@
+# The trust policy of the product binaries (sbox.exe, v8host.dll).
+declare_args() {
+  # true: developer policy. Unsigned payloads and non-architecture layouts are
+  # accepted (SBOX_DEV_ALLOW_UNSIGNED). false: release policy, fail closed.
+  # `node scripts/sbox-build.ts --release-trust` sets it false for the shipped build.
+  sbox_dev_allow_unsigned = true
+}

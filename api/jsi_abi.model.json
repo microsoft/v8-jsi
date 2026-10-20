@@ -1,0 +1,4942 @@
+{
+  "schema": "stela.model/1",
+  "producer": {
+    "stela": "0.1.0",
+    "libclang": "clang version 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211)"
+  },
+  "targets": ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "libraries": [
+    {
+      "name": "jsi_abi",
+      "prefix": "jsi",
+      "macroPrefix": "JSI_ABI",
+      "status": "jsi_status",
+      "headers": ["src/jsi_abi/jsi_abi.h"],
+      "includeDirs": ["src"],
+      "defines": [],
+      "stelaHeader": "src/jsi_abi/jsi_abi_stela.h",
+      "declarations": [
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_H_",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 30, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_CDECL",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 51, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["__cdecl"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_API",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 69, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_VERSION",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 85, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["2u"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "2"},
+            "i686-pc-windows-msvc": {"value": "2"},
+            "aarch64-pc-windows-msvc": {"value": "2"}
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_runtime",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 91, "column": 16},
+          "doc": "A JSI runtime instance.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_runtime_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_runtime",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 91, "column": 28},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_runtime"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_runtime_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 92, "column": 16},
+          "doc": "The runtime function table.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "query_interface",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "iid",
+                        "type": {"pointer": {"name": "jsi_interface_id", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_api",
+                        "type": {"pointer": {"pointer": {"builtin": "void", "const": true}}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_instance",
+                        "type": {"pointer": {"pointer": {"builtin": "void"}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Query for an optional interface extension.\nReturns jsi_status_native_error with empty message if not supported."
+            },
+            {
+              "name": "get_abi_version",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "uint32_t"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Report the implementation's max supported ABI version (Node-API\nnapi_get_version analog). Optional feature-probe — the create-time version\nnegotiation in v8_jsi_abi_runtime_create is what actually gates."
+            },
+            {
+              "name": "add_ref",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "arg0",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "arg0",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_and_clear_js_error_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_value"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Get and clear the JS exception value (after jsi_status_js_error)."
+            },
+            {
+              "name": "get_and_clear_native_exception_message",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Get and clear native exception message (after jsi_status_native_error)."
+            },
+            {
+              "name": "set_js_error_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "error_value",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set_native_exception_message_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "clone_propnameid",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_propnameid"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "clone_string",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_string"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "str", "type": {"name": "jsi_string"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "clone_symbol",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_symbol"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "sym", "type": {"name": "jsi_symbol"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "clone_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_object"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "clone_bigint",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_bigint"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_description",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "is_inspectable",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "push_scope",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_scope",
+                        "type": {"pointer": {"pointer": {"builtin": "void"}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Push a new handle scope. All pointer types created after this call\nare valid until pop_scope. Engines that don't need scopes (Hermes)\ncan implement these as no-ops."
+            },
+            {
+              "name": "pop_scope",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "scope", "type": {"pointer": {"builtin": "void"}}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "evaluate_javascript_source",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_buffer"}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      },
+                      {
+                        "name": "source_url",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}, {"key": "encoding", "value": "utf8"}]
+                      },
+                      {"name": "source_url_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "prepare_javascript",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_buffer"}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      },
+                      {
+                        "name": "source_url",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}, {"key": "encoding", "value": "utf8"}]
+                      },
+                      {"name": "source_url_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_prepared",
+                        "type": {"pointer": {"pointer": {"name": "jsi_prepared_javascript"}}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Prepare (compile) a script for later execution. The returned\njsi_prepared_javascript* is owned by the caller and freed via\napi->release."
+            },
+            {
+              "name": "evaluate_prepared_javascript",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "prepared",
+                        "type": {"pointer": {"name": "jsi_prepared_javascript"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "drain_microtasks",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "max_hint", "type": {"name": "int32_t"}, "annotations": []},
+                      {
+                        "name": "out_drained",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "queue_microtask",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "callback", "type": {"name": "jsi_function"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_global_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_object"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_string_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_string",
+                        "type": {"pointer": {"name": "jsi_string"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_string_utf16",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"name": "jsi_char16", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_string",
+                        "type": {"pointer": {"name": "jsi_string"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_string_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "str", "type": {"name": "jsi_string"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_string_utf16",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "str", "type": {"name": "jsi_string"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_symbol_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "sym", "type": {"name": "jsi_symbol"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_propnameid_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_propnameid",
+                        "type": {"pointer": {"name": "jsi_propnameid"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_propnameid_from_string",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "str", "type": {"name": "jsi_string"}, "annotations": []},
+                      {
+                        "name": "out_propnameid",
+                        "type": {"pointer": {"name": "jsi_propnameid"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_propnameid_from_symbol",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "sym", "type": {"name": "jsi_symbol"}, "annotations": []},
+                      {
+                        "name": "out_propnameid",
+                        "type": {"pointer": {"name": "jsi_propnameid"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "propnameid_equals",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "a", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {"name": "b", "type": {"name": "jsi_propnameid"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_propnameid_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_object",
+                        "type": {"pointer": {"name": "jsi_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_object_with_prototype",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "prototype",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {
+                        "name": "out_object",
+                        "type": {"pointer": {"name": "jsi_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_prototype_of",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set_prototype_of",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "prototype",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "has_object_property_from_propnameid",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "out_result",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_object_property_from_propnameid",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set_object_property_from_propnameid",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "delete_property_from_propnameid",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "has_object_property_from_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "key",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_result",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_object_property_from_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "key",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set_object_property_from_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "key",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "delete_property_from_value",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "key",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_object_property_names",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "out_array",
+                        "type": {"pointer": {"name": "jsi_array"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Get enumerable string property names."
+            },
+            {
+              "name": "set_object_external_memory_pressure",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "amount", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "External memory pressure hint for GC."
+            },
+            {
+              "name": "create_error_utf8",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "message",
+                        "type": {"pointer": {"builtin": "char", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_object",
+                        "type": {"pointer": {"name": "jsi_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_array",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_array",
+                        "type": {"pointer": {"name": "jsi_array"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_array_length",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "size_t"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "arr", "type": {"name": "jsi_array"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_array_element",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "arr", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "index", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set_array_element",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "arr", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "index", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_arraybuffer",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "byte_length", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_arraybuffer",
+                        "type": {"pointer": {"name": "jsi_arraybuffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_arraybuffer_from_external_data",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "buffer",
+                        "type": {"pointer": {"name": "jsi_mutable_buffer"}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      },
+                      {
+                        "name": "out_arraybuffer",
+                        "type": {"pointer": {"name": "jsi_arraybuffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_arraybuffer_data",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "ab", "type": {"name": "jsi_arraybuffer"}, "annotations": []},
+                      {
+                        "name": "out_data",
+                        "type": {"pointer": {"pointer": {"name": "uint8_t"}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_arraybuffer_size",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "ab", "type": {"name": "jsi_arraybuffer"}, "annotations": []},
+                      {
+                        "name": "out_size",
+                        "type": {"pointer": {"name": "size_t"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "call",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "fn", "type": {"name": "jsi_function"}, "annotations": []},
+                      {
+                        "name": "js_this",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {
+                        "name": "args",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "arg_count", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "call_as_constructor",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "fn", "type": {"name": "jsi_function"}, "annotations": []},
+                      {
+                        "name": "args",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "arg_count", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_function_from_host_function",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {"name": "param_count", "type": {"name": "uint32_t"}, "annotations": []},
+                      {
+                        "name": "hf",
+                        "type": {"pointer": {"name": "jsi_host_function"}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      },
+                      {
+                        "name": "out_function",
+                        "type": {"pointer": {"name": "jsi_function"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_host_function",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"pointer": {"name": "jsi_host_function"}},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "fn", "type": {"name": "jsi_function"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Returns NULL when fn is not a host function."
+            },
+            {
+              "name": "create_object_from_host_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "ho",
+                        "type": {"pointer": {"name": "jsi_host_object"}},
+                        "annotations": [{"key": "transfer", "value": "full"}]
+                      },
+                      {
+                        "name": "out_object",
+                        "type": {"pointer": {"name": "jsi_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_host_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"pointer": {"name": "jsi_host_object"}},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Returns NULL when obj is not a host object."
+            },
+            {
+              "name": "has_native_state",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_native_state",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"pointer": {"name": "jsi_native_state"}},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": "Returns NULL when obj has no native state."
+            },
+            {
+              "name": "set_native_state",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "ns",
+                        "type": {"pointer": {"name": "jsi_native_state"}},
+                        "annotations": [{"key": "nullable"}, {"key": "transfer", "value": "full"}]
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "object_is_array",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "object_is_arraybuffer",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "object_is_function",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_weak_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {
+                        "name": "out_weak_object",
+                        "type": {"pointer": {"name": "jsi_weak_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "lock_weak_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_value"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "wo", "type": {"name": "jsi_weak_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "instance_of",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "obj", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "ctor", "type": {"name": "jsi_function"}, "annotations": []},
+                      {
+                        "name": "out_result",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "strict_equals_symbol",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "a", "type": {"name": "jsi_symbol"}, "annotations": []},
+                      {"name": "b", "type": {"name": "jsi_symbol"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "strict_equals_bigint",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "a", "type": {"name": "jsi_bigint"}, "annotations": []},
+                      {"name": "b", "type": {"name": "jsi_bigint"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "strict_equals_string",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "a", "type": {"name": "jsi_string"}, "annotations": []},
+                      {"name": "b", "type": {"name": "jsi_string"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "strict_equals_object",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "a", "type": {"name": "jsi_object"}, "annotations": []},
+                      {"name": "b", "type": {"name": "jsi_object"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_bigint_from_int64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "value", "type": {"name": "int64_t"}, "annotations": []},
+                      {
+                        "name": "out_bigint",
+                        "type": {"pointer": {"name": "jsi_bigint"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "create_bigint_from_uint64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "value", "type": {"name": "uint64_t"}, "annotations": []},
+                      {
+                        "name": "out_bigint",
+                        "type": {"pointer": {"name": "jsi_bigint"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_is_int64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_is_uint64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "bool"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_truncate_to_uint64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "uint64_t"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_to_int64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "int64_t"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []},
+                      {
+                        "name": "out_lossless",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_to_uint64",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "uint64_t"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []},
+                      {
+                        "name": "out_lossless",
+                        "type": {"pointer": {"builtin": "bool"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "bigint_to_string",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "bigint", "type": {"name": "jsi_bigint"}, "annotations": []},
+                      {"name": "radix", "type": {"name": "uint32_t"}, "annotations": []},
+                      {
+                        "name": "out_string",
+                        "type": {"pointer": {"name": "jsi_string"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 664,
+              "align": 8,
+              "offsets": [
+                0,
+                8,
+                16,
+                24,
+                32,
+                40,
+                48,
+                56,
+                64,
+                72,
+                80,
+                88,
+                96,
+                104,
+                112,
+                120,
+                128,
+                136,
+                144,
+                152,
+                160,
+                168,
+                176,
+                184,
+                192,
+                200,
+                208,
+                216,
+                224,
+                232,
+                240,
+                248,
+                256,
+                264,
+                272,
+                280,
+                288,
+                296,
+                304,
+                312,
+                320,
+                328,
+                336,
+                344,
+                352,
+                360,
+                368,
+                376,
+                384,
+                392,
+                400,
+                408,
+                416,
+                424,
+                432,
+                440,
+                448,
+                456,
+                464,
+                472,
+                480,
+                488,
+                496,
+                504,
+                512,
+                520,
+                528,
+                536,
+                544,
+                552,
+                560,
+                568,
+                576,
+                584,
+                592,
+                600,
+                608,
+                616,
+                624,
+                632,
+                640,
+                648,
+                656
+              ],
+              "fieldCallingConventions": [
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c"
+              ]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 332,
+              "align": 4,
+              "offsets": [
+                0,
+                4,
+                8,
+                12,
+                16,
+                20,
+                24,
+                28,
+                32,
+                36,
+                40,
+                44,
+                48,
+                52,
+                56,
+                60,
+                64,
+                68,
+                72,
+                76,
+                80,
+                84,
+                88,
+                92,
+                96,
+                100,
+                104,
+                108,
+                112,
+                116,
+                120,
+                124,
+                128,
+                132,
+                136,
+                140,
+                144,
+                148,
+                152,
+                156,
+                160,
+                164,
+                168,
+                172,
+                176,
+                180,
+                184,
+                188,
+                192,
+                196,
+                200,
+                204,
+                208,
+                212,
+                216,
+                220,
+                224,
+                228,
+                232,
+                236,
+                240,
+                244,
+                248,
+                252,
+                256,
+                260,
+                264,
+                268,
+                272,
+                276,
+                280,
+                284,
+                288,
+                292,
+                296,
+                300,
+                304,
+                308,
+                312,
+                316,
+                320,
+                324,
+                328
+              ],
+              "fieldCallingConventions": [
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c"
+              ]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 664,
+              "align": 8,
+              "offsets": [
+                0,
+                8,
+                16,
+                24,
+                32,
+                40,
+                48,
+                56,
+                64,
+                72,
+                80,
+                88,
+                96,
+                104,
+                112,
+                120,
+                128,
+                136,
+                144,
+                152,
+                160,
+                168,
+                176,
+                184,
+                192,
+                200,
+                208,
+                216,
+                224,
+                232,
+                240,
+                248,
+                256,
+                264,
+                272,
+                280,
+                288,
+                296,
+                304,
+                312,
+                320,
+                328,
+                336,
+                344,
+                352,
+                360,
+                368,
+                376,
+                384,
+                392,
+                400,
+                408,
+                416,
+                424,
+                432,
+                440,
+                448,
+                456,
+                464,
+                472,
+                480,
+                488,
+                496,
+                504,
+                512,
+                520,
+                528,
+                536,
+                544,
+                552,
+                560,
+                568,
+                576,
+                584,
+                592,
+                600,
+                608,
+                616,
+                624,
+                632,
+                640,
+                648,
+                656
+              ],
+              "fieldCallingConventions": [
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c",
+                "c"
+              ]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_runtime_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 92, "column": 32},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_runtime_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime_api"},
+              "size": 664,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime_api"},
+              "size": 332,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_runtime_api"},
+              "size": 664,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_pointer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 93, "column": 16},
+          "doc": "A reference-counted GC root.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_pointer_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_pointer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 93, "column": 28},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_pointer"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_pointer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 94, "column": 16},
+          "doc": "Operations for a managed JSI pointer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "invalidate",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_pointer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_pointer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 94, "column": 32},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_pointer_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_pointer_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 95, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 95, "column": 27},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_object"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_object"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_object"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_object"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_array",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 96, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_array",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 96, "column": 26},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_array"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_array"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_array"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_array"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_string",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 97, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_string",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 97, "column": 27},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_string"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_string"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_string"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_string"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_bigint",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 98, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_bigint",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 98, "column": 27},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_bigint"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_bigint"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_bigint"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_bigint"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_symbol",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 99, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_symbol",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 99, "column": 27},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_symbol"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_symbol"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_symbol"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_symbol"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_function",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 100, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_function",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 100, "column": 29},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_function"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_function"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_function"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_function"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_arraybuffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 101, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_arraybuffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 101, "column": 32},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_arraybuffer"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_arraybuffer"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_arraybuffer"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_arraybuffer"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_propnameid",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 102, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_propnameid",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 102, "column": 31},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_propnameid"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_weak_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 103, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {
+              "name": "pointer",
+              "type": {"pointer": {"name": "jsi_pointer"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_weak_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 103, "column": 32},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_weak_object"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_weak_object"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_weak_object"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_weak_object"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_value",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 104, "column": 16},
+          "doc": "A JS value: a kind tag plus an inline payload.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "kind",
+              "type": {"name": "jsi_valuekind"},
+              "annotations": [],
+              "doc": "The value kind."
+            },
+            {
+              "name": "data",
+              "type": {
+                "union": {
+                  "fields": [
+                    {"name": "boolean", "type": {"builtin": "bool"}, "annotations": [], "doc": null},
+                    {
+                      "name": "number",
+                      "type": {"builtin": "double"},
+                      "annotations": [],
+                      "doc": null
+                    },
+                    {
+                      "name": "pointer",
+                      "type": {"pointer": {"name": "jsi_pointer"}},
+                      "annotations": [],
+                      "doc": null
+                    }
+                  ]
+                }
+              },
+              "annotations": [],
+              "doc": "The inline value payload."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]},
+            "i686-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]},
+            "aarch64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_value",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 104, "column": 26},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_value"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_value"},
+              "size": 16,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_value"}, "size": 16, "align": 8},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_value"},
+              "size": 16,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_growable_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 105, "column": 16},
+          "doc": "A caller-owned growable output buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_growable_buffer_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "data",
+              "type": {"pointer": {"name": "uint8_t"}},
+              "annotations": [{"key": "nullable"}],
+              "doc": "The buffer data."
+            },
+            {
+              "name": "size",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "The capacity in bytes."
+            },
+            {
+              "name": "used",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "The bytes written so far."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 32, "align": 8, "offsets": [0, 8, 16, 24]},
+            "i686-pc-windows-msvc": {"size": 16, "align": 4, "offsets": [0, 4, 8, 12]},
+            "aarch64-pc-windows-msvc": {"size": 32, "align": 8, "offsets": [0, 8, 16, 24]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_growable_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 105, "column": 36},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_growable_buffer"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer"},
+              "size": 32,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer"},
+              "size": 16,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer"},
+              "size": 32,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_growable_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 106, "column": 16},
+          "doc": "Operations for a growable output buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "try_grow_to",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "buf",
+                        "type": {"pointer": {"name": "jsi_growable_buffer"}},
+                        "annotations": []
+                      },
+                      {"name": "sz", "type": {"name": "size_t"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_growable_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 106, "column": 40},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_growable_buffer_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_growable_buffer_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 107, "column": 16},
+          "doc": "A retained read-only buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_buffer_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "data",
+              "type": {"pointer": {"name": "uint8_t", "const": true}},
+              "annotations": [],
+              "doc": "The buffer data."
+            },
+            {
+              "name": "size",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "The buffer size in bytes."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]},
+            "i686-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 107, "column": 27},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_buffer"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer"},
+              "size": 24,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer"},
+              "size": 12,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer"},
+              "size": 24,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 108, "column": 16},
+          "doc": "Operations for a retained read-only buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 108, "column": 31},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_buffer_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_buffer_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_mutable_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 109, "column": 16},
+          "doc": "A retained writable buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_mutable_buffer_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "data",
+              "type": {"pointer": {"name": "uint8_t"}},
+              "annotations": [],
+              "doc": "The buffer data."
+            },
+            {
+              "name": "size",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "The buffer size in bytes."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]},
+            "i686-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_mutable_buffer",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 109, "column": 35},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_mutable_buffer"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer"},
+              "size": 24,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer"},
+              "size": 12,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer"},
+              "size": 24,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_mutable_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 110, "column": 16},
+          "doc": "Operations for a retained writable buffer.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_mutable_buffer"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_mutable_buffer_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 110, "column": 39},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_mutable_buffer_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_mutable_buffer_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_prepared_javascript",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 111, "column": 16},
+          "doc": "An engine-managed prepared JavaScript handle.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_prepared_javascript_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_prepared_javascript",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 111, "column": 40},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_prepared_javascript"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_prepared_javascript_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 112, "column": 16},
+          "doc": "Operations for a prepared JavaScript handle.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_prepared_javascript"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_prepared_javascript_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 112, "column": 44},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_prepared_javascript_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_prepared_javascript_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_host_function",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 113, "column": 16},
+          "doc": "A native function callable from JavaScript.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_host_function_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_host_function",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 113, "column": 34},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_host_function"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_host_function_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 114, "column": 16},
+          "doc": "Host function: called when JS invokes a native function.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "arg0",
+                        "type": {"pointer": {"name": "jsi_host_function"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "call",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_host_function"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "this_arg",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "args",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": [{"key": "nullable"}]
+                      },
+                      {"name": "arg_count", "type": {"name": "size_t"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 16,
+              "align": 8,
+              "offsets": [0, 8],
+              "fieldCallingConventions": ["c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 8,
+              "align": 4,
+              "offsets": [0, 4],
+              "fieldCallingConventions": ["c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 16,
+              "align": 8,
+              "offsets": [0, 8],
+              "fieldCallingConventions": ["c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_host_function_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 114, "column": 38},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_host_function_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function_api"},
+              "size": 16,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function_api"},
+              "size": 8,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_function_api"},
+              "size": 16,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_propnameid_list",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 115, "column": 16},
+          "doc": "A list of property-name identifiers.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_propnameid_list_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "props",
+              "type": {"pointer": {"name": "jsi_propnameid", "const": true}},
+              "annotations": [{"key": "nullable"}],
+              "doc": "The property-name identifiers."
+            },
+            {
+              "name": "size",
+              "type": {"name": "size_t"},
+              "annotations": [],
+              "doc": "The number of property-name identifiers."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]},
+            "i686-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_propnameid_list",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 115, "column": 36},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_propnameid_list"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list"},
+              "size": 24,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list"},
+              "size": 12,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list"},
+              "size": 24,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_propnameid_list_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 116, "column": 16},
+          "doc": "PropNameID list: returned by host object get_own_keys.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "arg0",
+                        "type": {"pointer": {"name": "jsi_propnameid_list"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_propnameid_list_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 116, "column": 40},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_propnameid_list_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_propnameid_list_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_host_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 117, "column": 16},
+          "doc": "A JavaScript object backed by native callbacks.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_host_object_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_host_object",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 117, "column": 32},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_host_object"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_host_object_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 118, "column": 16},
+          "doc": "Host object: JS object backed by native callbacks.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "arg0",
+                        "type": {"pointer": {"name": "jsi_host_object"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_host_object"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "out_value",
+                        "type": {"pointer": {"name": "jsi_value"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "set",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_host_object"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {"name": "name", "type": {"name": "jsi_propnameid"}, "annotations": []},
+                      {
+                        "name": "value",
+                        "type": {"pointer": {"name": "jsi_value", "const": true}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "get_own_keys",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_host_object"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "rt",
+                        "type": {"pointer": {"name": "jsi_runtime"}},
+                        "annotations": []
+                      },
+                      {
+                        "name": "out_list",
+                        "type": {"pointer": {"pointer": {"name": "jsi_propnameid_list"}}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 32,
+              "align": 8,
+              "offsets": [0, 8, 16, 24],
+              "fieldCallingConventions": ["c", "c", "c", "c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 16,
+              "align": 4,
+              "offsets": [0, 4, 8, 12],
+              "fieldCallingConventions": ["c", "c", "c", "c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 32,
+              "align": 8,
+              "offsets": [0, 8, 16, 24],
+              "fieldCallingConventions": ["c", "c", "c", "c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_host_object_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 118, "column": 36},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_host_object_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object_api"},
+              "size": 32,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object_api"},
+              "size": 16,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_host_object_api"},
+              "size": 32,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_native_state",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 119, "column": 16},
+          "doc": "Native state attached to a JavaScript object.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "api",
+              "type": {"pointer": {"name": "jsi_native_state_api", "const": true}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_native_state",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 119, "column": 33},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_native_state"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_native_state_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 120, "column": 16},
+          "doc": "Native state: attached to JS objects, released on GC.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "release",
+              "type": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {
+                        "name": "self",
+                        "type": {"pointer": {"name": "jsi_native_state"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "i686-pc-windows-msvc": {
+              "size": 4,
+              "align": 4,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            },
+            "aarch64-pc-windows-msvc": {
+              "size": 8,
+              "align": 8,
+              "offsets": [0],
+              "fieldCallingConventions": ["c"]
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_native_state_api",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 120, "column": 37},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_native_state_api"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state_api"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state_api"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_native_state_api"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_interface_id",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 121, "column": 16},
+          "doc": "An identifier for an optional interface.",
+          "annotations": [],
+          "fields": [
+            {
+              "name": "lower",
+              "type": {"name": "uint64_t"},
+              "annotations": [],
+              "doc": "The lower 64 bits."
+            },
+            {
+              "name": "upper",
+              "type": {"name": "uint64_t"},
+              "annotations": [],
+              "doc": "The upper 64 bits."
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]},
+            "i686-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]},
+            "aarch64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_interface_id",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 121, "column": 33},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_interface_id"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_interface_id"},
+              "size": 16,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_interface_id"},
+              "size": 16,
+              "align": 8
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_interface_id"},
+              "size": 16,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_char16",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 127, "column": 18},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "uint16_t"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned short"},
+              "size": 2,
+              "align": 2
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_AUTO_LENGTH",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 131, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["SIZE_MAX"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "18446744073709551615"},
+            "i686-pc-windows-msvc": {"value": "4294967295"},
+            "aarch64-pc-windows-msvc": {"value": "18446744073709551615"}
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "jsi_config_s",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 140, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_config",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 140, "column": 30},
+          "doc": "Opaque, engine-agnostic configuration object. The runtime factory (e.g.\nv8_jsi_abi_runtime_create) allocates one and hands it to a jsi_configure_runtime_cb\nso the consumer can populate it via engine-specific setters (e.g.\nv8_jsi_abi_config_set_*); the handle is valid ONLY for that callback's duration.\nLayout is owned by the engine implementation.",
+          "annotations": [],
+          "type": {"pointer": {"name": "jsi_config_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "jsi_config_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "jsi_config_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "jsi_config_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_data_delete_cb",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 149, "column": 29},
+          "doc": "Standard data-deleter callback used when ownership of a buffer or other\npointer crosses the DLL boundary. The side that hands the pointer over also\nsupplies this callback so the receiver can free it with the same allocator\nthat allocated it. Called as delete_cb(user_data, data): user_data is the\ndeleter's own context, data is the pointer being released.",
+          "annotations": [],
+          "type": {
+            "pointer": {
+              "function": {
+                "result": {"builtin": "void"},
+                "params": [
+                  {
+                    "name": "user_data",
+                    "type": {"pointer": {"builtin": "void"}},
+                    "annotations": [{"key": "nullable"}]
+                  },
+                  {"name": "data", "type": {"pointer": {"builtin": "void"}}, "annotations": []}
+                ],
+                "variadic": false
+              }
+            }
+          },
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"pointer": {"builtin": "void"}}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"pointer": {"builtin": "void"}}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 4,
+              "align": 4,
+              "callingConvention": "c"
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"pointer": {"builtin": "void"}}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_status",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 162, "column": 1},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "jsi_status"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_status"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "jsi_status"}, "size": 4, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_status"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "jsi_status",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 162, "column": 1},
+          "doc": null,
+          "annotations": [{"key": "enum", "value": "jsi_status"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "jsi_status_ok", "value": 0, "doc": null},
+            {"name": "jsi_status_invalid_arg", "value": 4097, "doc": null},
+            {"name": "jsi_status_version_mismatch", "value": 4098, "doc": null},
+            {"name": "jsi_status_js_error", "value": 16385, "doc": null},
+            {"name": "jsi_status_native_error", "value": 28673, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_configure_runtime_cb",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 188, "column": 35},
+          "doc": "The runtime factory allocates a jsi_config and invokes this callback so the\nconsumer can populate it via the engine's typed setters. The config handle is\nvalid ONLY for the duration of the call. Return jsi_status_ok to proceed, or\na failure status to abort creation (the factory then frees the config, and\nthe create call returns that status with *out_runtime set to NULL). May be\nNULL at the create site, meaning \"all defaults\".",
+          "annotations": [],
+          "type": {
+            "pointer": {
+              "function": {
+                "result": {"name": "jsi_status"},
+                "params": [
+                  {
+                    "name": "user_data",
+                    "type": {"pointer": {"builtin": "void"}},
+                    "annotations": [{"key": "nullable"}]
+                  },
+                  {"name": "config", "type": {"name": "jsi_config"}, "annotations": []}
+                ],
+                "variadic": false
+              }
+            }
+          },
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"name": "jsi_config_s"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"name": "jsi_config_s"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 4,
+              "align": 4,
+              "callingConvention": "c"
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"name": "jsi_status"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {
+                        "name": "arg1",
+                        "type": {"pointer": {"name": "jsi_config_s"}},
+                        "annotations": []
+                      }
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_POINTER_MASK",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 249, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["0x40000000"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "1073741824"},
+            "i686-pc-windows-msvc": {"value": "1073741824"},
+            "aarch64-pc-windows-msvc": {"value": "1073741824"}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "jsi_valuekind",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 252, "column": 1},
+          "doc": "The kind of value stored in a jsi_value.",
+          "annotations": [],
+          "type": {"name": "jsi_valuekind"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_valuekind"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_valuekind"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "jsi_valuekind"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "jsi_valuekind",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 252, "column": 1},
+          "doc": "The kind of value stored in a jsi_value.",
+          "annotations": [{"key": "enum", "value": "jsi_valuekind"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "jsi_valuekind_undefined", "value": 0, "doc": null},
+            {"name": "jsi_valuekind_null", "value": 1, "doc": null},
+            {"name": "jsi_valuekind_boolean", "value": 2, "doc": null},
+            {"name": "jsi_valuekind_number", "value": 4, "doc": null},
+            {"name": "jsi_valuekind_symbol", "value": 1073741829, "doc": null},
+            {"name": "jsi_valuekind_bigint", "value": 1073741830, "doc": null},
+            {"name": "jsi_valuekind_string", "value": 1073741831, "doc": null},
+            {"name": "jsi_valuekind_object", "value": 1073741833, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_VALUE_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 273, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "jsi_valuekind_undefined", ",", "{", "false", "}", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_GROWABLE_BUFFER_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 305, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", ",", "NULL", ",", "0", ",", "0", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_BUFFER_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 317, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", ",", "NULL", ",", "0", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_MUTABLE_BUFFER_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 329, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", ",", "NULL", ",", "0", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_HOST_FUNCTION_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 373, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_PROPNAMEID_LIST_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 385, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", ",", "NULL", ",", "0", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_HOST_OBJECT_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 409, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", "}"]
+        },
+        {
+          "kind": "macro",
+          "name": "JSI_ABI_NATIVE_STATE_INIT",
+          "location": {"file": "src/jsi_abi/jsi_abi.h", "line": 419, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["{", "NULL", "}"]
+        }
+      ]
+    }
+  ]
+}

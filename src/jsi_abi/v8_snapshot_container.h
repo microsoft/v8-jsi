@@ -8,11 +8,11 @@
 // with the identical V8 version and cage / pointer-compression / lite flags, and
 // V8 has no graceful failure for a mismatched blob.
 //
-// Used on BOTH the write path (v8_create_startup_snapshot) and the read paths
-// (v8_startup_snapshot_compatible + v8_core's createIsolate), so the format is
+// Used on BOTH the write path (v8_jsi_abi_snapshot_create) and the read paths
+// (v8_jsi_abi_snapshot_check + v8_core's createIsolate), so the format is
 // defined in exactly one place. Engine-internal — do NOT include from a public
 // header (it pulls in v8.h). Public consumers validate via the
-// v8_startup_snapshot_compatible C export, never by parsing this directly.
+// v8_jsi_abi_snapshot_check C export, never by parsing this directly.
 //
 // IMPORTANT: v8::ScriptCompiler::CachedDataVersionTag() folds in V8's flag hash,
 // which is only final after v8::V8::Initialize() enforces flag implications
@@ -73,7 +73,7 @@ inline uint32_t currentCachedDataVersion() {
   return v8::ScriptCompiler::CachedDataVersionTag();
 }
 
-// Reason codes — kept in sync with v8_snapshot_compat_code in v8_jsi_config.h
+// Reason codes — kept in sync with v8_jsi_abi_snapshot_compat in v8_jsi_abi.h
 // (the public mirror consumers see).
 enum Compat {
   kOk = 0,

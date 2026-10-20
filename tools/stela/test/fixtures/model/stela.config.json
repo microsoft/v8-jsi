@@ -1,0 +1,24 @@
+{
+  "schema": "stela.config/1",
+  "targets": ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "libraries": [
+    {
+      "name": "demo",
+      "prefix": "demo",
+      "macroPrefix": "DEMO",
+      "headers": ["include/demo.h"],
+      "includeDirs": ["include"]
+    },
+    {
+      "name": "demo_ext",
+      "prefix": "demo_ext",
+      "macroPrefix": "DEMO_EXT",
+      "headers": ["include/demo_ext.h"],
+      "includeDirs": ["include"],
+      "stelaHeader": false,
+      "status": "demo_status",
+      "defines": ["DEMO_EXT_EXPERIMENTAL"],
+      "targets": ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"]
+    }
+  ]
+}

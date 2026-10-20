@@ -1,0 +1,700 @@
+{
+  "schema": "stela.model/1",
+  "producer": {
+    "stela": "0.1.0",
+    "libclang": "clang version 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211)"
+  },
+  "targets": ["x86_64-pc-windows-msvc", "i686-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "libraries": [
+    {
+      "name": "demo",
+      "prefix": "demo",
+      "macroPrefix": "DEMO",
+      "status": "demo_status",
+      "headers": ["include/demo.h"],
+      "includeDirs": ["include"],
+      "defines": [],
+      "stelaHeader": "include/demo_stela.h",
+      "declarations": [
+        {
+          "kind": "macro",
+          "name": "DEMO_H_",
+          "location": {"file": "include/demo.h", "line": 2, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "DEMO_CDECL",
+          "location": {"file": "include/demo.h", "line": 10, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["__cdecl"]
+        },
+        {
+          "kind": "macro",
+          "name": "DEMO_ABI_VERSION",
+          "location": {"file": "include/demo.h", "line": 15, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["3u"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "3"},
+            "i686-pc-windows-msvc": {"value": "3"},
+            "aarch64-pc-windows-msvc": {"value": "3"}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_status",
+          "location": {"file": "include/demo.h", "line": 18, "column": 1},
+          "doc": "Status codes.",
+          "annotations": [],
+          "type": {"name": "demo_status"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_status"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_status"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_status"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "demo_status",
+          "location": {"file": "include/demo.h", "line": 18, "column": 1},
+          "doc": "Status codes.",
+          "annotations": [{"key": "enum", "value": "demo_status"}],
+          "type": {"name": "int32_t"},
+          "enumerators": [
+            {"name": "demo_status_ok", "value": 0, "doc": null},
+            {"name": "demo_status_invalid_arg", "value": 4097, "doc": null},
+            {"name": "demo_status_failed", "value": 28673, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "int"}}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_flags",
+          "location": {"file": "include/demo.h", "line": 24, "column": 1},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "uint32_t"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned int"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned int"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"builtin": "unsigned int"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "enum",
+          "name": "demo_flags",
+          "location": {"file": "include/demo.h", "line": 24, "column": 1},
+          "doc": null,
+          "annotations": [{"key": "flags", "value": "demo_flags"}],
+          "type": {"name": "uint32_t"},
+          "enumerators": [
+            {"name": "demo_flags_none", "value": 0, "doc": null},
+            {"name": "demo_flags_fast", "value": 1, "doc": null},
+            {"name": "demo_flags_last", "value": 1073741824, "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}},
+            "i686-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}},
+            "aarch64-pc-windows-msvc": {"canonicalType": {"builtin": "unsigned int"}}
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_session_s",
+          "location": {"file": "include/demo.h", "line": 31, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [],
+          "incomplete": true
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_session",
+          "location": {"file": "include/demo.h", "line": 31, "column": 32},
+          "doc": "An open session; the struct stays incomplete.",
+          "annotations": [],
+          "type": {"pointer": {"name": "demo_session_s"}},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "demo_session_s"}},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "demo_session_s"}},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"pointer": {"name": "demo_session_s"}},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_options",
+          "location": {"file": "include/demo.h", "line": 33, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null},
+            {"name": "flags", "type": {"name": "demo_flags"}, "annotations": [], "doc": null},
+            {"name": "budget", "type": {"name": "uint64_t"}, "annotations": [], "doc": null},
+            {
+              "name": "name",
+              "type": {"pointer": {"builtin": "char", "const": true}},
+              "annotations": [{"key": "nullable"}],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 4, 8, 16]},
+            "i686-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 4, 8, 16]},
+            "aarch64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 4, 8, 16]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_options",
+          "location": {"file": "include/demo.h", "line": 38, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_options"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_options"},
+              "size": 24,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_options"},
+              "size": 24,
+              "align": 8
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_options"},
+              "size": 24,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "union",
+          "name": "demo_value",
+          "location": {"file": "include/demo.h", "line": 40, "column": 15},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {"name": "bits", "type": {"name": "uint64_t"}, "annotations": [], "doc": null},
+            {"name": "number", "type": {"builtin": "double"}, "annotations": [], "doc": null},
+            {
+              "name": "pointer",
+              "type": {"pointer": {"builtin": "void"}},
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0, 0, 0]},
+            "i686-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0, 0, 0]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 8, "offsets": [0, 0, 0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_value",
+          "location": {"file": "include/demo.h", "line": 44, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_value"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_value"},
+              "size": 8,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "demo_value"}, "size": 8, "align": 8},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_value"},
+              "size": 8,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_point",
+          "location": {"file": "include/demo.h", "line": 46, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "tagless": true,
+          "fields": [
+            {"name": "x", "type": {"name": "int32_t"}, "annotations": [], "doc": null},
+            {"name": "y", "type": {"name": "int32_t"}, "annotations": [], "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 8, "align": 4, "offsets": [0, 4]},
+            "i686-pc-windows-msvc": {"size": 8, "align": 4, "offsets": [0, 4]},
+            "aarch64-pc-windows-msvc": {"size": 8, "align": 4, "offsets": [0, 4]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_point",
+          "location": {"file": "include/demo.h", "line": 49, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_point"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_point"},
+              "size": 8,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "demo_point"}, "size": 8, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_point"},
+              "size": 8,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_bits",
+          "location": {"file": "include/demo.h", "line": 51, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null},
+            {
+              "name": "ready",
+              "type": {"builtin": "unsigned int"},
+              "annotations": [],
+              "doc": null,
+              "bitWidth": 1
+            },
+            {
+              "name": "mode",
+              "type": {"builtin": "unsigned int"},
+              "annotations": [],
+              "doc": null,
+              "bitWidth": 3
+            },
+            {"name": "tail", "type": {"name": "uint16_t"}, "annotations": [], "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 4, 8]},
+            "i686-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 4, 8]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_bits",
+          "location": {"file": "include/demo.h", "line": 56, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_bits"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_bits"},
+              "size": 12,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "demo_bits"}, "size": 12, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_bits"},
+              "size": 12,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "macro",
+          "name": "DEMO_TAG",
+          "location": {"file": "include/demo.h", "line": 58, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": true
+        },
+        {
+          "kind": "struct",
+          "name": "demo_tagged_s",
+          "location": {"file": "include/demo.h", "line": 61, "column": 16},
+          "doc": "Its tag comes from a macro.",
+          "annotations": [],
+          "fields": [
+            {"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "i686-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]},
+            "aarch64-pc-windows-msvc": {"size": 4, "align": 4, "offsets": [0]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_tagged",
+          "location": {"file": "include/demo.h", "line": 63, "column": 3},
+          "doc": "Its tag comes from a macro.",
+          "annotations": [],
+          "type": {"name": "demo_tagged_s"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_tagged_s"},
+              "size": 4,
+              "align": 4
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_tagged_s"},
+              "size": 4,
+              "align": 4
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_tagged_s"},
+              "size": 4,
+              "align": 4
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_slot",
+          "location": {"file": "include/demo.h", "line": 65, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null},
+            {
+              "name": "data",
+              "type": {
+                "union": {
+                  "fields": [
+                    {"name": "number", "type": {"name": "int32_t"}, "annotations": [], "doc": null},
+                    {
+                      "name": "text",
+                      "type": {"pointer": {"builtin": "char", "const": true}},
+                      "annotations": [],
+                      "doc": null
+                    }
+                  ]
+                }
+              },
+              "annotations": [],
+              "doc": null
+            },
+            {
+              "name": "size_class",
+              "type": {
+                "enum": {
+                  "type": {"builtin": "int"},
+                  "enumerators": [
+                    {"name": "demo_slot_small", "value": 0, "doc": null},
+                    {"name": "demo_slot_large", "value": 1, "doc": null}
+                  ]
+                }
+              },
+              "annotations": [],
+              "doc": null
+            }
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]},
+            "i686-pc-windows-msvc": {"size": 12, "align": 4, "offsets": [0, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 24, "align": 8, "offsets": [0, 8, 16]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_slot",
+          "location": {"file": "include/demo.h", "line": 72, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_slot"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_slot"},
+              "size": 24,
+              "align": 8
+            },
+            "i686-pc-windows-msvc": {"canonicalType": {"name": "demo_slot"}, "size": 12, "align": 4},
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_slot"},
+              "size": 24,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_wide",
+          "location": {"file": "include/demo.h", "line": 76, "column": 16},
+          "doc": "Only 64-bit targets have it.",
+          "annotations": [],
+          "fields": [
+            {"name": "first", "type": {"name": "uint64_t"}, "annotations": [], "doc": null},
+            {"name": "second", "type": {"name": "uint64_t"}, "annotations": [], "doc": null}
+          ],
+          "targets": ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]},
+            "aarch64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 8]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_wide",
+          "location": {"file": "include/demo.h", "line": 79, "column": 3},
+          "doc": "Only 64-bit targets have it.",
+          "annotations": [],
+          "type": {"name": "demo_wide"},
+          "targets": ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_wide"},
+              "size": 16,
+              "align": 8
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_wide"},
+              "size": 16,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_event_cb",
+          "location": {"file": "include/demo.h", "line": 82, "column": 26},
+          "doc": null,
+          "annotations": [],
+          "type": {
+            "pointer": {
+              "function": {
+                "result": {"builtin": "void"},
+                "params": [
+                  {
+                    "name": "user_data",
+                    "type": {"pointer": {"builtin": "void"}},
+                    "annotations": [{"key": "nullable"}]
+                  },
+                  {"name": "status", "type": {"name": "demo_status"}, "annotations": []}
+                ],
+                "variadic": false
+              }
+            }
+          },
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "demo_status"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            },
+            "i686-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "demo_status"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 4,
+              "align": 4,
+              "callingConvention": "c"
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {
+                "pointer": {
+                  "function": {
+                    "result": {"builtin": "void"},
+                    "params": [
+                      {"name": "arg0", "type": {"pointer": {"builtin": "void"}}, "annotations": []},
+                      {"name": "arg1", "type": {"name": "demo_status"}, "annotations": []}
+                    ],
+                    "variadic": false
+                  }
+                }
+              },
+              "size": 8,
+              "align": 8,
+              "callingConvention": "c"
+            }
+          }
+        },
+        {
+          "kind": "function",
+          "name": "demo_open",
+          "location": {"file": "include/demo.h", "line": 84, "column": 24},
+          "doc": null,
+          "annotations": [],
+          "result": {"type": {"name": "demo_status"}},
+          "params": [
+            {
+              "name": "options",
+              "type": {"pointer": {"name": "demo_options", "const": true}},
+              "annotations": []
+            },
+            {
+              "name": "out_session",
+              "type": {"pointer": {"name": "demo_session"}},
+              "annotations": [{"key": "out"}]
+            }
+          ],
+          "variadic": false,
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"callingConvention": "c"},
+            "i686-pc-windows-msvc": {"callingConvention": "c"},
+            "aarch64-pc-windows-msvc": {"callingConvention": "c"}
+          }
+        }
+      ]
+    },
+    {
+      "name": "demo_ext",
+      "prefix": "demo_ext",
+      "macroPrefix": "DEMO_EXT",
+      "status": "demo_status",
+      "headers": ["include/demo_ext.h"],
+      "includeDirs": ["include"],
+      "defines": ["DEMO_EXT_EXPERIMENTAL"],
+      "targets": ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+      "declarations": [
+        {
+          "kind": "macro",
+          "name": "DEMO_EXT_H_",
+          "location": {"file": "include/demo_ext.h", "line": 2, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": []
+        },
+        {
+          "kind": "macro",
+          "name": "DEMO_EXT_VERSION",
+          "location": {"file": "include/demo_ext.h", "line": 6, "column": 9},
+          "doc": null,
+          "annotations": [],
+          "functionLike": false,
+          "replacement": ["1u"],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"value": "1"},
+            "aarch64-pc-windows-msvc": {"value": "1"}
+          }
+        },
+        {
+          "kind": "struct",
+          "name": "demo_ext_info",
+          "location": {"file": "include/demo_ext.h", "line": 8, "column": 16},
+          "doc": null,
+          "annotations": [],
+          "fields": [
+            {"name": "struct_size", "type": {"name": "uint32_t"}, "annotations": [], "doc": null},
+            {"name": "last_status", "type": {"name": "demo_status"}, "annotations": [], "doc": null},
+            {"name": "session", "type": {"name": "demo_session"}, "annotations": [], "doc": null}
+          ],
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 4, 8]},
+            "aarch64-pc-windows-msvc": {"size": 16, "align": 8, "offsets": [0, 4, 8]}
+          }
+        },
+        {
+          "kind": "typedef",
+          "name": "demo_ext_info",
+          "location": {"file": "include/demo_ext.h", "line": 12, "column": 3},
+          "doc": null,
+          "annotations": [],
+          "type": {"name": "demo_ext_info"},
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_ext_info"},
+              "size": 16,
+              "align": 8
+            },
+            "aarch64-pc-windows-msvc": {
+              "canonicalType": {"name": "demo_ext_info"},
+              "size": 16,
+              "align": 8
+            }
+          }
+        },
+        {
+          "kind": "function",
+          "name": "demo_ext_query",
+          "location": {"file": "include/demo_ext.h", "line": 14, "column": 24},
+          "doc": null,
+          "annotations": [],
+          "result": {"type": {"name": "demo_status"}},
+          "params": [
+            {"name": "session", "type": {"name": "demo_session"}, "annotations": []},
+            {
+              "name": "out_info",
+              "type": {"pointer": {"name": "demo_ext_info"}},
+              "annotations": [{"key": "out"}]
+            }
+          ],
+          "variadic": false,
+          "perTarget": {
+            "x86_64-pc-windows-msvc": {"callingConvention": "c"},
+            "aarch64-pc-windows-msvc": {"callingConvention": "c"}
+          }
+        }
+      ]
+    }
+  ]
+}

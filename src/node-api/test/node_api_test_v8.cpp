@@ -2,29 +2,21 @@
 // Licensed under the MIT license.
 
 #include "node_api_test.h"
-#include "v8_api.h"
+#include "v8_node_api.h"
 
 namespace node_api_tests {
 
 class V8RuntimeHolder : public IEnvHolder {
  public:
   V8RuntimeHolder(std::shared_ptr<NodeApiTaskRunner> taskRunner) noexcept {
-    jsr_config config{};
-    jsr_create_config(&config);
-    jsr_config_enable_gc_api(config, true);
     std::shared_ptr<NodeApiTaskRunner>* taskRunnerPtr =
         new std::shared_ptr<NodeApiTaskRunner>(std::move(taskRunner));
-    jsr_config_set_task_runner(config,
-                               taskRunnerPtr,
-                               NodeApiTaskRunner::PostTaskCallback,
-                               NodeApiTaskRunner::DeleteCallback,
-                               nullptr);
-    jsr_create_runtime(config, &runtime_);
-    jsr_delete_config(config);
-    jsr_runtime_get_node_api_env(runtime_, &env_);
+    v8_node_api_runtime_create(
+        V8_NODE_API_ABI_VERSION, configure, taskRunnerPtr, &runtime_);
+    v8_node_api_runtime_get_env(runtime_, &env_);
   }
 
-  ~V8RuntimeHolder() { jsr_delete_runtime(runtime_); }
+  ~V8RuntimeHolder() { v8_node_api_runtime_destroy(runtime_); }
 
   V8RuntimeHolder(const V8RuntimeHolder&) = delete;
   V8RuntimeHolder& operator=(const V8RuntimeHolder&) = delete;
@@ -32,7 +24,22 @@ class V8RuntimeHolder : public IEnvHolder {
   napi_env getEnv() override { return env_; }
 
  private:
-  jsr_runtime runtime_{};
+  static napi_status V8_NODE_API_CDECL configure(
+      void* user_data,
+      v8_node_api_config config) {
+    napi_status status =
+        v8_node_api_config_set_gc_api_enabled(config, true);
+    return status == napi_ok
+        ? v8_node_api_config_set_task_runner(
+              config,
+              NodeApiTaskRunner::PostTaskCallback,
+              user_data,
+              NodeApiTaskRunner::DeleteCallback,
+              nullptr)
+        : status;
+  }
+
+  v8_node_api_runtime runtime_{};
   napi_env env_{};
 };
 

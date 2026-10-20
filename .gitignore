@@ -28,6 +28,11 @@ sync-pr-notes.md
 # deps/chromium/out and stays ignored via the `out` rule.)
 !/deps/chromium/**/build/
 
+# Python bytecode the gn build's Python helpers write into the vendored
+# Chromium tree (upstream ignores it in its root .gitignore, which we don't vendor).
+/deps/chromium/**/__pycache__/
+/deps/chromium/**/*.pyc
+
 # tests/ (real-consumer e2e/integration tests) — build outputs + NuGet restore.
 # Source files (main.cpp, consumer.vcxproj, *.ps1 drivers, packages.config)
 # stay tracked.

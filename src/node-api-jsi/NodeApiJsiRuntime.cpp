@@ -201,7 +201,7 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
 
   std::string getRecordedGCStats() override {
     std::string result;
-    jsrApi_->jsr_instrumentation_get_gc_stats(env_, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_get_recorded_gc_stats_utf8(env_, writeToStdString, &result);
     return result;
   }
 
@@ -211,12 +211,13 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
       std::unordered_map<std::string, int64_t> *map = static_cast<std::unordered_map<std::string, int64_t> *>(ctx);
       map->try_emplace(key, value);
     };
-    jsrApi_->jsr_instrumentation_get_heap_info(env_, includeExpensive, cb, &result);
+    jsrApi_->v8_node_api_env_get_heap_info(env_, includeExpensive, cb, &result);
     return result;
   }
 
   void collectGarbage(std::string cause) override {
-    jsrApi_->jsr_instrumentation_collect_garbage(env_, cause.c_str());
+    jsrApi_->v8_node_api_env_collect_garbage_utf8(
+        env_, cause.data(), cause.size());
   }
 
   void startTrackingHeapObjectStackTraces(
@@ -226,19 +227,19 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
   void stopTrackingHeapObjectStackTraces() override {}
 
   void startHeapSampling(size_t samplingInterval) override {
-    jsrApi_->jsr_instrumentation_start_heap_sampling(env_, samplingInterval);
+    jsrApi_->v8_node_api_env_start_heap_sampling(env_, samplingInterval);
   }
 
   void stopHeapSampling(std::ostream &os) override {
     std::string result;
-    jsrApi_->jsr_instrumentation_stop_heap_sampling(env_, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_stop_heap_sampling_utf8(env_, writeToStdString, &result);
     os << result;
   }
 
 #if JSI_VERSION >= 13
   void createSnapshotToFile(const std::string &path, const HeapSnapshotOptions &options) override {
     std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_create_heap_snapshot_utf8(env_, options.captureNumericValue, writeToStdString, &result);
     std::ofstream file(path);
     file << result;
     file.close();
@@ -246,13 +247,13 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
 
   void createSnapshotToStream(std::ostream &os, const HeapSnapshotOptions &options = {false}) override {
     std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, options.captureNumericValue, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_create_heap_snapshot_utf8(env_, options.captureNumericValue, writeToStdString, &result);
     os << result;
   }
 #else
   void createSnapshotToFile(const std::string &path) override {
     std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_create_heap_snapshot_utf8(env_, false, writeToStdString, &result);
     std::ofstream file(path);
     file << result;
     file.close();
@@ -260,7 +261,7 @@ class NodeApiJsiInstrumentation : public facebook::jsi::Instrumentation {
 
   void createSnapshotToStream(std::ostream &os) override {
     std::string result;
-    jsrApi_->jsr_instrumentation_create_heap_snapshot(env_, false, writeToStdString, &result);
+    jsrApi_->v8_node_api_env_create_heap_snapshot_utf8(env_, false, writeToStdString, &result);
     os << result;
   }
 #endif
@@ -896,17 +897,17 @@ class NodeApiJsiRuntime : public jsi::Runtime {
     NodeApiJsiRuntime &runtime_;
   };
 
-  // Wraps up the jsr_prepared_script.
+  // Wraps up the v8_node_api_prepared_script.
   class NodeApiPreparedJavaScript final : public jsi::PreparedJavaScript {
    public:
-    NodeApiPreparedJavaScript(napi_env env, jsr_prepared_script script, std::string sourceURL)
+    NodeApiPreparedJavaScript(napi_env env, v8_node_api_prepared_script script, std::string sourceURL)
         : env_(env), script_(script), sourceURL_(std::move(sourceURL)) {}
 
     ~NodeApiPreparedJavaScript() override {
-      JSRuntimeApi::current()->jsr_delete_prepared_script(env_, script_);
+      JSRuntimeApi::current()->v8_node_api_prepared_script_destroy(script_, env_);
     }
 
-    jsr_prepared_script getScript() const {
+    v8_node_api_prepared_script getScript() const {
       return script_;
     }
 
@@ -919,7 +920,7 @@ class NodeApiJsiRuntime : public jsi::Runtime {
 
    private:
     napi_env env_;
-    jsr_prepared_script script_;
+    v8_node_api_prepared_script script_;
     std::string sourceURL_;
   };
 
@@ -1213,16 +1214,17 @@ std::shared_ptr<const jsi::PreparedJavaScript> NodeApiJsiRuntime::prepareJavaScr
     const std::shared_ptr<const jsi::Buffer> &sourceBuffer,
     std::string sourceURL) {
   NodeApiScope scope{*this};
-  jsr_prepared_script script{};
-  napi_status status = jsrApi_->jsr_create_prepared_script(
+  v8_node_api_prepared_script script{};
+  napi_status status = jsrApi_->v8_node_api_prepared_script_create_utf8(
       env_,
       sourceBuffer->data(),
       sourceBuffer->size(),
-      [](void * /*data*/, void *deleterData) {
-        delete reinterpret_cast<std::shared_ptr<const jsi::Buffer> *>(deleterData);
+      [](void *deleteData, void * /*data*/) {
+        delete reinterpret_cast<std::shared_ptr<const jsi::Buffer> *>(deleteData);
       },
       new std::shared_ptr<const jsi::Buffer>(sourceBuffer),
-      sourceURL.c_str(),
+      sourceURL.data(),
+      sourceURL.size(),
       &script);
   CHECK_NAPI(status); // Not for the call to keep better automated formatting.
   return std::make_shared<NodeApiPreparedJavaScript>(env_, script, std::move(sourceURL));
@@ -1233,7 +1235,7 @@ jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(const std::shared_ptr<c
   auto preparedScript = static_cast<const NodeApiPreparedJavaScript *>(js.get());
   AutoRestore<std::string> sourceURLScope{sourceURL_, preparedScript->sourceURL()};
   napi_value result{};
-  CHECK_NAPI(jsrApi_->jsr_prepared_script_run(env_, preparedScript->getScript(), &result));
+  CHECK_NAPI(jsrApi_->v8_node_api_prepared_script_run(preparedScript->getScript(), env_, &result));
   return toJsiValue(result);
 }
 
@@ -1241,14 +1243,14 @@ jsi::Value NodeApiJsiRuntime::evaluatePreparedJavaScript(const std::shared_ptr<c
 void NodeApiJsiRuntime::queueMicrotask(const jsi::Function &callback) {
   NodeApiScope scope{*this};
   napi_value callbackValue = getNodeApiValue(callback);
-  CHECK_NAPI(jsrApi_->jsr_queue_microtask(env_, callbackValue));
+  CHECK_NAPI(jsrApi_->v8_node_api_env_queue_microtask(env_, callbackValue));
 }
 #endif
 
 #if JSI_VERSION >= 4
 bool NodeApiJsiRuntime::drainMicrotasks(int maxMicrotasksHint) {
   bool result{};
-  CHECK_NAPI(jsrApi_->jsr_drain_microtasks(env_, maxMicrotasksHint, &result));
+  CHECK_NAPI(jsrApi_->v8_node_api_env_drain_microtasks(env_, maxMicrotasksHint, &result));
   return result;
 }
 #endif
@@ -1259,13 +1261,13 @@ jsi::Object NodeApiJsiRuntime::global() {
 
 std::string NodeApiJsiRuntime::description() {
   const char *desc{};
-  CHECK_NAPI(jsrApi_->jsr_get_description(env_, &desc));
+  CHECK_NAPI(jsrApi_->v8_node_api_env_get_description_utf8(env_, &desc));
   return desc;
 }
 
 bool NodeApiJsiRuntime::isInspectable() {
   bool result{};
-  CHECK_NAPI(jsrApi_->jsr_is_inspectable(env_, &result));
+  CHECK_NAPI(jsrApi_->v8_node_api_env_is_inspectable(env_, &result));
   return result;
 }
 
@@ -3183,100 +3185,112 @@ makeNodeApiJsiRuntime(napi_env env, JSRuntimeApi *jsrApi, std::function<void()> 
 
 EXTERN_C_START
 
-// Default implementation of jsr_get_description if it is not provided by JS engine.
+// Default implementation of v8_node_api_env_get_description_utf8 if it is not provided by JS engine.
 // It returns "NodeApiJsiRuntime" string.
-napi_status NAPI_CDECL default_jsr_get_description(napi_env /*env*/, const char **result) {
+napi_status NAPI_CDECL default_v8_node_api_env_get_description_utf8(napi_env /*env*/, const char **result) {
   if (result != nullptr) {
     *result = "NodeApiJsiRuntime";
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_queue_microtask if it is not provided by JS engine.
+// Default implementation of v8_node_api_env_queue_microtask if it is not provided by JS engine.
 // It does nothing.
-napi_status NAPI_CDECL default_jsr_queue_microtask(napi_env /*env*/, napi_value /*callback*/) {
+napi_status NAPI_CDECL default_v8_node_api_env_queue_microtask(napi_env /*env*/, napi_value /*callback*/) {
   return napi_generic_failure;
 }
 
-// Default implementation of jsr_drain_microtasks if it is not provided by JS engine.
+// Default implementation of v8_node_api_env_drain_microtasks if it is not provided by JS engine.
 // It does nothing.
-napi_status NAPI_CDECL default_jsr_drain_microtasks(napi_env /*env*/, int32_t /*max_count_hint*/, bool *result) {
+napi_status NAPI_CDECL default_v8_node_api_env_drain_microtasks(napi_env /*env*/, int32_t /*max_count_hint*/, bool *result) {
   if (result != nullptr) {
     *result = true; // All tasks are drained
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_is_inspectable if it is not provided by JS engine.
+// Default implementation of v8_node_api_env_is_inspectable if it is not provided by JS engine.
 // It always returns false.
-napi_status NAPI_CDECL default_jsr_is_inspectable(napi_env /*env*/, bool *result) {
+napi_status NAPI_CDECL default_v8_node_api_env_is_inspectable(napi_env /*env*/, bool *result) {
   if (result != nullptr) {
     *result = false;
   }
   return napi_ok;
 }
 
-// Default implementation of jsr_open_napi_env_scope if it is not provided by JS engine.
-napi_status NAPI_CDECL default_jsr_open_napi_env_scope(napi_env /*env*/, jsr_napi_env_scope * /*scope*/) {
+// Default implementation of v8_node_api_env_scope_open if it is not provided by JS engine.
+napi_status NAPI_CDECL default_v8_node_api_env_scope_open(
+    napi_env /*env*/, v8_node_api_env_scope *scope) {
+  if (scope != nullptr) {
+    *scope = nullptr;
+  }
   return napi_ok;
 }
 
-// Default implementation of jsr_close_napi_env_scope if it is not provided by JS engine.
-napi_status NAPI_CDECL default_jsr_close_napi_env_scope(napi_env /*env*/, jsr_napi_env_scope /*scope*/) {
+// Default implementation of v8_node_api_env_scope_close if it is not provided by JS engine.
+napi_status NAPI_CDECL default_v8_node_api_env_scope_close(
+    v8_node_api_env_scope /*scope*/, napi_env /*env*/) {
   return napi_ok;
 }
 
 napi_status NAPI_CDECL
-default_jsr_instrumentation_get_gc_stats(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+default_v8_node_api_env_get_recorded_gc_stats_utf8(napi_env /*env*/, v8_node_api_utf8_output_cb /*cb*/, void * /*cb_ctx*/) {
   return napi_ok;
 }
 
-napi_status NAPI_CDECL default_jsr_instrumentation_get_heap_info(
+napi_status NAPI_CDECL default_v8_node_api_env_get_heap_info(
     napi_env /*env*/,
     bool /*include_expensive*/,
-    jsr_heap_info_cb /*cb*/,
+    v8_node_api_heap_info_cb /*cb*/,
     void * /*cb_ctx*/) {
   return napi_ok;
 }
 
-napi_status NAPI_CDECL default_jsr_instrumentation_collect_garbage(napi_env /*env*/, const char * /*cause*/) {
+napi_status NAPI_CDECL default_v8_node_api_env_collect_garbage_utf8(
+    napi_env /*env*/,
+    const char * /*cause*/,
+    size_t /*cause_length*/) {
   return napi_ok;
 }
 
-napi_status NAPI_CDECL default_jsr_instrumentation_start_heap_sampling(napi_env /*env*/, size_t /*sampling_interval*/) {
+napi_status NAPI_CDECL default_v8_node_api_env_start_heap_sampling(napi_env /*env*/, size_t /*sampling_interval*/) {
   return napi_ok;
 }
 
 napi_status NAPI_CDECL
-default_jsr_instrumentation_stop_heap_sampling(napi_env /*env*/, jsr_string_output_cb /*cb*/, void * /*cb_ctx*/) {
+default_v8_node_api_env_stop_heap_sampling_utf8(napi_env /*env*/, v8_node_api_utf8_output_cb /*cb*/, void * /*cb_ctx*/) {
   return napi_ok;
 }
 
-napi_status NAPI_CDECL default_jsr_instrumentation_create_heap_snapshot(
+napi_status NAPI_CDECL default_v8_node_api_env_create_heap_snapshot_utf8(
     napi_env /*env*/,
     bool /*capture_numeric_value*/,
-    jsr_string_output_cb /*cb*/,
+    v8_node_api_utf8_output_cb /*cb*/,
     void * /*cb_ctx*/) {
   return napi_ok;
 }
 
-// Default implementation of jsr_create_prepared_script if it is not provided by JS engine.
-// It return napi_ref as a jsr_prepared_script that wraps up an object with a "script" property string.
-napi_status NAPI_CDECL default_jsr_create_prepared_script(
+// Default implementation of v8_node_api_prepared_script_create_utf8 if it is not provided by JS engine.
+// It return napi_ref as a v8_node_api_prepared_script that wraps up an object with a "script" property string.
+napi_status NAPI_CDECL default_v8_node_api_prepared_script_create_utf8(
     napi_env env,
     const uint8_t *script_data,
     size_t script_length,
-    jsr_data_delete_cb script_delete_cb,
+    v8_node_api_data_delete_cb script_delete_cb,
     void *deleter_data,
     const char * /*source_url*/,
-    jsr_prepared_script *result) {
+    size_t /*source_url_length*/,
+    v8_node_api_prepared_script *result) {
+  if (result != nullptr) {
+    *result = nullptr;
+  }
   Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
   napi_value script{}, obj{};
   // Do not use NAPI_CALL - we must finalize the buffer right after we attempted the string creation.
   napi_status status =
       jsrApi->napi_create_string_utf8(env, reinterpret_cast<const char *>(script_data), script_length, &script);
   if (script_delete_cb != nullptr) {
-    script_delete_cb(const_cast<uint8_t *>(script_data), deleter_data);
+    script_delete_cb(deleter_data, const_cast<uint8_t *>(script_data));
   }
   NAPI_CALL(status);
   NAPI_CALL(jsrApi->napi_create_object(env, &obj));
@@ -3284,17 +3298,24 @@ napi_status NAPI_CDECL default_jsr_create_prepared_script(
   return jsrApi->napi_create_reference(env, obj, 1, reinterpret_cast<napi_ref *>(result));
 }
 
-// Default implementation of jsr_delete_prepared_script if it is not provided by JS engine.
+// Default implementation of v8_node_api_prepared_script_destroy if it is not provided by JS engine.
 // It deletes prepared_script as a napi_ref.
-napi_status NAPI_CDECL default_jsr_delete_prepared_script(napi_env env, jsr_prepared_script prepared_script) {
+napi_status NAPI_CDECL default_v8_node_api_prepared_script_destroy(
+    v8_node_api_prepared_script prepared_script, napi_env env) {
   Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
   return jsrApi->napi_delete_reference(env, reinterpret_cast<napi_ref>(prepared_script));
 }
 
-// Default implementation of jsr_prepared_script_run if it is not provided by JS engine.
+// Default implementation of v8_node_api_prepared_script_run if it is not provided by JS engine.
 // It interprets prepared_script as a napi_ref to an object with a "script" property string.
 napi_status NAPI_CDECL
-default_jsr_prepared_script_run(napi_env env, jsr_prepared_script prepared_script, napi_value *result) {
+default_v8_node_api_prepared_script_run(
+    v8_node_api_prepared_script prepared_script,
+    napi_env env,
+    napi_value *result) {
+  if (result != nullptr) {
+    *result = nullptr;
+  }
   Microsoft::NodeApiJsi::JSRuntimeApi *jsrApi = Microsoft::NodeApiJsi::JSRuntimeApi::current();
   napi_value obj{}, script{};
   NAPI_CALL(jsrApi->napi_get_reference_value(env, reinterpret_cast<napi_ref>(prepared_script), &obj));

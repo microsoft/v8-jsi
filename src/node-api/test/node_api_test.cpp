@@ -2,8 +2,7 @@
 // Licensed under the MIT License.
 
 #include "node_api_test.h"
-#include <js_runtime_api.h>
-#include <v8_api.h>
+#include <v8_node_api.h>
 #include <windows.h>
 #include <algorithm>
 #include <cstdarg>
@@ -304,7 +303,12 @@ napi_value NodeApiTestContext::RunScript(std::string const& code,
   THROW_IF_NOT_OK(
       napi_create_string_utf8(env, code.c_str(), code.size(), &script));
   if (sourceUrl) {
-    THROW_IF_NOT_OK(jsr_run_script(env, script, sourceUrl, &scriptResult));
+    THROW_IF_NOT_OK(v8_node_api_env_run_script_utf8(
+        env,
+        script,
+        sourceUrl,
+        V8_NODE_API_AUTO_LENGTH,
+        &scriptResult));
   } else {
     THROW_IF_NOT_OK(napi_run_script(env, script, &scriptResult));
   }
@@ -369,7 +373,7 @@ napi_value NodeApiTestContext::GetModule(std::string const& moduleName) {
             getModuleApiVersion ? getModuleApiVersion() : 8;
         napi_env moduleEnv{};
         NODE_API_CALL(
-            env, jsr_create_node_api_env(env, moduleApiVersion, &moduleEnv));
+            env, v8_node_api_env_create_module(env, moduleApiVersion, &moduleEnv));
         napi_value exports{};
         NODE_API_CALL(moduleEnv, napi_create_object(moduleEnv, &exports));
 
@@ -379,7 +383,7 @@ napi_value NodeApiTestContext::GetModule(std::string const& moduleName) {
         using Task = decltype(task);
         NODE_API_CALL(
             moduleEnv,
-            jsr_run_task(
+            v8_node_api_env_run_task(
                 moduleEnv,
                 [](void* data) { (*reinterpret_cast<Task*>(data))(); },
                 &task));
@@ -457,11 +461,11 @@ NodeApiTestErrorHandler NodeApiTestContext::RunTestScript(char const* script,
 
 void NodeApiTestContext::HandleUnhandledPromiseRejections() {
   bool hasException{false};
-  THROW_IF_NOT_OK(jsr_has_unhandled_promise_rejection(env, &hasException));
+  THROW_IF_NOT_OK(v8_node_api_env_has_unhandled_promise_rejection(env, &hasException));
   if (hasException) {
     napi_value error{};
     THROW_IF_NOT_OK(
-        jsr_get_and_clear_last_unhandled_promise_rejection(env, &error));
+        v8_node_api_env_get_and_clear_last_unhandled_promise_rejection(env, &error));
     throw NodeApiTestException(env, error);
   }
 }
@@ -514,7 +518,7 @@ void NodeApiTestContext::DefineGlobalGC(napi_value global) {
       global,
       "gc",
       [](napi_env env, napi_callback_info /*info*/) -> napi_value {
-        NODE_API_CALL(env, jsr_collect_garbage(env));
+        NODE_API_CALL(env, v8_node_api_env_request_garbage_collection(env));
         return nullptr;
       });
 }
@@ -997,7 +1001,7 @@ class DeferPlatformDispose {
   DeferPlatformDispose(const DeferPlatformDispose&) = delete;
   DeferPlatformDispose& operator=(const DeferPlatformDispose&) = delete;
 
-  ~DeferPlatformDispose() { v8_platform_dispose(); }
+  ~DeferPlatformDispose() { v8_node_api_dispose_platform(); }
 };
 
 int main(int argc, char** argv) {

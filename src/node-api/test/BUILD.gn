@@ -59,6 +59,7 @@ copy("node_api_test_js_files") {
 
 config("test_module") {
   include_dirs = [
+    "../..",
     "..",
     "js-native-api",
   ]
@@ -340,10 +341,10 @@ executable("node_lite") {
 
   sources = [
     "../../public/compat.h",
-    "../../public/v8_api.h",
     "../js_native_api.h",
     "../js_native_api_types.h",
-    "../js_runtime_api.h",
+    "../v8_node_api.h",
+    "../v8_node_api_stela.h",
     "child_process.cpp",
     "child_process.h",
     "node_api_test.cpp",

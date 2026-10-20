@@ -3,7 +3,7 @@
 #pragma once
 
 #include "node-api/env-inl.h"
-#include "node-api/js_runtime_api.h"
+#include "node-api/v8_node_api.h"
 #include "public/V8JsiRuntime.h"
 #include "public/compat.h"
 

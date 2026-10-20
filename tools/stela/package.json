@@ -1,0 +1,16 @@
+{
+  "name": "stela",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stela: annotations, extraction, lint, and ABI diff for C ABI headers. Runs directly with Node.js v24+ (strip-types); no build step.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}

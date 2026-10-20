@@ -33,7 +33,9 @@
 #include "V8JsiRuntime_impl.h"
 #include "js_native_api_v8.h"
 #include "public/ScriptStore.h"
-#include "public/v8_api.h"
+#include "v8_node_api.h"
+
+#include <cstring>
 
 #define CHECKED_ENV(env)                                                       \
   ((env) == nullptr)                                                           \
@@ -59,7 +61,7 @@ class NodeApiJsiBuffer : public facebook::jsi::Buffer {
  public:
   NodeApiJsiBuffer(const uint8_t* data,
                    size_t byteCount,
-                   jsr_data_delete_cb deleteDataCallback,
+                   v8_node_api_data_delete_cb deleteDataCallback,
                    void* deleterData) noexcept
       : data_(data),
         byteCount_(byteCount),
@@ -68,7 +70,7 @@ class NodeApiJsiBuffer : public facebook::jsi::Buffer {
 
   ~NodeApiJsiBuffer() override {
     if (deleteDataCallback_ != nullptr) {
-      deleteDataCallback_(const_cast<uint8_t*>(data_), deleterData_);
+      deleteDataCallback_(deleterData_, const_cast<uint8_t*>(data_));
     }
   }
 
@@ -82,7 +84,7 @@ class NodeApiJsiBuffer : public facebook::jsi::Buffer {
  private:
   const uint8_t* data_{};
   size_t byteCount_{};
-  jsr_data_delete_cb deleteDataCallback_{};
+  v8_node_api_data_delete_cb deleteDataCallback_{};
   void* deleterData_{};
 };
 
@@ -255,6 +257,18 @@ class NodeApiEnv : public napi_env__ {
     return napi_ok;
   }
 
+  napi_status queueMicrotask(napi_value callback) {
+    NAPI_PREAMBLE(env);
+    CHECK_ARG(env, callback);
+    v8::Local<v8::Value> value =
+        v8impl::V8LocalValueFromJsValue(callback);
+    if (!value->IsFunction()) {
+      return napi_set_last_error(env, napi_function_expected);
+    }
+    isolate->EnqueueMicrotask(value.As<v8::Function>());
+    return GET_RETURN_STATUS(env);
+  }
+
   napi_status drainMicrotasks(int32_t /*maxCountHint*/, bool* result) {
     // V8 drains microtasks automatically after each call.
     if (result) {
@@ -269,19 +283,19 @@ class NodeApiEnv : public napi_env__ {
     return napi_ok;
   }
 
-  napi_status openEnvScope(jsr_napi_env_scope* scope) {
+  napi_status openEnvScope(v8_node_api_env_scope* scope) {
     CHECK_ARG(env, scope);
     if (V8RuntimeEnv::NodeApiIsolateLocker::HasCurrentRuntime(m_runtime)) {
       V8RuntimeEnv::NodeApiIsolateLocker::Current()->AddRef();
     } else {
       ::new V8RuntimeEnv::NodeApiIsolateLocker(m_runtime);
     }
-    *scope = reinterpret_cast<jsr_napi_env_scope>(
+    *scope = reinterpret_cast<v8_node_api_env_scope>(
         V8RuntimeEnv::NodeApiIsolateLocker::Current());
     return napi_ok;
   }
 
-  napi_status closeEnvScope(jsr_napi_env_scope scope) {
+  napi_status closeEnvScope(v8_node_api_env_scope scope) {
     CHECK_ARG(env, scope);
     V8RuntimeEnv::NodeApiIsolateLocker* locker =
         reinterpret_cast<V8RuntimeEnv::NodeApiIsolateLocker*>(scope);
@@ -334,26 +348,26 @@ class NodeApiEnv : public napi_env__ {
 
   napi_status createPreparedScript(const uint8_t* scriptData,
                                    size_t scriptLength,
-                                   jsr_data_delete_cb scriptDeleteCallback,
+                                   v8_node_api_data_delete_cb scriptDeleteCallback,
                                    void* deleterData,
                                    const char* sourceUrl,
-                                   jsr_prepared_script* result) {
+                                   v8_node_api_prepared_script* result) {
+    std::shared_ptr<facebook::jsi::Buffer> scriptBuffer =
+        std::make_shared<NodeApiJsiBuffer>(
+            scriptData, scriptLength, scriptDeleteCallback, deleterData);
     NAPI_PREAMBLE(env);
     CHECK_ARG(env, scriptData);
     CHECK_ARG(env, sourceUrl);
     CHECK_ARG(env, result);
-    std::shared_ptr<facebook::jsi::Buffer> scriptBuffer =
-        std::shared_ptr<facebook::jsi::Buffer>(new NodeApiJsiBuffer(
-            scriptData, scriptLength, scriptDeleteCallback, deleterData));
     std::shared_ptr<const facebook::jsi::PreparedJavaScript> preparedScript =
         m_runtime->prepareJavaScript2(scriptBuffer, sourceUrl);
-    *result = reinterpret_cast<jsr_prepared_script>(
+    *result = reinterpret_cast<v8_node_api_prepared_script>(
         new std::shared_ptr<const facebook::jsi::PreparedJavaScript>(
             std::move(preparedScript)));
     return GET_RETURN_STATUS(env);
   }
 
-  napi_status deletePreparedScript(jsr_prepared_script preparedScript) {
+  napi_status deletePreparedScript(v8_node_api_prepared_script preparedScript) {
     CHECK_ARG(env, preparedScript);
     std::shared_ptr<const facebook::jsi::PreparedJavaScript>* script =
         reinterpret_cast<
@@ -363,7 +377,7 @@ class NodeApiEnv : public napi_env__ {
     return napi_clear_last_error(env);
   }
 
-  napi_status runPreparedScript(jsr_prepared_script preparedScript,
+  napi_status runPreparedScript(v8_node_api_prepared_script preparedScript,
                                 napi_value* result) {
     NAPI_PREAMBLE(env);
     CHECK_ARG(env, preparedScript);
@@ -385,12 +399,12 @@ class NodeApiEnv : public napi_env__ {
     return napi_ok;
   }
 
-  napi_status runTask(jsr_task_run_cb task_cb, void* data) {
+  napi_status runTask(v8_node_api_task_run_cb task_cb, void* data) {
     CallIntoModule([task_cb, data](napi_env env) { task_cb(data); });
     return napi_ok;
   }
 
-  napi_status instrumentationGetGCStats(jsr_string_output_cb cb, void* cb_ctx) {
+  napi_status instrumentationGetGCStats(v8_node_api_utf8_output_cb cb, void* cb_ctx) {
     CHECK_ARG(env, cb);
     facebook::jsi::Instrumentation& instrumentation =
         m_runtime->instrumentation();
@@ -400,7 +414,7 @@ class NodeApiEnv : public napi_env__ {
   }
 
   napi_status instrumentationGetHeapInfo(bool include_expensive,
-                                         jsr_heap_info_cb cb,
+                                         v8_node_api_heap_info_cb cb,
                                          void* cb_ctx) {
     CHECK_ARG(env, cb);
     facebook::jsi::Instrumentation& instrumentation =
@@ -427,7 +441,7 @@ class NodeApiEnv : public napi_env__ {
     return napi_ok;
   }
 
-  napi_status instrumentationStopHeapSampling(jsr_string_output_cb cb,
+  napi_status instrumentationStopHeapSampling(v8_node_api_utf8_output_cb cb,
                                               void* cb_ctx) {
     facebook::jsi::Instrumentation& instrumentation =
         m_runtime->instrumentation();
@@ -439,7 +453,7 @@ class NodeApiEnv : public napi_env__ {
   }
 
   napi_status instrumentationCreateHeapSnapshot(bool capture_numeric_value,
-                                                jsr_string_output_cb cb,
+                                                v8_node_api_utf8_output_cb cb,
                                                 void* cb_ctx) {
     CHECK_ARG(env, cb);
     facebook::jsi::Instrumentation& instrumentation =
@@ -496,55 +510,55 @@ bool V8RuntimeEnv::removeModuleEnv(NodeApiEnv* env) {
 
 class V8TaskRunner : public v8runtime::JSITaskRunner {
  public:
-  V8TaskRunner(void* taskRunnerData,
-               jsr_task_runner_post_task_cb postTaskCallback,
-               jsr_data_delete_cb deleteCallback,
-               void* deleterData)
-      : taskRunnerData_(taskRunnerData),
+  V8TaskRunner(void* userData,
+               v8_node_api_task_runner_post_task_cb postTaskCallback,
+               v8_node_api_data_delete_cb deleteCallback,
+               void* deleteData)
+      : userData_(userData),
         postTaskCallback_(postTaskCallback),
         deleteCallback_(deleteCallback),
-        deleterData_(deleterData) {}
+        deleteData_(deleteData) {}
 
   ~V8TaskRunner() {
     if (deleteCallback_ != nullptr) {
-      deleteCallback_(taskRunnerData_, deleterData_);
+      deleteCallback_(deleteData_, userData_);
     }
   }
 
   void postTask(std::unique_ptr<v8runtime::JSITask> task) override {
     postTaskCallback_(
-        taskRunnerData_,
+        userData_,
         static_cast<void*>(task.release()),
         [](void* taskData) {
           static_cast<v8runtime::JSITask*>(taskData)->run();
         },
-        [](void* taskData, void* /*deleterData*/) {
+        [](void* /*deleteData*/, void* taskData) {
           delete static_cast<v8runtime::JSITask*>(taskData);
         },
-        /*deleterData:*/ nullptr);
+        /*deleteData:*/ nullptr);
   }
 
  private:
-  void* taskRunnerData_;  // a pointer to the task runner implementation
-  jsr_task_runner_post_task_cb postTaskCallback_;
-  jsr_data_delete_cb deleteCallback_;
-  void* deleterData_;
+  void* userData_;  // a pointer to the task runner implementation
+  v8_node_api_task_runner_post_task_cb postTaskCallback_;
+  v8_node_api_data_delete_cb deleteCallback_;
+  void* deleteData_;
 };
 
 class V8JsiBuffer : public facebook::jsi::Buffer {
  public:
   V8JsiBuffer(const uint8_t* data,
               size_t size,
-              jsr_data_delete_cb deleteCallback,
-              void* deleterData)
+              v8_node_api_data_delete_cb deleteCallback,
+              void* deleteData)
       : data_(data),
         size_(size),
         deleteCallback_(deleteCallback),
-        deleterData_(deleterData) {}
+        deleteData_(deleteData) {}
 
   ~V8JsiBuffer() override {
     if (deleteCallback_ != nullptr) {
-      deleteCallback_(const_cast<uint8_t*>(data_), deleterData_);
+      deleteCallback_(deleteData_, const_cast<uint8_t*>(data_));
     }
   }
 
@@ -555,26 +569,26 @@ class V8JsiBuffer : public facebook::jsi::Buffer {
  private:
   const uint8_t* data_{};
   size_t size_{};
-  jsr_data_delete_cb deleteCallback_{};
-  void* deleterData_{};
+  v8_node_api_data_delete_cb deleteCallback_{};
+  void* deleteData_{};
 };
 
 class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
  public:
-  V8ScriptCache(void* scriptCacheData,
-                jsr_script_cache_load_cb scriptCacheLoadCallback,
-                jsr_script_cache_store_cb scriptCacheStoreCallback,
-                jsr_data_delete_cb scriptCacheDataDeleteCallback,
-                void* deleterData) noexcept
-      : scriptCacheData_(scriptCacheData),
+  V8ScriptCache(void* userData,
+                v8_node_api_script_cache_load_cb scriptCacheLoadCallback,
+                v8_node_api_script_cache_store_cb scriptCacheStoreCallback,
+                v8_node_api_data_delete_cb scriptCacheDataDeleteCallback,
+                void* deleteData) noexcept
+      : userData_(userData),
         scriptCacheLoadCallback_(scriptCacheLoadCallback),
         scriptCacheStoreCallback_(scriptCacheStoreCallback),
         scriptCacheDataDeleteCallback_(scriptCacheDataDeleteCallback),
-        deleterData_(deleterData) {}
+        deleteData_(deleteData) {}
 
   ~V8ScriptCache() override {
     if (scriptCacheDataDeleteCallback_) {
-      scriptCacheDataDeleteCallback_(scriptCacheData_, deleterData_);
+      scriptCacheDataDeleteCallback_(deleteData_, userData_);
     }
   }
 
@@ -584,9 +598,9 @@ class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
       const char* prepareTag) noexcept override {
     const uint8_t* buffer{};
     size_t bufferSize{};
-    jsr_data_delete_cb bufferDeleteCallback{};
+    v8_node_api_data_delete_cb bufferDeleteCallback{};
     void* bufferDeleterData{};
-    scriptCacheLoadCallback_(scriptCacheData_,
+    scriptCacheLoadCallback_(userData_,
                              scriptSignature.url.c_str(),
                              scriptSignature.version,
                              runtimeMetadata.runtimeName.c_str(),
@@ -610,7 +624,7 @@ class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
       const facebook::jsi::JSRuntimeSignature& runtimeMetadata,
       const char* prepareTag) noexcept override {
     scriptCacheStoreCallback_(
-        scriptCacheData_,
+        userData_,
         scriptSignature.url.c_str(),
         scriptSignature.version,
         runtimeMetadata.runtimeName.c_str(),
@@ -618,62 +632,77 @@ class V8ScriptCache : public facebook::jsi::PreparedScriptStore {
         prepareTag,
         preparedScript->data(),
         preparedScript->size(),
-        [](void* /*data*/, void* deleterData) {
+        [](void* deleteData, void* /*data*/) {
           delete reinterpret_cast<
-              std::shared_ptr<const facebook::jsi::Buffer>*>(deleterData);
+              std::shared_ptr<const facebook::jsi::Buffer>*>(deleteData);
         },
         new std::shared_ptr<const facebook::jsi::Buffer>(preparedScript));
   }
 
  private:
-  void* scriptCacheData_{};
-  jsr_script_cache_load_cb scriptCacheLoadCallback_{};
-  jsr_script_cache_store_cb scriptCacheStoreCallback_{};
-  jsr_data_delete_cb scriptCacheDataDeleteCallback_{};
-  void* deleterData_{};
+  void* userData_{};
+  v8_node_api_script_cache_load_cb scriptCacheLoadCallback_{};
+  v8_node_api_script_cache_store_cb scriptCacheStoreCallback_{};
+  v8_node_api_data_delete_cb scriptCacheDataDeleteCallback_{};
+  void* deleteData_{};
 };
 
 class ConfigWrapper {
  public:
   napi_status enableInspector(bool value) {
+    if (status_ != napi_ok) return status_;
     enableInspector_ = value;
     return napi_ok;
   }
 
   napi_status enableGCApi(bool value) {
+    if (status_ != napi_ok) return status_;
     enableGCApi_ = value;
     return napi_ok;
   }
 
   napi_status enableMultithreading(bool value) {
+    if (status_ != napi_ok) return status_;
     enableMultithreading_ = value;
     return napi_ok;
   }
 
   napi_status setInspectorRuntimeName(std::string name) {
+    if (status_ != napi_ok) return status_;
     inspectorRuntimeName_ = std::move(name);
     return napi_ok;
   }
 
   napi_status setInspectorPort(uint16_t port) {
+    if (status_ != napi_ok) return status_;
     inspectorPort_ = port;
     return napi_ok;
   }
 
   napi_status setInspectorBreakOnStart(bool value) {
+    if (status_ != napi_ok) return status_;
     inspectorBreakOnStart_ = value;
     return napi_ok;
   }
 
   napi_status setTaskRunner(std::shared_ptr<V8TaskRunner> taskRunner) {
+    if (status_ != napi_ok) return status_;
     taskRunner_ = std::move(taskRunner);
     return napi_ok;
   }
 
   napi_status setScriptCache(std::shared_ptr<V8ScriptCache> scriptCache) {
+    if (status_ != napi_ok) return status_;
     scriptCache_ = std::move(scriptCache);
     return napi_ok;
   }
+
+  napi_status poison(napi_status status) {
+    if (status_ == napi_ok) status_ = status;
+    return status_;
+  }
+
+  napi_status status() const noexcept { return status_; }
 
   v8runtime::V8RuntimeArgs getV8RuntimeArgs() const {
     v8runtime::V8RuntimeArgs args{};
@@ -716,6 +745,7 @@ class ConfigWrapper {
   bool inspectorBreakOnStart_{};
   std::shared_ptr<V8TaskRunner> taskRunner_;
   std::shared_ptr<V8ScriptCache> scriptCache_;
+  napi_status status_{napi_ok};
 };
 
 class RuntimeWrapper {
@@ -746,181 +776,307 @@ class RuntimeWrapper {
 
 }  // namespace v8impl
 
-// Provides a hint to run garbage collection.
-// It is typically used for unit tests.
-JSR_API jsr_collect_garbage(napi_env env) {
-  return CHECKED_ENV(env)->collectGarbage();
-}
+namespace {
 
-// Checks if the environment has an unhandled promise rejection.
-JSR_API jsr_has_unhandled_promise_rejection(napi_env env, bool* result) {
-  return CHECKED_ENV(env)->hasUnhandledPromiseRejection(result);
-}
-
-// Gets and clears the last unhandled promise rejection.
-JSR_API jsr_get_and_clear_last_unhandled_promise_rejection(napi_env env,
-                                                           napi_value* result) {
-  return CHECKED_ENV(env)->getAndClearLastUnhandledPromiseRejection(result);
-}
-
-// To implement JSI description()
-JSR_API jsr_get_description(napi_env env, const char** result) {
-  return CHECKED_ENV(env)->getDescription(result);
-}
-
-// To implement JSI drainMicrotasks()
-JSR_API jsr_drain_microtasks(napi_env env,
-                             int32_t max_count_hint,
-                             bool* result) {
-  return CHECKED_ENV(env)->drainMicrotasks(max_count_hint, result);
-}
-
-// To implement JSI isInspectable()
-JSR_API jsr_is_inspectable(napi_env env, bool* result) {
-  return CHECKED_ENV(env)->isInspectable(result);
-}
-
-JSR_API jsr_open_napi_env_scope(napi_env env, jsr_napi_env_scope* scope) {
-  return CHECKED_ENV(env)->openEnvScope(scope);
-}
-
-JSR_API jsr_close_napi_env_scope(napi_env env, jsr_napi_env_scope scope) {
-  return CHECKED_ENV(env)->closeEnvScope(scope);
-}
-
-// Run script with source URL.
-JSR_API jsr_run_script(napi_env env,
-                       napi_value source,
-                       const char* source_url,
-                       napi_value* result) {
-  return CHECKED_ENV(env)->runScript(source, source_url, result);
-}
-
-// Prepare the script for running.
-JSR_API jsr_create_prepared_script(napi_env env,
-                                   const uint8_t* script_data,
-                                   size_t script_length,
-                                   jsr_data_delete_cb script_delete_cb,
-                                   void* deleter_data,
-                                   const char* source_url,
-                                   jsr_prepared_script* result) {
-  return CHECKED_ENV(env)->createPreparedScript(script_data,
-                                                script_length,
-                                                script_delete_cb,
-                                                deleter_data,
-                                                source_url,
-                                                result);
-}
-
-// Delete the prepared script.
-JSR_API jsr_delete_prepared_script(napi_env env,
-                                   jsr_prepared_script prepared_script) {
-  return CHECKED_ENV(env)->deletePreparedScript(prepared_script);
-}
-
-// Run the prepared script.
-JSR_API jsr_prepared_script_run(napi_env env,
-                                jsr_prepared_script prepared_script,
-                                napi_value* result) {
-  return CHECKED_ENV(env)->runPreparedScript(prepared_script, result);
-}
-
-JSR_API jsr_create_runtime(jsr_config config, jsr_runtime* runtime) {
-  V8_CHECK_ARG(config);
-  V8_CHECK_ARG(runtime);
-  *runtime = reinterpret_cast<jsr_runtime>(new v8impl::RuntimeWrapper(
-      *reinterpret_cast<v8impl::ConfigWrapper*>(config)));
+napi_status resolveUtf8(const char* value,
+                        size_t length,
+                        std::string& result) {
+  if (!value && length != 0 && length != V8_NODE_API_AUTO_LENGTH) {
+    return napi_invalid_arg;
+  }
+  if (length == V8_NODE_API_AUTO_LENGTH) {
+    length = value ? std::strlen(value) : 0;
+  }
+  result.assign(value ? value : "", length);
   return napi_ok;
 }
 
-JSR_API jsr_delete_runtime(jsr_runtime runtime) {
+}  // namespace
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_request_garbage_collection(napi_env env) {
+  return CHECKED_ENV(env)->collectGarbage();
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_has_unhandled_promise_rejection(
+    napi_env env,
+    bool* out_has_rejection) {
+  if (out_has_rejection) *out_has_rejection = false;
+  if (!out_has_rejection) return napi_invalid_arg;
+  return CHECKED_ENV(env)->hasUnhandledPromiseRejection(out_has_rejection);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_get_and_clear_last_unhandled_promise_rejection(
+    napi_env env,
+    napi_value* out_rejection) {
+  if (out_rejection) *out_rejection = nullptr;
+  if (!out_rejection) return napi_invalid_arg;
+  return CHECKED_ENV(env)->getAndClearLastUnhandledPromiseRejection(
+      out_rejection);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_get_description_utf8(
+    napi_env env,
+    const char** out_description) {
+  if (out_description) *out_description = nullptr;
+  if (!out_description) return napi_invalid_arg;
+  return CHECKED_ENV(env)->getDescription(out_description);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_queue_microtask(napi_env env, napi_value callback) {
+  return CHECKED_ENV(env)->queueMicrotask(callback);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_drain_microtasks(
+    napi_env env,
+    int32_t max_count_hint,
+    bool* out_drained) {
+  if (out_drained) *out_drained = false;
+  if (!out_drained) return napi_invalid_arg;
+  return CHECKED_ENV(env)->drainMicrotasks(max_count_hint, out_drained);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_is_inspectable(napi_env env, bool* out_inspectable) {
+  if (out_inspectable) *out_inspectable = false;
+  if (!out_inspectable) return napi_invalid_arg;
+  return CHECKED_ENV(env)->isInspectable(out_inspectable);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_scope_open(
+    napi_env env,
+    v8_node_api_env_scope* out_scope) {
+  if (out_scope) *out_scope = nullptr;
+  if (!out_scope) return napi_invalid_arg;
+  return CHECKED_ENV(env)->openEnvScope(out_scope);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_scope_close(
+    v8_node_api_env_scope scope,
+    napi_env env) {
+  return CHECKED_ENV(env)->closeEnvScope(scope);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_run_script_utf8(
+    napi_env env,
+    napi_value source,
+    const char* source_url_utf8,
+    size_t source_url_length,
+    napi_value* out_result) {
+  if (out_result) *out_result = nullptr;
+  if (!out_result) return napi_invalid_arg;
+  std::string sourceUrl;
+  napi_status status =
+      resolveUtf8(source_url_utf8, source_url_length, sourceUrl);
+  if (status != napi_ok) return status;
+  return CHECKED_ENV(env)->runScript(source, sourceUrl.c_str(), out_result);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_prepared_script_create_utf8(
+    napi_env env,
+    const uint8_t* script_data,
+    size_t script_length,
+    v8_node_api_data_delete_cb delete_script,
+    void* delete_data,
+    const char* source_url_utf8,
+    size_t source_url_length,
+    v8_node_api_prepared_script* out_script) {
+  if (out_script) *out_script = nullptr;
+  if (!env || !script_data || !source_url_utf8 || !out_script) {
+    if (delete_script) {
+      delete_script(delete_data, const_cast<uint8_t*>(script_data));
+    }
+    return napi_invalid_arg;
+  }
+  std::string sourceUrl;
+  napi_status status =
+      resolveUtf8(source_url_utf8, source_url_length, sourceUrl);
+  if (status != napi_ok) {
+    if (delete_script) {
+      delete_script(delete_data, const_cast<uint8_t*>(script_data));
+    }
+    return status;
+  }
+  return CHECKED_ENV(env)->createPreparedScript(script_data,
+                                                script_length,
+                                                delete_script,
+                                                delete_data,
+                                                sourceUrl.c_str(),
+                                                out_script);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_prepared_script_destroy(
+    v8_node_api_prepared_script script,
+    napi_env env) {
+  return CHECKED_ENV(env)->deletePreparedScript(script);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_prepared_script_run(
+    v8_node_api_prepared_script script,
+    napi_env env,
+    napi_value* out_result) {
+  if (out_result) *out_result = nullptr;
+  if (!out_result) return napi_invalid_arg;
+  return CHECKED_ENV(env)->runPreparedScript(script, out_result);
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_runtime_create(
+    uint32_t abi_version,
+    v8_node_api_configure_runtime_cb configure,
+    void* user_data,
+    v8_node_api_runtime* out_runtime) {
+  if (!out_runtime) return napi_invalid_arg;
+  *out_runtime = nullptr;
+  if (abi_version != V8_NODE_API_ABI_VERSION) return napi_invalid_arg;
+
+  v8impl::ConfigWrapper config;
+  if (configure) {
+    napi_status status = configure(
+        user_data, reinterpret_cast<v8_node_api_config>(&config));
+    if (status != napi_ok) return status;
+  }
+  if (config.status() != napi_ok) return config.status();
+
+  *out_runtime =
+      reinterpret_cast<v8_node_api_runtime>(new v8impl::RuntimeWrapper(config));
+  return napi_ok;
+}
+
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_runtime_destroy(v8_node_api_runtime runtime) {
   V8_CHECK_ARG(runtime);
   delete reinterpret_cast<v8impl::RuntimeWrapper*>(runtime);
   return napi_ok;
 }
 
-JSR_API v8_platform_dispose() {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_dispose_platform(void) {
   v8runtime::V8PlatformHolder::disposePlatform();
   return napi_ok;
 }
 
-JSR_API jsr_runtime_get_node_api_env(jsr_runtime runtime, napi_env* env) {
-  return CHECKED_RUNTIME(runtime)->getNodeApi(env);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_runtime_get_env(
+    v8_node_api_runtime runtime,
+    napi_env* out_env) {
+  if (out_env) *out_env = nullptr;
+  if (!out_env) return napi_invalid_arg;
+  return CHECKED_RUNTIME(runtime)->getNodeApi(out_env);
 }
 
-JSR_API jsr_create_node_api_env(napi_env root_env,
-                                int32_t api_version,
-                                napi_env* env) {
-  return CHECKED_ENV(root_env)->createNodeApi(api_version, env);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_runtime_get_jsi_runtime(
+    v8_node_api_runtime /*runtime*/,
+    jsi_runtime** out_runtime) {
+  if (out_runtime) *out_runtime = nullptr;
+  return out_runtime ? napi_generic_failure : napi_invalid_arg;
 }
 
-JSR_API jsr_run_task(napi_env env, jsr_task_run_cb task_cb, void* data) {
-  return CHECKED_ENV(env)->runTask(task_cb, data);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_create_module(
+    napi_env root_env,
+    int32_t api_version,
+    napi_env* out_env) {
+  if (out_env) *out_env = nullptr;
+  if (!out_env) return napi_invalid_arg;
+  return CHECKED_ENV(root_env)->createNodeApi(api_version, out_env);
 }
 
-JSR_API jsr_create_config(jsr_config* config) {
-  V8_CHECK_ARG(config);
-  *config = reinterpret_cast<jsr_config>(new v8impl::ConfigWrapper());
-  return napi_ok;
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_run_task(
+    napi_env env,
+    v8_node_api_task_run_cb run_task,
+    void* user_data) {
+  if (!run_task) return napi_invalid_arg;
+  return CHECKED_ENV(env)->runTask(run_task, user_data);
 }
 
-JSR_API jsr_delete_config(jsr_config config) {
-  V8_CHECK_ARG(config);
-  delete reinterpret_cast<v8impl::ConfigWrapper*>(config);
-  return napi_ok;
-}
-
-JSR_API jsr_config_enable_inspector(jsr_config config, bool value) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_inspector_enabled(
+    v8_node_api_config config,
+    bool value) {
   return CHECKED_CONFIG(config)->enableInspector(value);
 }
 
-JSR_API jsr_config_enable_gc_api(jsr_config config, bool value) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_gc_api_enabled(
+    v8_node_api_config config,
+    bool value) {
   return CHECKED_CONFIG(config)->enableGCApi(value);
 }
 
-JSR_API v8_config_enable_multithreading(jsr_config config, bool value) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_multithreading_enabled(
+    v8_node_api_config config,
+    bool value) {
   return CHECKED_CONFIG(config)->enableMultithreading(value);
 }
 
-JSR_API jsr_config_set_inspector_runtime_name(jsr_config config,
-                                              const char* name) {
-  return CHECKED_CONFIG(config)->setInspectorRuntimeName(name);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_inspector_runtime_name_utf8(
+    v8_node_api_config config,
+    const char* value,
+    size_t length) {
+  if (!config) return napi_generic_failure;
+  auto* wrapper = reinterpret_cast<v8impl::ConfigWrapper*>(config);
+  if (!value) return wrapper->poison(napi_invalid_arg);
+  std::string name;
+  napi_status status = resolveUtf8(value, length, name);
+  if (status != napi_ok) return wrapper->poison(status);
+  return wrapper->setInspectorRuntimeName(std::move(name));
 }
 
-JSR_API jsr_config_set_inspector_port(jsr_config config, uint16_t port) {
-  return CHECKED_CONFIG(config)->setInspectorPort(port);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_inspector_port(
+    v8_node_api_config config,
+    uint16_t value) {
+  return CHECKED_CONFIG(config)->setInspectorPort(value);
 }
 
-JSR_API jsr_config_set_inspector_break_on_start(jsr_config config, bool value) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_inspector_break_on_start(
+    v8_node_api_config config,
+    bool value) {
   return CHECKED_CONFIG(config)->setInspectorBreakOnStart(value);
 }
 
-JSR_API jsr_config_set_task_runner(
-    jsr_config config,
-    void* task_runner_data,
-    jsr_task_runner_post_task_cb task_runner_post_task_cb,
-    jsr_data_delete_cb task_runner_data_delete_cb,
-    void* deleter_data) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_task_runner(
+    v8_node_api_config config,
+    v8_node_api_task_runner_post_task_cb post_task,
+    void* user_data,
+    v8_node_api_data_delete_cb delete_user_data,
+    void* delete_data) {
+  if (!config) {
+    if (delete_user_data) delete_user_data(delete_data, user_data);
+    return napi_generic_failure;
+  }
   return CHECKED_CONFIG(config)->setTaskRunner(
-      std::make_shared<v8impl::V8TaskRunner>(task_runner_data,
-                                             task_runner_post_task_cb,
-                                             task_runner_data_delete_cb,
-                                             deleter_data));
+      std::make_shared<v8impl::V8TaskRunner>(
+          user_data, post_task, delete_user_data, delete_data));
 }
 
-JSR_API jsr_config_set_script_cache(
-    jsr_config config,
-    void* script_cache_data,
-    jsr_script_cache_load_cb script_cache_load_cb,
-    jsr_script_cache_store_cb script_cache_store_cb,
-    jsr_data_delete_cb script_cache_data_delete_cb,
-    void* deleter_data) {
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_config_set_script_cache(
+    v8_node_api_config config,
+    v8_node_api_script_cache_load_cb load,
+    v8_node_api_script_cache_store_cb store,
+    void* user_data,
+    v8_node_api_data_delete_cb delete_user_data,
+    void* delete_data) {
+  if (!config) {
+    if (delete_user_data) delete_user_data(delete_data, user_data);
+    return napi_generic_failure;
+  }
   return CHECKED_CONFIG(config)->setScriptCache(
-      std::make_shared<v8impl::V8ScriptCache>(script_cache_data,
-                                              script_cache_load_cb,
-                                              script_cache_store_cb,
-                                              script_cache_data_delete_cb,
-                                              deleter_data));
+      std::make_shared<v8impl::V8ScriptCache>(
+          user_data, load, store, delete_user_data, delete_data));
 }
 
 namespace node {
@@ -1022,42 +1178,50 @@ napi_create_external_buffer(napi_env env,
 //=============================================================================
 
 // Gets garbage collection statistics as a JSON-encoded string
-JSR_API jsr_instrumentation_get_gc_stats(napi_env env,
-                                         jsr_string_output_cb cb,
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_get_recorded_gc_stats_utf8(napi_env env,
+                                         v8_node_api_utf8_output_cb cb,
                                          void* cb_ctx) {
   return CHECKED_ENV(env)->instrumentationGetGCStats(cb, cb_ctx);
 }
 
 // Gets current heap information as a struct
-JSR_API jsr_instrumentation_get_heap_info(napi_env env,
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_get_heap_info(napi_env env,
                                           bool include_expensive,
-                                          jsr_heap_info_cb cb,
+                                          v8_node_api_heap_info_cb cb,
                                           void* cb_ctx) {
   return CHECKED_ENV(env)->instrumentationGetHeapInfo(
       include_expensive, cb, cb_ctx);
 }
 
-JSR_API jsr_instrumentation_collect_garbage(napi_env env, const char* cause) {
-  return CHECKED_ENV(env)->instrumentationCollectGarbage(cause);
+V8_NODE_API_API napi_status V8_NODE_API_CDECL
+v8_node_api_env_collect_garbage_utf8(
+    napi_env env,
+    const char* cause_utf8,
+    size_t cause_length) {
+  if (!cause_utf8) return napi_invalid_arg;
+  std::string cause;
+  napi_status status = resolveUtf8(cause_utf8, cause_length, cause);
+  if (status != napi_ok) return status;
+  return CHECKED_ENV(env)->instrumentationCollectGarbage(cause.c_str());
 }
 
 // Starts heap sampling profiler
-JSR_API jsr_instrumentation_start_heap_sampling(napi_env env,
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_start_heap_sampling(napi_env env,
                                                 size_t sampling_interval) {
   return CHECKED_ENV(env)->instrumentationStartHeapSampling(sampling_interval);
 }
 
 // Stops heap sampling profiler and returns the result as JSON
-JSR_API jsr_instrumentation_stop_heap_sampling(napi_env env,
-                                               jsr_string_output_cb cb,
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_stop_heap_sampling_utf8(napi_env env,
+                                               v8_node_api_utf8_output_cb cb,
                                                void* cb_ctx) {
   return CHECKED_ENV(env)->instrumentationStopHeapSampling(cb, cb_ctx);
 }
 
 // Creates a heap snapshot and saves it to a file
-JSR_API jsr_instrumentation_create_heap_snapshot(napi_env env,
+V8_NODE_API_API napi_status V8_NODE_API_CDECL v8_node_api_env_create_heap_snapshot_utf8(napi_env env,
                                                  bool capture_numeric_value,
-                                                 jsr_string_output_cb cb,
+                                                 v8_node_api_utf8_output_cb cb,
                                                  void* cb_ctx) {
   return CHECKED_ENV(env)->instrumentationCreateHeapSnapshot(
       capture_numeric_value, cb, cb_ctx);
