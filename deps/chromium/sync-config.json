@@ -3,6 +3,7 @@
   "branch": "main",
   "commit": "a1956b5dc600da374ac77dae6723e664488f09c2",
   "sparsePaths": [
+    "LICENSE",
     "base",
     "sandbox",
     "build",
@@ -32,7 +33,23 @@
     "tools/protoc_wrapper",
     "tools/win"
   ],
-  "cloneFilter": "tree:0",
+  "fetchMode": "snapshot",
+  "submodules": {
+    "third_party/boringssl/src": {},
+    "third_party/compiler-rt/src": {},
+    "third_party/googletest/src": {},
+    "third_party/icu": {},
+    "third_party/libc++/src": {},
+    "third_party/llvm-libc/src": {},
+    "third_party/nasm": {},
+    "third_party/perfetto": {
+      "fallbackUrls": [
+        "https://github.com/google/perfetto"
+      ]
+    },
+    "third_party/re2/src": {}
+  },
+  "keepLocalDeletions": true,
   "tag": "149.0.7827.149",
   "lastSync": "2026-06-16T18:18:01.667Z"
 }
