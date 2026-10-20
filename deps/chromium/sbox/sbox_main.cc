@@ -93,7 +93,7 @@ enum WorkerExit {
   kLowerTokenFailed = 15,
   kPingPostFailed = 16,
   kRunFailed = 17,  // plugin.run returned non-sbox_status_ok (see worker log; e.g. ACG not enforced)
-  kDelayLoadRefused = 18,  // the worker reached a delay-loaded import (see below)
+  kDelayLoadRefused = 19,  // the worker reached a delay-loaded import (see below); 18 is v8host's runaway exit
 };
 
 // user32/shell32/ole32 are delay-loaded for the broker role only. An

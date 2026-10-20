@@ -19,9 +19,9 @@ namespace {
 // loads this DLL too and must never initialize user32 (an AppContainer worker
 // dies doing so on a service logon's desktop; see //sbox:sbox). Only the worker
 // calls warmup; from then on any delay load ends the worker with sbox.exe's
-// kDelayLoadRefused exit code (18), on any desktop.
+// kDelayLoadRefused exit code (19), on any desktop.
 bool g_worker = false;
-constexpr UINT kDelayLoadRefused = 18;
+constexpr UINT kDelayLoadRefused = 19;
 
 FARPROC WINAPI WorkerDelayLoadGuard(unsigned notify, PDelayLoadInfo info) {
   if (g_worker && notify == dliStartProcessing) {

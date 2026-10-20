@@ -42,6 +42,12 @@ bool RunProcess(const std::wstring& command, DWORD* exit_code) {
   ::CloseHandle(process.hThread);
   const bool waited =
       ::WaitForSingleObject(process.hProcess, 10000) == WAIT_OBJECT_0;
+  if (!waited) {
+    // A hung child must not outlive the test: it could hold a broker endpoint
+    // or payload files a later case reuses. The timeout still fails the call.
+    ::TerminateProcess(process.hProcess, ERROR_TIMEOUT);
+    ::WaitForSingleObject(process.hProcess, 5000);
+  }
   DWORD code = 0;
   const bool queried = waited && ::GetExitCodeProcess(process.hProcess, &code);
   ::CloseHandle(process.hProcess);

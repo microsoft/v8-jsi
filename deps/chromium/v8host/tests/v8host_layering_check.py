@@ -4,12 +4,13 @@
 import argparse
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
 
 FORBIDDEN = (
-    ("client API", "v8host_client_"),
+    ("client implementation", "v8host::client"),
     ("coordinator namespace", "v8host::coordinator"),
     ("coordinator entry", "v8hostbrokerrun"),
     ("coordinator implementation", "brokerservice"),
@@ -26,6 +27,13 @@ FORBIDDEN = (
     ("Chromium sandbox core", "targetservices"),
     ("Chromium sandbox core", "policybase"),
     ("Chromium sandbox core", "sbox_core"),
+)
+
+# The public client API (src/public/v8host_client.h): extern "C" functions, so
+# their undefined symbols are plain names, possibly decorated (_name, _name@N)
+# or imported (__imp_name).
+CLIENT_API = re.compile(
+    r"^(?:__imp_)?_?v8host_(?:initialize|(?:broker|session|run|runtime|worker|config)_\w+)(?:@\d+)?$"
 )
 
 
@@ -72,6 +80,9 @@ def main() -> int:
             for category, needle in FORBIDDEN:
                 if needle in lowered:
                     failures.append((obj, category, line.strip()))
+            fields = line.split()
+            if len(fields) == 2 and CLIENT_API.match(fields[1]):
+                failures.append((obj, "client API", line.strip()))
 
     if failures:
         print("v8host engine layering check FAILED:", file=sys.stderr)

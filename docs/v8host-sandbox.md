@@ -64,9 +64,10 @@ A cross-architecture client DLL belongs in its own architecture directory,
 beside the native payload directory.
 
 NuGet stages the payload and import library under `build\native\<rid>` before
-packing. The per-RID package puts the binaries in `runtimes\<rid>\native` and
-keeps import libraries in `build\native\<rid>`; the legacy package keeps both
-under `build\native\<rid>`. With `UseV8Sandbox=True`, the targets copy
+packing. The per-RID `Microsoft.JavaScript.V8.<rid>` package puts the binaries in
+`runtimes\<rid>\native` and keeps import libraries in `build\native\<rid>`. The
+legacy `ReactNative.V8Jsi.Windows` package carries no sandbox payload and rejects
+`UseV8Sandbox`. With `UseV8Sandbox=True`, the targets copy
 `sbox.exe`, `v8host.dll`, and `v8jsisb.dll` beside the application, without
 relocating its output. Set `<OutDir>...\x64\</OutDir>` (or `arm64`) and keep
 `TargetDir` equal to `OutDir`. The directory name is case-insensitive.
