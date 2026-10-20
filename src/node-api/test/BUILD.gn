@@ -335,6 +335,7 @@ executable("node_lite") {
   ]
 
   include_dirs = [
+    "../..",
     "..",
     "../../public",
   ]
