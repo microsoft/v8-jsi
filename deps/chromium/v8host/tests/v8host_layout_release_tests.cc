@@ -10,6 +10,7 @@
 
 #include "v8host_file_identity.h"
 #include "v8host_payload_identity.h"
+#include "v8host_peer_auth.h"
 
 #include <winioctl.h>
 
@@ -185,6 +186,58 @@ bool PayloadFinalPathPolicy(std::string* detail) {
   return ok || Fail(detail, "contained hard link / sibling prefix / parent junction / final reparse policy");
 }
 
+// The release broker admits an unsigned application client (an Office developer
+// build, for one): this unsigned exe connects to itself through a pipe and the
+// real WinVerifyTrust runs. Without the allowance the release policy rejects it.
+bool UnsignedClientAccepted(std::string* detail) {
+  const std::wstring name = L"\\\\.\\pipe\\v8host-release-authtest-" +
+                            std::to_wstring(::GetCurrentProcessId()) + L"-" +
+                            std::to_wstring(::GetTickCount64());
+  const HANDLE server = ::CreateNamedPipeW(
+      name.c_str(), PIPE_ACCESS_DUPLEX, PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+      1, 256, 256, 0, nullptr);
+  if (server == INVALID_HANDLE_VALUE) return Fail(detail, "pipe server");
+  const HANDLE client = ::CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                      OPEN_EXISTING, 0, nullptr);
+  bool ok = false;
+  if (client == INVALID_HANDLE_VALUE) {
+    *detail = "pipe client";
+  } else {
+    ::ConnectNamedPipe(server, nullptr);
+    wchar_t self[MAX_PATH] = {};
+    ::GetModuleFileNameW(nullptr, self, MAX_PATH);
+    v8host::HeldFile image;
+    v8host::PeerAuthPolicy policy = {};
+    policy.peer_side = v8host::PeerSide::kPipeClient;
+    policy.mode = v8host::BrokerMode::kDedicated;
+    DWORD error = ERROR_SUCCESS;
+    if (!v8host::OpenImmutableFile(self, &image, &error) ||
+        !v8host::QueryCurrentSidAndSession(&policy.expected_sid, &policy.expected_session,
+                                           &error)) {
+      *detail = "self identity";
+    } else if (v8host::VerifyTrust(image) != v8host::TrustStatus::kUnsigned) {
+      *detail = "the test exe must be unsigned for this case";
+    } else {
+      v8host::HeldProcess peer;
+      if (v8host::AuthenticatePipePeer(server, policy, &peer, &error) ||
+          error != static_cast<DWORD>(TRUST_E_NOSIGNATURE)) {
+        *detail = "an unsigned peer without the allowance was not rejected with 0x800b0100";
+      } else {
+        policy.allow_unsigned_image = true;
+        ok = v8host::AuthenticatePipePeer(server, policy, &peer, &error);
+        if (!ok) {
+          char text[96];
+          std::snprintf(text, sizeof(text), "unsigned client rejected with 0x%08lx", error);
+          *detail = text;
+        }
+      }
+    }
+    ::CloseHandle(client);
+  }
+  ::CloseHandle(server);
+  return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -194,6 +247,7 @@ int main(int argc, char** argv) {
       {"layout-release", "install-root-derivation", InstallRootDerivation},
       {"layout-release", "reparse-outside-root", ReparseOutsideRoot},
       {"layout-release", "payload-final-path-policy", PayloadFinalPathPolicy},
+      {"layout-release", "unsigned-client-accepted", UnsignedClientAccepted},
   };
   return v8host::test::RunTests(argc, argv, tests);
 }

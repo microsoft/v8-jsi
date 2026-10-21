@@ -44,10 +44,10 @@ auto-skip.
   not an x86 worker; this package-surface smoke does not qualify cross-arch pairs.
   With `-UseV8Sandbox` on x86 it only asserts that the package rejects
   `UseV8Sandbox` (`run-snapshot.ps1` does the same).
-  Shipped (release-trust) sandbox binaries accept only a validly signed client,
-  so the signed-pack acceptance (`build.ts --test-acceptance`) passes
-  `-ReleaseTrustPayload`: the unsigned consumer must be rejected with
-  `TRUST_E_NOSIGNATURE` (`0x800b0100`). CI then signs
+  Shipped (release-trust) sandbox binaries require signed payloads but accept
+  an unsigned client, so the signed-pack acceptance (`build.ts --test-acceptance`)
+  passes `-ReleaseTrustPayload`: the unsigned consumer must run its sandbox
+  session successfully. CI then signs
   `bin\Release\<arch>\v8jsi_smoke.exe` and runs
   `run-smoke.ps1 -UseV8Sandbox -RunSigned`, which requires a valid signature and
   a successful session.

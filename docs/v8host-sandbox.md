@@ -15,10 +15,10 @@ the **developer** trust policy: unsigned payloads and non-architecture layouts
 are accepted so the suites can run on unsigned outputs. The shipped binaries
 are built with `--release-trust`, which compiles the developer policy out:
 every payload file must carry a valid signature, and the layout must be the
-`<install-root>\<native-arch>\` one below. The broker also verifies the client
-process image, so an application that uses the shipped binaries must itself be
-Authenticode-signed; an unsigned application fails to connect
-(`v8host_status_connect_failed`). The hygiene gate (`--check`) fails a
+`<install-root>\<native-arch>\` one below. The broker does not require the
+client application to be signed: an unsigned application (a developer build,
+for example) connects to the shipped binaries. A client image with an invalid
+(tampered) signature is rejected. The hygiene gate (`--check`) fails a
 release-trust build that still contains developer hooks. Release payload opens
 reject final-component reparse points, and the resolved container, plugin and
 engine paths must be strictly below the container-derived install root.
@@ -133,7 +133,8 @@ message window.
 Before any protocol exchange, client and broker authenticate each other.
 Checks bind the connection to the live peer process, same-user identity,
 held image files, and the payload signature policy. The client verifies the
-expected broker image and plugin; the broker verifies the client image.
+expected broker image and plugin; the broker verifies the client image, which
+may be unsigned but must not carry an invalid signature.
 Files remain held during the relevant launch or connection lifetime so path
 replacement cannot substitute a different image after verification.
 Shared mode additionally requires the client's canonical image path to be
@@ -293,10 +294,9 @@ likewise does not prove that JavaScript produced no effects.
   set is present in the required native directory.
 - **Trust failure:** connection establishment also reports
   `v8host_status_connect_failed`; there is no separate public trust status.
-  Check signatures (the payload and, with the shipped binaries, the
-  application's own executable) and shared-mode client co-location. The broker
-  logs the failing check as `client authentication failed category=<code>`;
-  `0x800b0100` means the application is unsigned. Do not disable
+  Check payload signatures and shared-mode client co-location. The broker logs
+  the failing check as `client authentication failed category=<code>`;
+  `0x800b0004` means the application's signature is invalid. Do not disable
   verification or change broker mode as a recovery fallback.
 - **Wrong architecture or layout:** `v8host_status_connect_failed` can also
   mean rejected payload identity or install-root layout. Check native machine

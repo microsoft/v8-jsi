@@ -369,6 +369,8 @@ class BrokerService {
     policy.expected_sid = sid_;
     policy.expected_session = session_;
     policy.install_root = payload_.install_root;
+    // Applications may be unsigned (see PeerAuthPolicy); payload trust is separate.
+    policy.allow_unsigned_image = true;
     v8host::HeldProcess peer;
     DWORD error = ERROR_SUCCESS;
     const bool authenticated = v8host::AuthenticatePipePeer(pipe, policy, &peer, &error);
