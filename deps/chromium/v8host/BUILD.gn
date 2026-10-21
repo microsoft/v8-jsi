@@ -493,11 +493,16 @@ executable("v8host_layout_release_tests") {
     "common/v8host_file_identity.h",
     "common/v8host_payload_identity.cc",
     "common/v8host_payload_identity.h",
+    "coordinator/v8host_peer_auth.cc",
+    "coordinator/v8host_peer_auth.h",
     "tests/v8host_layout_release_tests.cc",
     "tests/v8host_test_support.cc",
     "tests/v8host_test_support.h",
   ]
-  include_dirs = [ "common" ]
+  include_dirs = [
+    "common",
+    "coordinator",
+  ]
   deps = [ ":protocol" ]
   libs = [
     "bcrypt.lib",

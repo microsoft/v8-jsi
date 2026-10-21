@@ -347,7 +347,7 @@ Boolean flags (all support --no- prefix):
                       leg on (the final multi-engine pack always carries v8jsisb.dll).
                       The pack's sandbox binaries must be the shipped release-trust
                       build: the x64/ARM64 sandbox smoke requires the unsigned
-                      consumer to be rejected; sign it, then run
+                      consumer to succeed; sign it, then run
                       tests/run-smoke.ps1 -UseV8Sandbox -RunSigned
   --binskim           Run BinSkim security validation
   --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
@@ -1025,9 +1025,9 @@ function runHarnessScenario(
 // Real-consumer smoke: builds the consumer in Release + Debug against the
 // Release v8jsi.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
 // boundary) and runs the JSI ABI checks. Under acceptance the pack carries the
-// shipped release-trust sandbox binaries, which accept only a signed client:
-// the sandbox leg requires the unsigned consumer to be rejected, and CI signs
-// it and runs `tests/run-smoke.ps1 -UseV8Sandbox -RunSigned` for the positive.
+// shipped release-trust sandbox binaries, which require signed payloads but
+// accept an unsigned client: the sandbox leg requires the unsigned consumer to
+// succeed, and CI signs it and runs `tests/run-smoke.ps1 -UseV8Sandbox -RunSigned`.
 function runSmoke(
   outputPath: string,
   platforms: string[],

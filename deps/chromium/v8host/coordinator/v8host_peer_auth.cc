@@ -75,7 +75,8 @@ bool AuthenticatePipePeer(HANDLE pipe,
   if (!EqualLuid(identity.logon_session(), policy.expected_session))
     return fail(ERROR_NO_SUCH_LOGON_SESSION);
   const TrustStatus trust = verify_trust(identity.image());
-  if (!TrustAllowed(trust)) {
+  if (!TrustAllowed(trust) &&
+      !(policy.allow_unsigned_image && trust == TrustStatus::kUnsigned)) {
     return fail(static_cast<DWORD>(
         trust == TrustStatus::kUnsigned  ? TRUST_E_NOSIGNATURE
         : trust == TrustStatus::kInvalid ? TRUST_E_SUBJECT_NOT_TRUSTED

@@ -714,9 +714,9 @@ extends:
               # Restore the signed per-RID package as a real consumer and run the
               # smoke + snapshot suite (both engines) against it. --test-acceptance
               # forces the sandbox leg on: the final pack MUST carry v8jsisb.dll.
-              # The shipped sandbox binaries accept only a validly signed client
-              # image, so on x64/ARM64 the sandbox smoke runs the consumer unsigned
-              # and requires the broker to reject it (0x800b0100); x86 consumers
+              # The shipped sandbox binaries require signed payloads but accept an
+              # unsigned client image, so on x64/ARM64 the sandbox smoke runs the
+              # consumer unsigned and requires its session to succeed; x86 consumers
               # must get the package's UseV8Sandbox rejection instead.
             - pwsh: |
                 node scripts/build.ts --no-build --no-test --test-acceptance `

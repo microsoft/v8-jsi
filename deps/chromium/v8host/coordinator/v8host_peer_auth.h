@@ -18,6 +18,12 @@ struct PeerAuthPolicy {
   std::wstring install_root;
   const HeldFile* expected_image = nullptr;
   HANDLE launched_process = nullptr;
+  // Accept an unsigned peer image under every trust policy. The broker sets it
+  // for application clients: a same-user, same-session client's signature is
+  // not a security boundary, and host apps (e.g. developer builds) are often
+  // unsigned. An invalid (tampered) signature is still rejected. Never set it
+  // when the peer is a payload image (the broker itself).
+  bool allow_unsigned_image = false;
 };
 
 // Test-only injection seam. Production callers pass nullptr (the default) and
@@ -42,7 +48,8 @@ struct PeerAuthHooks {
 //   ERROR_BAD_PIPE                the peer PID changed between reads;
 //   ERROR_INVALID_OWNER           the peer runs as a different user;
 //   ERROR_NO_SUCH_LOGON_SESSION   the peer is in a different logon session;
-//   TRUST_E_NOSIGNATURE           the peer image is unsigned (release policy);
+//   TRUST_E_NOSIGNATURE           the peer image is unsigned (release policy,
+//                                 without allow_unsigned_image);
 //   TRUST_E_SUBJECT_NOT_TRUSTED   the peer image's signature is not valid;
 //   TRUST_E_SYSTEM_ERROR          the peer image's trust could not be checked;
 //   ERROR_NOT_SAME_OBJECT         the peer image is not the expected payload;

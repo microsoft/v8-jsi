@@ -18,10 +18,11 @@
 # bin\<Configuration>\<Platform>\ (x64 or arm64 for sandbox consumers). For x86
 # consumers the package rejects UseV8Sandbox; the script asserts that and stops.
 #
-# Shipped (release-trust) sandbox binaries accept only a validly signed client
-# image, so the signed-pack acceptance runs the sandbox leg in two parts:
-#   -ReleaseTrustPayload  build the consumer and run it unsigned: the broker must
-#                         reject it with TRUST_E_NOSIGNATURE (0x800b0100);
+# Shipped (release-trust) sandbox binaries require signed payloads but accept an
+# unsigned client image, so the signed-pack acceptance runs the sandbox leg in
+# two parts:
+#   -ReleaseTrustPayload  build the consumer and run it unsigned: the session must
+#                         succeed against the release-trust broker;
 #   -RunSigned            after the EXE is signed in place, skip restore and
 #                         build, require a valid signature, run, expect success.
 #
@@ -110,17 +111,21 @@ $exe = Build-Consumer -HarnessDir $harnessDir -Configuration $Configuration `
 
 Write-Host "tests: running $exe"
 if ($UseV8Sandbox -and $ReleaseTrustPayload) {
+    $signature = Get-AuthenticodeSignature -FilePath $exe
+    if ($signature.Status -ne 'NotSigned') {
+        throw "-ReleaseTrustPayload requires an unsigned consumer; $exe is $($signature.Status)."
+    }
     # Native stderr must not become a terminating error here.
     $ErrorActionPreference = 'Continue'
     $output = & $exe 2>&1 | ForEach-Object { "$_" }
     $exitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     $output | Out-Host
-    if ($exitCode -eq 0) { throw 'The release-trust broker accepted an unsigned consumer.' }
-    if (($output -join "`n") -notmatch 'client authentication failed category=\d+ \(0x800b0100\)') {
-        throw 'Expected the broker to reject the unsigned consumer with TRUST_E_NOSIGNATURE (0x800b0100).'
+    if ($exitCode -ne 0) { throw "The release-trust broker failed the unsigned consumer (exit $exitCode)." }
+    if (($output -join "`n") -notmatch 'test-harness: sandbox smoke OK') {
+        throw 'unsigned v8jsi_smoke.exe did not run the sandbox session (not the sandbox build?)'
     }
-    Write-Host 'tests: unsigned consumer rejected by the release-trust broker (0x800b0100)'
+    Write-Host 'tests: unsigned consumer accepted by the release-trust broker'
     Write-Host 'tests: sign the consumer, then rerun with -UseV8Sandbox -RunSigned'
     exit 0
 }

@@ -5033,7 +5033,23 @@ bool AuthUntrustedImageReject(std::string* detail) {
                     "unverifiable peer image", detail, &hooks))
     return false;
   // An unsigned peer: accepted only by the development trust policy; the
-  // release policy (SBOX_DEV_ALLOW_UNSIGNED compiled out) rejects it.
+  // release policy (SBOX_DEV_ALLOW_UNSIGNED compiled out) rejects it, unless
+  // the policy allows an unsigned image (the broker does, for applications).
+  hooks.verify_trust = [](const v8host::HeldFile&) {
+    return v8host::TrustStatus::kUnsigned;
+  };
+  v8host::PeerAuthPolicy app_policy = policy;
+  app_policy.allow_unsigned_image = true;
+  if (!Authenticates(peer, app_policy, &hooks)) {
+    *detail = "an unsigned application peer was rejected";
+    return false;
+  }
+  hooks.verify_trust = [](const v8host::HeldFile&) {
+    return v8host::TrustStatus::kInvalid;
+  };
+  if (!RejectedWith(peer, app_policy, static_cast<DWORD>(TRUST_E_SUBJECT_NOT_TRUSTED),
+                    "invalid application peer signature", detail, &hooks))
+    return false;
   hooks.verify_trust = [](const v8host::HeldFile&) {
     return v8host::TrustStatus::kUnsigned;
   };
