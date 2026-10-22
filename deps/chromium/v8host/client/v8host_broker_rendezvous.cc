@@ -322,9 +322,14 @@ RendezvousStatus BrokerRendezvous::LaunchCandidate(
     command += L" --nonce=" + NonceHex(nonce_);
   STARTUPINFOW startup = {};
   startup.cb = sizeof(startup);
+  // sbox.exe is a console program. A client without a console (a GUI app)
+  // would otherwise get a new visible console window for the broker, so the
+  // broker starts without a console; a console client keeps sharing its
+  // console with the broker.
+  const DWORD creation_flags = ::GetConsoleCP() ? 0 : DETACHED_PROCESS;
   *process = {};
   if (!::CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr,
-                        FALSE, 0, nullptr,
+                        FALSE, creation_flags, nullptr,
                         payload_directory_.c_str(), &startup, process))
     return RendezvousStatus::kLaunchFailed;
   return RendezvousStatus::kOk;
