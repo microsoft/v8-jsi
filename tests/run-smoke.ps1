@@ -46,6 +46,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Node can pass PowerShell 7's module path to Windows PowerShell 5.1.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+
 $harnessDir = $PSScriptRoot
 if (-not $harnessDir) { $harnessDir = Split-Path -Parent $MyInvocation.MyCommand.Definition }
 if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $harnessDir '..')).Path }

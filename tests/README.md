@@ -70,4 +70,9 @@ behavior, then call it from a `run<Name>()` in `scripts/build.ts` (mirror
 > external command whose output you don't want in a function's return value to
 > `| Out-Host` (PowerShell folds uncaptured stdout into the return).
 
+[run-smoke.ps1](./run-smoke.ps1) explicitly imports the security module from
+`$PSHOME`. When CI launches Windows PowerShell through Node from PowerShell 7,
+the inherited `PSModulePath` can otherwise select PowerShell 7's incompatible
+module during signature checks.
+
 Build outputs (`bin/`, `obj/`, `packages/`, `snap/`) are git-ignored.
