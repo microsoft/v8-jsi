@@ -63,6 +63,11 @@ again until the build is nearly a no-op, then test. To run the sandbox with a
 fresh engine, copy `v8jsisb.dll` and its PDB into
 `deps/chromium/out/sandbox-x64` yourself; no script does it.
 
+Architecture switches share those output folders too. The first build after
+switching architecture can report missing embedded-blob symbols or leave stale
+builtins. Build again until nearly a no-op before testing; never run two
+architectures or variants concurrently in the same Node output directory.
+
 **Key build files:**
 - `src/v8jsi.gyp` — main GYP target for v8jsi
 - `deps/nodejs/node.gyp` — includes `v8jsi.gyp` when `build_v8jsi=1`
