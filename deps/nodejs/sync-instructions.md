@@ -8,19 +8,29 @@ behavior is preserved when the new options aren't requested.
 
 ## Rule of thumb
 
-If a conflict hunk contains any of the markers below, KEEP OURS for that
-hunk and merge upstream's surrounding edits around it. Our hunks are
-additive — there is no "either/or" with upstream.
+Preserve the downstream contracts below while merging upstream's surrounding
+changes. Do not blindly keep an entire conflicting hunk: upstream can replace
+the API, compiler phase, or default that our patch originally extended.
 
-## Markers to preserve (keep ours)
+## Contracts to preserve
 
-- **`v8jsi`** (vcbuild.bat keyword) and **`--build-v8jsi`** / **`build_v8jsi`**
+- **`v8jsi` / `v8jsisb`** (vcbuild.bat keywords) and
+  **`--build-v8jsi` / `--build-v8jsisb`** / **`build_v8jsi` / `build_v8jsisb`**
   (configure.py flag/var, node.gyp variable + `build_v8jsi==1` conditional
   `includes:` of `../../src/v8jsi.gyp` and `../../src/node-api/test/node_api_tests.gyp`).
+- **Sandbox profile:** v8jsisb is jitless/lite with Turbofan, Maglev, Sparkplug,
+  and WebAssembly off. The x64/ARM64 variants enable the V8 sandbox with a
+  pointer-compression shared cage; x86 remains jitless without that 64-bit cage.
+  Keep the ordinary v8jsi profile and non-v8jsi upstream defaults unchanged.
+- **Build-time snapshot compiler:** mksnapshot still needs the compiler to
+  generate embedded builtins when the shipped engine has Turbofan disabled.
+  Reassess the compiler dependencies, excluded Turbolev sources, and
+  `tools/v8_gypfiles/turbolev_phase_stub.cc` against the new V8 phase signatures.
 - **`no-node` / `no-cctest` / `no-embedtest` / `no-openssl-cli` / `no-fuzzers` /
   `no-nop` / `no-overlapped-checker`** in vcbuild.bat and the **"Additive
   target-list mode"** block that consumes them (`target_list`,
-  `use_target_list`, the strip-leading-`;` line).
+  `use_target_list`, the strip-leading-`;` line). Our explicit targets include
+  `v8jsi_test`, `node_api_tests`, and `mkv8snapshot`.
 - **x86 re-enablement** in vcbuild.bat (removal of *"32-bit Windows builds
   are not supported anymore"*, `msvs_host_arch` detection, `msbplatform=Win32`
   default, `--no-cross-compiling` for AMD64→x86), in configure.py
@@ -31,6 +41,12 @@ additive — there is no "either/or" with upstream.
   `push_registers_asm.cc` source).
 - **`where /R ..\..\src /T *.gyp*`** line in vcbuild.bat (reconfigure
   stamp watches v8-jsi-side gyp files).
+- **`v8jsi_source_link_json`** in configure.py: an absolute path to the
+  generated SourceLink map used by our GYP linker options.
+- **Local metadata and licenses:** preserve `.syncignore`, these instructions,
+  the SQLite and fast_float license additions, and the Git-ignore exceptions
+  that keep them trackable. Snapshot mode with `keepLocalDeletions` preserves
+  pruning, but newly introduced build inputs still need explicit review.
 
 ## When to call human
 
