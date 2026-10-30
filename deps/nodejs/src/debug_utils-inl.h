@@ -49,10 +49,7 @@ struct ToStringHelper {
     return value.ToStringView();
   }
 
-  template <typename T,
-            typename test_for_number = typename std::
-                enable_if_t<std::is_arithmetic_v<T> || std::is_enum_v<T>, bool>,
-            typename dummy = bool>
+  template <NumericOrEnum T>
   static std::string Convert(const T& value) {
     return std::to_string(value);
   }
@@ -62,9 +59,26 @@ struct ToStringHelper {
   static std::string Convert(const std::string& value) { return value; }
   static std::string_view Convert(std::string_view value) { return value; }
   static std::string Convert(bool value) { return value ? "true" : "false"; }
-  template <unsigned BASE_BITS,
-            typename T,
-            typename = std::enable_if_t<std::is_integral_v<T>>>
+
+  static std::string Convert(v8::Local<v8::Value> value) {
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    if (value->IsString()) {
+      Utf8Value utf8_value(isolate, value);
+      return SPrintF("\"%s\"", utf8_value.ToString());
+    }
+    v8::MaybeLocal<v8::String> maybe_detail =
+        value->ToDetailString(isolate->GetCurrentContext());
+    v8::Local<v8::String> detail;
+    if (!maybe_detail.ToLocal(&detail)) {
+      // This will only occur when terminating. No exception is expected
+      // with `ToDetailString`.
+      return "<Unable to stringify v8::Value>";
+    }
+    Utf8Value utf8_value(isolate, detail);
+    return utf8_value.ToString();
+  }
+
+  template <unsigned BASE_BITS, std::integral T>
   static std::string BaseConvert(const T& value) {
     auto v = static_cast<uint64_t>(value);
     char ret[3 * sizeof(T)];
@@ -77,9 +91,8 @@ struct ToStringHelper {
     } while ((v >>= BASE_BITS) != 0);
     return ptr;
   }
-  template <unsigned BASE_BITS,
-            typename T,
-            typename = std::enable_if_t<!std::is_integral_v<T>>>
+  template <unsigned BASE_BITS, typename T>
+    requires(!std::integral<T>)
   static auto BaseConvert(T&& value) {
     return Convert(std::forward<T>(value));
   }

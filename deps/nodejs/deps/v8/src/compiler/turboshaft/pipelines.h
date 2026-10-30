@@ -7,9 +7,10 @@
 
 #include <optional>
 
+#include "src/base/logging.h"
 #include "src/codegen/optimized-compilation-info.h"
 #include "src/compiler/backend/register-allocator-verifier.h"
-#include "src/compiler/basic-block-instrumentor.h"
+#include "src/compiler/basic-block-call-graph-profiler.h"
 #include "src/compiler/pipeline-statistics.h"
 #include "src/compiler/turbofan-graph-visualizer.h"
 #include "src/compiler/turboshaft/block-instrumentation-phase.h"
@@ -27,6 +28,7 @@
 #include "src/compiler/turboshaft/sidetable.h"
 #include "src/compiler/turboshaft/store-store-elimination-phase.h"
 #include "src/compiler/turboshaft/tracing.h"
+#include "src/compiler/turboshaft/turbolev-frontend-pipeline.h"
 #include "src/compiler/turboshaft/turbolev-graph-builder.h"
 #include "src/compiler/turboshaft/type-assertions-phase.h"
 #include "src/compiler/turboshaft/typed-optimizations-phase.h"
@@ -39,15 +41,34 @@ namespace v8::internal::compiler::turboshaft {
 
 inline constexpr char kTempZoneName[] = "temp-zone";
 
+#define RUN_MAYBE_ABORT(phase, ...) \
+  if (V8_UNLIKELY(!Run<phase>(__VA_ARGS__))) return {};
+
 struct SimplificationAndNormalizationPhase {
   DECL_TURBOSHAFT_PHASE_CONSTANTS(SimplificationAndNormalization)
 
   void Run(PipelineData* data, Zone* temp_zone);
 };
 
+namespace detail {
+enum class NoLinkage { kNoLinkage };
+}  // namespace detail
+constexpr detail::NoLinkage kNoLinkage = detail::NoLinkage::kNoLinkage;
+
 class V8_EXPORT_PRIVATE Pipeline {
  public:
-  explicit Pipeline(PipelineData* data) : data_(data) {}
+  // TODO(dmercadier): remove Linkage for the arguments here and make it an
+  // input to the PipelineData constructor instead.
+  Pipeline(PipelineData* data, const Linkage* linkage) : data_(data) {
+    DCHECK_NULL(data->linkage());
+    data_->set_linkage(linkage);
+  }
+
+  Pipeline(PipelineData* data, detail::NoLinkage) : data_(data) {
+    DCHECK_NULL(data->linkage());
+  }
+
+  ~Pipeline() { data_->set_linkage(nullptr); }
 
   PipelineData* data() const { return data_; }
   void BeginPhaseKind(const char* phase_kind_name) {
@@ -62,7 +83,7 @@ class V8_EXPORT_PRIVATE Pipeline {
   }
 
   template <TurboshaftPhase Phase, typename... Args>
-  auto Run(Args&&... args) {
+  V8_WARN_UNUSED_RESULT auto Run(Args&&... args) {
     // Setup run scope.
     PhaseScope phase_scope(data_->pipeline_statistics(), Phase::phase_name());
     ZoneWithName<Phase::kPhaseName> temp_zone(data_->zone_stats(),
@@ -81,20 +102,22 @@ class V8_EXPORT_PRIVATE Pipeline {
     if constexpr (std::is_same_v<result_t, void>) {
       phase.Run(data_, temp_zone, std::forward<Args>(args)...);
       if constexpr (produces_printable_graph<Phase>::value) {
-        PrintGraph(temp_zone, Phase::phase_name());
+        PrintGraph(Phase::phase_name());
       }
-      return;
+      return !data_->info()->was_cancelled();
     } else {
+      static_assert(std::is_same_v<result_t, std::optional<BailoutReason>>);
       auto result = phase.Run(data_, temp_zone, std::forward<Args>(args)...);
       if constexpr (produces_printable_graph<Phase>::value) {
-        PrintGraph(temp_zone, Phase::phase_name());
+        PrintGraph(Phase::phase_name());
       }
-      return result;
+      return data_->info()->was_cancelled() ? BailoutReason::kCancelled
+                                            : result;
     }
     UNREACHABLE();
   }
 
-  void PrintGraph(Zone* zone, const char* phase_name) {
+  void PrintGraph(const char* phase_name) {
     CodeTracer* code_tracer = nullptr;
     if (data_->info()->trace_turbo_graph()) {
       // NOTE: We must not call `GetCodeTracer` if tracing is not enabled,
@@ -103,7 +126,7 @@ class V8_EXPORT_PRIVATE Pipeline {
       code_tracer = data_->GetCodeTracer();
       DCHECK_NOT_NULL(code_tracer);
     }
-    PrintTurboshaftGraph(data_, zone, code_tracer, phase_name);
+    PrintTurboshaftGraph(data_, code_tracer, phase_name);
   }
 
   void TraceSequence(const char* phase_name) {
@@ -130,26 +153,40 @@ class V8_EXPORT_PRIVATE Pipeline {
   }
 
   bool CreateGraphWithMaglev(Linkage* linkage) {
+#ifdef V8_ENABLE_MAGLEV
     UnparkedScopeIfNeeded unparked_scope(data_->broker());
 
-    BeginPhaseKind("V8.TFGraphCreation");
+    // TODO(victorgomes): Should we rename this to V8.TurbolevFrontend instead?
+    PhaseScopeKind scope_kind(data_->pipeline_statistics(),
+                              "V8.TFGraphCreation");
     turboshaft::Tracing::Scope tracing_scope(data_->info());
-    std::optional<BailoutReason> bailout =
-        Run<turboshaft::MaglevGraphBuildingPhase>(linkage);
-    EndPhaseKind();
 
+    TurbolevFrontendPipeline frontend(data_, linkage);
+    maglev::MaglevGraphLabellerScope current_thread_graph_labeller(
+        frontend.graph_labeller());
+
+    std::optional<maglev::Graph*> maglev_graph = frontend.Run();
+    if (!maglev_graph.has_value()) {
+      data_->info()->AbortOptimization(
+          BailoutReason::kMaglevGraphBuildingFailed);
+      return false;
+    }
+
+    std::optional<BailoutReason> bailout =
+        Run<turboshaft::TurbolevGraphBuildingPhase>(*maglev_graph);
     if (bailout.has_value()) {
       data_->info()->AbortOptimization(bailout.value());
       return false;
     }
 
     return true;
+#else
+    UNREACHABLE();
+#endif
   }
 
   bool CreateGraphFromTurbofan(compiler::TFPipelineData* turbofan_data,
                                Linkage* linkage) {
-    CHECK_IMPLIES(!v8_flags.disable_optimizing_compilers, v8_flags.turboshaft);
-
     UnparkedScopeIfNeeded scope(data_->broker(),
                                 v8_flags.turboshaft_trace_reduction ||
                                     v8_flags.turboshaft_trace_emitted);
@@ -179,59 +216,57 @@ class V8_EXPORT_PRIVATE Pipeline {
     // complete and cleaned-up, move its reducer into the beginning of the
     // `MachineLoweringPhase` since we can reuse the `DataViewLoweringReducer`
     // there and avoid a separate phase.
-    if (v8_flags.turboshaft_wasm_in_js_inlining) {
-      Run<turboshaft::WasmInJSInliningPhase>();
+    if (v8_flags.turboshaft_wasm_in_js_inlining ||
+        v8_flags.turbolev_inline_js_wasm_wrappers) {
+      RUN_MAYBE_ABORT(turboshaft::WasmInJSInliningPhase);
     }
 #endif  // !V8_ENABLE_WEBASSEMBLY
 
-    Run<turboshaft::MachineLoweringPhase>();
+    RUN_MAYBE_ABORT(turboshaft::MachineLoweringPhase);
 
     if (v8_flags.turboshaft_loop_unrolling) {
-      Run<turboshaft::LoopUnrollingPhase>();
+      RUN_MAYBE_ABORT(turboshaft::LoopUnrollingPhase);
     }
 
     if (v8_flags.turbo_store_elimination) {
-      Run<turboshaft::StoreStoreEliminationPhase>();
+      RUN_MAYBE_ABORT(turboshaft::StoreStoreEliminationPhase);
     }
 
-    Run<turboshaft::OptimizePhase>();
+    RUN_MAYBE_ABORT(turboshaft::OptimizePhase);
 
     if (v8_flags.turboshaft_typed_optimizations) {
-      Run<turboshaft::TypedOptimizationsPhase>();
+      RUN_MAYBE_ABORT(turboshaft::TypedOptimizationsPhase);
     }
 
     if (v8_flags.turboshaft_assert_types) {
-      Run<turboshaft::TypeAssertionsPhase>();
+      RUN_MAYBE_ABORT(turboshaft::TypeAssertionsPhase);
     }
 
     // Perform dead code elimination, reduce stack checks, simplify loads on
     // platforms where required, ...
-    Run<turboshaft::CodeEliminationAndSimplificationPhase>();
+    RUN_MAYBE_ABORT(turboshaft::CodeEliminationAndSimplificationPhase);
 
 #ifdef V8_ENABLE_DEBUG_CODE
     if (V8_UNLIKELY(v8_flags.turboshaft_enable_debug_features)) {
       // This phase has to run very late to allow all previous phases to use
       // debug features.
-      Run<turboshaft::DebugFeatureLoweringPhase>();
+      RUN_MAYBE_ABORT(turboshaft::DebugFeatureLoweringPhase);
     }
 #endif  // V8_ENABLE_DEBUG_CODE
 
     return true;
   }
 
-  void RunSimplificationAndNormalizationPhase() {
-    Run<SimplificationAndNormalizationPhase>();
+  V8_WARN_UNUSED_RESULT bool RunSimplificationAndNormalizationPhase() {
+    RUN_MAYBE_ABORT(SimplificationAndNormalizationPhase);
+    return true;
   }
 
-  void PrepareForInstructionSelection(
+  V8_WARN_UNUSED_RESULT bool PrepareForInstructionSelection(
       const ProfileDataFromFile* profile = nullptr) {
     if (V8_UNLIKELY(data()->pipeline_kind() == TurboshaftPipelineKind::kCSA ||
                     data()->pipeline_kind() ==
                         TurboshaftPipelineKind::kTSABuiltin)) {
-      if (profile) {
-        Run<ProfileApplicationPhase>(profile);
-      }
-
       if (v8_flags.reorder_builtins &&
           Builtins::IsBuiltinId(info()->builtin())) {
         UnparkedScopeIfNeeded unparked_scope(data()->broker());
@@ -259,22 +294,26 @@ class V8_EXPORT_PRIVATE Pipeline {
 
         info()->set_profiler_data(profiler_data);
 
-        Run<BlockInstrumentationPhase>();
+        RUN_MAYBE_ABORT(BlockInstrumentationPhase);
       } else {
         // We run an empty copying phase to make sure that we have the same
         // control flow as when taking the profile.
         ZoneWithName<kTempZoneName> temp_zone(data()->zone_stats(),
                                               kTempZoneName);
         CopyingPhase<>::Run(data(), temp_zone);
+
+        if (profile) {
+          RUN_MAYBE_ABORT(ProfileApplicationPhase, profile);
+        }
       }
     }
 
     // DecompressionOptimization has to run as the last phase because it
     // constructs an (slightly) invalid graph that mixes Tagged and Compressed
     // representations.
-    Run<DecompressionOptimizationPhase>();
+    RUN_MAYBE_ABORT(DecompressionOptimizationPhase);
 
-    Run<SpecialRPOSchedulingPhase>();
+    return Run<SpecialRPOSchedulingPhase>();
   }
 
   [[nodiscard]] bool SelectInstructions(Linkage* linkage) {
@@ -326,7 +365,8 @@ class V8_EXPORT_PRIVATE Pipeline {
     // }
   }
 
-  bool AllocateRegisters(CallDescriptor* call_descriptor) {
+  V8_WARN_UNUSED_RESULT bool AllocateRegisters(
+      CallDescriptor* call_descriptor) {
     BeginPhaseKind("V8.TFRegisterAllocation");
 
     bool run_verifier = v8_flags.turbo_verify_allocation;
@@ -341,24 +381,24 @@ class V8_EXPORT_PRIVATE Pipeline {
           RegisterConfiguration::RestrictGeneralRegisters(registers));
       config = restricted_config.get();
     }
-    AllocateRegisters(config, call_descriptor, run_verifier);
+    if (!AllocateRegisters(config, call_descriptor, run_verifier)) return false;
 
     // Verify the instruction sequence has the same hash in two stages.
     VerifyGeneratedCodeIsIdempotent();
 
-    Run<FrameElisionPhase>();
+    RUN_MAYBE_ABORT(FrameElisionPhase);
 
     // TODO(mtrofin): move this off to the register allocator.
     bool generate_frame_at_start =
         data_->sequence()->instruction_blocks().front()->must_construct_frame();
     // Optimimize jumps.
     if (v8_flags.turbo_jt) {
-      Run<JumpThreadingPhase>(generate_frame_at_start);
+      RUN_MAYBE_ABORT(JumpThreadingPhase, generate_frame_at_start);
     }
 
     EndPhaseKind();
 
-    return true;
+    return !info()->was_cancelled();
   }
 
   bool MayHaveUnverifiableGraph() const {
@@ -389,16 +429,17 @@ class V8_EXPORT_PRIVATE Pipeline {
     }
   }
 
-  void AllocateRegisters(const RegisterConfiguration* config,
-                         CallDescriptor* call_descriptor, bool run_verifier);
+  V8_WARN_UNUSED_RESULT bool AllocateRegisters(
+      const RegisterConfiguration* config, CallDescriptor* call_descriptor,
+      bool run_verifier);
 
-  void AssembleCode(Linkage* linkage) {
+  V8_WARN_UNUSED_RESULT bool AssembleCode(Linkage* linkage) {
     BeginPhaseKind("V8.TFCodeGeneration");
     data()->InitializeCodeGenerator(linkage);
 
     UnparkedScopeIfNeeded unparked_scope(data()->broker());
 
-    Run<AssembleCodePhase>();
+    RUN_MAYBE_ABORT(AssembleCodePhase);
     if (info()->trace_turbo_json()) {
       TurboJsonFile json_of(info(), std::ios_base::app);
       json_of
@@ -411,16 +452,17 @@ class V8_EXPORT_PRIVATE Pipeline {
 
     data()->ClearInstructionComponent();
     EndPhaseKind();
+    return !info()->was_cancelled();
   }
 
   MaybeHandle<Code> GenerateCode(CallDescriptor* call_descriptor) {
     Linkage linkage(call_descriptor);
-    PrepareForInstructionSelection();
+    if (!PrepareForInstructionSelection()) return {};
     if (!SelectInstructions(&linkage)) {
       return MaybeHandle<Code>();
     }
-    AllocateRegisters(linkage.GetIncomingDescriptor());
-    AssembleCode(&linkage);
+    if (!AllocateRegisters(linkage.GetIncomingDescriptor())) return {};
+    if (!AssembleCode(&linkage)) return {};
     return FinalizeCode();
   }
 
@@ -436,7 +478,7 @@ class V8_EXPORT_PRIVATE Pipeline {
     if (data_->broker() && retire_broker) {
       data_->broker()->Retire();
     }
-    Run<FinalizeCodePhase>();
+    RUN_MAYBE_ABORT(FinalizeCodePhase);
 
     MaybeIndirectHandle<Code> maybe_code = data_->code();
     IndirectHandle<Code> code;
@@ -481,7 +523,7 @@ class V8_EXPORT_PRIVATE Pipeline {
       JsonPrintAllSourceWithPositions(json_of, data_->info(), data_->isolate());
       if (info()->has_bytecode_array()) {
         json_of << ",\n";
-        JsonPrintAllBytecodeSources(json_of, info());
+        JsonPrintAllBytecodeSources(json_of, info(), data_->isolate());
       }
       json_of << "\n}";
     }
@@ -511,7 +553,8 @@ class V8_EXPORT_PRIVATE Pipeline {
 
 class BuiltinPipeline : public Pipeline {
  public:
-  explicit BuiltinPipeline(PipelineData* data) : Pipeline(data) {}
+  explicit BuiltinPipeline(PipelineData* data, const Linkage* linkage)
+      : Pipeline(data, linkage) {}
 
   void OptimizeBuiltin();
 
@@ -519,6 +562,8 @@ class BuiltinPipeline : public Pipeline {
   bool IsBuiltinPipeline() const override { return true; }
 #endif
 };
+
+#undef RUN_MAYBE_ABORT
 
 }  // namespace v8::internal::compiler::turboshaft
 

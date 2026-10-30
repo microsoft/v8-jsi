@@ -27,11 +27,6 @@ std::ostream& operator<<(std::ostream& os, FeedbackSlot slot) {
   return os << "#" << slot.id_;
 }
 
-size_t hash_value(BytecodeOffset id) {
-  base::hash<int> h;
-  return h(id.id_);
-}
-
 std::ostream& operator<<(std::ostream& os, BytecodeOffset id) {
   return os << id.id_;
 }
@@ -206,15 +201,14 @@ int WriteBytes(const char* filename, const uint8_t* bytes, int size,
 
 // Returns false iff d is NaN, +0, or -0.
 bool DoubleToBoolean(double d) {
-  IeeeDoubleArchType u;
-  u.d = d;
-  if (u.bits.exp == 2047) {
+  IeeeDoubleArchType u{d};
+  if (u.exp() == 2047) {
     // Detect NaN for IEEE double precision floating point.
-    if ((u.bits.man_low | u.bits.man_high) != 0) return false;
+    if ((u.man_low() | u.man_high()) != 0) return false;
   }
-  if (u.bits.exp == 0) {
+  if (u.exp() == 0) {
     // Detect +0, and -0 for IEEE double precision floating point.
-    if ((u.bits.man_low | u.bits.man_high) == 0) return false;
+    if ((u.man_low() | u.man_high()) == 0) return false;
   }
   return true;
 }

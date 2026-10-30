@@ -4,6 +4,7 @@
 #include "node_external_reference.h"
 #include "node_i18n.h"
 #include "node_process-inl.h"
+#include "util.h"
 
 #include <time.h>  // tzset(), _tzset()
 #include <optional>
@@ -14,8 +15,10 @@ using v8::Boolean;
 using v8::Context;
 using v8::DontDelete;
 using v8::DontEnum;
+using v8::EscapableHandleScope;
 using v8::FunctionTemplate;
 using v8::HandleScope;
+using v8::IndexedPropertyHandlerConfiguration;
 using v8::Integer;
 using v8::Intercepted;
 using v8::Isolate;
@@ -45,6 +48,7 @@ class RealEnvStore final : public KVStore {
   int32_t Query(const char* key) const override;
   void Delete(Isolate* isolate, Local<String> key) override;
   MaybeLocal<Array> Enumerate(Isolate* isolate) const override;
+  MaybeLocal<Array> Pairs(Isolate* isolate) const override;
 };
 
 class MapKVStore final : public KVStore {
@@ -199,7 +203,7 @@ MaybeLocal<Array> RealEnvStore::Enumerate(Isolate* isolate) const {
   auto cleanup = OnScopeLeave([&]() { uv_os_free_environ(items, count); });
   CHECK_EQ(uv_os_environ(&items, &count), 0);
 
-  MaybeStackBuffer<Local<Value>, 256> env_v(count);
+  MaybeStackBuffer<Value, 256> env_v(isolate, count);
   int env_v_index = 0;
   for (int i = 0; i < count; i++) {
 #ifdef _WIN32
@@ -214,7 +218,68 @@ MaybeLocal<Array> RealEnvStore::Enumerate(Isolate* isolate) const {
     env_v[env_v_index++] = str;
   }
 
-  return Array::New(isolate, env_v.out(), env_v_index);
+  // We're possibly not filling the entire buffer.
+  CHECK_LE(env_v_index, count);
+  env_v.SetLength(env_v_index);
+  return env_v.ToArray();
+}
+
+MaybeLocal<Array> RealEnvStore::Pairs(Isolate* isolate) const {
+  Mutex::ScopedLock lock(per_process::env_var_mutex);
+  uv_env_item_t* items;
+  int count;
+
+  auto cleanup = OnScopeLeave([&]() { uv_os_free_environ(items, count); });
+  CHECK_EQ(uv_os_environ(&items, &count), 0);
+
+  MaybeStackBuffer<Local<Value>, 256> pairs_v(count);
+  int pairs_v_index = 0;
+  std::string pair;
+  for (int i = 0; i < count; i++) {
+#ifdef _WIN32
+    // If the key starts with '=' it is a hidden environment variable.
+    // Enumerate() skips these, so a copy of process.env never had them.
+    if (items[i].name[0] == '=') continue;
+#endif
+    pair.assign(items[i].name);
+    pair += '=';
+    pair += items[i].value;
+    Local<Value> str;
+    if (!ToV8Value(isolate->GetCurrentContext(), pair, isolate).ToLocal(&str)) {
+      return {};
+    }
+    pairs_v[pairs_v_index++] = str;
+  }
+
+  return Array::New(isolate, pairs_v.out(), pairs_v_index);
+}
+
+MaybeLocal<Array> KVStore::Pairs(Isolate* isolate) const {
+  EscapableHandleScope scope(isolate);
+  Local<Context> context = isolate->GetCurrentContext();
+  Local<Array> keys;
+  if (!Enumerate(isolate).ToLocal(&keys)) return {};
+  uint32_t keys_length = keys->Length();
+  MaybeStackBuffer<Local<Value>, 256> pairs(keys_length);
+  uint32_t pairs_index = 0;
+  std::string pair;
+  for (uint32_t i = 0; i < keys_length; i++) {
+    Local<Value> key;
+    if (!keys->Get(context, i).ToLocal(&key)) return {};
+    if (!key->IsString()) continue;
+    Utf8Value key_utf8(isolate, key);
+    // A key that disappeared between Enumerate() and Get() is skipped, like an
+    // undefined value is when copying process.env in JS.
+    std::optional<std::string> value = Get(*key_utf8);
+    if (!value.has_value()) continue;
+    pair.assign(*key_utf8, key_utf8.length());
+    pair += '=';
+    pair += *value;
+    Local<Value> str;
+    if (!ToV8Value(context, pair, isolate).ToLocal(&str)) return {};
+    pairs[pairs_index++] = str;
+  }
+  return scope.Escape(Array::New(isolate, pairs.out(), pairs_index));
 }
 
 std::shared_ptr<KVStore> KVStore::Clone(Isolate* isolate) const {
@@ -311,7 +376,7 @@ std::shared_ptr<KVStore> KVStore::CreateMapKVStore() {
 
 Maybe<void> KVStore::AssignFromObject(Local<Context> context,
                                       Local<Object> entries) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   HandleScope handle_scope(isolate);
   Local<Array> keys;
   if (!entries->GetOwnPropertyNames(context).ToLocal(&keys))
@@ -570,6 +635,43 @@ static Intercepted EnvDefiner(Local<Name> property,
   }
 }
 
+static Intercepted EnvGetterIndexed(uint32_t index,
+                                    const PropertyCallbackInfo<Value>& info) {
+  Environment* env = Environment::GetCurrent(info);
+  Local<Name> name = Uint32ToString(env->context(), index);
+  return EnvGetter(name, info);
+}
+
+static Intercepted EnvSetterIndexed(uint32_t index,
+                                    Local<Value> value,
+                                    const PropertyCallbackInfo<void>& info) {
+  Environment* env = Environment::GetCurrent(info);
+  Local<Name> name = Uint32ToString(env->context(), index);
+  return EnvSetter(name, value, info);
+}
+
+static Intercepted EnvQueryIndexed(uint32_t index,
+                                   const PropertyCallbackInfo<Integer>& info) {
+  Environment* env = Environment::GetCurrent(info);
+  Local<Name> name = Uint32ToString(env->context(), index);
+  return EnvQuery(name, info);
+}
+
+static Intercepted EnvDeleterIndexed(
+    uint32_t index, const PropertyCallbackInfo<Boolean>& info) {
+  Environment* env = Environment::GetCurrent(info);
+  Local<Name> name = Uint32ToString(env->context(), index);
+  return EnvDeleter(name, info);
+}
+
+static Intercepted EnvDefinerIndexed(uint32_t index,
+                                     const PropertyDescriptor& desc,
+                                     const PropertyCallbackInfo<void>& info) {
+  Environment* env = Environment::GetCurrent(info);
+  Local<Name> name = Uint32ToString(env->context(), index);
+  return EnvDefiner(name, desc, info);
+}
+
 void CreateEnvProxyTemplate(IsolateData* isolate_data) {
   Isolate* isolate = isolate_data->isolate();
   HandleScope scope(isolate);
@@ -588,6 +690,16 @@ void CreateEnvProxyTemplate(IsolateData* isolate_data) {
       nullptr,
       Local<Value>(),
       PropertyHandlerFlags::kHasNoSideEffect));
+  env_proxy_template->SetHandler(IndexedPropertyHandlerConfiguration(
+      EnvGetterIndexed,
+      EnvSetterIndexed,
+      EnvQueryIndexed,
+      EnvDeleterIndexed,
+      nullptr,
+      EnvDefinerIndexed,
+      nullptr,
+      Local<Value>(),
+      PropertyHandlerFlags::kHasNoSideEffect));
   isolate_data->set_env_proxy_template(env_proxy_template);
   isolate_data->set_env_proxy_ctor_template(env_proxy_ctor_template);
 }
@@ -599,6 +711,11 @@ void RegisterEnvVarExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(EnvDeleter);
   registry->Register(EnvEnumerator);
   registry->Register(EnvDefiner);
+  registry->Register(EnvGetterIndexed);
+  registry->Register(EnvSetterIndexed);
+  registry->Register(EnvQueryIndexed);
+  registry->Register(EnvDeleterIndexed);
+  registry->Register(EnvDefinerIndexed);
 }
 }  // namespace node
 

@@ -19,6 +19,7 @@
 #include "src/common/code-memory-access-inl.h"
 #include "src/execution/isolate-data.h"
 #include "src/execution/isolate.h"
+#include "src/heap/code-range.h"
 #include "src/heap/heap-allocator-inl.h"
 #include "src/heap/heap-layout-inl.h"
 #include "src/heap/heap-write-barrier.h"
@@ -26,7 +27,7 @@
 #include "src/heap/memory-allocator.h"
 #include "src/heap/memory-chunk-inl.h"
 #include "src/heap/memory-chunk-layout.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/heap/new-spaces-inl.h"
 #include "src/heap/paged-spaces-inl.h"
 #include "src/heap/read-only-heap.h"
@@ -38,6 +39,7 @@
 #include "src/objects/slots-inl.h"
 #include "src/objects/visitors-inl.h"
 #include "src/roots/static-roots.h"
+#include "src/utils/allocation.h"
 #include "src/utils/ostreams.h"
 #include "src/zone/zone-list-inl.h"
 
@@ -64,21 +66,20 @@ bool Heap::IsMainThread() const {
   return isolate()->thread_id() == ThreadId::Current();
 }
 
-uint64_t Heap::external_memory() const { return external_memory_.total(); }
+uint64_t Heap::external_memory() const {
+  return external_memory_total_.load(std::memory_order_relaxed);
+}
 
 RootsTable& Heap::roots_table() { return isolate()->roots_table(); }
 
-#define ROOT_ACCESSOR(Type, name, CamelName)                                   \
-  Tagged<Type> Heap::name() {                                                  \
-    return Cast<Type>(Tagged<Object>(roots_table()[RootIndex::k##CamelName])); \
+#define ROOT_ACCESSOR(Type, name, CamelName)                     \
+  Tagged<Type> Heap::name() {                                    \
+    return TrustedCast<Type>(                                    \
+        Tagged<Object>(roots_table()[RootIndex::k##CamelName])); \
   }
+
 MUTABLE_ROOT_LIST(ROOT_ACCESSOR)
 #undef ROOT_ACCESSOR
-
-Tagged<FixedArray> Heap::single_character_string_table() {
-  return Cast<FixedArray>(
-      Tagged<Object>(roots_table()[RootIndex::kSingleCharacterStringTable]));
-}
 
 #define STATIC_ROOTS_FAILED_MSG                                            \
   "Read-only heap layout changed. Run `tools/dev/gen-static-roots.py` to " \
@@ -137,40 +138,37 @@ void Heap::SetFunctionsMarkedForManualOptimization(Tagged<Object> hash_table) {
       hash_table.ptr();
 }
 
+void Heap::SetSmiStringCache(Tagged<SmiStringCache> cache) {
+  set_smi_string_cache(cache);
+}
+
+void Heap::SetDoubleStringCache(Tagged<DoubleStringCache> cache) {
+  set_double_string_cache(cache);
+}
+
 #if V8_ENABLE_WEBASSEMBLY
-void Heap::SetWasmCanonicalRttsAndJSToWasmWrappers(
-    Tagged<WeakFixedArray> rtts, Tagged<WeakFixedArray> js_to_wasm_wrappers) {
+void Heap::SetWasmCanonicalRtts(Tagged<WeakFixedArray> rtts) {
   set_wasm_canonical_rtts(rtts);
+}
+void Heap::SetJSToWasmWrappers(Tagged<WeakFixedArray> js_to_wasm_wrappers) {
   set_js_to_wasm_wrappers(js_to_wasm_wrappers);
 }
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-PagedSpace* Heap::paged_space(int idx) const {
-  DCHECK(idx == OLD_SPACE || idx == CODE_SPACE || idx == SHARED_SPACE ||
-         idx == TRUSTED_SPACE || idx == SHARED_TRUSTED_SPACE);
-  return static_cast<PagedSpace*>(space_[idx].get());
+PagedSpace* Heap::paged_space(int index) const {
+  DCHECK(index == OLD_SPACE || index == CODE_SPACE || index == SHARED_SPACE ||
+         index == TRUSTED_SPACE || index == SHARED_TRUSTED_SPACE);
+  return static_cast<PagedSpace*>(space_[index].get());
 }
 
-Space* Heap::space(int idx) const { return space_[idx].get(); }
-
-Address* Heap::NewSpaceAllocationTopAddress() {
-  return new_space_ || v8_flags.sticky_mark_bits
-             ? isolate()->isolate_data()->new_allocation_info_.top_address()
-             : nullptr;
+Space* Heap::space(int index) const {
+  DCHECK_LE(AllocationSpace::FIRST_SPACE, index);
+  DCHECK_LE(index, AllocationSpace::LAST_SPACE);
+  return space_[index].get();
 }
 
-Address* Heap::NewSpaceAllocationLimitAddress() {
-  return new_space_ || v8_flags.sticky_mark_bits
-             ? isolate()->isolate_data()->new_allocation_info_.limit_address()
-             : nullptr;
-}
-
-Address* Heap::OldSpaceAllocationTopAddress() {
-  return allocator()->old_space_allocator()->allocation_top_address();
-}
-
-Address* Heap::OldSpaceAllocationLimitAddress() {
-  return allocator()->old_space_allocator()->allocation_limit_address();
+Space* Heap::space(AllocationSpace allocation_space) const {
+  return space(static_cast<int>(allocation_space));
 }
 
 inline const base::AddressRegion& Heap::code_region() {
@@ -215,10 +213,6 @@ void Heap::RegisterExternalString(Tagged<String> string) {
 void Heap::FinalizeExternalString(Tagged<String> string) {
   DCHECK(IsExternalString(string));
   Tagged<ExternalString> ext_string = Cast<ExternalString>(string);
-  PageMetadata* page = PageMetadata::FromHeapObject(string);
-  page->DecrementExternalBackingStoreBytes(
-      ExternalBackingStoreType::kExternalString,
-      ext_string->ExternalPayloadSize());
   ext_string->DisposeResource(isolate());
 }
 
@@ -275,7 +269,10 @@ bool Heap::InOldSpace(Tagged<Object> object) {
 
 // static
 Heap* Heap::FromWritableHeapObject(Tagged<HeapObject> obj) {
-  MemoryChunkMetadata* chunk = MemoryChunkMetadata::FromHeapObject(obj);
+  // TODO(leszeks): It's probably not right to use the current Isolate to infer
+  // the current heap from an object, rather than reading the heap from the
+  // current isolate directly.
+  BasePage* chunk = BasePage::FromHeapObject(Isolate::Current(), obj);
   // RO_SPACE can be shared between heaps, so we can't use RO_SPACE objects to
   // find a heap. The exception is when the ReadOnlySpace is writeable, during
   // bootstrapping, so explicitly allow this case.
@@ -285,9 +282,9 @@ Heap* Heap::FromWritableHeapObject(Tagged<HeapObject> obj) {
   return heap;
 }
 
-void Heap::CopyBlock(Address dst, Address src, int byte_size) {
+void Heap::CopyBlock(Address dst, Address src, size_t byte_size) {
   DCHECK(IsAligned(byte_size, kTaggedSize));
-  CopyTagged(dst, src, static_cast<size_t>(byte_size / kTaggedSize));
+  CopyTagged(dst, src, byte_size / kTaggedSize);
 }
 
 bool Heap::IsPendingAllocationInternal(Tagged<HeapObject> object) {
@@ -296,7 +293,7 @@ bool Heap::IsPendingAllocationInternal(Tagged<HeapObject> object) {
   MemoryChunk* chunk = MemoryChunk::FromHeapObject(object);
   if (chunk->InReadOnlySpace()) return false;
 
-  BaseSpace* base_space = chunk->Metadata()->owner();
+  BaseSpace* base_space = chunk->Metadata(isolate())->owner();
   Address addr = object.address();
 
   switch (base_space->identity()) {
@@ -366,12 +363,10 @@ void Heap::ExternalStringTable::AddString(Tagged<String> string) {
 
   DCHECK(IsExternalString(string));
   DCHECK(!Contains(string));
+  DCHECK(!HeapLayout::InYoungGeneration(string));
 
-  if (HeapLayout::InYoungGeneration(string)) {
-    young_strings_.push_back(string);
-  } else {
-    old_strings_.push_back(string);
-  }
+  old_strings_.push_back(string);
+  bytes_ += string->length();
 }
 
 Tagged<Boolean> Heap::ToBoolean(bool condition) {
@@ -392,33 +387,6 @@ uint32_t Heap::GetNextTemplateSerialNumber() {
   DCHECK_NE(next_serial_number, TemplateInfo::kUninitializedSerialNumber);
   set_next_template_serial_number(Smi::FromInt(next_serial_number));
   return next_serial_number;
-}
-
-int Heap::MaxNumberToStringCacheSize() const {
-  // Compute the size of the number string cache based on the max newspace size.
-  // The number string cache has a minimum size based on twice the initial cache
-  // size to ensure that it is bigger after being made 'full size'.
-  size_t number_string_cache_size = max_semi_space_size_ / 512;
-  number_string_cache_size =
-      std::max(static_cast<size_t>(kInitialNumberStringCacheSize * 2),
-               std::min(static_cast<size_t>(0x4000), number_string_cache_size));
-  // There is a string and a number per entry so the length is twice the number
-  // of entries.
-  return static_cast<int>(number_string_cache_size * 2);
-}
-
-void Heap::IncrementExternalBackingStoreBytes(ExternalBackingStoreType type,
-                                              size_t amount) {
-  base::CheckedIncrement(&backing_store_bytes_, static_cast<uint64_t>(amount),
-                         std::memory_order_relaxed);
-  // TODO(mlippautz): Implement interrupt for global memory allocations that can
-  // trigger garbage collections.
-}
-
-void Heap::DecrementExternalBackingStoreBytes(ExternalBackingStoreType type,
-                                              size_t amount) {
-  base::CheckedDecrement(&backing_store_bytes_, static_cast<uint64_t>(amount),
-                         std::memory_order_relaxed);
 }
 
 AlwaysAllocateScope::AlwaysAllocateScope(Heap* heap) : heap_(heap) {

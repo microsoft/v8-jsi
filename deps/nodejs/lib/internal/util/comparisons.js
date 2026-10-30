@@ -15,6 +15,7 @@ const {
   Date,
   DatePrototypeGetTime,
   Error,
+  Float16Array,
   Float32Array,
   Float64Array,
   Function,
@@ -50,7 +51,6 @@ const {
   Uint8ClampedArray,
   WeakMap,
   WeakSet,
-  globalThis: { Float16Array },
 } = primordials;
 
 const { compare } = internalBinding('buffer');
@@ -70,6 +70,7 @@ const wellKnownConstructors = new SafeSet()
   .add(DataView)
   .add(Date)
   .add(Error)
+  .add(Float16Array)
   .add(Float32Array)
   .add(Float64Array)
   .add(Function)
@@ -91,31 +92,27 @@ const wellKnownConstructors = new SafeSet()
   .add(WeakMap)
   .add(WeakSet);
 
-if (Float16Array) { // TODO(BridgeAR): Remove when Flag got removed from V8
-  wellKnownConstructors.add(Float16Array);
-}
-
 const types = require('internal/util/types');
 const {
   isAnyArrayBuffer,
   isArrayBufferView,
-  isDate,
-  isMap,
-  isRegExp,
-  isSet,
-  isNativeError,
-  isBoxedPrimitive,
-  isNumberObject,
-  isStringObject,
-  isBooleanObject,
   isBigIntObject,
-  isSymbolObject,
+  isBooleanObject,
+  isBoxedPrimitive,
+  isCryptoKey,
+  isDate,
   isFloat16Array,
   isFloat32Array,
   isFloat64Array,
   isKeyObject,
-  isCryptoKey,
+  isMap,
+  isNativeError,
+  isNumberObject,
   isPromise,
+  isRegExp,
+  isSet,
+  isStringObject,
+  isSymbolObject,
   isWeakMap,
   isWeakSet,
 } = types;
@@ -127,10 +124,15 @@ const {
   getOwnNonIndexProperties,
 } = internalBinding('util');
 
-let kKeyObject;
-let kExtractable;
-let kAlgorithm;
-let kKeyUsages;
+let getCryptoKeyHandle;
+let getCryptoKeyType;
+let getCryptoKeyExtractable;
+let getCryptoKeyAlgorithm;
+let getCryptoKeyUsagesMask;
+let getCryptoKeySecondaryHandle;
+let getCryptoKeySeedData;
+let getKeyObjectHandle;
+let getKeyObjectType;
 
 const kStrict = 2;
 const kStrictWithoutPrototypes = 3;
@@ -409,19 +411,48 @@ function objectComparisonStart(val1, val2, mode, memos) {
       return false;
     }
   } else if (isKeyObject(val1)) {
-    if (!isKeyObject(val2) || !val1.equals(val2)) {
+    if (getKeyObjectHandle === undefined) {
+      ({
+        getKeyObjectHandle,
+        getKeyObjectType,
+      } = require('internal/crypto/keys'));
+    }
+    if (!isKeyObject(val2) ||
+      getKeyObjectType(val1) !== getKeyObjectType(val2) ||
+      !getKeyObjectHandle(val1).equals(getKeyObjectHandle(val2))
+    ) {
       return false;
     }
   } else if (isCryptoKey(val1)) {
-    if (kKeyObject === undefined) {
-      kKeyObject = require('internal/crypto/util').kKeyObject;
-      ({ kExtractable, kAlgorithm, kKeyUsages } = require('internal/crypto/keys'));
+    if (getCryptoKeyHandle === undefined) {
+      ({
+        getCryptoKeyHandle,
+        getCryptoKeyType,
+        getCryptoKeyExtractable,
+        getCryptoKeyAlgorithm,
+        getCryptoKeyUsagesMask,
+        getCryptoKeySecondaryHandle,
+        getCryptoKeySeedData,
+      } = require('internal/crypto/keys'));
     }
+    const val1SecondaryHandle = getCryptoKeySecondaryHandle(val1);
+    const val2SecondaryHandle = isCryptoKey(val2) ?
+      getCryptoKeySecondaryHandle(val2) : undefined;
+    const val1SeedData = getCryptoKeySeedData(val1);
+    const val2SeedData = isCryptoKey(val2) ?
+      getCryptoKeySeedData(val2) : undefined;
     if (!isCryptoKey(val2) ||
-      val1[kExtractable] !== val2[kExtractable] ||
-      !innerDeepEqual(val1[kAlgorithm], val2[kAlgorithm], mode, memos) ||
-      !innerDeepEqual(val1[kKeyUsages], val2[kKeyUsages], mode, memos) ||
-      !innerDeepEqual(val1[kKeyObject], val2[kKeyObject], mode, memos)
+      getCryptoKeyType(val1) !== getCryptoKeyType(val2) ||
+      getCryptoKeyExtractable(val1) !== getCryptoKeyExtractable(val2) ||
+      !innerDeepEqual(getCryptoKeyAlgorithm(val1), getCryptoKeyAlgorithm(val2), mode, memos) ||
+      getCryptoKeyUsagesMask(val1) !== getCryptoKeyUsagesMask(val2) ||
+      !getCryptoKeyHandle(val1).equals(getCryptoKeyHandle(val2)) ||
+      (val1SecondaryHandle === undefined) !== (val2SecondaryHandle === undefined) ||
+      (val1SecondaryHandle !== undefined &&
+        !val1SecondaryHandle.equals(val2SecondaryHandle)) ||
+      (val1SeedData === undefined) !== (val2SeedData === undefined) ||
+      (val1SeedData !== undefined &&
+        !innerDeepEqual(val1SeedData, val2SeedData, mode, memos))
     ) {
       return false;
     }
@@ -529,6 +560,10 @@ function handleCycles(val1, val2, mode, keys1, keys2, memos, iterationType) {
       memos.deep = true;
       const result = objEquiv(val1, val2, mode, keys1, keys2, memos, iterationType);
       memos.deep = false;
+      if (memos.set !== undefined) {
+        memos.set.delete(memos.c);
+        memos.set.delete(memos.d);
+      }
       return result;
     }
     memos.set = new SafeSet();
@@ -664,16 +699,18 @@ function setObjectEquiv(array, a, b, mode, memo) {
   const comparator = mode !== kLoose ? objectComparisonStart : innerDeepEqual;
   const extraChecks = mode === kLoose || array.length !== a.size;
   for (const val1 of a) {
-    if (extraChecks) {
-      if (typeof val1 === 'object') {
-        if (b.has(val1)) {
-          continue;
-        }
-      } else if (b.has(val1)) {
+    // Primitive and null members can only match by identity, and must never
+    // reach objectComparisonStart (which throws on `val.constructor` for
+    // null/undefined). Resolve them directly for every such member.
+    if (typeof val1 !== 'object' || val1 === null) {
+      if (b.has(val1)) {
         continue;
-      } else if (mode !== kLoose) {
+      }
+      if (mode !== kLoose) {
         return false;
       }
+    } else if (extraChecks && b.has(val1)) {
+      continue;
     }
 
     let innerStart = start;
@@ -739,7 +776,7 @@ function setEquiv(a, b, mode, memo) {
       // If the specified value doesn't exist in the second set it's a object
       // (or in loose mode: a non-matching primitive). Find the
       // deep-(mode-)equal element in a set copy to reduce duplicate checks.
-      array.push(val);
+      ArrayPrototypePush(array, val);
     }
   }
 
@@ -815,10 +852,13 @@ function mapObjectEquiv(array, a, b, mode, memo) {
   let start = 0;
   let end = array.length - 1;
   const comparator = mode !== kLoose ? objectComparisonStart : innerDeepEqual;
-  const extraChecks = mode === kLoose || array.length !== a.size;
 
   for (const { 0: key1, 1: item1 } of a) {
-    if (extraChecks && (typeof key1 !== 'object' || key1 === null)) {
+    // Primitive and `null` keys can never match an object key collected in
+    // `array`, so resolve them directly against `b`. `null` is `typeof
+    // 'object'`, so without this it would reach the object comparator, which
+    // reads `key1.constructor` and throws a `TypeError`.
+    if (typeof key1 !== 'object' || key1 === null) {
       if (b.has(key1)) {
         if (mode !== kLoose || innerDeepEqual(item1, b.get(key1), mode, memo)) {
           continue;
@@ -866,7 +906,7 @@ function mapEquiv(a, b, mode, memo) {
         }
         array = [];
       }
-      array.push(key2);
+      ArrayPrototypePush(array, key2);
     } else {
       // By directly retrieving the value we prevent another b.has(key2) check in
       // almost all possible cases.
@@ -882,7 +922,7 @@ function mapEquiv(a, b, mode, memo) {
         if (array === undefined) {
           array = [];
         }
-        array.push(key2);
+        ArrayPrototypePush(array, key2);
       }
     }
   }

@@ -1,7 +1,6 @@
 #pragma once
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
 
 #include <memory_tracker.h>
 #include <ngtcp2/ngtcp2_crypto.h>
@@ -71,7 +70,8 @@ class TokenSecret final : public MemoryRetainer {
 //
 // StatlessResetTokens are always kStatelessTokenLen bytes,
 // as are the secrets used to generate the token.
-class StatelessResetToken final : public MemoryRetainer {
+class StatelessResetToken final : public ngtcp2_stateless_reset_token,
+                                  public MemoryRetainer {
  public:
   static constexpr int kStatelessTokenLen = NGTCP2_STATELESS_RESET_TOKENLEN;
 
@@ -79,23 +79,27 @@ class StatelessResetToken final : public MemoryRetainer {
 
   // Generates a stateless reset token using HKDF with the cid and token secret
   // as input. The token secret is either provided by user code when an Endpoint
-  // is created or is generated randomly.
+  // is created or is generated randomly. The token is stored in the inherited
+  // ngtcp2_stateless_reset_token::data and ptr_ is set to this.
   StatelessResetToken(const TokenSecret& secret, const CID& cid);
 
-  // Generates a stateless reset token using the given token storage.
+  // Generates a stateless reset token into the given external storage.
   // The StatelessResetToken wraps the token and does not take ownership.
-  // The token storage must be at least kStatelessTokenLen bytes in length.
-  // The length is not verified so care must be taken when using this
-  // constructor.
   StatelessResetToken(uint8_t* token,
                       const TokenSecret& secret,
                       const CID& cid);
 
+  // Generates a stateless reset token into the given external storage.
+  // The StatelessResetToken wraps the token and does not take ownership.
+  StatelessResetToken(ngtcp2_stateless_reset_token* token,
+                      const TokenSecret& secret,
+                      const CID& cid);
+
   // Wraps the given token. Does not take over ownership of the token storage.
-  // The token must be at least kStatelessTokenLen bytes in length.
-  // The length is not verified so care must be taken when using this
-  // constructor.
   explicit StatelessResetToken(const uint8_t* token);
+
+  // Wraps the given token. Does not take over ownership of the token storage.
+  explicit StatelessResetToken(const ngtcp2_stateless_reset_token* token);
 
   StatelessResetToken(const StatelessResetToken& other);
   DISALLOW_MOVE(StatelessResetToken)
@@ -103,6 +107,7 @@ class StatelessResetToken final : public MemoryRetainer {
   std::string ToString() const;
 
   operator const uint8_t*() const;
+  operator const ngtcp2_stateless_reset_token*() const;
   operator bool() const;
 
   bool operator==(const StatelessResetToken& other) const;
@@ -125,8 +130,7 @@ class StatelessResetToken final : public MemoryRetainer {
  private:
   operator const char*() const;
 
-  const uint8_t* ptr_;
-  uint8_t buf_[NGTCP2_STATELESS_RESET_TOKENLEN];
+  const ngtcp2_stateless_reset_token* ptr_;
 };
 
 // A RETRY packet communicates a retry token to the client. Retry tokens are
@@ -162,6 +166,8 @@ class RetryToken final : public MemoryRetainer {
   static constexpr uint64_t QUIC_DEFAULT_RETRYTOKEN_EXPIRATION =
       10 * NGTCP2_SECONDS;
   static constexpr uint64_t QUIC_MIN_RETRYTOKEN_EXPIRATION = 1 * NGTCP2_SECONDS;
+  static constexpr uint64_t QUIC_MAX_RETRYTOKEN_EXPIRATION =
+      60 * NGTCP2_SECONDS;
 
   // Generates a new retry token.
   RetryToken(uint32_t version,
@@ -215,18 +221,20 @@ class RegularToken final : public MemoryRetainer {
       10 * NGTCP2_SECONDS;
   static constexpr uint64_t QUIC_MIN_REGULARTOKEN_EXPIRATION =
       1 * NGTCP2_SECONDS;
+  static constexpr uint64_t QUIC_MAX_REGULARTOKEN_EXPIRATION =
+      5 * 60 * NGTCP2_SECONDS;
 
   RegularToken();
 
-  // Generates a new retry token.
+  // Generates a new regular token.
   RegularToken(uint32_t version,
                const SocketAddress& address,
                const TokenSecret& token_secret);
 
-  // Wraps the given retry token
+  // Wraps the given regular token
   RegularToken(const uint8_t* token, size_t length);
 
-  // Validates the retry token given the input.
+  // Validates the regular token given the input.
   bool Validate(
       uint32_t version,
       const SocketAddress& address,
@@ -241,8 +249,8 @@ class RegularToken final : public MemoryRetainer {
   std::string ToString() const;
 
   SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(RetryToken)
-  SET_SELF_SIZE(RetryToken)
+  SET_MEMORY_INFO_NAME(RegularToken)
+  SET_SELF_SIZE(RegularToken)
 
  private:
   operator const char*() const;
@@ -252,5 +260,4 @@ class RegularToken final : public MemoryRetainer {
 
 }  // namespace node::quic
 
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

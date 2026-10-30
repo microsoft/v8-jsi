@@ -26,13 +26,13 @@ namespace v8 {
 namespace internal {
 
 RwxMemoryWriteScope::RwxMemoryWriteScope(const char* comment) {
-  if (!v8_flags.jitless) {
+  if (!v8_flags.jitless || v8_flags.force_memory_protection_keys) {
     SetWritable();
   }
 }
 
 RwxMemoryWriteScope::~RwxMemoryWriteScope() {
-  if (!v8_flags.jitless) {
+  if (!v8_flags.jitless || v8_flags.force_memory_protection_keys) {
     SetExecutable();
   }
 }
@@ -84,6 +84,20 @@ WritableJitAllocation WritableJitAllocation::ForNonExecutableMemory(
     Address addr, size_t size, ThreadIsolation::JitAllocationType type) {
   return WritableJitAllocation(addr, size, type, false);
 }
+
+#ifdef V8_ENABLE_SPARKPLUG_PLUS
+WritableJitAllocation::WritableJitAllocation(Address addr, size_t size)
+    : address_(addr),
+      write_scope_("WritableJitAllocation"),
+      allocation_(size,
+                  ThreadIsolation::JitAllocationType::kInstructionStream) {}
+
+// static
+WritableJitAllocation WritableJitAllocation::ForPatchableBaselineJIT(
+    Address addr, size_t size) {
+  return WritableJitAllocation(addr, size);
+}
+#endif
 
 std::optional<RwxMemoryWriteScope>
 WritableJitAllocation::WriteScopeForApiEnforcement() const {

@@ -20,7 +20,8 @@ RUNTIME_FUNCTION(Runtime_TransitionElementsKind) {
   DirectHandle<JSObject> object = args.at<JSObject>(0);
   DirectHandle<Map> to_map = args.at<Map>(1);
   ElementsKind to_kind = to_map->elements_kind();
-  ElementsAccessor::ForKind(to_kind)->TransitionElementsKind(object, to_map);
+  ElementsAccessor::ForKind(to_kind)->TransitionElementsKind(isolate, object,
+                                                             to_map);
   return *object;
 }
 
@@ -29,7 +30,7 @@ RUNTIME_FUNCTION(Runtime_TransitionElementsKindWithKind) {
   DCHECK_EQ(2, args.length());
   DirectHandle<JSObject> object = args.at<JSObject>(0);
   ElementsKind to_kind = static_cast<ElementsKind>(args.smi_value_at(1));
-  JSObject::TransitionElementsKind(object, to_kind);
+  JSObject::TransitionElementsKind(isolate, object, to_kind);
   return *object;
 }
 
@@ -60,22 +61,33 @@ RUNTIME_FUNCTION(Runtime_NewArray) {
   bool holey = false;
   bool can_use_type_feedback = !site.is_null();
   bool can_inline_array_constructor = true;
+
+  // For arity 1, the constructor call  is treated as `Array(length)` if it is a
+  // number, and `Array(single_element_value)` otherwise. For the length call,
+  // check various bounds.
   if (argv.length() == 1) {
-    DirectHandle<Object> argument_one = argv.at<Object>(0);
-    if (IsSmi(*argument_one)) {
-      int value = Cast<Smi>(*argument_one).value();
-      if (value < 0 ||
-          JSArray::SetLengthWouldNormalize(isolate->heap(), value)) {
-        // the array is a dictionary in this case.
+    // Keep in sync with: `ArrayConstructInitializeElements`.
+    DirectHandle<Object> arg0 = argv.at<Object>(0);
+    if (IsNumber(*arg0)) {
+      uint32_t length;
+      if (!Object::ToArrayLength(*arg0, &length)) {
+        // The array is a dictionary in this case.
         can_use_type_feedback = false;
-      } else if (value != 0) {
+      } else if (JSArray::SetLengthWouldNormalize(isolate->heap(), length)) {
+        // The array is a dictionary in this case.
+        can_use_type_feedback = false;
+      } else if (length != 0) {
         holey = true;
-        if (value >= JSArray::kInitialMaxFastElementArray) {
+        if (length >= JSArray::kInitialMaxFastElementArray) {
           can_inline_array_constructor = false;
         }
       }
     } else {
-      // Non-smi length argument produces a dictionary
+      // TODO(jgruber): There's no fundamental reason to disable speculation
+      // here. Currently, we have to do so to avoid deopt loops when the
+      // constructor is sometimes called with a single Number, sometimes with
+      // a single non-number. We could track the variant instead, and disable
+      // speculation only when it changes.
       can_use_type_feedback = false;
     }
   }
@@ -85,10 +97,19 @@ RUNTIME_FUNCTION(Runtime_NewArray) {
       isolate, initial_map,
       JSFunction::GetDerivedMap(isolate, constructor, new_target));
 
-  ElementsKind to_kind = can_use_type_feedback ? site->GetElementsKind()
-                                               : initial_map->elements_kind();
-  if (holey && !IsHoleyElementsKind(to_kind)) {
-    to_kind = GetHoleyElementsKind(to_kind);
+  ElementsKind initial_kind = can_use_type_feedback
+                                  ? site->GetElementsKind()
+                                  : initial_map->elements_kind();
+  ElementsKind to_kind =
+      holey ? GetHoleyElementsKind(initial_kind) : initial_kind;
+
+  if (argv.length() > 1 || (argv.length() == 1 && !IsNumber(argv[0]))) {
+    to_kind = JSObject::GetTransitionedElementsKind(
+        isolate, initial_kind, FullObjectSlot(argv.address_of_arg_at(0)),
+        argv.length(), ALLOW_CONVERTED_DOUBLE_ELEMENTS);
+  }
+
+  if (to_kind != initial_kind) {
     // Update the allocation site info to reflect the advice alteration.
     if (!site.is_null()) site->SetElementsKind(to_kind);
   }
@@ -112,27 +133,18 @@ RUNTIME_FUNCTION(Runtime_NewArray) {
       array, 0, 0, ArrayStorageAllocationMode::DONT_INITIALIZE_ARRAY_ELEMENTS);
 
   ElementsKind old_kind = array->GetElementsKind();
-  RETURN_FAILURE_ON_EXCEPTION(isolate,
-                              ArrayConstructInitializeElements(array, &argv));
-  if (!site.is_null()) {
-    if ((old_kind != array->GetElementsKind() || !can_use_type_feedback ||
-         !can_inline_array_constructor)) {
-      // The arguments passed in caused a transition. This kind of complexity
-      // can't be dealt with in the inlined optimized array constructor case.
-      // We must mark the allocationsite as un-inlinable.
-      site->SetDoNotInlineCall();
-    }
-  } else {
-    if (old_kind != array->GetElementsKind() || !can_inline_array_constructor) {
-      // We don't have an AllocationSite for this Array constructor invocation,
-      // i.e. it might a call from Array#map or from an Array subclass, so we
-      // just flip the bit on the global protector cell instead.
-      // TODO(bmeurer): Find a better way to mark this. Global protectors
-      // tend to back-fire over time...
-      if (Protectors::IsArrayConstructorIntact(isolate)) {
-        Protectors::InvalidateArrayConstructor(isolate);
-      }
-    }
+  RETURN_FAILURE_ON_EXCEPTION(
+      isolate, ArrayConstructInitializeElements(isolate, array, &argv));
+
+  if (!site.is_null() &&
+      (old_kind != array->GetElementsKind() || !can_use_type_feedback ||
+       !can_inline_array_constructor)) {
+    // Protect against deopt loops by disabling speculating optimizations in
+    // some cases.  If there's no allocation site yet, the optimized code will
+    // eventually optimistically try to inline and worst case will deopt and
+    // set the allocation site itself, or set the CallIC disable speculation
+    // bit.
+    site->SetSpeculationDisabled();
   }
 
   return *array;
@@ -144,7 +156,7 @@ RUNTIME_FUNCTION(Runtime_NormalizeElements) {
   DirectHandle<JSObject> array = args.at<JSObject>(0);
   CHECK(!array->HasTypedArrayOrRabGsabTypedArrayElements());
   CHECK(!IsJSGlobalProxy(*array));
-  JSObject::NormalizeElements(array);
+  JSObject::NormalizeElements(isolate, array);
   return *array;
 }
 
@@ -175,9 +187,9 @@ RUNTIME_FUNCTION(Runtime_GrowArrayElements) {
 
   if (index >= capacity) {
     bool has_grown;
-    MAYBE_ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, has_grown,
-        object->GetElementsAccessor()->GrowCapacity(object, index));
+        object->GetElementsAccessor()->GrowCapacity(isolate, object, index));
     if (!has_grown) {
       return Smi::zero();
     }
@@ -255,7 +267,7 @@ RUNTIME_FUNCTION(Runtime_ArrayIncludes_Slow) {
   int64_t index = 0;
   if (!IsUndefined(*from_index, isolate)) {
     double start_from;
-    MAYBE_ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, start_from, Object::IntegerValue(isolate, from_index));
 
     if (start_from >= len) return ReadOnlyRoots(isolate).false_value();
@@ -347,7 +359,7 @@ RUNTIME_FUNCTION(Runtime_ArrayIndexOf) {
   int64_t start_from;
   {
     double fp;
-    MAYBE_ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, fp, Object::IntegerValue(isolate, from_index));
     if (fp > len) return Smi::FromInt(-1);
     if (V8_LIKELY(fp >=

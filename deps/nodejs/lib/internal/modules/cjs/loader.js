@@ -113,6 +113,7 @@ const kFormat = Symbol('kFormat');
 
 // Set first due to cycle with ESM loader functions.
 module.exports = {
+  purgeModuleCachesForPrefix,
   kModuleSource,
   kModuleExport,
   kModuleExportNames,
@@ -155,19 +156,19 @@ const {
 } = internalBinding('contextify');
 
 const assert = require('internal/assert');
-const fs = require('fs');
 const path = require('path');
-const internalFsBinding = internalBinding('fs');
 const { safeGetenv } = internalBinding('credentials');
 const {
+  cleanForVfsPrefix,
   getCjsConditions,
   getCjsConditionsArray,
   initializeCjsConditions,
+  loaderMethods,
   loadBuiltinModule,
   makeRequireFunction,
   setHasStartedUserCJSExecution,
   stripBOM,
-  toRealPath,
+  getRequireStack,
 } = require('internal/modules/helpers');
 const {
   convertCJSFilenameToURL,
@@ -179,10 +180,15 @@ const {
   resolveWithHooks,
   validateLoadStrict,
 } = require('internal/modules/customization_hooks');
-const { stripTypeScriptModuleTypes } = require('internal/modules/typescript');
+const lazyTypeScript = getLazy(() => require('internal/modules/typescript'));
 const packageJsonReader = require('internal/modules/package_json_reader');
 const { getOptionValue, getEmbedderOptions } = require('internal/options');
 const shouldReportRequiredModules = getLazy(() => process.env.WATCH_REPORT_DEPENDENCIES);
+
+const {
+  hasPackageMap,
+  packageMapResolve,
+} = require('internal/modules/package_map');
 
 const {
   vm_dynamic_import_default_internal,
@@ -223,7 +229,7 @@ let { startTimer, endTimer } = debugWithTimer('module_timer', (start, end) => {
 const { tracingChannel } = require('diagnostics_channel');
 const onRequire = getLazy(() => tracingChannel('module.require'));
 
-const relativeResolveCache = { __proto__: null };
+const relativeResolveCache = new SafeMap();
 
 let requireDepth = 0;
 let isPreloading = false;
@@ -272,12 +278,28 @@ function stat(filename) {
     const result = statCache.get(filename);
     if (result !== undefined) { return result; }
   }
-  const result = internalFsBinding.internalModuleStat(filename);
+  const result = loaderMethods.internalModuleStat(filename);
   if (statCache !== null && result >= 0) {
     // Only set cache when `internalModuleStat(filename)` succeeds.
     statCache.set(filename, result);
   }
   return result;
+}
+
+/**
+ * Drop every module-loader cache entry (Module._cache,
+ * Module._pathCache, the stat cache) whose filename lives under
+ * `mountPoint`. Called by internal/vfs/setup.js when a VFS is
+ * unmounted. VFS mount points live in a reserved namespace that
+ * cannot collide with real paths, so a prefix scan is exact:
+ * real-fs entries and other-VFS entries never match.
+ * @param {string} mountPoint Absolute mount-point path
+ */
+function purgeModuleCachesForPrefix(mountPoint) {
+  cleanForVfsPrefix(Module._cache, mountPoint);
+  // Module._pathCache keys are `request\0parent` tokens; match on value.
+  cleanForVfsPrefix(Module._pathCache, mountPoint, true);
+  if (statCache !== null) { cleanForVfsPrefix(statCache, mountPoint); }
 }
 
 let _stat = stat;
@@ -327,6 +349,28 @@ function reportModuleNotFoundToWatchMode(basePath, extensions) {
   if (shouldReportRequiredModules() && process.send) {
     process.send({ 'watch:require': ArrayPrototypeMap(extensions, (ext) => path.resolve(`${basePath}${ext}`)) });
   }
+}
+
+/**
+ * Tell the watch mode that a module was required, from within a worker thread.
+ * @param {string} filename Absolute path of the module
+ * @returns {void}
+ */
+function reportModuleToWatchModeFromWorker(filename) {
+  if (!shouldReportRequiredModules()) {
+    return;
+  }
+  const { isMainThread } = internalBinding('worker');
+  if (isMainThread) {
+    return;
+  }
+  // Lazy require to avoid circular dependency: worker_threads is loaded after
+  // the CJS loader is fully set up.
+  const { parentPort } = require('worker_threads');
+  if (!parentPort) {
+    return;
+  }
+  parentPort.postMessage({ 'watch:require': [filename] });
 }
 
 /**
@@ -454,7 +498,6 @@ ObjectDefineProperty(Module.prototype, 'parent', {
     'DEP0144',
   ),
 });
-Module._debug = pendingDeprecate(debug, 'Module._debug is deprecated.', 'DEP0077');
 Module.isBuiltin = BuiltinModule.isBuiltin;
 
 /**
@@ -465,11 +508,7 @@ Module.isBuiltin = BuiltinModule.isBuiltin;
 function initializeCJS() {
   // This need to be done at runtime in case --expose-internals is set.
 
-  let modules = Module.builtinModules = BuiltinModule.getAllBuiltinModuleIds();
-  if (!getOptionValue('--experimental-quic')) {
-    modules = modules.filter((i) => i !== 'node:quic');
-  }
-  Module.builtinModules = ObjectFreeze(modules);
+  Module.builtinModules = ObjectFreeze(BuiltinModule.getAllBuiltinModuleIds());
 
   initializeCjsConditions();
 
@@ -562,7 +601,7 @@ function tryFile(requestPath, isMain) {
   if (getOptionValue(isMain ? '--preserve-symlinks-main' : '--preserve-symlinks')) {
     return path.resolve(requestPath);
   }
-  return toRealPath(requestPath);
+  return loaderMethods.realpathSync(requestPath);
 }
 
 /**
@@ -645,14 +684,55 @@ function trySelf(parentPath, request, conditions) {
     return false;
   }
 
+  return resolveExpansion(expansion, pkg.path, pkg.data, parentPath, conditions);
+}
+
+/**
+ * Try to resolve using package map (if enabled via --experimental-package-map).
+ * @param {string} request - The bare specifier
+ * @param {Module} parent - The parent module
+ * @param {Set<string>} conditions - Export conditions
+ * @returns {string|undefined}
+ */
+function tryPackageMapResolveCJS(request, parent, conditions) {
+  if (!hasPackageMap()) { return undefined; }
+
+  const parentPath = trySelfParentPath(parent);
+  if (!parentPath) { return undefined; }
+
+  const mapped = packageMapResolve(request, parentPath);
+  if (mapped === undefined) {
+    const requireStack = getRequireStack(parent);
+    const message = getRequireStackMessage(request, requireStack);
+    // eslint-disable-next-line no-restricted-syntax
+    const err = new Error(message);
+    setOwnProperty(err, 'code', 'MODULE_NOT_FOUND');
+    setOwnProperty(err, 'requireStack', requireStack);
+    throw err;
+  }
+
+  const { packagePath, subpath } = mapped;
+
+  const packageJSONPath = path.resolve(packagePath, 'package.json');
+  const pkg = packageJsonReader.read(packageJSONPath);
+  if (pkg.exports !== undefined) {
+    return resolveExpansion(subpath, packageJSONPath, pkg, parentPath, conditions);
+  }
+
+  // No exports - try standard path resolution within the package
+  return Module._findPath(subpath, [packagePath], false, conditions);
+}
+
+function resolveExpansion(expansion, pkgJsonPath, pkgData, parentPath, conditions) {
+  const pkgPath = path.dirname(pkgJsonPath);
   try {
     const { packageExportsResolve } = require('internal/modules/esm/resolve');
     return finalizeEsmResolution(packageExportsResolve(
-      pathToFileURL(pkg.path), expansion, pkg.data,
-      pathToFileURL(parentPath), conditions), parentPath, pkg.path);
+      pathToFileURL(pkgJsonPath), expansion, pkgData,
+      pathToFileURL(parentPath), conditions), parentPath, pkgPath);
   } catch (e) {
     if (e.code === 'ERR_MODULE_NOT_FOUND') {
-      throw createEsmNotFoundErr(request, pkg.path);
+      throw createEsmNotFoundErr(expansion, pkgPath);
     }
     throw e;
   }
@@ -765,7 +845,7 @@ Module._findPath = function(request, paths, isMain, conditions = getCjsCondition
           if (getOptionValue('--preserve-symlinks')) {
             filename = path.resolve(basePath);
           } else {
-            filename = toRealPath(basePath);
+            filename = loaderMethods.realpathSync(basePath);
           }
         } else if (getOptionValue('--preserve-symlinks-main')) {
           // For the main module, we use the --preserve-symlinks-main flag instead
@@ -778,7 +858,7 @@ Module._findPath = function(request, paths, isMain, conditions = getCjsCondition
           // is needed.
           filename = path.resolve(basePath);
         } else {
-          filename = toRealPath(basePath);
+          filename = loaderMethods.realpathSync(basePath);
         }
       }
 
@@ -839,6 +919,11 @@ if (isWindows) {
       return [from + 'node_modules'];
     }
 
+    // The walk stops at the resolution root (e.g. a VFS mount point)
+    // instead of continuing to the file system root.
+    const resolutionRoot = loaderMethods.getResolutionRoot(from);
+    const stopLen = resolutionRoot === undefined ? -1 : resolutionRoot.length;
+
     /** @type {string[]} */
     const paths = [];
     for (let i = from.length - 1, p = 0, last = from.length; i >= 0; --i) {
@@ -856,6 +941,9 @@ if (isWindows) {
             paths,
             StringPrototypeSlice(from, 0, last) + '\\node_modules',
           );
+        }
+        if (last === stopLen) {
+          return paths;
         }
         last = i;
         p = 0;
@@ -885,6 +973,11 @@ if (isWindows) {
       return ['/node_modules'];
     }
 
+    // The walk stops at the resolution root (e.g. a VFS mount point)
+    // instead of continuing to the file system root.
+    const resolutionRoot = loaderMethods.getResolutionRoot(from);
+    const stopLen = resolutionRoot === undefined ? -1 : resolutionRoot.length;
+
     // note: this approach *only* works when the path is guaranteed
     // to be absolute.  Doing a fully-edge-case-correct path.split
     // that works on both Windows and Posix is non-trivial.
@@ -898,6 +991,9 @@ if (isWindows) {
             paths,
             StringPrototypeSlice(from, 0, last) + '/node_modules',
           );
+        }
+        if (last === stopLen) {
+          return paths;
         }
         last = i;
         p = 0;
@@ -1074,19 +1170,25 @@ function defaultResolveImplForCJSLoading(specifier, parent, isMain, options) {
 }
 
 /**
+ * @typedef {{
+ *   resolved?: {url?: string, format?: string, filename: string},
+ *   shouldSkipModuleHooks?: boolean,
+ *   source?: string|ArrayBufferView|ArrayBuffer,
+ *   requireResolveOptions?: ResolveFilenameOptions,
+ * }} CJSModuleLoadInternalOptions
+ */
+
+/**
  * Resolve a module request for CommonJS, invoking hooks from module.registerHooks()
  * if necessary.
  * @param {string} specifier
  * @param {Module|undefined} parent
  * @param {boolean} isMain
- * @param {object} internalResolveOptions
- * @param {boolean} internalResolveOptions.shouldSkipModuleHooks Whether to skip module hooks.
- * @param {ResolveFilenameOptions} internalResolveOptions.requireResolveOptions Options from require.resolve().
- *   Only used when it comes from require.resolve().
+ * @param {CJSModuleLoadInternalOptions} internalOptions
  * @returns {{url?: string, format?: string, parentURL?: string, filename: string}}
  */
-function resolveForCJSWithHooks(specifier, parent, isMain, internalResolveOptions) {
-  const { requireResolveOptions, shouldSkipModuleHooks } = internalResolveOptions;
+function resolveForCJSWithHooks(specifier, parent, isMain, internalOptions) {
+  const { requireResolveOptions, shouldSkipModuleHooks } = internalOptions;
   const defaultResolveImpl = requireResolveOptions ?
     wrapResolveFilename : defaultResolveImplForCJSLoading;
   // Fast path: no hooks, just return simple results.
@@ -1165,7 +1267,7 @@ function defaultLoadImpl(filename, format) {
     case 'module-typescript':
     case 'commonjs-typescript':
     case 'typescript': {
-      return fs.readFileSync(filename, 'utf8');
+      return loaderMethods.readFileSync(filename, 'utf8');
     }
     case 'builtin':
       return null;
@@ -1233,20 +1335,23 @@ function loadBuiltinWithHooks(id, url, format) {
  * @param {string} request Specifier of module to load via `require`
  * @param {Module} parent Absolute path of the module importing the child
  * @param {boolean} isMain Whether the module is the main entry point
- * @param {object|undefined} internalResolveOptions Additional options for loading the module
+ * @param {CJSModuleLoadInternalOptions|undefined} internalOptions Additional options for loading the module
  * @returns {object}
  */
-Module._load = function(request, parent, isMain, internalResolveOptions = kEmptyObject) {
-  let relResolveCacheIdentifier;
+Module._load = function(request, parent, isMain, internalOptions = kEmptyObject) {
+  let parentPath;
+  let relResolveCacheByDir;
   if (parent) {
     debug('Module._load REQUEST %s parent: %s', request, parent.id);
-    // Fast path for (lazy loaded) modules in the same directory. The indirect
-    // caching is required to allow cache invalidation without changing the old
-    // cache key names.
-    relResolveCacheIdentifier = `${parent.path}\x00${request}`;
-    const filename = relativeResolveCache[relResolveCacheIdentifier];
-    reportModuleToWatchMode(filename);
+    // Fast path for (lazy loaded) modules in the same directory. Keyed by
+    // parent directory and then request, so no concatenated cache key
+    // string is allocated per require() call.
+    parentPath = parent.path;
+    relResolveCacheByDir = relativeResolveCache.get(parentPath);
+    const filename = relResolveCacheByDir?.[request];
     if (filename !== undefined) {
+      reportModuleToWatchMode(filename);
+      reportModuleToWatchModeFromWorker(filename);
       const cachedModule = Module._cache[filename];
       if (cachedModule !== undefined) {
         updateChildren(parent, cachedModule, true);
@@ -1255,11 +1360,14 @@ Module._load = function(request, parent, isMain, internalResolveOptions = kEmpty
         }
         return cachedModule.exports;
       }
-      delete relativeResolveCache[relResolveCacheIdentifier];
+      delete relResolveCacheByDir[request];
     }
   }
 
-  const resolveResult = resolveForCJSWithHooks(request, parent, isMain, internalResolveOptions);
+  // If the module has been resolved by a short-circuiting synchronous resolve hook,
+  // avoid running the default resolution from disk again.
+  const resolveResult = internalOptions.resolved ??
+    resolveForCJSWithHooks(request, parent, isMain, internalOptions);
   let { format } = resolveResult;
   const { url, filename } = resolveResult;
 
@@ -1336,6 +1444,7 @@ Module._load = function(request, parent, isMain, internalResolveOptions = kEmpty
     }
 
     reportModuleToWatchMode(filename);
+    reportModuleToWatchModeFromWorker(filename);
     Module._cache[filename] = module;
     module[kIsCachedByESMLoader] = false;
     // If there are resolve hooks, carry the context information into the
@@ -1346,8 +1455,24 @@ Module._load = function(request, parent, isMain, internalResolveOptions = kEmpty
     module[kLastModuleParent] = parent;
   }
 
-  if (parent !== undefined) {
-    relativeResolveCache[relResolveCacheIdentifier] = filename;
+  // The module source was provided by a short-circuiting synchronous hook,
+  // assign them into the module to avoid triggering the default load step again.
+  if (internalOptions.source !== undefined) {
+    module[kModuleSource] ??= internalOptions.source;
+    module[kURL] ??= url;
+    module[kFormat] ??= format;
+  }
+
+  if (parent) {
+    // Only create the per-directory bucket once there is an entry to store,
+    // so builtins and failed resolutions don't leave empty buckets behind.
+    if (relResolveCacheByDir === undefined) {
+      // A plain object handles dynamically built specifier strings
+      // better than a Map here.
+      relResolveCacheByDir = { __proto__: null };
+      relativeResolveCache.set(parentPath, relResolveCacheByDir);
+    }
+    relResolveCacheByDir[request] = filename;
   }
 
   let threw = true;
@@ -1358,7 +1483,9 @@ Module._load = function(request, parent, isMain, internalResolveOptions = kEmpty
     if (threw) {
       delete Module._cache[filename];
       if (parent !== undefined) {
-        delete relativeResolveCache[relResolveCacheIdentifier];
+        if (relResolveCacheByDir !== undefined) {
+          delete relResolveCacheByDir[request];
+        }
         const children = parent?.children;
         if (ArrayIsArray(children)) {
           const index = ArrayPrototypeIndexOf(children, module);
@@ -1395,6 +1522,14 @@ Module._resolveFilename = function(request, parent, isMain, options) {
   }
   const conditions = (options?.conditions) || getCjsConditions();
 
+  // Try package map resolution for bare specifiers (if --experimental-package-map is set)
+  if (request[0] !== '#' && !isRelative(request) && !path.isAbsolute(request)) {
+    const resolved = tryPackageMapResolveCJS(request, parent, conditions);
+    if (resolved !== undefined) {
+      return resolved;
+    }
+  }
+
   let paths;
 
   if (typeof options === 'object' && options !== null) {
@@ -1427,8 +1562,9 @@ Module._resolveFilename = function(request, parent, isMain, options) {
     paths = Module._resolveLookupPaths(request, parent);
   }
 
-  if (request[0] === '#' && (parent?.filename || parent?.id === '<repl>')) {
-    const parentPath = parent?.filename ?? process.cwd() + path.sep;
+  const parentPath = trySelfParentPath(parent);
+
+  if (request[0] === '#' && (parent.filename || parent.id === '<repl>')) {
     const pkg = packageJsonReader.getNearestParentPackageJSON(parentPath);
     if (pkg?.data.imports != null) {
       try {
@@ -1448,7 +1584,6 @@ Module._resolveFilename = function(request, parent, isMain, options) {
   }
 
   // Try module self resolution first
-  const parentPath = trySelfParentPath(parent);
   const selfResolved = trySelf(parentPath, request, conditions);
   if (selfResolved) {
     const cacheKey = request + '\x00' +
@@ -1460,24 +1595,26 @@ Module._resolveFilename = function(request, parent, isMain, options) {
   // Look up the filename first, since that's the cache key.
   const filename = Module._findPath(request, paths, isMain, conditions);
   if (filename) { return filename; }
-  const requireStack = [];
-  for (let cursor = parent;
-    cursor;
-    // TODO(joyeecheung): it makes more sense to use kLastModuleParent here.
-    cursor = cursor[kFirstModuleParent]) {
-    ArrayPrototypePush(requireStack, cursor.filename || cursor.id);
-  }
+
+  const requireStack = getRequireStack(parent);
+  const message = getRequireStackMessage(request, requireStack);
+
+  // eslint-disable-next-line no-restricted-syntax
+  const err = new Error(message);
+  setOwnProperty(err, 'code', 'MODULE_NOT_FOUND');
+  setOwnProperty(err, 'requireStack', requireStack);
+
+  throw err;
+};
+
+function getRequireStackMessage(request, requireStack) {
   let message = `Cannot find module '${request}'`;
   if (requireStack.length > 0) {
     message = message + '\nRequire stack:\n- ' +
               ArrayPrototypeJoin(requireStack, '\n- ');
   }
-  // eslint-disable-next-line no-restricted-syntax
-  const err = new Error(message);
-  err.code = 'MODULE_NOT_FOUND';
-  err.requireStack = requireStack;
-  throw err;
-};
+  return message;
+}
 
 /**
  * Finishes resolving an ES module specifier into an absolute file path.
@@ -1781,7 +1918,8 @@ function wrapSafe(filename, content, cjsModuleInstance, format) {
  */
 Module.prototype._compile = function(content, filename, format) {
   if (format === 'commonjs-typescript' || format === 'module-typescript' || format === 'typescript') {
-    content = stripTypeScriptModuleTypes(content, filename);
+    this[kURL] ??= convertCJSFilenameToURL(filename);
+    content = lazyTypeScript().stripTypeScriptModuleTypes(content, filename, this[kURL]);
     switch (format) {
       case 'commonjs-typescript': {
         format = 'commonjs';
@@ -1949,6 +2087,15 @@ Module._extensions['.js'] = function(module, filename) {
       format = 'commonjs-typescript';
     } else {
       format = 'typescript';
+    }
+  } else if (path.extname(filename) === '') {
+    // Extensionless files skip the .js suffix check above. When type is explicit,
+    // follow it so ESM syntax surfaces as SyntaxError for commonjs instead of
+    // silently delegating to ESM.
+    pkg = packageJsonReader.getNearestParentPackageJSON(filename);
+    const typeFromPjson = pkg?.data?.type;
+    if (typeFromPjson === 'commonjs' || typeFromPjson === 'module') {
+      format = typeFromPjson;
     }
   }
   const { source, format: loadedFormat } = loadSource(module, filename, format);

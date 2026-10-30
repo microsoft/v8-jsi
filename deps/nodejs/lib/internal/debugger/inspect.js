@@ -5,12 +5,10 @@ const {
   ArrayPrototypeJoin,
   ArrayPrototypeMap,
   ArrayPrototypePop,
-  ArrayPrototypePushApply,
   ArrayPrototypeShift,
   ArrayPrototypeSlice,
   FunctionPrototypeBind,
   Number,
-  Promise,
   PromisePrototypeThen,
   PromiseResolve,
   Proxy,
@@ -20,90 +18,32 @@ const {
   StringPrototypeSplit,
 } = primordials;
 
-const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const net = require('net');
 const util = require('util');
 const {
-  setInterval: pSetInterval,
   setTimeout: pSetTimeout,
 } = require('timers/promises');
-const {
-  AbortController,
-} = require('internal/abort_controller');
 
 const InspectClient = require('internal/debugger/inspect_client');
+const {
+  launchChildProcess,
+  writeInspectUsageAndExit,
+} = require('internal/debugger/inspect_helpers');
+const {
+  parseProbeTokens,
+  runProbeMode,
+} = require('internal/debugger/inspect_probe');
 const createRepl = require('internal/debugger/inspect_repl');
 
 const debuglog = util.debuglog('inspect');
 
-const { ERR_DEBUGGER_STARTUP_ERROR } = require('internal/errors').codes;
 const {
   exitCodes: {
     kGenericUserError,
-    kNoFailure,
     kInvalidCommandLineArgument,
+    kNoFailure,
   },
 } = internalBinding('errors');
-
-async function portIsFree(host, port, timeout = 3000) {
-  if (port === 0) return; // Binding to a random port.
-
-  const retryDelay = 150;
-  const ac = new AbortController();
-  const { signal } = ac;
-
-  pSetTimeout(timeout).then(() => ac.abort());
-
-  const asyncIterator = pSetInterval(retryDelay);
-  while (true) {
-    await asyncIterator.next();
-    if (signal.aborted) {
-      throw new ERR_DEBUGGER_STARTUP_ERROR(
-        `Timeout (${timeout}) waiting for ${host}:${port} to be free`);
-    }
-    const error = await new Promise((resolve) => {
-      const socket = net.connect(port, host);
-      socket.on('error', resolve);
-      socket.on('connect', () => {
-        socket.end();
-        resolve();
-      });
-    });
-    if (error?.code === 'ECONNREFUSED') {
-      return;
-    }
-  }
-}
-
-const debugRegex = /Debugger listening on ws:\/\/\[?(.+?)\]?:(\d+)\//;
-async function runScript(script, scriptArgs, inspectHost, inspectPort,
-                         childPrint) {
-  await portIsFree(inspectHost, inspectPort);
-  const args = [`--inspect-brk=${inspectPort}`, script];
-  ArrayPrototypePushApply(args, scriptArgs);
-  const child = spawn(process.execPath, args);
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => childPrint(chunk, 'stdout'));
-  child.stderr.on('data', (chunk) => childPrint(chunk, 'stderr'));
-
-  let output = '';
-  return new Promise((resolve) => {
-    function waitForListenHint(text) {
-      output += text;
-      const debug = RegExpPrototypeExec(debugRegex, output);
-      if (debug) {
-        const host = debug[1];
-        const port = Number(debug[2]);
-        child.stderr.removeListener('data', waitForListenHint);
-        resolve([child, port, host]);
-      }
-    }
-
-    child.stderr.on('data', waitForListenHint);
-  });
-}
 
 function createAgentProxy(domain, client) {
   const agent = new EventEmitter();
@@ -139,9 +79,8 @@ class NodeInspector {
 
     if (options.script) {
       this._runScript = FunctionPrototypeBind(
-        runScript, null,
-        options.script,
-        options.scriptArgs,
+        launchChildProcess, null,
+        [options.script, ...options.scriptArgs],
         options.host,
         options.port,
         FunctionPrototypeBind(this.childPrint, this));
@@ -283,7 +222,7 @@ class NodeInspector {
   }
 }
 
-function parseArgv(args) {
+function parseInteractiveArgs(args) {
   const target = ArrayPrototypeShift(args);
   let host = '127.0.0.1';
   let port = 9229;
@@ -327,20 +266,85 @@ function parseArgv(args) {
   };
 }
 
+const kInspectArgOptions = {
+  '__proto__': null,
+  'cond': { type: 'string' },
+  'expr': { type: 'string' },
+  'help': { type: 'boolean', short: 'h' },
+  'json': { type: 'boolean' },
+  // Port, timeout, and max-hit use type 'string' because parseArgs has no
+  // numeric type; the values are parsed to integers by parseProbeTokens().
+  'max-hit': { type: 'string' },
+  'port': { type: 'string' },
+  'preview': { type: 'boolean' },
+  'probe': { type: 'string' },
+  'timeout': { type: 'string' },
+};
+
+// Parses args once and decides whether the user wants the inspect help, probe
+// mode, or interactive mode. The mode is determined by the first option,
+// option-terminator, or positional token in the input.
+//
+// Returns one of:
+//   { mode: 'help' }
+//   { mode: 'probe', tokens, args }
+//   { mode: 'interactive' }
+function parseInspectMode(args) {
+  const { tokens } = util.parseArgs({
+    args,
+    allowPositionals: true,
+    options: kInspectArgOptions,
+    strict: false,
+    tokens: true,
+  });
+
+  for (const token of tokens) {
+    if (token.kind === 'option') {
+      if (token.name === 'help') return { mode: 'help' };
+      if (token.name === 'probe') {
+        // `--probe --help` / `--probe -h` (no value) consumes the help flag
+        // as the probe's "value"; surface help instead of a probe error.
+        if (!token.inlineValue &&
+            (token.value === '--help' || token.value === '-h')) {
+          return { mode: 'help' };
+        }
+        return { mode: 'probe', tokens, args };
+      }
+    }
+    if (token.kind === 'option-terminator' || token.kind === 'positional') {
+      break;
+    }
+  }
+  return { mode: 'interactive' };
+}
+
 function startInspect(argv = ArrayPrototypeSlice(process.argv, 2),
                       stdin = process.stdin,
                       stdout = process.stdout) {
-  if (argv.length < 1) {
-    const invokedAs = `${process.argv0} ${process.argv[1]}`;
+  const invokedAs = `${process.argv0} ${process.argv[1]}`;
 
-    process.stderr.write(`Usage: ${invokedAs} script.js\n` +
-                         `       ${invokedAs} <host>:<port>\n` +
-                         `       ${invokedAs} --port=<port> Use 0 for random port assignment\n` +
-                         `       ${invokedAs} -p <pid>\n`);
-    process.exit(kInvalidCommandLineArgument);
+  if (argv.length < 1) {
+    writeInspectUsageAndExit(invokedAs, undefined, kInvalidCommandLineArgument);
   }
 
-  const options = parseArgv(argv);
+  const parsed = parseInspectMode(argv);
+
+  if (parsed.mode === 'help') {
+    writeInspectUsageAndExit(invokedAs);
+  }
+
+  if (parsed.mode === 'probe') {
+    let probeOptions;
+    try {
+      probeOptions = parseProbeTokens(parsed.tokens, parsed.args);
+    } catch (error) {
+      writeInspectUsageAndExit(invokedAs, error.message, kInvalidCommandLineArgument);
+    }
+    runProbeMode(stdout, probeOptions);
+    return;
+  }
+
+  const options = parseInteractiveArgs(argv);
   const inspector = new NodeInspector(options, stdin, stdout);
 
   stdin.resume();

@@ -21,10 +21,9 @@ bool FixedArrayBase::IsCowArray() const {
 template <template <typename> typename HandleType>
   requires(
       std::is_convertible_v<HandleType<FixedArray>, DirectHandle<FixedArray>>)
-HandleType<FixedArray> FixedArray::SetAndGrow(Isolate* isolate,
-                                              HandleType<FixedArray> array,
-                                              int index,
-                                              DirectHandle<Object> value) {
+HandleType<FixedArray> FixedArray::Grow(Isolate* isolate,
+                                        HandleType<FixedArray> array,
+                                        int index) {
   int len = array->length();
   if (index >= len) {
     int new_capacity = FixedArray::NewCapacityForIndex(index, len);
@@ -33,7 +32,17 @@ HandleType<FixedArray> FixedArray::SetAndGrow(Isolate* isolate,
     // use `undefined` as a filler. Make this more explicit.
     array->FillWithHoles(len, new_capacity);
   }
+  return array;
+}
 
+template <template <typename> typename HandleType>
+  requires(
+      std::is_convertible_v<HandleType<FixedArray>, DirectHandle<FixedArray>>)
+HandleType<FixedArray> FixedArray::SetAndGrow(Isolate* isolate,
+                                              HandleType<FixedArray> array,
+                                              int index,
+                                              DirectHandle<Object> value) {
+  array = Grow(isolate, array, index);
   array->set(index, *value);
   return array;
 }
@@ -45,6 +54,25 @@ template IndirectHandle<FixedArray> FixedArray::SetAndGrow(
     Isolate* isolate, IndirectHandle<FixedArray> array, int index,
     DirectHandle<Object> value);
 
+template <template <typename> typename HandleType>
+  requires(
+      std::is_convertible_v<HandleType<FixedArray>, DirectHandle<FixedArray>>)
+HandleType<FixedArray> FixedArray::SetAndGrow(Isolate* isolate,
+                                              HandleType<FixedArray> array,
+                                              int index,
+                                              Tagged<Smi> value) {
+  array = Grow(isolate, array, index);
+  array->set(index, value);
+  return array;
+}
+
+template DirectHandle<FixedArray> FixedArray::SetAndGrow(
+    Isolate* isolate, DirectHandle<FixedArray> array, int index,
+    Tagged<Smi> value);
+template IndirectHandle<FixedArray> FixedArray::SetAndGrow(
+    Isolate* isolate, IndirectHandle<FixedArray> array, int index,
+    Tagged<Smi> value);
+
 void FixedArray::RightTrim(Isolate* isolate, int new_capacity) {
   DCHECK_NE(map(), ReadOnlyRoots{isolate}.fixed_cow_array_map());
   Super::RightTrim(isolate, new_capacity);
@@ -54,7 +82,7 @@ template <template <typename> typename HandleType>
   requires(
       std::is_convertible_v<HandleType<FixedArray>, DirectHandle<FixedArray>>)
 HandleType<FixedArray> FixedArray::RightTrimOrEmpty(
-    Isolate* isolate, HandleType<FixedArray> array, int new_length) {
+    Isolate* isolate, HandleType<FixedArray> array, uint32_t new_length) {
   if (new_length == 0) {
     return isolate->factory()->empty_fixed_array();
   }
@@ -64,10 +92,11 @@ HandleType<FixedArray> FixedArray::RightTrimOrEmpty(
 
 template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
     DirectHandle<FixedArray> FixedArray::RightTrimOrEmpty(
-        Isolate* isolate, DirectHandle<FixedArray> array, int new_length);
+        Isolate* isolate, DirectHandle<FixedArray> array, uint32_t new_length);
 template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
     IndirectHandle<FixedArray> FixedArray::RightTrimOrEmpty(
-        Isolate* isolate, IndirectHandle<FixedArray> array, int new_length);
+        Isolate* isolate, IndirectHandle<FixedArray> array,
+        uint32_t new_length);
 
 // static
 DirectHandle<ArrayList> ArrayList::Add(Isolate* isolate,
@@ -129,10 +158,10 @@ DirectHandle<FixedArray> ArrayList::ToFixedArray(Isolate* isolate,
   DirectHandle<FixedArray> result =
       FixedArray::New(isolate, length, allocation);
   DisallowGarbageCollection no_gc;
-  WriteBarrierMode mode = result->GetWriteBarrierMode(no_gc);
+  WriteBarrierModeScope mode = result->GetWriteBarrierMode(no_gc);
   ObjectSlot dst_slot(result->RawFieldOfElementAt(0));
   ObjectSlot src_slot(array->RawFieldOfElementAt(0));
-  isolate->heap()->CopyRange(*result, dst_slot, src_slot, length, mode);
+  isolate->heap()->CopyRange(*result, dst_slot, src_slot, length, *mode);
   return result;
 }
 
@@ -157,8 +186,8 @@ DirectHandle<ArrayList> ArrayList::EnsureSpace(Isolate* isolate,
       ArrayList::New(isolate, new_capacity, allocation);
   DisallowGarbageCollection no_gc;
   new_array->set_length(old_length);
-  WriteBarrierMode mode = new_array->GetWriteBarrierMode(no_gc);
-  CopyElements(isolate, *new_array, 0, *array, 0, old_length, mode);
+  WriteBarrierModeScope mode = new_array->GetWriteBarrierMode(no_gc);
+  CopyElements(isolate, *new_array, 0, *array, 0, old_length, *mode);
   return new_array;
 }
 
@@ -305,12 +334,13 @@ int WeakArrayList::CountLiveElements() const {
 bool WeakArrayList::RemoveOne(MaybeObjectDirectHandle value) {
   int last_index = length() - 1;
   // Optimize for the most recently added element to be removed again.
+  Tagged<ClearedWeakValue> cleared_value = ClearedValue();
   for (int i = last_index; i >= 0; --i) {
     if (Get(i) != *value) continue;
     // Move the last element into this slot (or no-op, if this is the last
     // slot).
     Set(i, Get(last_index));
-    Set(last_index, ClearedValue(GetIsolate()));
+    Set(last_index, cleared_value);
     set_length(last_index);
     return true;
   }

@@ -92,8 +92,11 @@ void ImplementationVisitor::BeginGeneratedFiles() {
     {
       cpp::File& file = streams.csa_cc;
 
-      for (const std::string& include_path : GlobalContext::CppIncludes()) {
-        file << "#include " << StringLiteralQuote(include_path) << "\n";
+      for (const CppInclude& include : GlobalContext::CppIncludes()) {
+        if (include.csa_selected()) {
+          file << "#include " << StringLiteralQuote(include.include_path)
+               << "\n";
+        }
       }
       file << "#include \"src/codegen/code-stub-assembler-inl.h\"\n";
 
@@ -134,6 +137,7 @@ void ImplementationVisitor::BeginGeneratedFiles() {
              << SourceFileMap::PathFromV8RootWithoutExtension(source)
              << "-inl.h\"\n\n";
         file << "#include \"torque-generated/class-verifiers.h\"\n";
+        file << "#include \"src/objects/objects-inl.h\"\n\n";
         file << "#include \"src/objects/instance-type-inl.h\"\n\n";
       }
       if (contains_class_asserts.count(source) != 0) {
@@ -177,8 +181,13 @@ void ImplementationVisitor::BeginDebugMacrosFile() {
   std::ostream& header = debug_macros_h_;
 
   source << "#include \"torque-generated/debug-macros.h\"\n\n";
+  source << "\n";
+  source << "// The following includes are here to provide some constants "
+            "definitions.\n";
   source << "#include \"src/objects/swiss-name-dictionary.h\"\n";
   source << "#include \"src/objects/ordered-hash-table.h\"\n";
+  source << "#include \"src/objects/prototype-info.h\"\n";
+  source << "\n";
   source << "#include \"src/torque/runtime-support.h\"\n";
   source << "#include \"tools/debug_helper/debug-macro-shims.h\"\n";
   source << "#include \"include/v8-internal.h\"\n";
@@ -283,7 +292,7 @@ class ImplementationVisitor::MacroInliningScope {
 VisitResult ImplementationVisitor::InlineMacro(
     Macro* macro, std::optional<LocationReference> this_reference,
     const std::vector<VisitResult>& arguments,
-    const std::vector<Block*> label_blocks) {
+    const std::vector<Block*>& label_blocks) {
   MacroInliningScope macro_inlining_scope(this, macro);
   CurrentScope::Scope current_scope(macro);
   BindingsManagersScope bindings_managers_scope;
@@ -590,6 +599,13 @@ void ImplementationVisitor::Visit(Builtin* builtin) {
   CurrentCallable::Scope current_callable(builtin);
   CurrentReturnValue::Scope current_return_value;
 
+#ifdef V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+  if (builtin->SupportsTSA()) {
+    // TSAGenerator has emitted this builtin's implementation.
+    return;
+  }
+#endif  // V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+
   const std::string& name = builtin->ExternalName();
   const Signature& signature = builtin->signature();
   csa_ccfile() << "TF_BUILTIN(" << name << ", CodeStubAssembler) {\n"
@@ -680,16 +696,13 @@ void ImplementationVisitor::Visit(Builtin* builtin) {
                        << " = "
                           "UncheckedParameter<JSDispatchHandleT>(Descriptor::"
                           "kJSDispatchHandle);\n";
-        } else if (V8_ENABLE_LEAPTIERING_BOOL) {
+        } else {
           csa_ccfile() << "  TNode<JSDispatchHandleT> " << generated_name
                        << " = "
                           "ReinterpretCast<JSDispatchHandleT>("
                           "LoadJSFunctionDispatchHandle("
                           "UncheckedParameter<JSFunction>("
                        << "Descriptor::kJSTarget)));\n";
-        } else {
-          csa_ccfile() << "  TNode<JSDispatchHandleT> " << generated_name
-                       << " = InvalidDispatchHandleConstant();\n";
         }
         csa_ccfile() << "  USE(" << generated_name << ");\n";
         expected_types = {TypeOracle::GetDispatchHandleType()};
@@ -2555,11 +2568,11 @@ VisitResult ImplementationVisitor::GenerateFetchFromLocation(
     const Type* referenced_type = *reference.ReferencedType();
     if (referenced_type == TypeOracle::GetFloat64OrUndefinedOrHoleType()) {
       return GenerateCall(QualifiedName({TORQUE_INTERNAL_NAMESPACE_STRING},
-#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
                                         "LoadFloat64OrUndefinedOrHole"
 #else
                                         "LoadFloat64OrHole"
-#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
                                         ),
                           Arguments{{reference.heap_reference()}, {}});
     } else if (auto struct_type = referenced_type->StructSupertype()) {
@@ -2625,11 +2638,11 @@ void ImplementationVisitor::GenerateAssignToLocation(
     if (referenced_type == TypeOracle::GetFloat64OrUndefinedOrHoleType()) {
       GenerateCall(
           QualifiedName({TORQUE_INTERNAL_NAMESPACE_STRING},
-#ifdef V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
                         "StoreFloat64OrUndefinedOrHole"
 #else
                         "StoreFloat64OrHole"
-#endif  // V8_ENABLE_EXPERIMENTAL_UNDEFINED_DOUBLE
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
                         ),
           Arguments{{reference.heap_reference(), assignment_value}, {}});
     } else if (auto struct_type = referenced_type->StructSupertype()) {
@@ -3394,8 +3407,19 @@ VisitResult ImplementationVisitor::GenerateImplicitConvert(
                                     Arguments{{source}, {}},
                                     {destination_type, *from}, false));
   } else if (IsAssignableFrom(destination_type, source.type())) {
-    source.SetType(destination_type);
-    return scope.Yield(GenerateCopy(source));
+    if (!source.IsOnStack()) {
+      // static_cast constexpr values to the right type, for cases where the
+      // C++ conversion is not as implicit as the torque one (in particular,
+      // `enum class` to its underlying type).
+      return scope.Yield(
+          VisitResult(destination_type,
+                      "CastIfEnumClass<" +
+                          destination_type->GetConstexprGeneratedTypeName() +
+                          ">(" + source.constexpr_value() + ")"));
+    } else {
+      source.SetType(destination_type);
+      return scope.Yield(GenerateCopy(source));
+    }
   } else {
     std::stringstream s;
     if (const TopType* top_type = TopType::DynamicCast(source.type())) {
@@ -3637,15 +3661,25 @@ void ImplementationVisitor::GenerateBuiltinDefinitionsAndInterfaceDescriptors(
 
     builtin_definitions
         << "\n"
-           "#define BUILTIN_LIST_FROM_TORQUE(CPP, TFJ, TFC, TFS, TFH, "
+           "#define BUILTIN_LIST_FROM_TORQUE(CPP, TFJ, TFC_TSA, TFC, TFS, TFH, "
            "ASM) "
            "\\\n";
     for (auto& declarable : GlobalContext::AllDeclarables()) {
       Builtin* builtin = Builtin::DynamicCast(declarable.get());
       if (!builtin || builtin->IsExternal()) continue;
       if (builtin->IsStub()) {
-        builtin_definitions << "TFC(" << builtin->ExternalName() << ", "
-                            << builtin->ExternalName();
+#ifdef V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+        if (builtin->SupportsTSA()) {
+          builtin_definitions << "TFC_TSA(" << builtin->ExternalName() << ", "
+                              << builtin->ExternalName();
+        } else {
+#endif  // V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+          builtin_definitions << "TFC(" << builtin->ExternalName() << ", "
+                              << builtin->ExternalName();
+#ifdef V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+        }
+#endif  // V8_ENABLE_EXPERIMENTAL_TQ_TO_TSA
+
         if (!builtin->HasCustomInterfaceDescriptor()) {
           std::string descriptor_name = builtin->ExternalName() + "Descriptor";
           bool has_context_parameter =
@@ -3662,6 +3696,8 @@ void ImplementationVisitor::GenerateBuiltinDefinitionsAndInterfaceDescriptors(
           // Currently, no torque-defined builtins are directly exposed to
           // objects inside the sandbox via the code pointer table.
           interface_descriptors << "  INTERNAL_DESCRIPTOR()\n";
+
+          interface_descriptors << "  SANDBOXING_MODE(kSandboxed)\n";
 
           if (has_context_parameter) {
             interface_descriptors << "  DEFINE_RESULT_AND_PARAMETERS(";
@@ -4068,7 +4104,8 @@ class ClassFieldOffsetGenerator : public FieldOffsetsGenerator {
       // TODO(leszeks): Hacked in support for some classes (e.g.
       // HeapObject) being mirrored by a *Layout class. Remove once
       // everything is ported to layout classes.
-      if (parent_name == "HeapObject" || parent_name == "TrustedObject") {
+      if (parent_name == "HeapObject" || parent_name == "TrustedObject" ||
+          parent_name == "ExposedTrustedObject" || parent_name == "Struct") {
         parent_name += "Layout";
       }
 
@@ -4185,10 +4222,10 @@ void CppClassGenerator::GenerateClass() {
   hdr_ << template_decl() << "\n";
   hdr_ << "class " << gen_name_ << " : public P {\n";
   hdr_ << "  static_assert(\n"
-       << "      std::is_same<" << name_ << ", D>::value,\n"
+       << "      std::is_same_v<" << name_ << ", D>,\n"
        << "      \"Use this class as direct base for " << name_ << ".\");\n";
   hdr_ << "  static_assert(\n"
-       << "      std::is_same<" << super_->name() << ", P>::value,\n"
+       << "      std::is_same_v<" << super_->name() << ", P>,\n"
        << "      \"Pass in " << super_->name()
        << " as second template parameter for " << gen_name_ << ".\");\n\n";
   hdr_ << " public: \n";
@@ -4227,8 +4264,8 @@ void CppClassGenerator::GenerateClass() {
     impl_ << "\ntemplate <>\n";
     impl_ << "void " << gen_name_I_ << "::" << name_
           << "Verify(Isolate* isolate) {\n";
-    impl_ << "  TorqueGeneratedClassVerifiers::" << name_ << "Verify(Cast<"
-          << name_
+    impl_ << "  TorqueGeneratedClassVerifiers::" << name_
+          << "Verify(TrustedCast<" << name_
           << ">(*this), "
              "isolate);\n";
     impl_ << "}\n\n";
@@ -4423,7 +4460,7 @@ void CppClassGenerator::GenerateClassConstructors() {
   hdr_ << "  template <class DAlias = D>\n";
   hdr_ << "  constexpr " << gen_name_ << "() : P() {\n";
   hdr_ << "    static_assert(\n";
-  hdr_ << "        std::is_base_of<" << gen_name_ << ", DAlias>::value,\n";
+  hdr_ << "        std::is_base_of_v<" << gen_name_ << ", DAlias>,\n";
   hdr_ << "        \"class " << gen_name_
        << " should be used as direct base for " << name_ << ".\");\n";
   hdr_ << "  }\n\n";
@@ -5005,7 +5042,7 @@ namespace {
 void GeneratePrintDefinitionsForClass(std::ostream& impl, const ClassType* type,
                                       const std::string& gen_name,
                                       const std::string& gen_name_T,
-                                      const std::string template_params) {
+                                      const std::string& template_params) {
   impl << template_params << "\n";
   impl << "void " << gen_name_T << "::" << type->name()
        << "Print(std::ostream& os) {\n";
@@ -5441,8 +5478,11 @@ void ImplementationVisitor::GenerateEnumVerifiers(
   std::stringstream cc_contents;
   {
     cc_contents << "#include \"src/compiler/code-assembler.h\"\n";
-    for (const std::string& include_path : GlobalContext::CppIncludes()) {
-      cc_contents << "#include " << StringLiteralQuote(include_path) << "\n";
+    for (const CppInclude& include : GlobalContext::CppIncludes()) {
+      if (include.csa_selected()) {
+        cc_contents << "#include " << StringLiteralQuote(include.include_path)
+                    << "\n";
+      }
     }
     cc_contents << "\n";
 
@@ -5489,8 +5529,11 @@ void ImplementationVisitor::GenerateExportedMacrosAssembler(
     h_contents << "#include \"src/execution/frames.h\"\n";
     h_contents << "#include \"torque-generated/csa-types.h\"\n";
 
-    for (const std::string& include_path : GlobalContext::CppIncludes()) {
-      cc_contents << "#include " << StringLiteralQuote(include_path) << "\n";
+    for (const CppInclude& include : GlobalContext::CppIncludes()) {
+      if (include.csa_selected()) {
+        cc_contents << "#include " << StringLiteralQuote(include.include_path)
+                    << "\n";
+      }
     }
     cc_contents << "#include \"torque-generated/" << file_name << ".h\"\n";
 

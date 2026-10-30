@@ -43,8 +43,6 @@ ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
 
-using ::absl::container_internal::hash_internal::Enum;
-using ::absl::container_internal::hash_internal::EnumClass;
 using ::testing::IsEmpty;
 using ::testing::Pointee;
 using ::testing::UnorderedElementsAre;
@@ -381,6 +379,20 @@ TEST(FlatHashSet, MoveOnlyKey) {
   s.insert(MoveOnlyInt(2));
   s.insert(MoveOnlyInt(3));
   EXPECT_THAT(s, UnorderedElementsAre(1, 2, 3));
+}
+
+TEST(FlatHashSet, IsDefaultHash) {
+  using absl::container_internal::hashtable_debug_internal::
+      HashtableDebugAccess;
+  EXPECT_EQ(HashtableDebugAccess<flat_hash_set<int>>::kIsDefaultHash, true);
+  EXPECT_EQ(HashtableDebugAccess<flat_hash_set<std::string>>::kIsDefaultHash,
+            true);
+
+  struct Hash {
+    size_t operator()(size_t i) const { return i; }
+  };
+  EXPECT_EQ((HashtableDebugAccess<flat_hash_set<size_t, Hash>>::kIsDefaultHash),
+            false);
 }
 
 }  // namespace

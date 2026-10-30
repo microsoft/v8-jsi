@@ -26,6 +26,7 @@ const {
   ArrayBufferIsView,
   ArrayIsArray,
   ArrayPrototypeForEach,
+  MathCeil,
   MathFloor,
   MathMin,
   MathTrunc,
@@ -52,7 +53,6 @@ const {
   TypedArrayPrototypeSet,
   TypedArrayPrototypeSubarray,
   Uint8Array,
-  Uint8ArrayPrototype,
 } = primordials;
 
 const {
@@ -62,7 +62,9 @@ const {
   copy: _copy,
   fill: bindingFill,
   isAscii: bindingIsAscii,
+  isLatin1: bindingIsLatin1,
   isUtf8: bindingIsUtf8,
+  stringLengthUtf8: bindingStringLengthUtf8,
   indexOfBuffer,
   indexOfNumber,
   indexOfString,
@@ -100,7 +102,6 @@ const {
   kIsEncodingSymbol,
   defineLazyProperties,
   encodingsMap,
-  deprecate,
 } = require('internal/util');
 const {
   isAnyArrayBuffer,
@@ -111,6 +112,8 @@ const {
 const {
   inspect: utilInspect,
 } = require('internal/util/inspect');
+
+const assert = require('internal/assert');
 
 const {
   codes: {
@@ -140,6 +143,8 @@ const {
   markAsUntransferable,
   addBufferPrototypeMethods,
   createUnsafeBuffer,
+  createUnsafeAlignedBuffer,
+  alignmentPadding,
   asciiWrite,
   latin1Write,
   utf8Write,
@@ -171,13 +176,27 @@ const constants = ObjectDefineProperties({}, {
   },
 });
 
-Buffer.poolSize = 8 * 1024;
-let poolSize, poolOffset, allocPool, allocBuffer;
+// The largest alignment accepted by `Buffer.allocUnsafeSlow()`. Any plausible
+// I/O alignment requirement (logical block size, memory page size, huge page
+// size) is well below this.
+const kMaxAlignment = 2 ** 30;
+
+// Slices handed out of the pool are 8 byte aligned relative to the start of the
+// pool, so aligning the pool itself to a cache line keeps them from straddling
+// one more cache line than their size requires.
+const kPoolAlignment = 64;
+
+Buffer.poolSize = 64 * 1024;
+// `poolOffset` is relative to `poolBase`, which is where the pool starts inside
+// `allocPool`. The pool is over-allocated to be able to align it, so `poolBase`
+// is not necessarily 0.
+let poolSize, poolOffset, poolBase, allocPool, allocBuffer;
 
 function createPool() {
   poolSize = Buffer.poolSize;
-  allocBuffer = createUnsafeBuffer(poolSize);
+  allocBuffer = createUnsafeAlignedBuffer(poolSize, kPoolAlignment);
   allocPool = allocBuffer.buffer;
+  poolBase = TypedArrayPrototypeGetByteOffset(allocBuffer);
   markAsUntransferable(allocPool);
   poolOffset = 0;
 }
@@ -269,7 +288,7 @@ function copyImpl(source, target, targetStart, sourceStart, sourceEnd) {
   return _copyActual(source, target, targetStart, sourceStart, sourceEnd);
 }
 
-function _copyActual(source, target, targetStart, sourceStart, sourceEnd, isUint8Copy = false) {
+function _copyActual(source, target, targetStart, sourceStart, sourceEnd) {
   if (sourceEnd - sourceStart > target.byteLength - targetStart)
     sourceEnd = sourceStart + target.byteLength - targetStart;
 
@@ -281,13 +300,10 @@ function _copyActual(source, target, targetStart, sourceStart, sourceEnd, isUint
   if (nb <= 0)
     return 0;
 
-  if (sourceStart === 0 && nb === sourceLen && (isUint8Copy || isUint8Array(target))) {
-    TypedArrayPrototypeSet(target, source, targetStart);
-  } else {
-    _copy(source, target, targetStart, sourceStart, nb);
-  }
-
-  return nb;
+  // `_copy` returns the number of bytes actually copied, which is `nb` except
+  // when the target is backed by a detached or immutable ArrayBuffer, in which
+  // case nothing is copied and it returns 0.
+  return _copy(source, target, targetStart, sourceStart, nb);
 }
 
 /**
@@ -447,34 +463,57 @@ Buffer.alloc = function alloc(size, fill, encoding) {
 /**
  * Equivalent to Buffer(num), by default creates a non-zero-filled Buffer
  * instance. If `--zero-fill-buffers` is set, will zero-fill the buffer.
+ *
+ * If `alignment` is given, the memory backing the returned buffer starts at an
+ * address that is a multiple of `alignment`. See `Buffer.allocUnsafeSlow()`.
+ * @param {number} size
+ * @param {number} [alignment] A power of two, at most 2 ** 30
  * @returns {FastBuffer}
  */
-Buffer.allocUnsafe = function allocUnsafe(size) {
+Buffer.allocUnsafe = function allocUnsafe(size, alignment) {
   validateNumber(size, 'size', 0, kMaxLength);
-  return allocate(size);
+  if (alignment === undefined) {
+    return allocate(size);
+  }
+  validateAlignment(size, alignment);
+  return allocateAligned(size, alignment);
 };
 
 /**
- * Equivalent to SlowBuffer(num), by default creates a non-zero-filled
- * Buffer instance that is not allocated off the pre-initialized pool.
- * If `--zero-fill-buffers` is set, will zero-fill the buffer.
+ * By default creates a non-zero-filled Buffer instance that is not allocated
+ * off the pre-initialized pool. If `--zero-fill-buffers` is set, will zero-fill
+ * the buffer.
+ *
+ * If `alignment` is given, the memory backing the returned buffer starts at an
+ * address that is a multiple of `alignment`, which is required by e.g. reads
+ * and writes on file descriptors opened with `O_DIRECT`. Note that at least
+ * `alignment` extra bytes are allocated to satisfy the request, and that the
+ * returned buffer's `byteOffset` is therefore usually non-zero.
  * @param {number} size
- * @returns {FastBuffer|undefined}
+ * @param {number} [alignment] A power of two, at most 2 ** 30
+ * @returns {FastBuffer}
  */
-Buffer.allocUnsafeSlow = function allocUnsafeSlow(size) {
+Buffer.allocUnsafeSlow = function allocUnsafeSlow(size, alignment) {
   validateNumber(size, 'size', 0, kMaxLength);
-  return createUnsafeBuffer(size);
+  if (alignment === undefined) {
+    return createUnsafeBuffer(size);
+  }
+  validateAlignment(size, alignment);
+  return createUnsafeAlignedBuffer(size, alignment);
 };
 
-// If --zero-fill-buffers command line argument is set, a zero-filled
-// buffer is returned.
-function SlowBuffer(size) {
-  validateNumber(size, 'size', 0, kMaxLength);
-  return createUnsafeBuffer(size);
+function validateAlignment(size, alignment) {
+  validateInteger(alignment, 'alignment', 1, kMaxAlignment);
+  if ((alignment & (alignment - 1)) !== 0) {
+    throw new ERR_INVALID_ARG_VALUE(
+      'alignment', alignment, 'must be a power of two');
+  }
+  const padding = alignmentPadding(alignment);
+  if (size > kMaxLength - padding) {
+    throw new ERR_OUT_OF_RANGE(
+      'size', `<= ${kMaxLength - padding}`, size);
+  }
 }
-
-ObjectSetPrototypeOf(SlowBuffer.prototype, Uint8ArrayPrototype);
-ObjectSetPrototypeOf(SlowBuffer, Uint8Array);
 
 function allocate(size) {
   if (size <= 0) {
@@ -483,12 +522,31 @@ function allocate(size) {
   if (size < (Buffer.poolSize >>> 1)) {
     if (size > (poolSize - poolOffset))
       createPool();
-    const b = new FastBuffer(allocPool, poolOffset, size);
+    const b = new FastBuffer(allocPool, poolBase + poolOffset, size);
     poolOffset += size;
     alignPool();
     return b;
   }
   return createUnsafeBuffer(size);
+}
+
+function allocateAligned(size, alignment) {
+  if (size <= 0) {
+    return new FastBuffer();
+  }
+  // The pool starts at a `kPoolAlignment` aligned address, so any alignment up
+  // to that can be satisfied by padding the offset into the pool. Stricter
+  // alignments need an allocation of their own.
+  if (alignment > kPoolAlignment || size >= (Buffer.poolSize >>> 1)) {
+    return createUnsafeAlignedBuffer(size, alignment);
+  }
+  poolOffset = (poolOffset + alignment - 1) & ~(alignment - 1);
+  if (size > (poolSize - poolOffset))
+    createPool();
+  const b = new FastBuffer(allocPool, poolBase + poolOffset, size);
+  poolOffset += size;
+  alignPool();
+  return b;
 }
 
 function fromStringFast(string, ops) {
@@ -511,7 +569,7 @@ function fromStringFast(string, ops) {
     createPool();
 
   const actual = ops.write(allocBuffer, string, poolOffset, length);
-  const b = new FastBuffer(allocPool, poolOffset, actual);
+  const b = new FastBuffer(allocPool, poolBase + poolOffset, actual);
 
   poolOffset += actual;
   alignPool();
@@ -573,7 +631,7 @@ function fromArrayLike(obj) {
   if (length < (Buffer.poolSize >>> 1)) {
     if (length > (poolSize - poolOffset))
       createPool();
-    const b = new FastBuffer(allocPool, poolOffset, length);
+    const b = new FastBuffer(allocPool, poolBase + poolOffset, length);
     TypedArrayPrototypeSet(b, obj, 0);
     poolOffset += length;
     alignPool();
@@ -712,8 +770,8 @@ const encodingOps = {
     byteLength: byteLengthUtf8,
     write: utf8Write,
     slice: utf8Slice,
-    indexOf: (buf, val, byteOffset, dir) =>
-      indexOfString(buf, val, byteOffset, encodingsMap.utf8, dir),
+    indexOf: (buf, val, byteOffset, dir, end) =>
+      indexOfString(buf, val, byteOffset, encodingsMap.utf8, dir, end),
   },
   ucs2: {
     encoding: 'ucs2',
@@ -721,8 +779,8 @@ const encodingOps = {
     byteLength: (string) => string.length * 2,
     write: ucs2Write,
     slice: ucs2Slice,
-    indexOf: (buf, val, byteOffset, dir) =>
-      indexOfString(buf, val, byteOffset, encodingsMap.utf16le, dir),
+    indexOf: (buf, val, byteOffset, dir, end) =>
+      indexOfString(buf, val, byteOffset, encodingsMap.utf16le, dir, end),
   },
   utf16le: {
     encoding: 'utf16le',
@@ -730,8 +788,8 @@ const encodingOps = {
     byteLength: (string) => string.length * 2,
     write: ucs2Write,
     slice: ucs2Slice,
-    indexOf: (buf, val, byteOffset, dir) =>
-      indexOfString(buf, val, byteOffset, encodingsMap.utf16le, dir),
+    indexOf: (buf, val, byteOffset, dir, end) =>
+      indexOfString(buf, val, byteOffset, encodingsMap.utf16le, dir, end),
   },
   latin1: {
     encoding: 'latin1',
@@ -739,8 +797,8 @@ const encodingOps = {
     byteLength: (string) => string.length,
     write: latin1Write,
     slice: latin1Slice,
-    indexOf: (buf, val, byteOffset, dir) =>
-      indexOfString(buf, val, byteOffset, encodingsMap.latin1, dir),
+    indexOf: (buf, val, byteOffset, dir, end) =>
+      indexOfString(buf, val, byteOffset, encodingsMap.latin1, dir, end),
   },
   ascii: {
     encoding: 'ascii',
@@ -748,8 +806,13 @@ const encodingOps = {
     byteLength: (string) => string.length,
     write: asciiWrite,
     slice: asciiSlice,
-    indexOf: (buf, val, byteOffset, dir) =>
-      indexOfString(buf, val, byteOffset, encodingsMap.ascii, dir),
+    indexOf: (buf, val, byteOffset, dir, end) =>
+      indexOfBuffer(buf,
+                    fromStringFast(val, encodingOps.ascii),
+                    byteOffset,
+                    encodingsMap.ascii,
+                    dir,
+                    end),
   },
   base64: {
     encoding: 'base64',
@@ -757,12 +820,13 @@ const encodingOps = {
     byteLength: (string) => base64ByteLength(string, string.length),
     write: base64Write,
     slice: base64Slice,
-    indexOf: (buf, val, byteOffset, dir) =>
+    indexOf: (buf, val, byteOffset, dir, end) =>
       indexOfBuffer(buf,
                     fromStringFast(val, encodingOps.base64),
                     byteOffset,
                     encodingsMap.base64,
-                    dir),
+                    dir,
+                    end),
   },
   base64url: {
     encoding: 'base64url',
@@ -770,12 +834,13 @@ const encodingOps = {
     byteLength: (string) => base64ByteLength(string, string.length),
     write: base64urlWrite,
     slice: base64urlSlice,
-    indexOf: (buf, val, byteOffset, dir) =>
+    indexOf: (buf, val, byteOffset, dir, end) =>
       indexOfBuffer(buf,
                     fromStringFast(val, encodingOps.base64url),
                     byteOffset,
                     encodingsMap.base64url,
-                    dir),
+                    dir,
+                    end),
   },
   hex: {
     encoding: 'hex',
@@ -783,12 +848,13 @@ const encodingOps = {
     byteLength: (string) => string.length >>> 1,
     write: hexWrite,
     slice: hexSlice,
-    indexOf: (buf, val, byteOffset, dir) =>
+    indexOf: (buf, val, byteOffset, dir, end) =>
       indexOfBuffer(buf,
                     fromStringFast(val, encodingOps.hex),
                     byteOffset,
                     encodingsMap.hex,
-                    dir),
+                    dir,
+                    end),
   },
 };
 function getEncodingOps(encoding) {
@@ -875,6 +941,7 @@ function byteLength(string, encoding) {
 }
 
 Buffer.byteLength = byteLength;
+Buffer.stringLength = stringLength;
 
 // For backwards compatibility.
 ObjectDefineProperty(Buffer.prototype, 'parent', {
@@ -1042,9 +1109,10 @@ Buffer.prototype.compare = function compare(target,
 // - buffer - a Buffer to search
 // - val - a string, Buffer, or number
 // - byteOffset - an index into `buffer`; will be clamped to an int32
+// - end - absolute exclusive end of the search range
 // - encoding - an optional encoding, relevant if val is a string
 // - dir - true for indexOf, false for lastIndexOf
-function bidirectionalIndexOf(buffer, val, byteOffset, encoding, dir) {
+function bidirectionalIndexOf(buffer, val, byteOffset, end, encoding, dir) {
   validateBuffer(buffer);
 
   if (typeof byteOffset === 'string') {
@@ -1064,7 +1132,7 @@ function bidirectionalIndexOf(buffer, val, byteOffset, encoding, dir) {
   dir = !!dir;  // Cast to bool.
 
   if (typeof val === 'number')
-    return indexOfNumber(buffer, val >>> 0, byteOffset, dir);
+    return indexOfNumber(buffer, val >>> 0, byteOffset, dir, end);
 
   let ops;
   if (encoding === undefined)
@@ -1075,13 +1143,13 @@ function bidirectionalIndexOf(buffer, val, byteOffset, encoding, dir) {
   if (typeof val === 'string') {
     if (ops === undefined)
       throw new ERR_UNKNOWN_ENCODING(encoding);
-    return ops.indexOf(buffer, val, byteOffset, dir);
+    return ops.indexOf(buffer, val, byteOffset, dir, end);
   }
 
   if (isUint8Array(val)) {
     const encodingVal =
       (ops === undefined ? encodingsMap.utf8 : ops.encodingVal);
-    return indexOfBuffer(buffer, val, byteOffset, encodingVal, dir);
+    return indexOfBuffer(buffer, val, byteOffset, encodingVal, dir, end);
   }
 
   throw new ERR_INVALID_ARG_TYPE(
@@ -1089,16 +1157,34 @@ function bidirectionalIndexOf(buffer, val, byteOffset, encoding, dir) {
   );
 }
 
-Buffer.prototype.indexOf = function indexOf(val, byteOffset, encoding) {
-  return bidirectionalIndexOf(this, val, byteOffset, encoding, true);
+Buffer.prototype.indexOf = function indexOf(val, offset, end, encoding) {
+  if (typeof end === 'string') {
+    encoding = end;
+    end = this.length;
+  } else if (end === undefined) {
+    end = this.length;
+  }
+  return bidirectionalIndexOf(this, val, offset, end, encoding, true);
 };
 
-Buffer.prototype.lastIndexOf = function lastIndexOf(val, byteOffset, encoding) {
-  return bidirectionalIndexOf(this, val, byteOffset, encoding, false);
+Buffer.prototype.lastIndexOf = function lastIndexOf(val, offset, end, encoding) {
+  if (typeof end === 'string') {
+    encoding = end;
+    end = this.length;
+  } else if (end === undefined) {
+    end = this.length;
+  }
+  return bidirectionalIndexOf(this, val, offset, end, encoding, false);
 };
 
-Buffer.prototype.includes = function includes(val, byteOffset, encoding) {
-  return bidirectionalIndexOf(this, val, byteOffset, encoding, true) !== -1;
+Buffer.prototype.includes = function includes(val, offset, end, encoding) {
+  if (typeof end === 'string') {
+    encoding = end;
+    end = this.length;
+  } else if (end === undefined) {
+    end = this.length;
+  }
+  return bidirectionalIndexOf(this, val, offset, end, encoding, true) !== -1;
 };
 
 // Usage:
@@ -1389,9 +1475,9 @@ function atob(input) {
       throw lazyDOMException(
         'The string to be decoded is not correctly encoded.',
         'InvalidCharacterError');
-    case -3: // Possible overflow
-      // TODO(@anonrig): Throw correct error in here.
-      throw lazyDOMException('The input causes overflow.', 'InvalidCharacterError');
+    case -3:
+      assert.fail('Unrecognized simdutf error');
+      break;
     default:
       return result;
   }
@@ -1413,15 +1499,49 @@ function isAscii(input) {
   throw new ERR_INVALID_ARG_TYPE('input', ['ArrayBuffer', 'Buffer', 'TypedArray'], input);
 }
 
+/**
+ * Returns true if every UTF-16 code unit of `input` is <= 0xFF, i.e. `input`
+ * can be losslessly encoded as 'latin1'.
+ * @param {string} input
+ * @returns {boolean}
+ */
+function isLatin1(input) {
+  validateString(input, 'input');
+  return bindingIsLatin1(input);
+}
+
+function stringLength(input, encoding = 'utf8') {
+  if (!isTypedArray(input) && !isAnyArrayBuffer(input)) {
+    throw new ERR_INVALID_ARG_TYPE('input', ['ArrayBuffer', 'Buffer', 'TypedArray'], input);
+  }
+  validateString(encoding, 'encoding');
+  const ops = getEncodingOps(encoding);
+  if (ops === undefined) {
+    throw new ERR_UNKNOWN_ENCODING(encoding);
+  }
+  const length = input.byteLength;
+  switch (ops.encodingVal) {
+    case encodingsMap.utf8:
+      return length === 0 ? 0 : bindingStringLengthUtf8(input);
+    case encodingsMap.utf16le:
+      return MathFloor(length / 2);
+    case encodingsMap.hex:
+      return length * 2;
+    case encodingsMap.base64:
+      return MathCeil(length / 3) * 4;
+    case encodingsMap.base64url:
+      return MathCeil(length * 4 / 3);
+    default:  // latin1, ascii
+      return length;
+  }
+}
+
 module.exports = {
   Buffer,
-  SlowBuffer: deprecate(
-    SlowBuffer,
-    'SlowBuffer() is deprecated. Please use Buffer.allocUnsafeSlow()',
-    'DEP0030'),
   transcode,
   isUtf8,
   isAscii,
+  isLatin1,
 
   // Legacy
   kMaxLength,

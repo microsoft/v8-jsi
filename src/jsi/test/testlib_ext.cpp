@@ -306,6 +306,62 @@ TEST_P(JSITestExt, HostObjectAsParentTest) {
       eval("var subClass = {__proto__: ho}; subClass.prop1 == 10;").getBool());
 }
 
+TEST_P(JSITestExt, HostObjectCallbacksRespectReflectReceivers) {
+  class HostValue : public HostObject {
+   public:
+    explicit HostValue(double value) : value(value) {}
+    double value;
+
+    Value get(Runtime& runtime, const PropNameID& name) override {
+      auto key = name.utf8(runtime);
+      return key == "value" || key == "0" ? Value(value) : Value();
+    }
+
+    void set(Runtime& runtime, const PropNameID& name,
+             const Value& newValue) override {
+      auto key = name.utf8(runtime);
+      if (key == "value" || key == "0") {
+        value = newValue.asNumber();
+      }
+    }
+
+    std::vector<PropNameID> getPropertyNames(Runtime& runtime) override {
+      return PropNameID::names(runtime, "value", "0");
+    }
+  };
+
+  auto owner = std::make_shared<HostValue>(17);
+  auto receiver = std::make_shared<HostValue>(99);
+  rt.global().setProperty(rt, "owner", Object::createFromHostObject(rt, owner));
+  rt.global().setProperty(
+      rt, "receiver", Object::createFromHostObject(rt, receiver));
+
+  auto expectNumber = [&](const char* script, double expected) {
+    auto result = eval(script);
+    ASSERT_TRUE(result.isNumber()) << script;
+    EXPECT_EQ(result.getNumber(), expected) << script;
+  };
+  expectNumber("Reflect.get(owner, 'value', receiver)", 17);
+  expectNumber("Reflect.get(owner, '0', receiver)", 17);
+  EXPECT_TRUE(eval("Reflect.set(owner, 'value', 23, receiver)").getBool());
+  EXPECT_EQ(owner->value, 17);
+  EXPECT_EQ(receiver->value, 23);
+  expectNumber("Object.create(owner).value", 17);
+  expectNumber("Object.create(owner)[0]", 17);
+  EXPECT_TRUE(eval("Reflect.set(owner, '0', 42)").getBool());
+  EXPECT_EQ(owner->value, 42);
+  EXPECT_EQ(
+      eval("Object.getOwnPropertyNames(owner).sort().join(',')")
+          .getString(rt).utf8(rt),
+      "0,value");
+  eval("gc()");
+  expectNumber("owner[0]", 42);
+}
+
+TEST_P(JSITestExt, TemporalIsDisabled) {
+  EXPECT_EQ(eval("typeof Temporal").getString(rt).utf8(rt), "undefined");
+}
+
 #if JSI_VERSION >= 7
 TEST_P(JSITestExt, NativeStateTest) {
   class C : public facebook::jsi::NativeState {

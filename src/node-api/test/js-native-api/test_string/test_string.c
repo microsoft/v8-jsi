@@ -406,6 +406,50 @@ static napi_value TestMemoryCorruption(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
+static napi_value TestStringBufferBoundaries(napi_env env,
+                                             napi_callback_info info) {
+  napi_value input;
+  NODE_API_CALL(env, napi_create_string_utf8(env, "a", 1, &input));
+  const OneByteGetAPI getters[] = {
+      napi_get_value_string_latin1, napi_get_value_string_utf8};
+  for (size_t i = 0; i < sizeof(getters) / sizeof(*getters); ++i) {
+    size_t copied = SIZE_MAX;
+    char buffer[] = {'x', 'y'};
+    NODE_API_CALL(env, getters[i](env, input, NULL, 0, &copied));
+    NODE_API_ASSERT(env, copied == 1, "Wrong queried byte length");
+    NODE_API_CALL(env, getters[i](env, input, buffer, 0, &copied));
+    NODE_API_ASSERT(env, copied == 0 && buffer[0] == 'x' && buffer[1] == 'y',
+                    "Zero-sized buffer was overwritten");
+    NODE_API_CALL(env, getters[i](env, input, buffer, 1, &copied));
+    NODE_API_ASSERT(env, copied == 0 && buffer[0] == 0 && buffer[1] == 'y',
+                    "One-sized buffer must contain only a terminator");
+    NODE_API_CALL(env, getters[i](env, input, buffer, 2, &copied));
+    NODE_API_ASSERT(env, copied == 1 && buffer[0] == 'a' && buffer[1] == 0,
+                    "Wrong copied byte count or terminator");
+    NODE_API_CALL(env, getters[i](env, input, buffer, 1, NULL));
+    NODE_API_ASSERT(env, buffer[0] == 0,
+                    "Missing terminator with optional result");
+  }
+
+  size_t copied = SIZE_MAX;
+  char16_t buffer[] = {'x', 'y'};
+  NODE_API_CALL(env, napi_get_value_string_utf16(env, input, NULL, 0, &copied));
+  NODE_API_ASSERT(env, copied == 1, "Wrong queried UTF-16 length");
+  NODE_API_CALL(env, napi_get_value_string_utf16(env, input, buffer, 0, &copied));
+  NODE_API_ASSERT(env, copied == 0 && buffer[0] == 'x' && buffer[1] == 'y',
+                  "Zero-sized UTF-16 buffer was overwritten");
+  NODE_API_CALL(env, napi_get_value_string_utf16(env, input, buffer, 1, &copied));
+  NODE_API_ASSERT(env, copied == 0 && buffer[0] == 0 && buffer[1] == 'y',
+                  "One-sized UTF-16 buffer must contain only a terminator");
+  NODE_API_CALL(env, napi_get_value_string_utf16(env, input, buffer, 2, &copied));
+  NODE_API_ASSERT(env, copied == 1 && buffer[0] == 'a' && buffer[1] == 0,
+                  "Wrong copied UTF-16 count or terminator");
+  NODE_API_CALL(env, napi_get_value_string_utf16(env, input, buffer, 1, NULL));
+  NODE_API_ASSERT(env, buffer[0] == 0,
+                  "Missing UTF-16 terminator with optional result");
+  return NULL;
+}
+
 EXTERN_C_START
 napi_value Init(napi_env env, napi_value exports) {
   napi_property_descriptor properties[] = {
@@ -431,6 +475,8 @@ napi_value Init(napi_env env, napi_value exports) {
       DECLARE_NODE_API_PROPERTY("TestLargeLatin1", TestLargeLatin1),
       DECLARE_NODE_API_PROPERTY("TestLargeUtf16", TestLargeUtf16),
       DECLARE_NODE_API_PROPERTY("TestMemoryCorruption", TestMemoryCorruption),
+      DECLARE_NODE_API_PROPERTY("TestStringBufferBoundaries",
+                                TestStringBufferBoundaries),
       DECLARE_NODE_API_PROPERTY("TestPropertyKeyUtf16", TestPropertyKeyUtf16),
       DECLARE_NODE_API_PROPERTY("TestPropertyKeyUtf16AutoLength",
                                 TestPropertyKeyUtf16AutoLength),

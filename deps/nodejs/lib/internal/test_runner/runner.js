@@ -15,16 +15,17 @@ const {
   ArrayPrototypeSlice,
   ArrayPrototypeSome,
   ArrayPrototypeSort,
-  MathMax,
   ObjectAssign,
   PromisePrototypeThen,
   PromiseWithResolvers,
+  RegExpPrototypeSymbolReplace,
   SafeMap,
   SafePromiseAll,
   SafePromiseAllReturnVoid,
   SafePromiseAllSettledReturnVoid,
   SafeSet,
   String,
+  StringFromCharCode,
   StringPrototypeIndexOf,
   StringPrototypeSlice,
   StringPrototypeStartsWith,
@@ -34,8 +35,8 @@ const {
 } = primordials;
 
 const { spawn } = require('child_process');
+const { statSync } = require('fs');
 const { finished } = require('internal/streams/end-of-stream');
-const { availableParallelism } = require('os');
 const { resolve, sep, isAbsolute } = require('path');
 const { DefaultDeserializer, DefaultSerializer } = require('v8');
 const { getOptionValue, getOptionsAsFlagsFromBinding } = require('internal/options');
@@ -59,6 +60,7 @@ const {
   validateObject,
   validateOneOf,
   validateInteger,
+  validateUint32,
   validateString,
   validateStringArray,
 } = require('internal/validators');
@@ -66,6 +68,7 @@ const { getInspectPort, isUsingInspector, isInspectorMessage } = require('intern
 const { isRegExp } = require('internal/util/types');
 const { pathToFileURL } = require('internal/url');
 const {
+  emitExperimentalWarning,
   kEmptyObject,
 } = require('internal/util');
 const { kEmitMessage } = require('internal/test_runner/tests_stream');
@@ -81,14 +84,16 @@ const {
   kTestTimeoutFailure,
   Test,
 } = require('internal/test_runner/test');
-const { FastBuffer } = require('internal/buffer');
-
 const {
+  createRandomSeed,
   convertStringToRegExp,
   countCompletedTest,
   kDefaultPattern,
   parseCommandLine,
 } = require('internal/test_runner/utils');
+const {
+  parseTagFilterExpression,
+} = require('internal/test_runner/tag_filter');
 const { Glob } = require('internal/fs/glob');
 const { once } = require('events');
 const { validatePath } = require('internal/fs/utils');
@@ -105,12 +110,16 @@ const kIsolatedProcessName = Symbol('kIsolatedProcessName');
 const kFilterArgs = [
   '--test',
   '--experimental-test-coverage',
+  '--test-randomize',
   '--watch',
   '--experimental-default-config-file',
 ];
 const kFilterArgValues = [
+  '--experimental-test-tag-filter',
   '--test-reporter',
   '--test-reporter-destination',
+  '--test-random-seed',
+  '--config-file',
   '--experimental-config-file',
 ];
 const kDiagnosticsFilterArgs = ['tests', 'suites', 'pass', 'fail', 'cancelled', 'skipped', 'todo', 'duration_ms'];
@@ -118,20 +127,30 @@ const kDiagnosticsFilterArgs = ['tests', 'suites', 'pass', 'fail', 'cancelled', 
 const kCanceledTests = new SafeSet()
   .add(kCancelledByParent).add(kAborted).add(kTestTimeoutFailure);
 
+// Execution-ordered events are forwarded immediately, bypassing the
+// per-file declaration-order buffer.
+const kExecutionOrderedEvents = new SafeSet()
+  .add('test:enqueue').add('test:dequeue').add('test:complete').add('test:log');
+
 let kResistStopPropagation;
 
 // Worker ID pool management for concurrent test execution
 class WorkerIdPool {
-  #nextId = 0;
-  #maxConcurrency;
-
-  constructor(maxConcurrency) {
-    this.#maxConcurrency = maxConcurrency;
-  }
+  #acquiredIds = new SafeSet();
 
   acquire() {
-    const id = (this.#nextId++ % this.#maxConcurrency) + 1;
+    let id = 1;
+
+    while (this.#acquiredIds.has(id)) {
+      id++;
+    }
+
+    this.#acquiredIds.add(id);
     return id;
+  }
+
+  release(id) {
+    this.#acquiredIds.delete(id);
   }
 }
 
@@ -139,6 +158,23 @@ function createTestFileList(patterns, cwd) {
   const hasUserSuppliedPattern = patterns != null;
   if (!patterns || patterns.length === 0) {
     patterns = [kDefaultPattern];
+  } else {
+    patterns = ArrayPrototypeMap(patterns, (pattern) => {
+      // A directory argument is expanded to search for the default test files
+      // within it, matching the behavior from before glob patterns were
+      // supported. Glob patterns always use forward slashes, so a trailing
+      // path separator (of either kind) is stripped before appending.
+      const resolved = isAbsolute(pattern) ? pattern : resolve(cwd, pattern);
+      try {
+        if (statSync(resolved).isDirectory()) {
+          return `${RegExpPrototypeSymbolReplace(/[\\/]+$/, pattern, '')}/${kDefaultPattern}`;
+        }
+      } catch {
+        // Not a directory or not accessible; leave the pattern as-is so the
+        // existing "Could not find" handling still applies.
+      }
+      return pattern;
+    });
   }
   const glob = new Glob(patterns, {
     __proto__: null,
@@ -157,17 +193,28 @@ function createTestFileList(patterns, cwd) {
 
 function filterExecArgv(arg, i, arr) {
   return !ArrayPrototypeIncludes(kFilterArgs, arg) &&
-  !ArrayPrototypeSome(kFilterArgValues, (p) => arg === p || (i > 0 && arr[i - 1] === p) || StringPrototypeStartsWith(arg, `${p}=`));
+  !ArrayPrototypeSome(kFilterArgValues, (p) => {
+    return arg === p ||
+      StringPrototypeStartsWith(arg, `${p}=`) ||
+      (p !== '--config-file' && p !== '--experimental-config-file' &&
+       i > 0 && arr[i - 1] === p);
+  });
 }
 
 function getRunArgs(path, { forceExit,
                             inspectPort,
                             testNamePatterns,
                             testSkipPatterns,
+                            testTagFilterExpressions,
                             only,
+                            hasFiles,
+                            testFiles,
+                            globPatterns,
                             argv: suppliedArgs,
                             execArgv,
                             rerunFailuresFilePath,
+                            randomize,
+                            randomSeed,
                             root: { timeout },
                             cwd }) {
   const processNodeOptions = getOptionsAsFlagsFromBinding();
@@ -184,7 +231,7 @@ function getRunArgs(path, { forceExit,
   const nodeOptionsSet = new SafeSet(processNodeOptions);
   const unknownProcessExecArgv = ArrayPrototypeFilter(
     process.execArgv,
-    (arg) => !nodeOptionsSet.has(arg),
+    (arg, i, arr) => !nodeOptionsSet.has(arg) && filterExecArgv(arg, i, arr),
   );
   ArrayPrototypePushApply(runArgs, unknownProcessExecArgv);
 
@@ -200,6 +247,9 @@ function getRunArgs(path, { forceExit,
   if (testSkipPatterns != null) {
     ArrayPrototypeForEach(testSkipPatterns, (pattern) => ArrayPrototypePush(runArgs, `--test-skip-pattern=${pattern}`));
   }
+  if (testTagFilterExpressions != null) {
+    ArrayPrototypeForEach(testTagFilterExpressions, (expr) => ArrayPrototypePush(runArgs, `--experimental-test-tag-filter=${expr}`));
+  }
   if (only === true) {
     ArrayPrototypePush(runArgs, '--test-only');
   }
@@ -209,12 +259,19 @@ function getRunArgs(path, { forceExit,
   if (rerunFailuresFilePath) {
     ArrayPrototypePush(runArgs, `--test-rerun-failures=${rerunFailuresFilePath}`);
   }
+  if (randomize) {
+    ArrayPrototypePush(runArgs, '--test-randomize');
+  }
+  if (randomSeed != null) {
+    ArrayPrototypePush(runArgs, `--test-random-seed=${randomSeed}`);
+  }
 
   ArrayPrototypePushApply(runArgs, execArgv);
 
   if (path === kIsolatedProcessName) {
     ArrayPrototypePush(runArgs, '--test');
-    ArrayPrototypePushApply(runArgs, ArrayPrototypeSlice(process.argv, 1));
+    ArrayPrototypePush(runArgs, '--test-isolation=none');
+    ArrayPrototypePushApply(runArgs, hasFiles ? testFiles : globPatterns ?? []);
   } else {
     ArrayPrototypePush(runArgs, path);
   }
@@ -236,6 +293,7 @@ class FileTest extends Test {
   #rawBuffer = []; // Raw data waiting to be parsed
   #rawBufferSize = 0;
   #reportedChildren = 0;
+  #pendingPartialV8Header = false;
   failedSubtests = false;
 
   constructor(options) {
@@ -249,6 +307,14 @@ class FileTest extends Test {
     this.timeout = null;
   }
 
+  willBeFilteredByTags() {
+    // File wrappers have no tags of their own. Tag filtering applies to the
+    // tests inside the file, which run in a child process (or in-process
+    // import); filtering the wrapper would prevent the file from running at
+    // all.
+    return false;
+  }
+
   #skipReporting() {
     return this.#reportedChildren > 0 && (!this.error || this.error.failureType === kSubtestsFailed);
   }
@@ -260,6 +326,10 @@ class FileTest extends Test {
           ArrayPrototypeIncludes(kDiagnosticsFilterArgs, StringPrototypeSlice(comment, 0, firstSpaceIndex));
   }
   #handleReportItem(item) {
+    // The name is empty when a single child process runs all test files.
+    if (this.name !== '') {
+      item.data.entryFile = this.loc.file;
+    }
     const isTopLevel = item.data.nesting === 0;
     if (isTopLevel) {
       if (item.type === 'test:plan' && this.#skipReporting()) {
@@ -304,6 +374,10 @@ class FileTest extends Test {
     }
   }
   addToReport(item) {
+    if (kExecutionOrderedEvents.has(item.type)) {
+      this.#handleReportItem(item);
+      return;
+    }
     this.#accumulateReportItem(item);
     if (!this.isClearToSend()) {
       ArrayPrototypePush(this.#reportBuffer, item);
@@ -327,6 +401,12 @@ class FileTest extends Test {
   }
   parseMessage(readData) {
     let dataLength = TypedArrayPrototypeGetLength(readData);
+    if (this.#pendingPartialV8Header) {
+      readData = Buffer.concat([TypedArrayPrototypeSubarray(v8Header, 0, 1), readData]);
+      dataLength = TypedArrayPrototypeGetLength(readData);
+      this.#pendingPartialV8Header = false;
+    }
+
     if (dataLength === 0) return;
     const partialV8Header = readData[dataLength - 1] === v8Header[0];
 
@@ -337,78 +417,136 @@ class FileTest extends Test {
       dataLength--;
     }
 
-    if (this.#rawBuffer[0] && TypedArrayPrototypeGetLength(this.#rawBuffer[0]) < kSerializedSizeHeader) {
-      this.#rawBuffer[0] = Buffer.concat([this.#rawBuffer[0], readData]);
-    } else {
-      ArrayPrototypePush(this.#rawBuffer, readData);
+    if (dataLength > 0) {
+      if (this.#rawBuffer[0] && TypedArrayPrototypeGetLength(this.#rawBuffer[0]) < kSerializedSizeHeader) {
+        this.#rawBuffer[0] = Buffer.concat([this.#rawBuffer[0], readData]);
+      } else {
+        ArrayPrototypePush(this.#rawBuffer, readData);
+      }
+      this.#rawBufferSize += dataLength;
+      this.#processRawBuffer();
     }
-    this.#rawBufferSize += dataLength;
-    this.#processRawBuffer();
 
     if (partialV8Header) {
-      ArrayPrototypePush(this.#rawBuffer, TypedArrayPrototypeSubarray(v8Header, 0, 1));
-      this.#rawBufferSize++;
+      this.#pendingPartialV8Header = true;
     }
   }
   #drainRawBuffer() {
+    if (this.#pendingPartialV8Header) {
+      ArrayPrototypePush(this.#rawBuffer, TypedArrayPrototypeSubarray(v8Header, 0, 1));
+      this.#rawBufferSize++;
+      this.#pendingPartialV8Header = false;
+    }
+
     while (this.#rawBuffer.length > 0) {
+      const prevBufferLength = this.#rawBuffer.length;
+      const prevBufferSize = this.#rawBufferSize;
       this.#processRawBuffer();
+
+      if (this.#rawBuffer.length === prevBufferLength &&
+          this.#rawBufferSize === prevBufferSize) {
+        const bufferHead = this.#rawBuffer[0];
+        this.addToReport({
+          __proto__: null,
+          type: 'test:stdout',
+          data: {
+            __proto__: null,
+            file: this.name,
+            message: StringFromCharCode(bufferHead[0]),
+          },
+        });
+
+        if (TypedArrayPrototypeGetLength(bufferHead) === 1) {
+          ArrayPrototypeShift(this.#rawBuffer);
+        } else {
+          this.#rawBuffer[0] = TypedArrayPrototypeSubarray(bufferHead, 1);
+        }
+        this.#rawBufferSize--;
+      }
     }
   }
   #processRawBuffer() {
-    // This method is called when it is known that there is at least one message
-    let bufferHead = this.#rawBuffer[0];
-    let headerIndex = bufferHead.indexOf(v8Header);
-    let nonSerialized = new FastBuffer();
+    // This method is called when it is known that there is at least one message.
+    // Each pass looks at the head of the buffer and handles exactly one of four
+    // cases, then re-checks the new head. Recovery from stray stdout that only
+    // mimics a frame happens inline here, so no separate resync pass is needed.
+    while (this.#rawBuffer.length > 0) {
+      const bufferHead = this.#rawBuffer[0];
+      const headerIndex = bufferHead.indexOf(v8Header);
 
-    while (bufferHead && headerIndex !== 0) {
-      const nonSerializedData = headerIndex === -1 ?
-        bufferHead :
-        bufferHead.slice(0, headerIndex);
-      nonSerialized = Buffer.concat([nonSerialized, nonSerializedData]);
-      this.#rawBufferSize -= TypedArrayPrototypeGetLength(nonSerializedData);
-      if (headerIndex === -1) {
-        ArrayPrototypeShift(this.#rawBuffer);
-      } else {
-        this.#rawBuffer[0] = TypedArrayPrototypeSubarray(bufferHead, headerIndex);
+      // 1. The head does not start with a frame header. Emit the bytes before
+      //    the next header, or the whole head when there is none, as stdout and
+      //    advance to the next header.
+      if (headerIndex !== 0) {
+        const nonSerialized = headerIndex === -1 ?
+          bufferHead : TypedArrayPrototypeSubarray(bufferHead, 0, headerIndex);
+        this.addToReport({
+          __proto__: null,
+          type: 'test:stdout',
+          data: { __proto__: null, file: this.name, message: nonSerialized.toString('utf-8') },
+        });
+        this.#rawBufferSize -= TypedArrayPrototypeGetLength(nonSerialized);
+        if (headerIndex === -1) {
+          ArrayPrototypeShift(this.#rawBuffer);
+        } else {
+          this.#rawBuffer[0] = TypedArrayPrototypeSubarray(bufferHead, headerIndex);
+        }
+        continue;
       }
-      bufferHead = this.#rawBuffer[0];
-      headerIndex = bufferHead?.indexOf(v8Header);
-    }
 
-    if (TypedArrayPrototypeGetLength(nonSerialized) > 0) {
-      this.addToReport({
-        __proto__: null,
-        type: 'test:stdout',
-        data: { __proto__: null, file: this.name, message: nonSerialized.toString('utf-8') },
-      });
-    }
-
-    while (bufferHead?.length >= kSerializedSizeHeader) {
-      // We call `readUInt32BE` manually here, because this is faster than first converting
-      // it to a buffer and using `readUInt32BE` on that.
-      const fullMessageSize = (
+      // 2. The head starts with a header but the whole frame has not arrived
+      //    yet. Stop and wait for more data.
+      if (TypedArrayPrototypeGetLength(bufferHead) < kSerializedSizeHeader) {
+        break;
+      }
+      // We call `readUInt32BE` manually here, because this is faster than first
+      // converting it to a buffer and using `readUInt32BE` on that.
+      const fullMessageSize = ((
         bufferHead[kV8HeaderLength] << 24 |
         bufferHead[kV8HeaderLength + 1] << 16 |
         bufferHead[kV8HeaderLength + 2] << 8 |
         bufferHead[kV8HeaderLength + 3]
-      ) + kSerializedSizeHeader;
-
-      if (this.#rawBufferSize < fullMessageSize) break;
+      ) >>> 0) + kSerializedSizeHeader;
+      if (this.#rawBufferSize < fullMessageSize) {
+        break;
+      }
 
       const concatenatedBuffer = this.#rawBuffer.length === 1 ?
-        this.#rawBuffer[0] : Buffer.concat(this.#rawBuffer, this.#rawBufferSize);
+        bufferHead : Buffer.concat(this.#rawBuffer, this.#rawBufferSize);
 
+      // 3. The head only mimics a frame. A real frame repeats the v8 header at
+      //    the start of its payload, right before the serialized value, so a
+      //    payload too short for that header, or one that does not start with
+      //    it, is stray stdout. Emit one byte and let the next pass resync on
+      //    the following header. A genuine frame that fails to deserialize is
+      //    left to throw, so real report-protocol regressions are not hidden.
+      if (fullMessageSize - kSerializedSizeHeader < kV8HeaderLength ||
+          concatenatedBuffer.indexOf(v8Header, kSerializedSizeHeader) !== kSerializedSizeHeader) {
+        this.addToReport({
+          __proto__: null,
+          type: 'test:stdout',
+          data: { __proto__: null, file: this.name, message: StringFromCharCode(bufferHead[0]) },
+        });
+        if (TypedArrayPrototypeGetLength(bufferHead) === 1) {
+          ArrayPrototypeShift(this.#rawBuffer);
+        } else {
+          this.#rawBuffer[0] = TypedArrayPrototypeSubarray(bufferHead, 1);
+        }
+        this.#rawBufferSize--;
+        continue;
+      }
+
+      // 4. A real frame. Deserialize it and continue from the remaining bytes.
       const deserializer = new DefaultDeserializer(
         TypedArrayPrototypeSubarray(concatenatedBuffer, kSerializedSizeHeader, fullMessageSize),
       );
-
-      bufferHead = TypedArrayPrototypeSubarray(concatenatedBuffer, fullMessageSize);
-      this.#rawBufferSize = TypedArrayPrototypeGetLength(bufferHead);
-      this.#rawBuffer = this.#rawBufferSize !== 0 ? [bufferHead] : [];
-
       deserializer.readHeader();
       const item = deserializer.readValue();
+
+      const remaining = TypedArrayPrototypeSubarray(concatenatedBuffer, fullMessageSize);
+      this.#rawBufferSize = TypedArrayPrototypeGetLength(remaining);
+      this.#rawBuffer = this.#rawBufferSize !== 0 ? [remaining] : [];
+
       this.addToReport(item);
     }
   }
@@ -431,94 +569,102 @@ function runTestFile(path, filesWatcher, opts) {
       debug('Assigned worker ID %d to test file: %s', workerId, path);
     }
 
-    if (watchMode) {
-      stdio.push('ipc');
-      env.WATCH_REPORT_DEPENDENCIES = '1';
-    }
-    if (opts.root.harness.shouldColorizeTestFiles) {
-      env.FORCE_COLOR = '1';
-    }
-
-    const child = spawn(
-      process.execPath, args,
-      {
-        __proto__: null,
-        signal: t.signal,
-        encoding: 'utf8',
-        env,
-        stdio,
-        cwd: opts.cwd,
-      },
-    );
-    if (watchMode) {
-      filesWatcher.runningProcesses.set(path, child);
-      filesWatcher.watcher.watchChildProcessModules(child, path);
-    }
-
-    let err;
-
-    child.on('error', (error) => {
-      err = error;
-    });
-
-    child.stdout.on('data', (data) => {
-      subtest.parseMessage(data);
-    });
-
-    const rl = new Interface({ __proto__: null, input: child.stderr });
-    rl.on('line', (line) => {
-      if (isInspectorMessage(line)) {
-        process.stderr.write(line + '\n');
-        return;
+    try {
+      if (watchMode) {
+        stdio.push('ipc');
+        env.WATCH_REPORT_DEPENDENCIES = '1';
+      }
+      if (opts.root.harness.shouldColorizeTestFiles) {
+        env.FORCE_COLOR = '1';
       }
 
-      // stderr cannot be treated as TAP, per the spec. However, we want to
-      // surface stderr lines to improve the DX. Inject each line into the
-      // test output as an unknown token as if it came from the TAP parser.
-      subtest.addToReport({
-        __proto__: null,
-        type: 'test:stderr',
-        data: { __proto__: null, file: path, message: line + '\n' },
-      });
-    });
-
-    const { 0: { 0: code, 1: signal } } = await SafePromiseAll([
-      once(child, 'exit', { __proto__: null, signal: t.signal }),
-      finished(child.stdout, { __proto__: null, signal: t.signal }),
-    ]);
-
-    // Close readline interface to prevent memory leak
-    rl.close();
-
-    if (watchMode) {
-      filesWatcher.runningProcesses.delete(path);
-      filesWatcher.runningSubtests.delete(path);
-      (async () => {
-        try {
-          await subTestEnded;
-        } finally {
-          if (filesWatcher.runningSubtests.size === 0) {
-            opts.root.reporter[kEmitMessage]('test:watch:drained');
-            opts.root.postRun();
-          }
-        }
-      })();
-    }
-
-    if (code !== 0 || signal !== null) {
-      if (!err) {
-        const failureType = subtest.failedSubtests ? kSubtestsFailed : kTestCodeFailure;
-        err = ObjectAssign(new ERR_TEST_FAILURE('test failed', failureType), {
+      const child = spawn(
+        process.execPath, args,
+        {
           __proto__: null,
-          exitCode: code,
-          signal: signal,
-          // The stack will not be useful since the failures came from tests
-          // in a child process.
-          stack: undefined,
-        });
+          signal: t.signal,
+          encoding: 'utf8',
+          env,
+          stdio,
+          cwd: opts.cwd,
+        },
+      );
+      if (watchMode) {
+        filesWatcher.runningProcesses.set(path, child);
+        filesWatcher.watcher.watchChildProcessModules(child, path);
       }
 
-      throw err;
+      let err;
+
+      child.on('error', (error) => {
+        err = error;
+      });
+
+      child.stdout.on('data', (data) => {
+        subtest.parseMessage(data);
+      });
+
+      const rl = new Interface({ __proto__: null, input: child.stderr });
+      rl.on('line', (line) => {
+        if (isInspectorMessage(line)) {
+          process.stderr.write(line + '\n');
+          return;
+        }
+
+        // stderr cannot be treated as TAP, per the spec. However, we want to
+        // surface stderr lines to improve the DX. Inject each line into the
+        // test output as an unknown token as if it came from the TAP parser.
+        subtest.addToReport({
+          __proto__: null,
+          type: 'test:stderr',
+          data: { __proto__: null, file: path, message: line + '\n' },
+        });
+      });
+
+      const { 0: { 0: code, 1: signal } } = await SafePromiseAll([
+        once(child, 'exit', { __proto__: null, signal: t.signal }),
+        finished(child.stdout, { __proto__: null, signal: t.signal }),
+      ]);
+
+      // Close readline interface to prevent memory leak
+      rl.close();
+
+      if (watchMode) {
+        filesWatcher.runningProcesses.delete(path);
+        filesWatcher.runningSubtests.delete(path);
+        (async () => {
+          try {
+            await subTestEnded;
+          } finally {
+            if (filesWatcher.runningSubtests.size === 0) {
+              opts.root.reporter[kEmitMessage]('test:watch:drained');
+              opts.root.postRun();
+            }
+          }
+        })();
+      }
+
+      if (code !== 0 || signal !== null) {
+        if (!err) {
+          const failureType = subtest.failedSubtests ? kSubtestsFailed : kTestCodeFailure;
+          err = ObjectAssign(new ERR_TEST_FAILURE('test failed', failureType), {
+            __proto__: null,
+            exitCode: code,
+            signal: signal,
+            // The stack will not be useful since the failures came from tests
+            // in a child process.
+            stack: undefined,
+          });
+        }
+
+        throw err;
+      }
+    } finally {
+      // Every exit path must return the ID, including abort and spawn failure.
+      if (opts.workerIdPool && workerId !== undefined) {
+        opts.workerIdPool.release(workerId);
+        debug('Released worker ID %d from test file: %s', workerId, path);
+      }
     }
   });
   const subTestEnded = subtest.start();
@@ -625,6 +771,7 @@ function run(options = kEmptyObject) {
   let {
     testNamePatterns,
     testSkipPatterns,
+    testTagFilters,
     shard,
     coverageExcludeGlobs,
     coverageIncludeGlobs,
@@ -643,9 +790,12 @@ function run(options = kEmptyObject) {
     only,
     globPatterns,
     coverage = false,
+    coverageIncludeAll = false,
     lineCoverage = 0,
     branchCoverage = 0,
     functionCoverage = 0,
+    randomize: suppliedRandomize,
+    randomSeed: suppliedRandomSeed,
     execArgv = [],
     argv = [],
     cwd = process.cwd(),
@@ -674,6 +824,56 @@ function run(options = kEmptyObject) {
   if (globPatterns != null) {
     validateArray(globPatterns, 'options.globPatterns');
   }
+  if (suppliedRandomize != null) {
+    validateBoolean(suppliedRandomize, 'options.randomize');
+  }
+  if (suppliedRandomSeed != null) {
+    validateUint32(suppliedRandomSeed, 'options.randomSeed');
+  }
+  let randomize = suppliedRandomize;
+  let randomSeed = suppliedRandomSeed;
+
+  if (randomSeed != null) {
+    randomize = true;
+  }
+  if (watch) {
+    if (randomSeed != null) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.randomSeed',
+        randomSeed,
+        'is not supported with watch mode',
+      );
+    }
+    if (randomize) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.randomize',
+        randomize,
+        'is not supported with watch mode',
+      );
+    }
+  }
+  if (rerunFailuresFilePath) {
+    validatePath(rerunFailuresFilePath, 'options.rerunFailuresFilePath');
+    // TODO(pmarchini): Support rerun-failures with randomization by
+    // persisting the randomization seed in the rerun state file.
+    if (randomSeed != null) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.randomSeed',
+        randomSeed,
+        'is not supported with rerun failures mode',
+      );
+    }
+    if (randomize) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.randomize',
+        randomize,
+        'is not supported with rerun failures mode',
+      );
+    }
+  }
+  if (randomize) {
+    randomSeed ??= createRandomSeed();
+  }
 
   validateString(cwd, 'options.cwd');
 
@@ -681,10 +881,6 @@ function run(options = kEmptyObject) {
     throw new ERR_INVALID_ARG_VALUE(
       'options.globPatterns', globPatterns, 'is not supported when specifying \'options.files\'',
     );
-  }
-
-  if (rerunFailuresFilePath) {
-    validatePath(rerunFailuresFilePath, 'options.rerunFailuresFilePath');
   }
 
   if (shard != null) {
@@ -734,13 +930,49 @@ function run(options = kEmptyObject) {
       throw new ERR_INVALID_ARG_TYPE(name, ['string', 'RegExp'], value);
     });
   }
+
+  // The public contract of testTagFilters is `string | string[]`. The
+  // parseCommandLine bootstrap path piggybacks the already-parsed AST array
+  // on the same field, identifiable by the sibling testTagFilterExpressions
+  // field which only that path sets. When that marker is present and the
+  // first element isn't a string, treat the array as ASTs and skip the
+  // public validation loop. Otherwise validate every element as a string,
+  // so any non-string input throws ERR_INVALID_ARG_TYPE with the offending
+  // index regardless of position.
+  let testTagFilterExpressions = null;
+  if (testTagFilters != null) {
+    if (!ArrayIsArray(testTagFilters)) {
+      testTagFilters = [testTagFilters];
+    }
+    if (testTagFilters.length === 0) {
+      testTagFilters = null;
+    } else if (options.testTagFilterExpressions != null &&
+               typeof testTagFilters[0] !== 'string') {
+      // Internal bootstrap: trust the AST array as already-parsed.
+    } else {
+      emitExperimentalWarning('Test tags');
+      testTagFilterExpressions = ArrayPrototypeSlice(testTagFilters);
+      testTagFilters = ArrayPrototypeMap(testTagFilters, (value, i) => {
+        const name = `options.testTagFilters[${i}]`;
+        if (typeof value !== 'string') {
+          throw new ERR_INVALID_ARG_TYPE(name, 'string', value);
+        }
+        return parseTagFilterExpression(value, name);
+      });
+    }
+  }
+  testTagFilterExpressions ??= options.testTagFilterExpressions;
+
   validateOneOf(isolation, 'options.isolation', ['process', 'none']);
   validateBoolean(coverage, 'options.coverage');
+  validateBoolean(coverageIncludeAll, 'options.coverageIncludeAll');
   if (coverageExcludeGlobs != null) {
     if (!ArrayIsArray(coverageExcludeGlobs)) {
       coverageExcludeGlobs = [coverageExcludeGlobs];
     }
     validateStringArray(coverageExcludeGlobs, 'options.coverageExcludeGlobs');
+  } else if (coverage) {
+    coverageExcludeGlobs = [kDefaultPattern];
   }
   if (coverageIncludeGlobs != null) {
     if (!ArrayIsArray(coverageIncludeGlobs)) {
@@ -760,7 +992,7 @@ function run(options = kEmptyObject) {
   }
 
   if (env != null) {
-    validateObject(env);
+    validateObject(env, 'options.env');
 
     if (isolation === 'none') {
       throw new ERR_INVALID_ARG_VALUE('options.env', env, 'is not supported with isolation=\'none\'');
@@ -775,6 +1007,7 @@ function run(options = kEmptyObject) {
     ...parseCommandLine(),
     setup,  // This line can be removed when parseCommandLine() is removed here.
     coverage,
+    coverageIncludeAll,
     coverageExcludeGlobs,
     coverageIncludeGlobs,
     rerunFailuresFilePath,
@@ -783,10 +1016,30 @@ function run(options = kEmptyObject) {
     functionCoverage: functionCoverage,
     cwd,
     globalSetupPath,
+    randomize,
+    randomSeed,
+    testTagFilters,
   };
+
+  if (isolation === 'none') {
+    if (testNamePatterns != null) {
+      globalOptions.testNamePatterns = testNamePatterns;
+    }
+    if (testSkipPatterns != null) {
+      globalOptions.testSkipPatterns = testSkipPatterns;
+    }
+    if (only != null) {
+      globalOptions.only = only;
+    }
+  }
+
   const root = createTestTree(rootTestOptions, globalOptions);
   let testFiles = files ?? createTestFileList(globPatterns, cwd);
   const { isTestRunner } = globalOptions;
+
+  if (randomize) {
+    root.diagnostic(`Randomized test order seed: ${randomSeed}`);
+  }
 
   if (shard) {
     testFiles = ArrayPrototypeFilter(testFiles, (_, index) => index % shard.total === shard.index - 1);
@@ -797,23 +1050,10 @@ function run(options = kEmptyObject) {
   let filesWatcher;
   let runFiles;
 
-  // Create worker ID pool for concurrent test execution.
-  // Use concurrency from globalOptions which has been processed by parseCommandLine().
-  const effectiveConcurrency = globalOptions.concurrency ?? concurrency;
-  let maxConcurrency = 1;
-  if (effectiveConcurrency === true) {
-    maxConcurrency = MathMax(availableParallelism() - 1, 1);
-  } else if (typeof effectiveConcurrency === 'number') {
-    maxConcurrency = effectiveConcurrency;
-  }
-  const workerIdPool = new WorkerIdPool(maxConcurrency);
-  debug(
-    'Created worker ID pool with max concurrency: %d, ' +
-    'effectiveConcurrency: %s, testFiles: %d',
-    maxConcurrency,
-    effectiveConcurrency,
-    testFiles.length,
-  );
+  // The pool tracks the IDs actually in use, so they stay exclusive and never
+  // exceed the number of files running concurrently.
+  const workerIdPool = new WorkerIdPool();
+  debug('Created worker ID pool, testFiles: %d', testFiles.length);
 
   const opts = {
     __proto__: null,
@@ -822,6 +1062,7 @@ function run(options = kEmptyObject) {
     inspectPort,
     testNamePatterns,
     testSkipPatterns,
+    testTagFilterExpressions,
     hasFiles: files != null,
     globPatterns,
     only,
@@ -833,6 +1074,9 @@ function run(options = kEmptyObject) {
     rerunFailuresFilePath,
     env,
     workerIdPool: isolation === 'process' ? workerIdPool : null,
+    randomize,
+    randomSeed,
+    testFiles,
   };
 
   if (isolation === 'process') {
@@ -923,8 +1167,8 @@ function run(options = kEmptyObject) {
               topLevelTestCount,
               root.subtests.length,
             );
-            if (topLevelTestCount === root.subtests.length) {
-              // This file had no tests in it. Add the placeholder test.
+            if (threw || topLevelTestCount === root.subtests.length) {
+              // This file failed to load or had no tests in it. Add the placeholder test.
               const subtest = root.createSubtest(Test, testFile, kEmptyObject, undefined, {
                 __proto__: null,
                 loc: [1, 1, resolve(testFile)],

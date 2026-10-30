@@ -190,6 +190,7 @@ MaybeLocal<Value> Message::Deserialize(Environment* env,
   transferables_.clear();
 
   LocalVector<SharedArrayBuffer> shared_array_buffers(env->isolate());
+  shared_array_buffers.reserve(shared_array_buffers_.size());
   // Attach all transferred SharedArrayBuffers to their new Isolate.
   for (uint32_t i = 0; i < shared_array_buffers_.size(); ++i) {
     Local<SharedArrayBuffer> sab =
@@ -254,7 +255,7 @@ namespace {
 
 MaybeLocal<Function> GetEmitMessageFunction(Local<Context> context,
                                             IsolateData* isolate_data) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   Local<Object> per_context_bindings;
   Local<Value> emit_message_val;
   if (!GetPerContextExports(context, isolate_data)
@@ -269,7 +270,7 @@ MaybeLocal<Function> GetEmitMessageFunction(Local<Context> context,
 }
 
 MaybeLocal<Function> GetDOMException(Local<Context> context) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   Local<Object> per_context_bindings;
   Local<Value> domexception_ctor_val;
   if (!GetPerContextExports(context).ToLocal(&per_context_bindings) ||
@@ -284,7 +285,7 @@ MaybeLocal<Function> GetDOMException(Local<Context> context) {
 }
 
 void ThrowDataCloneException(Local<Context> context, Local<String> message) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   Local<Value> argv[] = {message,
                          FIXED_ONE_BYTE_STRING(isolate, "DataCloneError")};
   Local<Value> exception;
@@ -415,10 +416,15 @@ class SerializerDelegate : public ValueSerializer::Delegate {
       if (!host_objects_[i]->NestedTransferables().To(&nested_transferables))
         return Nothing<bool>();
       for (auto& nested_transferable : nested_transferables) {
-        if (std::ranges::find(host_objects_, nested_transferable) ==
+        if (std::ranges::find(host_objects_, nested_transferable) !=
             host_objects_.end()) {
-          AddHostObject(nested_transferable);
+          ThrowDataCloneException(
+              context_,
+              FIXED_ONE_BYTE_STRING(env_->isolate(),
+                                    "The transfer list is invalid."));
+          return Nothing<bool>();
         }
+        AddHostObject(nested_transferable);
       }
     }
     return Just(true);
@@ -1088,7 +1094,7 @@ void MessagePort::PostMessage(const FunctionCallbackInfo<Value>& args) {
                                        "MessagePort.postMessage");
   }
 
-  TransferList transfer_list;
+  TransferList transfer_list(env->isolate());
   if (!GetTransferList(env, context, args[1], &transfer_list)) {
     return;
   }
@@ -1477,7 +1483,7 @@ BaseObjectPtr<BaseObject> JSTransferable::Data::Deserialize(
 
 Maybe<bool> JSTransferable::Data::FinalizeTransferWrite(
     Local<Context> context, ValueSerializer* serializer) {
-  HandleScope handle_scope(context->GetIsolate());
+  HandleScope handle_scope(Isolate::GetCurrent());
   auto ret = serializer->WriteValue(context, PersistentToLocal::Strong(data_));
   data_.Reset();
   return ret;
@@ -1602,7 +1608,7 @@ static void StructuredClone(const FunctionCallbackInfo<Value>& args) {
 
   Local<Value> value = args[0];
 
-  TransferList transfer_list;
+  TransferList transfer_list(isolate);
   Local<Object> options = args[1].As<Object>();
   Local<Value> transfer_list_v;
   if (!options->Get(context, env->transfer_string())
@@ -1761,6 +1767,21 @@ static void CreatePerContextProperties(Local<Object> target,
               FIXED_ONE_BYTE_STRING(env->isolate(), "DOMException"),
               domexception)
         .Check();
+  }
+  {
+    Local<Object> per_context_bindings;
+    Local<Value> quota_exceeded_error_val;
+    if (GetPerContextExports(context).ToLocal(&per_context_bindings) &&
+        per_context_bindings
+            ->Get(context,
+                  FIXED_ONE_BYTE_STRING(env->isolate(), "QuotaExceededError"))
+            .ToLocal(&quota_exceeded_error_val)) {
+      target
+          ->Set(context,
+                FIXED_ONE_BYTE_STRING(env->isolate(), "QuotaExceededError"),
+                quota_exceeded_error_val)
+          .Check();
+    }
   }
 }
 

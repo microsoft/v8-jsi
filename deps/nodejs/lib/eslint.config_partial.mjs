@@ -23,7 +23,7 @@ const noRestrictedSyntax = [
     message: "`btoa` supports only latin-1 charset, use Buffer.from(str).toString('base64') instead",
   },
   {
-    selector: 'NewExpression[callee.name=/Error$/]:not([callee.name=/^(AssertionError|NghttpError|AbortError|NodeAggregateError)$/])',
+    selector: 'NewExpression[callee.name=/Error$/]:not([callee.name=/^(AssertionError|NghttpError|AbortError|NodeAggregateError|QuicError|QuotaExceededError)$/])',
     message: "Use an error exported by 'internal/errors' instead.",
   },
   {
@@ -41,6 +41,10 @@ const noRestrictedSyntax = [
   {
     selector: "ThrowStatement > NewExpression[callee.name=/^ERR_[A-Z_]+$/] > ObjectExpression:first-child:not(:has([key.name='message']):has([key.name='code']):has([key.name='syscall']))",
     message: 'The context passed into the SystemError constructor must include .code, .syscall, and .message properties.',
+  },
+  {
+    selector: "CallExpression:matches([callee.type='Identifier'][callee.name='FunctionPrototypeApply'], [callee.type='MemberExpression'][callee.property.type='Identifier'][callee.property.name='apply'][arguments.length=2])",
+    message: 'Use `ReflectApply` instead of %Function.prototype.apply%',
   },
 ];
 
@@ -61,7 +65,21 @@ export default [
     rules: {
       'prefer-object-spread': 'error',
       'no-buffer-constructor': 'error',
-      'no-restricted-syntax': noRestrictedSyntax,
+      'no-restricted-syntax': [
+        ...noRestrictedSyntax,
+        {
+          selector: "CallExpression[callee.type='Identifier'][callee.name='ReflectApply'][arguments.2.type='ArrayExpression']",
+          message: 'Use `FunctionPrototypeCall` to avoid creating an ad-hoc array',
+        },
+        {
+          selector: "VariableDeclarator[init.type='CallExpression'][init.callee.name='internalBinding'][init.arguments.0.value='crypto'] > ObjectPattern > Property[key.name='getCryptoKeySlots']",
+          message: "Use `const { getCryptoKeySlots } = require('internal/crypto/keys');` instead of destructuring it from `internalBinding('crypto')`.",
+        },
+        {
+          selector: "VariableDeclarator[init.type='CallExpression'][init.callee.name='internalBinding'][init.arguments.0.value='crypto'] > ObjectPattern > Property[key.name='getKeyObjectSlots']",
+          message: "Use `const { getKeyObjectSlots } = require('internal/crypto/keys');` instead of destructuring it from `internalBinding('crypto')`.",
+        },
+      ],
       'no-restricted-globals': [
         'error',
         {
@@ -113,6 +131,14 @@ export default [
           message: "Use lazy function `const { lazyDOMExceptionClass } = require('internal/util');` instead of the global.",
         },
         {
+          name: 'QuotaExceededError',
+          message: "Use `internalBinding('messaging').QuotaExceededError` instead of the global.",
+        },
+        {
+          name: 'ErrorEvent',
+          message: "Use `const { ErrorEvent } = require('internal/deps/undici/undici');` instead of the global.",
+        },
+        {
           name: 'Event',
           message: "Use `const { Event } = require('internal/event_target');` instead of the global.",
         },
@@ -137,10 +163,6 @@ export default [
         {
           name: 'Intl',
           message: 'Use `const { Intl } = globalThis;` instead of the global.',
-        },
-        {
-          name: 'Iterator',
-          message: 'Use `const { Iterator } = globalThis;` instead of the global.',
         },
         {
           name: 'MessageChannel',
@@ -231,6 +253,16 @@ export default [
           message: "Use `const { constructSharedArrayBuffer } = require('internal/util');` instead of the global.",
         },
         {
+          name: 'Storage',
+          message: "Use `const { Storage } = require('internal/webstorage');` instead of the global.",
+        },
+        // Temporal is not available in primordials because it can be
+        // disabled with --no-harmony-temporal CLI flag.
+        {
+          name: 'Temporal',
+          message: 'Use `const { Temporal } = globalThis;` instead of the global.',
+        },
+        {
           name: 'TextDecoder',
           message: "Use `const { TextDecoder } = require('internal/encoding');` instead of the global.",
         },
@@ -259,6 +291,10 @@ export default [
           message: "Use `const { URL } = require('internal/url');` instead of the global.",
         },
         {
+          name: 'URLPattern',
+          message: "Use `const { URLPattern } = require('internal/url');` instead of the global.",
+        },
+        {
           name: 'URLSearchParams',
           message: "Use `const { URLSearchParams } = require('internal/url');` instead of the global.",
         },
@@ -267,6 +303,14 @@ export default [
         {
           name: 'WebAssembly',
           message: 'Use `const { WebAssembly } = globalThis;` instead of the global.',
+        },
+        {
+          name: 'WebSocket',
+          message: 'Use `const { WebSocket } = require("internal/deps/undici/src/lib/web/websocket/websocket.js");` instead of the global.',
+        },
+        {
+          name: 'Worker',
+          message: "Use `const { Worker } = require('internal/webworker');` instead of the global.",
         },
         {
           name: 'WritableStream',
@@ -333,12 +377,20 @@ export default [
           message: 'Use `const { globalThis } = primordials;` instead of the global.',
         },
         {
+          name: 'localStorage',
+          message: "Use `const { localStorage } = require('internal/webstorage');` instead of the global.",
+        },
+        {
           name: 'performance',
           message: "Use `const { performance } = require('perf_hooks');` instead of the global.",
         },
         {
           name: 'queueMicrotask',
           message: "Use `const { queueMicrotask } = require('internal/process/task_queues');` instead of the global.",
+        },
+        {
+          name: 'sessionStorage',
+          message: "Use `const { sessionStorage } = require('internal/webstorage');` instead of the global.",
         },
         {
           name: 'setImmediate',
@@ -359,12 +411,6 @@ export default [
         {
           name: 'SubtleCrypto',
           message: "Use `const { SubtleCrypto } = require('internal/crypto/webcrypto');` instead of the global.",
-        },
-        // Float16Array is not available in primordials because it can be
-        // disabled with --no-js-float16array CLI flag.
-        {
-          name: 'Float16Array',
-          message: 'Use `const { Float16Array } = globalThis;` instead of the global.',
         },
         // DisposableStack and AsyncDisposableStack are not available in primordials because they can be
         // disabled with --no-js-explicit-resource-management CLI flag.
@@ -389,9 +435,13 @@ export default [
       'node-core/alphabetize-errors': 'error',
       'node-core/alphabetize-primordials': 'error',
       'node-core/avoid-prototype-pollution': 'error',
+      'node-core/iterator-result-done-first': 'error',
       'node-core/lowercase-name-for-primitive': 'error',
       'node-core/non-ascii-character': 'error',
       'node-core/no-array-destructuring': 'error',
+      'node-core/no-crypto-class-instanceof': 'error',
+      'node-core/no-cryptokey-public-accessors': 'error',
+      'node-core/no-keyobject-public-accessors': 'error',
       'node-core/prefer-primordials': [
         'error',
         { name: 'AggregateError' },
@@ -422,12 +472,14 @@ export default [
           name: 'FinalizationRegistry',
           into: 'Safe',
         },
+        { name: 'Float16Array' },
         { name: 'Float32Array' },
         { name: 'Float64Array' },
         { name: 'Function' },
         { name: 'Int16Array' },
         { name: 'Int32Array' },
         { name: 'Int8Array' },
+        { name: 'Iterator' },
         {
           name: 'isFinite',
           into: 'Number',

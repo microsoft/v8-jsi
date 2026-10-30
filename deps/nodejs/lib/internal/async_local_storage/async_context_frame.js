@@ -12,6 +12,9 @@ const {
 const AsyncContextFrame = require('internal/async_context_frame');
 const { AsyncResource } = require('async_hooks');
 
+const RunScope = require('internal/async_local_storage/run_scope');
+const { kEmptyObject } = require('internal/util');
+
 class AsyncLocalStorage {
   #defaultValue = undefined;
   #name = undefined;
@@ -24,7 +27,7 @@ class AsyncLocalStorage {
   /**
    * @param {AsyncLocalStorageOptions} [options]
    */
-  constructor(options = {}) {
+  constructor(options = kEmptyObject) {
     validateObject(options, 'options');
     this.#defaultValue = options.defaultValue;
 
@@ -76,6 +79,10 @@ class AsyncLocalStorage {
       return this.#defaultValue;
     }
     return frame?.get(this);
+  }
+
+  withScope(store) {
+    return new RunScope(this, store);
   }
 }
 

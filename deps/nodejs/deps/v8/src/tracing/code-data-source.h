@@ -9,14 +9,11 @@
 #include <string>
 #include <unordered_map>
 
-#include "perfetto/protozero/scattered_heap_buffer.h"
-#include "perfetto/tracing/data_source.h"
-#include "protos/perfetto/config/chrome/v8_config.gen.h"
-#include "protos/perfetto/trace/interned_data/interned_data.pbzero.h"
 #include "src/base/hashing.h"
 #include "src/handles/handles.h"
 #include "src/objects/function-kind.h"
 #include "src/objects/tagged.h"
+#include "src/tracing/perfetto-sdk.h"
 #include "src/tracing/perfetto-utils.h"
 
 namespace v8 {
@@ -75,7 +72,7 @@ class CodeDataSourceIncrementalState {
                             int column_num);
 #if V8_ENABLE_WEBASSEMBLY
   uint64_t InternWasmScript(Isolate& isolate, int script_id,
-                            const std::string& url,
+                            std::string_view url,
                             wasm::NativeModule* native_module);
 
 #endif  // V8_ENABLE_WEBASSEMBLY

@@ -9,6 +9,7 @@
 #include "src/base/vector.h"
 #include "src/handles/handles-inl.h"
 #include "src/logging/log.h"
+#include "src/objects/heap-object.h"
 #include "src/objects/js-array-inl.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/prototype.h"
@@ -197,7 +198,7 @@ void StringStream::PrintObject(Tagged<Object> o) {
     if (Cast<String>(o)->length() <= String::kMaxShortPrintLength) {
       return;
     }
-  } else if (IsNumber(o) || IsOddball(o)) {
+  } else if (IsAnyHole(o) || IsNumber(o) || IsOddball(o)) {
     return;
   }
   if (IsHeapObject(o) && object_print_mode_ == kPrintObjectVerbose) {
@@ -301,6 +302,8 @@ void StringStream::PrintName(Tagged<Object> name) {
 
 void StringStream::PrintUsingMap(Isolate* isolate, Tagged<JSObject> js_object) {
   Tagged<Map> map = js_object->map();
+  if (map->is_dictionary_map()) return;
+
   Tagged<DescriptorArray> descs = map->instance_descriptors(isolate);
   for (InternalIndex i : map->IterateOwnDescriptors()) {
     PropertyDetails details = descs->GetDetails(i);

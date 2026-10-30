@@ -5,6 +5,7 @@
 #ifndef V8_REGEXP_REGEXP_MACRO_ASSEMBLER_TRACER_H_
 #define V8_REGEXP_REGEXP_MACRO_ASSEMBLER_TRACER_H_
 
+#ifdef V8_ENABLE_REGEXP_DIAGNOSTICS
 #include "src/base/strings.h"
 #include "src/regexp/regexp-macro-assembler.h"
 
@@ -14,15 +15,10 @@ namespace internal {
 // Decorator on a RegExpMacroAssembler that write all calls.
 class RegExpMacroAssemblerTracer: public RegExpMacroAssembler {
  public:
-  RegExpMacroAssemblerTracer(Isolate* isolate, RegExpMacroAssembler* assembler);
+  explicit RegExpMacroAssemblerTracer(
+      std::unique_ptr<RegExpMacroAssembler>&& assembler);
   ~RegExpMacroAssemblerTracer() override;
   void AbortedCodeGeneration() override;
-  int stack_limit_slack_slot_count() override {
-    return assembler_->stack_limit_slack_slot_count();
-  }
-  bool CanReadUnaligned() const override {
-    return assembler_->CanReadUnaligned();
-  }
   void AdvanceCurrentPosition(int by) override;    // Signed cp change.
   void AdvanceRegister(int reg, int by) override;  // r[reg] += by.
   void Backtrack() override;
@@ -59,10 +55,34 @@ class RegExpMacroAssemblerTracer: public RegExpMacroAssembler {
     return assembler_->SkipUntilBitInTableUseSimd(advance_by);
   }
   void SkipUntilBitInTable(int cp_offset, Handle<ByteArray> table,
-                           Handle<ByteArray> nibble_table,
-                           int advance_by) override;
+                           Handle<ByteArray> nibble_table, int advance_by,
+                           Label* on_match, Label* on_no_match) override;
+  void SkipUntilCharAnd(int cp_offset, int advance_by, unsigned character,
+                        unsigned mask, int eats_at_least, Label* on_match,
+                        Label* on_no_match) override;
+  void SkipUntilChar(int cp_offset, int advance_by, unsigned character,
+                     Label* on_match, Label* on_no_match) override;
+  void SkipUntilCharPosChecked(int cp_offset, int advance_by,
+                               unsigned character, int eats_at_least,
+                               Label* on_match, Label* on_no_match) override;
+  void SkipUntilCharOrChar(int cp_offset, int advance_by, unsigned char1,
+                           unsigned char2, Label* on_match,
+                           Label* on_no_match) override;
+  void SkipUntilGtOrNotBitInTable(int cp_offset, int advance_by,
+                                  unsigned character, Handle<ByteArray> table,
+                                  Label* on_match, Label* on_no_match) override;
+  void SkipUntilOneOfMasked(int cp_offset, int advance_by, unsigned both_chars,
+                            unsigned both_mask, int max_offset, unsigned chars1,
+                            unsigned mask1, unsigned chars2, unsigned mask2,
+                            Label* on_match1, Label* on_match2,
+                            Label* on_failure) override;
+  bool SkipUntilOneOfMasked3UseSimd(
+      const SkipUntilOneOfMasked3Args& args) override {
+    return assembler_->SkipUntilOneOfMasked3UseSimd(args);
+  }
+  void SkipUntilOneOfMasked3(const SkipUntilOneOfMasked3Args& args) override;
   void CheckPosition(int cp_offset, Label* on_outside_input) override;
-  bool CheckSpecialClassRanges(StandardCharacterSet type,
+  void CheckSpecialClassRanges(StandardCharacterSet type,
                                Label* on_no_match) override;
   void Fail() override;
   DirectHandle<HeapObject> GetCode(DirectHandle<String> source,
@@ -90,11 +110,22 @@ class RegExpMacroAssemblerTracer: public RegExpMacroAssembler {
   void ClearRegisters(int reg_from, int reg_to) override;
   void WriteStackPointerToRegister(int reg) override;
 
+  void RecordComment(std::string_view comment) override {
+    assembler_->RecordComment(comment);
+  }
+  MacroAssembler* masm() override { return assembler_->masm(); }
+
+  void set_global_mode(GlobalMode mode) override;
+  void set_slow_safe(bool ssc) override;
+  void set_backtrack_limit(uint32_t backtrack_limit) override;
+  void set_can_fallback(bool val) override;
+
  private:
-  RegExpMacroAssembler* assembler_;
+  std::unique_ptr<RegExpMacroAssembler> assembler_;
 };
 
 }  // namespace internal
 }  // namespace v8
+#endif  // V8_ENABLE_REGEXP_DIAGNOSTICS
 
 #endif  // V8_REGEXP_REGEXP_MACRO_ASSEMBLER_TRACER_H_

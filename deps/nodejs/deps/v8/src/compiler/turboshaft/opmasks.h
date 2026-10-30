@@ -234,6 +234,12 @@ using kWord64ShiftRightLogical =
                    WordRepresentation::Word64()>;
 using kShiftLeft = ShiftKindMask::For<ShiftOp::Kind::kShiftLeft>;
 
+using WordBinopDeoptOnOverflowMask =
+    MaskBuilder<WordBinopDeoptOnOverflowOp,
+                FIELD(WordBinopDeoptOnOverflowOp, kind)>;
+using kWordSignedAddDeoptOnOverflow = WordBinopDeoptOnOverflowMask::For<
+    WordBinopDeoptOnOverflowOp::Kind::kSignedAdd>;
+
 using PhiMask = MaskBuilder<PhiOp, FIELD(PhiOp, rep)>;
 using kTaggedPhi = PhiMask::For<RegisterRepresentation::Tagged()>;
 
@@ -241,9 +247,13 @@ using ConstantMask = MaskBuilder<ConstantOp, FIELD(ConstantOp, kind)>;
 
 using kWord32Constant = ConstantMask::For<ConstantOp::Kind::kWord32>;
 using kWord64Constant = ConstantMask::For<ConstantOp::Kind::kWord64>;
+using kFloat64Constant = ConstantMask::For<ConstantOp::Kind::kFloat64>;
 using kExternalConstant = ConstantMask::For<ConstantOp::Kind::kExternal>;
 using kHeapConstant = ConstantMask::For<ConstantOp::Kind::kHeapObject>;
 using kSmiConstant = ConstantMask::For<ConstantOp::Kind::kSmi>;
+using kTaggedIndexConstant = ConstantMask::For<ConstantOp::Kind::kTaggedIndex>;
+using kWasmStubCallConstant =
+    ConstantMask::For<ConstantOp::Kind::kRelocatableWasmStubCall>;
 
 using ProjectionMask = MaskBuilder<ProjectionOp, FIELD(ProjectionOp, index)>;
 
@@ -270,6 +280,9 @@ using kChangeInt32ToInt64 = ChangeOpMask::For<
 using kChangeUint32ToUint64 = ChangeOpMask::For<
     ChangeOp::Kind::kZeroExtend, ChangeOp::Assumption::kNoAssumption,
     RegisterRepresentation::Word32(), RegisterRepresentation::Word64()>;
+using kChangeFloat32ToUint32 = ChangeOpMask::For<
+    ChangeOp::Kind::kBitcast, ChangeOp::Assumption::kNoAssumption,
+    RegisterRepresentation::Float32(), RegisterRepresentation::Word32()>;
 using kFloat64ExtractHighWord32 = ChangeOpMask::For<
     ChangeOp::Kind::kExtractHighHalf, ChangeOp::Assumption::kNoAssumption,
     RegisterRepresentation::Float64(), RegisterRepresentation::Word32()>;
@@ -325,6 +338,8 @@ using Simd128BinopMask =
     MaskBuilder<Simd128BinopOp, FIELD(Simd128BinopOp, kind)>;
 using kSimd128I32x4Mul = Simd128BinopMask::For<Simd128BinopOp::Kind::kI32x4Mul>;
 using kSimd128I16x8Mul = Simd128BinopMask::For<Simd128BinopOp::Kind::kI16x8Mul>;
+using kSimd128AndNot = Simd128BinopMask::For<Simd128BinopOp::Kind::kS128AndNot>;
+using kSimd128Xor = Simd128BinopMask::For<Simd128BinopOp::Kind::kS128Xor>;
 
 #define SIMD_SIGN_EXTENSION_BINOP_MASK(kind) \
   using kSimd128##kind = Simd128BinopMask::For<Simd128BinopOp::Kind::k##kind>;

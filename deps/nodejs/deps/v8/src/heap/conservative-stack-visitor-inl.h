@@ -10,10 +10,10 @@
 
 #include "src/common/globals.h"
 #include "src/execution/isolate-inl.h"
+#include "src/heap/base-page.h"
 #include "src/heap/heap-layout.h"
 #include "src/heap/marking-inl.h"
 #include "src/heap/marking.h"
-#include "src/heap/memory-chunk-metadata.h"
 #include "src/heap/memory-chunk.h"
 #include "src/objects/objects.h"
 #include "src/objects/tagged.h"
@@ -35,7 +35,7 @@ ConservativeStackVisitorBase<ConcreteVisitor>::ConservativeStackVisitorBase(
       code_address_region_(isolate->heap()->code_region()),
 #endif
 #ifdef V8_ENABLE_SANDBOX
-      trusted_cage_base_(isolate->isolate_data()->trusted_cage_base_address()),
+      trusted_cage_base_(isolate->trusted_cage_base()),
 #endif
       root_visitor_(root_visitor),
       allocator_(isolate->heap()->memory_allocator()) {
@@ -76,7 +76,9 @@ Address ConservativeStackVisitorBase<ConcreteVisitor>::FindBasePtr(
   if (chunk == nullptr) {
     return kNullAddress;
   }
-  const MemoryChunkMetadata* chunk_metadata = chunk->Metadata();
+  // This code can run from the shared heap isolate and the slot may point
+  // into a client heap isolate, so ignore the isolate check.
+  const BasePage* chunk_metadata = chunk->MetadataNoIsolateCheck();
   DCHECK(chunk_metadata->Contains(maybe_inner_ptr));
 
   if (!ConcreteVisitor::FilterPage(chunk)) {
@@ -84,11 +86,11 @@ Address ConservativeStackVisitorBase<ConcreteVisitor>::FindBasePtr(
   }
 
   // If it is contained in a large page, we want to mark the only object on it.
-  if (chunk->IsLargePage()) {
+  if (chunk_metadata->is_large()) {
     // This could be simplified if we could guarantee that there are no free
     // space or filler objects in large pages. A few cctests violate this now.
     Tagged<HeapObject> obj(
-        static_cast<const LargePageMetadata*>(chunk_metadata)->GetObject());
+        static_cast<const LargePage*>(chunk_metadata)->GetObject());
     MapWord map_word = obj->map_word(cage_base, kRelaxedLoad);
     return (!ConcreteVisitor::FilterLargeObject(obj, map_word) ||
             InstanceTypeChecker::IsFreeSpaceOrFiller(map_word.ToMap()))
@@ -97,7 +99,7 @@ Address ConservativeStackVisitorBase<ConcreteVisitor>::FindBasePtr(
   }
 
   // Otherwise, we have a pointer inside a normal page.
-  const PageMetadata* page = static_cast<const PageMetadata*>(chunk_metadata);
+  const NormalPage* page = static_cast<const NormalPage*>(chunk_metadata);
   // Try to find the address of a previous valid object on this page.
   Address base_ptr =
       MarkingBitmap::FindPreviousValidObject(page, maybe_inner_ptr);
@@ -128,20 +130,20 @@ void ConservativeStackVisitorBase<ConcreteVisitor>::VisitPointer(
   auto address = reinterpret_cast<Address>(const_cast<void*>(pointer));
 #ifdef V8_COMPRESS_POINTERS
   V8HeapCompressionScheme::ProcessIntermediatePointers(
-      cage_base_, address,
+      address,
       [this](Address ptr) { VisitConservativelyIfPointer(ptr, cage_base_); });
   if constexpr (ConcreteVisitor::kOnlyVisitMainV8Cage) {
     return;
   }
 #ifdef V8_EXTERNAL_CODE_SPACE
   ExternalCodeCompressionScheme::ProcessIntermediatePointers(
-      code_cage_base_, address, [this](Address ptr) {
+      address, [this](Address ptr) {
         VisitConservativelyIfPointer(ptr, code_cage_base_);
       });
 #endif  // V8_EXTERNAL_CODE_SPACE
 #ifdef V8_ENABLE_SANDBOX
   TrustedSpaceCompressionScheme::ProcessIntermediatePointers(
-      trusted_cage_base_, address, [this](Address ptr) {
+      address, [this](Address ptr) {
         VisitConservativelyIfPointer(ptr, trusted_cage_base_);
       });
 #endif  // V8_ENABLE_SANDBOX

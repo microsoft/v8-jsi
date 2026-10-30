@@ -38,13 +38,7 @@ class WasmBuiltinsAssembler : public CodeStubAssembler {
 
   TNode<Float64T> StringToFloat64(TNode<String>);
 
-  TNode<Uint32T> ToUint(wasm::StandardType kind) {
-    return Uint32Constant(static_cast<uint32_t>(kind));
-  }
-
-  TNode<Uint32T> ToUint(wasm::RefTypeKind kind) {
-    return Uint32Constant(static_cast<uint32_t>(kind));
-  }
+  TNode<BoolT> InSharedSpace(TNode<HeapObject>);
 };
 
 }  // namespace internal

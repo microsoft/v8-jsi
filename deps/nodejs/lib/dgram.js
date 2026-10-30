@@ -39,6 +39,7 @@ const {
   codes: {
     ERR_BUFFER_OUT_OF_BOUNDS,
     ERR_INVALID_ARG_TYPE,
+    ERR_INVALID_ARG_VALUE,
     ERR_INVALID_FD_TYPE,
     ERR_IP_BLOCKED,
     ERR_MISSING_ARGS,
@@ -52,20 +53,20 @@ const {
 } = require('internal/errors');
 const {
   kStateSymbol,
-  _createSocketHandle,
   newHandle,
 } = require('internal/dgram');
 const { isIP } = require('internal/net');
 const {
   isInt32,
   validateAbortSignal,
+  validateObject,
   validateString,
   validateNumber,
   validatePort,
   validateUint32,
 } = require('internal/validators');
 const { Buffer } = require('buffer');
-const { deprecate, guessHandleType, promisify } = require('internal/util');
+const { guessHandleType, kEmptyObject, promisify } = require('internal/util');
 const { isArrayBufferView } = require('internal/util/types');
 const EventEmitter = require('events');
 const { addAbortListener } = require('internal/events/abort_listener');
@@ -193,7 +194,7 @@ function createSocket(type, listener) {
 }
 
 
-function startListening(socket) {
+function startReceiving(socket) {
   const state = socket[kStateSymbol];
 
   state.handle.onmessage = onMessage;
@@ -207,8 +208,23 @@ function startListening(socket) {
 
   if (state.sendBufferSize)
     bufferSize(socket, state.sendBufferSize, SEND_BUFFER);
+}
 
+function startListening(socket) {
+  startReceiving(socket);
   socket.emit('listening');
+}
+
+function emitListeningNT(socket) {
+  // Ensure the socket was not closed before the next tick.
+  if (socket[kStateSymbol].handle)
+    socket.emit('listening');
+}
+
+function emitConnectNT(socket) {
+  // Ensure the socket was not closed before the next tick.
+  if (socket[kStateSymbol].handle)
+    socket.emit('connect');
 }
 
 function replaceHandle(self, newHandle) {
@@ -279,7 +295,7 @@ Socket.prototype.bind = function(port_, address_ /* , callback */) {
   const cb = arguments.length && arguments[arguments.length - 1];
   if (typeof cb === 'function') {
     function removeListeners() {
-      this.removeListener('error', removeListeners);
+      this.removeListener(EventEmitter.errorMonitor, removeListeners);
       this.removeListener('listening', onListening);
     }
 
@@ -288,7 +304,7 @@ Socket.prototype.bind = function(port_, address_ /* , callback */) {
       FunctionPrototypeCall(cb, this);
     }
 
-    this.on('error', removeListeners);
+    this.on(EventEmitter.errorMonitor, removeListeners);
     this.on('listening', onListening);
   }
 
@@ -410,6 +426,58 @@ Socket.prototype.bind = function(port_, address_ /* , callback */) {
   return this;
 };
 
+// Synchronous counterpart of bind(). bind(2) is a local, non-blocking system
+// call, so this binds inline and returns the resolved address (including the
+// OS-assigned ephemeral port when port is 0), throwing synchronously on bind
+// errors such as EADDRINUSE. The address must be a numeric IP literal:
+// asynchronous name resolution is the only genuinely blocking part of bind(),
+// so callers resolve names separately. Message delivery stays asynchronous
+// ('message' events flow as usual); the 'listening' event is emitted on the
+// next tick.
+Socket.prototype.bindSync = function(options = kEmptyObject) {
+  healthCheck(this);
+  validateObject(options, 'options');
+  const state = this[kStateSymbol];
+
+  if (state.bindState !== BIND_STATE_UNBOUND)
+    throw new ERR_SOCKET_ALREADY_BOUND();
+
+  // Validate arguments before mutating state so a bad argument leaves the
+  // socket unbound and reusable.
+  const port = validatePort(options.port ?? 0, 'options.port');
+  let { address } = options;
+  if (!address) {
+    address = this.type === 'udp4' ? '0.0.0.0' : '::';
+  } else {
+    validateString(address, 'options.address');
+    if (isIP(address) === 0) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.address', address,
+        'must be a numeric IP address; bindSync does not perform DNS resolution');
+    }
+  }
+
+  state.bindState = BIND_STATE_BINDING;
+
+  let flags = 0;
+  if (state.reuseAddr)
+    flags |= UV_UDP_REUSEADDR;
+  if (state.ipv6Only)
+    flags |= UV_UDP_IPV6ONLY;
+  if (state.reusePort)
+    flags |= UV_UDP_REUSEPORT;
+
+  const err = state.handle.bind(address, port, flags);
+  if (err) {
+    state.bindState = BIND_STATE_UNBOUND;
+    throw new ExceptionWithHostPort(err, 'bind', address, port);
+  }
+
+  startReceiving(this);
+  process.nextTick(emitListeningNT, this);
+  return this.address();
+};
+
 Socket.prototype.connect = function(port, address, callback) {
   port = validatePort(port, 'Port', false);
   if (typeof address === 'function') {
@@ -437,6 +505,54 @@ Socket.prototype.connect = function(port, address, callback) {
   }
 
   FunctionPrototypeCall(_connect, this, port, address, callback);
+};
+
+// Synchronous counterpart of connect(). connect(2) on a UDP socket only records
+// the default peer locally, so it runs inline and throws on errors raised by
+// the call itself; unreachable-peer errors stay asynchronous as for connect().
+// The address must be a numeric IP literal since DNS resolution is async.
+Socket.prototype.connectSync = function(port, address) {
+  healthCheck(this);
+  port = validatePort(port, 'Port', false);
+
+  const state = this[kStateSymbol];
+
+  if (state.connectState !== CONNECT_STATE_DISCONNECTED)
+    throw new ERR_SOCKET_DGRAM_IS_CONNECTED();
+
+  // Validate arguments before mutating state so a bad argument leaves the
+  // socket reusable.
+  if (address == null || address === '') {
+    address = this.type === 'udp4' ? '127.0.0.1' : '::1';
+  } else {
+    validateString(address, 'address');
+    if (isIP(address) === 0) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'address', address,
+        'must be a numeric IP address; connectSync does not perform DNS resolution');
+    }
+  }
+
+  if (state.bindState === BIND_STATE_UNBOUND)
+    this.bindSync();
+  else if (state.bindState !== BIND_STATE_BOUND)
+    throw new ERR_SOCKET_ALREADY_BOUND();
+
+  state.connectState = CONNECT_STATE_CONNECTING;
+
+  if (state.sendBlockList?.check(address, `ipv${isIP(address)}`)) {
+    state.connectState = CONNECT_STATE_DISCONNECTED;
+    throw new ERR_IP_BLOCKED(address);
+  }
+
+  const err = state.handle.connect(address, port);
+  if (err) {
+    state.connectState = CONNECT_STATE_DISCONNECTED;
+    throw new ExceptionWithHostPort(err, 'connect', address, port);
+  }
+
+  state.connectState = CONNECT_STATE_CONNECTED;
+  process.nextTick(emitConnectNT, this);
 };
 
 
@@ -1046,72 +1162,6 @@ Socket.prototype.getSendQueueCount = function() {
   return this[kStateSymbol].handle.getSendQueueCount();
 };
 
-// Deprecated private APIs.
-ObjectDefineProperty(Socket.prototype, '_handle', {
-  __proto__: null,
-  get: deprecate(function() {
-    return this[kStateSymbol].handle;
-  }, 'Socket.prototype._handle is deprecated', 'DEP0112'),
-  set: deprecate(function(val) {
-    this[kStateSymbol].handle = val;
-  }, 'Socket.prototype._handle is deprecated', 'DEP0112'),
-});
-
-
-ObjectDefineProperty(Socket.prototype, '_receiving', {
-  __proto__: null,
-  get: deprecate(function() {
-    return this[kStateSymbol].receiving;
-  }, 'Socket.prototype._receiving is deprecated', 'DEP0112'),
-  set: deprecate(function(val) {
-    this[kStateSymbol].receiving = val;
-  }, 'Socket.prototype._receiving is deprecated', 'DEP0112'),
-});
-
-
-ObjectDefineProperty(Socket.prototype, '_bindState', {
-  __proto__: null,
-  get: deprecate(function() {
-    return this[kStateSymbol].bindState;
-  }, 'Socket.prototype._bindState is deprecated', 'DEP0112'),
-  set: deprecate(function(val) {
-    this[kStateSymbol].bindState = val;
-  }, 'Socket.prototype._bindState is deprecated', 'DEP0112'),
-});
-
-
-ObjectDefineProperty(Socket.prototype, '_queue', {
-  __proto__: null,
-  get: deprecate(function() {
-    return this[kStateSymbol].queue;
-  }, 'Socket.prototype._queue is deprecated', 'DEP0112'),
-  set: deprecate(function(val) {
-    this[kStateSymbol].queue = val;
-  }, 'Socket.prototype._queue is deprecated', 'DEP0112'),
-});
-
-
-ObjectDefineProperty(Socket.prototype, '_reuseAddr', {
-  __proto__: null,
-  get: deprecate(function() {
-    return this[kStateSymbol].reuseAddr;
-  }, 'Socket.prototype._reuseAddr is deprecated', 'DEP0112'),
-  set: deprecate(function(val) {
-    this[kStateSymbol].reuseAddr = val;
-  }, 'Socket.prototype._reuseAddr is deprecated', 'DEP0112'),
-});
-
-
-Socket.prototype._healthCheck = deprecate(function() {
-  healthCheck(this);
-}, 'Socket.prototype._healthCheck() is deprecated', 'DEP0112');
-
-
-Socket.prototype._stopReceiving = deprecate(function() {
-  stopReceiving(this);
-}, 'Socket.prototype._stopReceiving() is deprecated', 'DEP0112');
-
-
 // Legacy alias on the C++ wrapper object. This is not public API, so we may
 // want to runtime-deprecate it at some point. There's no hurry, though.
 ObjectDefineProperty(UDP.prototype, 'owner', {
@@ -1120,13 +1170,7 @@ ObjectDefineProperty(UDP.prototype, 'owner', {
   set(v) { return this[owner_symbol] = v; },
 });
 
-
 module.exports = {
-  _createSocketHandle: deprecate(
-    _createSocketHandle,
-    'dgram._createSocketHandle() is deprecated',
-    'DEP0112',
-  ),
   createSocket,
   Socket,
 };

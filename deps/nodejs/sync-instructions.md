@@ -24,8 +24,14 @@ the API, compiler phase, or default that our patch originally extended.
   Keep the ordinary v8jsi profile and non-v8jsi upstream defaults unchanged.
 - **Build-time snapshot compiler:** mksnapshot still needs the compiler to
   generate embedded builtins when the shipped engine has Turbofan disabled.
-  Reassess the compiler dependencies, excluded Turbolev sources, and
-  `tools/v8_gypfiles/turbolev_phase_stub.cc` against the new V8 phase signatures.
+  Keep the compiler dependencies and exclusion of both Turbolev frontend
+  sources when Maglev is off, retaining `maglev-node-type.cc` for shared
+  operation printing. The Maglev entry point in V8's
+  `src/compiler/turboshaft/pipelines.h` is guarded by `V8_ENABLE_MAGLEV`,
+  replacing the old phase stub with a disabled entry point.
+- **Deterministic narrow profile:** v8-jsi configure disables Temporal before
+  Rust detection and opts out of Node's LIEF/SEA tooling. An explicit Temporal
+  opt-in is rejected; upstream Node builds retain their original defaults.
 - **`no-node` / `no-cctest` / `no-embedtest` / `no-openssl-cli` / `no-fuzzers` /
   `no-nop` / `no-overlapped-checker`** in vcbuild.bat and the **"Additive
   target-list mode"** block that consumes them (`target_list`,

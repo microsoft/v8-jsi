@@ -1,6 +1,7 @@
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
-
-#include "transportparams.h"
+#include "guard.h"
+#ifndef OPENSSL_NO_QUIC
+#include <async_wrap-inl.h>
+#include <base_object-inl.h>
 #include <env-inl.h>
 #include <memory_tracker-inl.h>
 #include <node_sockaddr-inl.h>
@@ -10,14 +11,19 @@
 #include "defs.h"
 #include "endpoint.h"
 #include "session.h"
+#include "session_manager.h"
 #include "tokens.h"
+#include "transportparams.h"
 
 namespace node {
 
-using v8::ArrayBuffer;
+using v8::BigInt;
+using v8::Boolean;
+using v8::DictionaryTemplate;
 using v8::Just;
 using v8::Local;
 using v8::Maybe;
+using v8::MaybeLocal;
 using v8::Nothing;
 using v8::Object;
 using v8::Value;
@@ -34,22 +40,23 @@ TransportParams::Config::Config(Side side,
 Maybe<TransportParams::Options> TransportParams::Options::From(
     Environment* env, Local<Value> value) {
   if (value.IsEmpty()) {
-    THROW_ERR_INVALID_ARG_TYPE(env, "options must be an object");
+    THROW_ERR_INVALID_ARG_TYPE(env, "options must be an object or undefined");
+    return Nothing<Options>();
+  } else if (value->IsUndefined()) {
+    return Just<Options>(kDefault);
+  } else if (!value->IsObject()) {
+    THROW_ERR_INVALID_ARG_TYPE(env, "options must be an object or undefined");
     return Nothing<Options>();
   }
 
   Options options;
+
+  // TODO(@jasnell): We currently only support version 1 of the transport
+  // parameters, so the options.transportParamsVersion is hardcoded to that.
+  // In the future, when we support multiple versions, we will need to
+  // expose this via the options object.
+
   auto& state = BindingData::Get(env);
-
-  if (value->IsUndefined()) {
-    return Just<Options>(options);
-  }
-
-  if (!value->IsObject()) {
-    THROW_ERR_INVALID_ARG_TYPE(env, "options must be an object");
-    return Nothing<Options>();
-  }
-
   auto params = value.As<Object>();
 
 #define SET(name)                                                              \
@@ -68,6 +75,50 @@ Maybe<TransportParams::Options> TransportParams::Options::From(
 
 #undef SET
 
+  // Parse the preferred address options. These are SocketAddress objects
+  // (or undefined to skip). Only meaningful for server sessions.
+  Local<Value> preferred_ipv4;
+  if (!params->Get(env->context(), state.preferred_address_ipv4_string())
+           .ToLocal(&preferred_ipv4)) {
+    return Nothing<Options>();
+  }
+  if (!preferred_ipv4->IsUndefined()) {
+    if (!SocketAddressBase::HasInstance(env, preferred_ipv4)) {
+      THROW_ERR_INVALID_ARG_TYPE(
+          env, "transportParams.preferredAddressIpv4 must be a SocketAddress");
+      return Nothing<Options>();
+    }
+    auto* addr = BaseObject::FromJSObject<SocketAddressBase>(
+        preferred_ipv4.As<Object>());
+    if (addr->address()->family() != AF_INET) {
+      THROW_ERR_INVALID_ARG_VALUE(
+          env, "transportParams.preferredAddressIpv4 must be an IPv4 address");
+      return Nothing<Options>();
+    }
+    options.preferred_address_ipv4 = *addr->address();
+  }
+
+  Local<Value> preferred_ipv6;
+  if (!params->Get(env->context(), state.preferred_address_ipv6_string())
+           .ToLocal(&preferred_ipv6)) {
+    return Nothing<Options>();
+  }
+  if (!preferred_ipv6->IsUndefined()) {
+    if (!SocketAddressBase::HasInstance(env, preferred_ipv6)) {
+      THROW_ERR_INVALID_ARG_TYPE(
+          env, "transportParams.preferredAddressIpv6 must be a SocketAddress");
+      return Nothing<Options>();
+    }
+    auto* addr = BaseObject::FromJSObject<SocketAddressBase>(
+        preferred_ipv6.As<Object>());
+    if (addr->address()->family() != AF_INET6) {
+      THROW_ERR_INVALID_ARG_VALUE(
+          env, "transportParams.preferredAddressIpv6 must be an IPv6 address");
+      return Nothing<Options>();
+    }
+    options.preferred_address_ipv6 = *addr->address();
+  }
+
   return Just<Options>(options);
 }
 
@@ -75,7 +126,8 @@ std::string TransportParams::Options::ToString() const {
   DebugIndentScope indent;
   auto prefix = indent.Prefix();
   std::string res("{");
-  res += prefix + "version: " + std::to_string(transportParamsVersion);
+  res += prefix +
+         "version: " + std::to_string(static_cast<int>(transportParamsVersion));
   if (preferred_address_ipv4.has_value()) {
     res += prefix + "preferred_address_ipv4: " +
            preferred_address_ipv4.value().ToString();
@@ -106,8 +158,6 @@ std::string TransportParams::Options::ToString() const {
   res += prefix + "max ack delay: " + std::to_string(max_ack_delay);
   res += prefix +
          "max datagram frame size: " + std::to_string(max_datagram_frame_size);
-  res += prefix + "disable active migration: " +
-         (disable_active_migration ? std::string("yes") : std::string("no"));
   res += indent.Close();
   return res;
 }
@@ -131,78 +181,101 @@ TransportParams::TransportParams(const ngtcp2_transport_params* ptr)
 TransportParams::TransportParams(const Config& config, const Options& options)
     : TransportParams() {
   ngtcp2_transport_params_default(&params_);
-  params_.active_connection_id_limit = options.active_connection_id_limit;
-  params_.initial_max_stream_data_bidi_local =
-      options.initial_max_stream_data_bidi_local;
-  params_.initial_max_stream_data_bidi_remote =
-      options.initial_max_stream_data_bidi_remote;
-  params_.initial_max_stream_data_uni = options.initial_max_stream_data_uni;
-  params_.initial_max_streams_bidi = options.initial_max_streams_bidi;
-  params_.initial_max_streams_uni = options.initial_max_streams_uni;
-  params_.initial_max_data = options.initial_max_data;
-  params_.max_idle_timeout = options.max_idle_timeout * NGTCP2_SECONDS;
-  params_.max_ack_delay = options.max_ack_delay;
-  params_.ack_delay_exponent = options.ack_delay_exponent;
-  params_.max_datagram_frame_size = options.max_datagram_frame_size;
-  params_.disable_active_migration = options.disable_active_migration ? 1 : 0;
-  params_.preferred_addr_present = 0;
-  params_.stateless_reset_token_present = 0;
-  params_.retry_scid_present = 0;
+#define SET_PARAM(name) params_.name = options.name
+#define SET_PARAM_V(name, value) params_.name = value
+  SET_PARAM(active_connection_id_limit);
+  SET_PARAM(initial_max_stream_data_bidi_local);
+  SET_PARAM(initial_max_stream_data_bidi_remote);
+  SET_PARAM(initial_max_stream_data_uni);
+  SET_PARAM(initial_max_streams_bidi);
+  SET_PARAM(initial_max_streams_uni);
+  SET_PARAM(initial_max_data);
+  SET_PARAM(max_ack_delay);
+  SET_PARAM(ack_delay_exponent);
+  SET_PARAM(max_datagram_frame_size);
+  SET_PARAM_V(max_idle_timeout, options.max_idle_timeout * NGTCP2_SECONDS);
+  SET_PARAM_V(disable_active_migration, 0);
+  SET_PARAM_V(grease_quic_bit, 1);
+  SET_PARAM_V(preferred_addr_present, 0);
+  SET_PARAM_V(stateless_reset_token_present, 0);
+  SET_PARAM_V(retry_scid_present, 0);
 
   if (config.side == Side::SERVER) {
     // For the server side, the original dcid is always set.
     CHECK(config.ocid);
-    params_.original_dcid = config.ocid;
-    params_.original_dcid_present = 1;
+    SET_PARAM_V(original_dcid, config.ocid);
+    SET_PARAM_V(original_dcid_present, 1);
 
     // The retry_scid is only set if the server validated a retry token.
     if (config.retry_scid) {
-      params_.retry_scid = config.retry_scid;
-      params_.retry_scid_present = 1;
+      SET_PARAM_V(retry_scid, config.retry_scid);
+      SET_PARAM_V(retry_scid_present, 1);
     }
   }
+#undef SET_PARAM
+#undef SET_PARAM_V
 
-  if (options.preferred_address_ipv4.has_value())
+  if (options.preferred_address_ipv4.has_value()) {
     SetPreferredAddress(options.preferred_address_ipv4.value());
+  }
 
-  if (options.preferred_address_ipv6.has_value())
+  if (options.preferred_address_ipv6.has_value()) {
     SetPreferredAddress(options.preferred_address_ipv6.value());
-}
-
-TransportParams::TransportParams(const ngtcp2_vec& vec, int version)
-    : TransportParams() {
-  int ret = ngtcp2_transport_params_decode_versioned(
-      version, &params_, vec.base, vec.len);
-
-  if (ret != 0) {
-    ptr_ = nullptr;
-    error_ = QuicError::ForNgtcp2Error(ret);
   }
 }
 
-Store TransportParams::Encode(Environment* env, int version) const {
+TransportParams::TransportParams(const ngtcp2_vec& vec, Version version)
+    : TransportParams() {
+  int ret = ngtcp2_transport_params_decode_versioned(
+      static_cast<int>(version), &params_, vec.base, vec.len);
+
+  // The only error we should see here is NGTCP2_ERR_MALFORMED_TRANSPORT_PARAM,
+  // which indicates that the provided data was not valid transport parameters.
+  // In that case, we set ptr_ to nullptr to indicate that the parameters
+  // could not be decoded.
+  if (ret != 0) {
+    ptr_ = nullptr;
+  }
+}
+
+Store TransportParams::Encode(Environment* env, Version version) const {
   if (ptr_ == nullptr) {
-    return Store();
+    return {};
   }
 
   // Preflight to see how much storage we'll need.
-  ssize_t size =
-      ngtcp2_transport_params_encode_versioned(nullptr, 0, version, &params_);
+  ssize_t size = ngtcp2_transport_params_encode_versioned(
+      nullptr, 0, static_cast<int>(version), &params_);
   if (size == 0) {
-    return Store();
+    return {};
   }
 
-  auto result = ArrayBuffer::NewBackingStore(
-      env->isolate(), size, v8::BackingStoreInitializationMode::kUninitialized);
+  JS_TRY_ALLOCATE_BACKING_OR_RETURN(env, result, size, {});
 
   auto ret = ngtcp2_transport_params_encode_versioned(
-      static_cast<uint8_t*>(result->Data()), size, version, &params_);
+      static_cast<uint8_t*>(result->Data()),
+      size,
+      static_cast<int>(version),
+      &params_);
 
-  if (ret != 0) {
-    return Store();
-  }
-
+  // The ret is the number of bytes written, or a negative error code.
+  if (ret < 0) return {};
+  CHECK_EQ(ret, size);
   return Store(std::move(result), static_cast<size_t>(size));
+}
+
+ssize_t TransportParams::EncodedSize(Version version) const {
+  if (ptr_ == nullptr) return 0;
+  return ngtcp2_transport_params_encode_versioned(
+      nullptr, 0, static_cast<int>(version), &params_);
+}
+
+ssize_t TransportParams::EncodeInto(uint8_t* buf,
+                                    size_t len,
+                                    Version version) const {
+  if (ptr_ == nullptr) return -1;
+  return ngtcp2_transport_params_encode_versioned(
+      buf, len, static_cast<int>(version), &params_);
 }
 
 void TransportParams::SetPreferredAddress(const SocketAddress& address) {
@@ -216,6 +289,7 @@ void TransportParams::SetPreferredAddress(const SocketAddress& address) {
              &src->sin_addr,
              sizeof(params_.preferred_addr.ipv4.sin_addr));
       params_.preferred_addr.ipv4.sin_port = address.port();
+      params_.preferred_addr.ipv4_present = 1;
       return;
     }
     case AF_INET6: {
@@ -225,6 +299,7 @@ void TransportParams::SetPreferredAddress(const SocketAddress& address) {
              &src->sin6_addr,
              sizeof(params_.preferred_addr.ipv6.sin6_addr));
       params_.preferred_addr.ipv6.sin6_port = address.port();
+      params_.preferred_addr.ipv6_present = 1;
       return;
     }
   }
@@ -258,7 +333,162 @@ void TransportParams::GeneratePreferredAddressToken(Session* session) {
             params_.preferred_addr.stateless_reset_token,
             config.preferred_address_cid),
         session);
+    // Register the preferred address CID with SessionManager for
+    // cross-endpoint routing. This is a locally-generated CID that needs
+    // to be routable from the preferred address endpoint (which may be
+    // different from the primary endpoint).
+    auto& mgr = BindingData::Get(session->env()).session_manager();
+    mgr.AssociateCID(config.preferred_address_cid, config.scid);
   }
+}
+
+v8::MaybeLocal<v8::Object> TransportParams::ToObject(Environment* env) const {
+  auto& binding_data = BindingData::Get(env);
+  auto tmpl = binding_data.transport_params_template();
+  static constexpr std::string_view names[] = {
+      "preferredAddressIpv4",
+      "preferredAddressIpv6",
+      "originalDCID",
+      "initialSCID",
+      "retrySCID",
+      "initialMaxStreamDataBidiLocal",
+      "initialMaxStreamDataBidiRemote",
+      "initialMaxStreamDataUni",
+      "initialMaxData",
+      "initialMaxStreamsBidi",
+      "initialMaxStreamsUni",
+      "maxIdleTimeout",
+      "activeConnectionIDLimit",
+      "ackDelayExponent",
+      "maxAckDelay",
+      "maxDatagramFrameSize",
+      "disableActiveMigration",
+  };
+  if (tmpl.IsEmpty()) {
+    tmpl = DictionaryTemplate::New(env->isolate(), names);
+    binding_data.set_transport_params_template(tmpl);
+  }
+
+  MaybeLocal<Value> values[] = {
+      Undefined(env->isolate()),  // preferredAddressIpv4
+      Undefined(env->isolate()),  // preferredAddressIpv6
+      Undefined(env->isolate()),  // originalDCID
+      Undefined(env->isolate()),  // initialSCID
+      Undefined(env->isolate()),  // retrySCID
+      Undefined(env->isolate()),  // initialMaxStreamDataBidiLocal
+      Undefined(env->isolate()),  // initialMaxStreamDataBidiRemote
+      Undefined(env->isolate()),  // initialMaxStreamDataUni
+      Undefined(env->isolate()),  // initialMaxData
+      Undefined(env->isolate()),  // initialMaxStreamsBidi
+      Undefined(env->isolate()),  // initialMaxStreamsUni
+      Undefined(env->isolate()),  // maxIdleTimeout
+      Undefined(env->isolate()),  // activeConnectionIDLimit
+      Undefined(env->isolate()),  // ackDelayExponent
+      Undefined(env->isolate()),  // maxAckDelay
+      Undefined(env->isolate()),  // maxDatagramFrameSize
+      Undefined(env->isolate()),  // disableActiveMigration
+  };
+
+  static_assert(std::size(values) == std::size(names));
+
+  static constexpr size_t kPreferredAddressIpv4Index = 0;
+  static constexpr size_t kPreferredAddressIpv6Index = 1;
+  static constexpr size_t kOriginalDCIDIndex = 2;
+  static constexpr size_t kInitialSCIDIndex = 3;
+  static constexpr size_t kRetrySCIDIndex = 4;
+  static constexpr size_t kInitialMaxStreamDataBidiLocalIndex = 5;
+  static constexpr size_t kInitialMaxStreamDataBidiRemoteIndex = 6;
+  static constexpr size_t kInitialMaxStreamDataUniIndex = 7;
+  static constexpr size_t kInitialMaxDataIndex = 8;
+  static constexpr size_t kInitialMaxStreamsBidiIndex = 9;
+  static constexpr size_t kInitialMaxStreamsUniIndex = 10;
+  static constexpr size_t kMaxIdleTimeoutIndex = 11;
+  static constexpr size_t kActiveConnectionIDLimitIndex = 12;
+  static constexpr size_t kAckDelayExponentIndex = 13;
+  static constexpr size_t kMaxAckDelayIndex = 14;
+  static constexpr size_t kMaxDatagramFrameSizeIndex = 15;
+  static constexpr size_t kDisableActiveMigrationIndex = 16;
+
+  if (ptr_ != nullptr) {
+    if (ptr_->preferred_addr_present) {
+      if (ptr_->preferred_addr.ipv4_present) {
+        auto address = std::make_shared<SocketAddress>(
+            reinterpret_cast<const sockaddr*>(&ptr_->preferred_addr.ipv4));
+        auto addr = SocketAddressBase::Create(env, std::move(address));
+        if (!addr) return {};
+        values[kPreferredAddressIpv4Index] = addr->object();
+      }
+
+      if (ptr_->preferred_addr.ipv6_present) {
+        auto address = std::make_shared<SocketAddress>(
+            reinterpret_cast<const sockaddr*>(&ptr_->preferred_addr.ipv6));
+        auto addr = SocketAddressBase::Create(env, std::move(address));
+        if (!addr) return {};
+        values[kPreferredAddressIpv6Index] = addr->object();
+      }
+      // ngtcp2_preferred_addr preferred_addr;
+    }
+
+    if (ptr_->original_dcid_present) {
+      CID cid(ptr_->original_dcid);
+      Local<Value> value;
+      if (!ToV8Value(env->context(), cid.ToString()).ToLocal(&value)) {
+        return {};
+      }
+      values[kOriginalDCIDIndex] = value;
+    }
+
+    if (ptr_->initial_scid_present) {
+      CID cid(ptr_->initial_scid);
+      Local<Value> value;
+      if (!ToV8Value(env->context(), cid.ToString()).ToLocal(&value)) {
+        return {};
+      }
+      values[kInitialSCIDIndex] = value;
+    }
+
+    if (ptr_->retry_scid_present) {
+      CID cid(ptr_->retry_scid);
+      Local<Value> value;
+      if (!ToV8Value(env->context(), cid.ToString()).ToLocal(&value)) {
+        return {};
+      }
+      values[kRetrySCIDIndex] = value;
+    }
+
+    values[kInitialMaxStreamDataBidiLocalIndex] = BigInt::NewFromUnsigned(
+        env->isolate(), ptr_->initial_max_stream_data_bidi_local);
+    values[kInitialMaxStreamDataBidiRemoteIndex] = BigInt::NewFromUnsigned(
+        env->isolate(), ptr_->initial_max_stream_data_bidi_remote);
+    values[kInitialMaxStreamDataUniIndex] = BigInt::NewFromUnsigned(
+        env->isolate(), ptr_->initial_max_stream_data_uni);
+    values[kInitialMaxDataIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->initial_max_data);
+    values[kInitialMaxStreamsBidiIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->initial_max_streams_bidi);
+    values[kInitialMaxStreamsUniIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->initial_max_streams_uni);
+    values[kMaxIdleTimeoutIndex] = BigInt::NewFromUnsigned(
+        env->isolate(), ptr_->max_idle_timeout / NGTCP2_SECONDS);
+    values[kActiveConnectionIDLimitIndex] = BigInt::NewFromUnsigned(
+        env->isolate(), ptr_->active_connection_id_limit);
+    values[kAckDelayExponentIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->ack_delay_exponent);
+    values[kMaxAckDelayIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->ack_delay_exponent);
+    values[kMaxAckDelayIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->max_ack_delay);
+    values[kMaxDatagramFrameSizeIndex] =
+        BigInt::NewFromUnsigned(env->isolate(), ptr_->max_datagram_frame_size);
+    values[kDisableActiveMigrationIndex] =
+        Boolean::New(env->isolate(), ptr_->disable_active_migration);
+  }
+
+  auto obj = tmpl->NewInstance(env->context(), values);
+  if (obj->SetPrototypeV2(env->context(), Null(env->isolate())).IsNothing()) {
+    return {};
+  }
+  return obj;
 }
 
 TransportParams::operator const ngtcp2_transport_params&() const {
@@ -275,8 +505,14 @@ TransportParams::operator bool() const {
   return ptr_ != nullptr;
 }
 
-const QuicError& TransportParams::error() const {
-  return error_;
+uint64_t TransportParams::initial_max_streams_bidi() const {
+  DCHECK_NOT_NULL(ptr_);
+  return ptr_->initial_max_streams_bidi;
+}
+
+uint64_t TransportParams::initial_max_streams_uni() const {
+  DCHECK_NOT_NULL(ptr_);
+  return ptr_->initial_max_streams_uni;
 }
 
 void TransportParams::Initialize(Environment* env, Local<Object> target) {
@@ -291,4 +527,4 @@ void TransportParams::Initialize(Environment* env, Local<Object> target) {
 }  // namespace quic
 }  // namespace node
 
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
+#endif  // OPENSSL_NO_QUIC

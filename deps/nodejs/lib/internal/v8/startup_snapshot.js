@@ -35,15 +35,30 @@ function throwIfBuildingSnapshot(reason) {
 }
 
 const deserializeCallbacks = [];
+const beforeUserDeserializeCallbacks = [];
 let deserializeCallbackIsSet = false;
 function runDeserializeCallbacks() {
-  while (deserializeCallbacks.length > 0) {
-    const { 0: callback, 1: data } = deserializeCallbacks.shift();
+  for (let i = 0; i < beforeUserDeserializeCallbacks.length; i++) {
+    const { 0: callback, 1: data } = beforeUserDeserializeCallbacks[i];
     callback(data);
   }
+  beforeUserDeserializeCallbacks.length = 0;
+  for (let i = 0; i < deserializeCallbacks.length; i++) {
+    const { 0: callback, 1: data } = deserializeCallbacks[i];
+    callback(data);
+  }
+  deserializeCallbacks.length = 0;
 }
 
 function addDeserializeCallback(callback, data) {
+  addDeserializeCallbackImpl(deserializeCallbacks, callback, data);
+}
+
+function addBeforeUserDeserializeCallback(callback, data) {
+  addDeserializeCallbackImpl(beforeUserDeserializeCallbacks, callback, data);
+}
+
+function addDeserializeCallbackImpl(callbacks, callback, data) {
   throwIfNotBuildingSnapshot();
   validateFunction(callback, 'callback');
   if (!deserializeCallbackIsSet) {
@@ -54,20 +69,22 @@ function addDeserializeCallback(callback, data) {
     setDeserializeCallback(runDeserializeCallbacks);
     deserializeCallbackIsSet = true;
   }
-  deserializeCallbacks.push([callback, data]);
+  callbacks.push([callback, data]);
 }
 
 const serializeCallbacks = [];
 const afterUserSerializeCallbacks = [];  // Callbacks to run after user callbacks
 function runSerializeCallbacks() {
-  while (serializeCallbacks.length > 0) {
-    const { 0: callback, 1: data } = serializeCallbacks.shift();
+  for (let i = 0; i < serializeCallbacks.length; i++) {
+    const { 0: callback, 1: data } = serializeCallbacks[i];
     callback(data);
   }
-  while (afterUserSerializeCallbacks.length > 0) {
-    const { 0: callback, 1: data } = afterUserSerializeCallbacks.shift();
+  serializeCallbacks.length = 0;
+  for (let i = 0; i < afterUserSerializeCallbacks.length; i++) {
+    const { 0: callback, 1: data } = afterUserSerializeCallbacks[i];
     callback(data);
   }
+  afterUserSerializeCallbacks.length = 0;
 }
 
 function addSerializeCallback(callback, data) {
@@ -127,4 +144,5 @@ module.exports = {
     isBuildingSnapshot,
   },
   addAfterUserSerializeCallback,
+  addBeforeUserDeserializeCallback,
 };

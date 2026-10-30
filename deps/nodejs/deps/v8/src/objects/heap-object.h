@@ -27,6 +27,13 @@ class IndirectPointerSlot;
 class ExposedTrustedObject;
 class ObjectVisitor;
 class WritableFreeSpace;
+class WriteBarrierModeScope;
+class EarlyReadOnlyRoots;
+
+// A safe HeapObject size is a uint32_t that's guaranteed to yield in OOB within
+// the sandbox. The alias exists to force appropriate conversions at the
+// callsites when V8 cannot enable stricter compiler flags in general.
+using SafeHeapObjectSize = base::StrongAlias<class HeapObjectSizeTag, uint32_t>;
 
 V8_OBJECT class HeapObjectLayout {
  public:
@@ -36,6 +43,8 @@ V8_OBJECT class HeapObjectLayout {
   // information.
   inline Tagged<Map> map() const;
   inline Tagged<Map> map(AcquireLoadTag) const;
+
+  inline MapWord map_word(RelaxedLoadTag) const;
 
   inline void set_map(Isolate* isolate, Tagged<Map> value);
   template <typename IsolateT>
@@ -83,7 +92,7 @@ V8_OBJECT class HeapObjectLayout {
 
   // This is slower that GetReadOnlyRoots, but safe to call during
   // bootstrapping.
-  inline ReadOnlyRoots EarlyGetReadOnlyRoots() const;
+  inline EarlyReadOnlyRoots EarlyGetReadOnlyRoots() const;
 
   // Returns the heap object's size in bytes
   inline int Size() const;
@@ -92,14 +101,26 @@ V8_OBJECT class HeapObjectLayout {
   // Useful when the map pointer field is used for other purposes.
   // GC internal.
   V8_EXPORT_PRIVATE int SizeFromMap(Tagged<Map> map) const;
+  V8_EXPORT_PRIVATE SafeHeapObjectSize SafeSizeFromMap(Tagged<Map> map) const;
 
   // Return the write barrier mode for this. Callers of this function
   // must be able to present a reference to an DisallowGarbageCollection
   // object as a sign that they are not going to use this function
   // from code that allocates and thus invalidates the returned write
   // barrier mode.
-  inline WriteBarrierMode GetWriteBarrierMode(
+  inline WriteBarrierModeScope GetWriteBarrierMode(
       const DisallowGarbageCollection& promise);
+
+#if V8_ENABLE_SANDBOX
+  //
+  // Indirect pointers.
+  //
+  // These are only available when the sandbox is enabled, in which case they
+  // are the under-the-hood implementation of trusted pointers.
+  inline void InitSelfIndirectPointerField(
+      std::atomic<IndirectPointerHandle>* field, IsolateForSandbox isolate,
+      TrustedPointerPublishingScope* opt_publishing_scope);
+#endif  // V8_ENABLE_SANDBOX
 
 #ifdef OBJECT_PRINT
   void PrintHeader(std::ostream& os, const char* id);
@@ -141,6 +162,8 @@ struct ObjectTraits {
   using BodyDescriptor = typename T::BodyDescriptor;
 };
 
+enum InSharedSpace : bool { kInSharedSpace = true, kNotInSharedSpace = false };
+
 // HeapObject is the superclass for all classes describing heap allocated
 // objects.
 class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
@@ -181,11 +204,6 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   inline void set_map_safe_transition(IsolateT* isolate, Tagged<Map> value,
                                       ReleaseStoreTag);
 
-  // Compare-and-swaps map word using release store, returns true if the map
-  // word was actually swapped.
-  inline bool release_compare_and_swap_map_word_forwarded(
-      MapWord old_map_word, Tagged<HeapObject> new_target_object);
-
   // Compare-and-swaps map word using relaxed store, returns true if the map
   // word was actually swapped.
   inline bool relaxed_compare_and_swap_map_word_forwarded(
@@ -216,7 +234,7 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
 
   // This is slower than GetReadOnlyRoots, but safe to call during
   // bootstrapping.
-  inline ReadOnlyRoots EarlyGetReadOnlyRoots() const;
+  inline EarlyReadOnlyRoots EarlyGetReadOnlyRoots() const;
 
   // Converts an address to a HeapObject pointer.
   static inline Tagged<HeapObject> FromAddress(Address address) {
@@ -229,11 +247,13 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
 
   // Returns the heap object's size in bytes
   DECL_GETTER(Size, int)
+  DECL_GETTER(SafeSize, SafeHeapObjectSize)
 
   // Given a heap object's map pointer, returns the heap size in bytes
   // Useful when the map pointer field is used for other purposes.
   // GC internal.
   V8_EXPORT_PRIVATE int SizeFromMap(Tagged<Map> map) const;
+  V8_EXPORT_PRIVATE SafeHeapObjectSize SafeSizeFromMap(Tagged<Map> map) const;
 
   template <class T>
   inline T ReadField(size_t offset) const
@@ -303,9 +323,15 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   inline void InitExternalPointerField(
       size_t offset, IsolateForSandbox isolate, Address value,
       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+  inline void InitExternalPointerField(
+      size_t offset, IsolateForSandbox isolate, ExternalPointerTag tag,
+      Address value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
   template <ExternalPointerTagRange tag_range>
   inline Address ReadExternalPointerField(size_t offset,
                                           IsolateForSandbox isolate) const;
+  inline Address ReadExternalPointerField(
+      size_t offset, IsolateForSandbox isolate,
+      ExternalPointerTagRange tag_range) const;
   // Similar to `ReadExternalPointerField()` but uses the CppHeapPointerTable.
   template <CppHeapPointerTag lower_bound, CppHeapPointerTag upper_bound>
   inline Address ReadCppHeapPointerField(
@@ -317,6 +343,9 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   inline void WriteExternalPointerField(size_t offset,
                                         IsolateForSandbox isolate,
                                         Address value);
+  inline void WriteExternalPointerField(size_t offset,
+                                        IsolateForSandbox isolate,
+                                        ExternalPointerTag tag, Address value);
 
   // Set up a lazily-initialized external pointer field. If the sandbox is
   // enabled, this will set the field to the kNullExternalPointerHandle. It will
@@ -325,6 +354,14 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   // the sandbox is disabled, this is equivalent to InitExternalPointerField
   // with a nullptr value.
   inline void SetupLazilyInitializedExternalPointerField(size_t offset);
+
+  // Returns true if the lazily-initializer external pointer field still
+  // contains the initial value. If the sandbox is enabled, returns true if
+  // the field is not equal to kNullExternalPointerHandle (this check will
+  // *not* try to read the actual value from the table). If the sandbox
+  // is disabled, returns true if the field is not equal to kNullAddress.
+  inline bool IsLazilyInitializedExternalPointerFieldInitialized(
+      size_t offset) const;
 
   // Writes and possibly initializes a lazily-initialized external pointer
   // field. When the sandbox is enabled, a lazily initialized external pointer
@@ -335,11 +372,11 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   template <ExternalPointerTag tag>
   inline void WriteLazilyInitializedExternalPointerField(
       size_t offset, IsolateForSandbox isolate, Address value);
+  inline void WriteLazilyInitializedExternalPointerField(
+      size_t offset, IsolateForSandbox isolate, Address value,
+      ExternalPointerTag tag);
 
   inline void SetupLazilyInitializedCppHeapPointerField(size_t offset);
-  template <CppHeapPointerTag tag>
-  inline void WriteLazilyInitializedCppHeapPointerField(
-      size_t offset, IsolateForPointerCompression isolate, Address value);
   inline void WriteLazilyInitializedCppHeapPointerField(
       size_t offset, IsolateForPointerCompression isolate, Address value,
       CppHeapPointerTag tag);
@@ -350,9 +387,13 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   //
   // These are only available when the sandbox is enabled, in which case they
   // are the under-the-hood implementation of trusted pointers.
+
   inline void InitSelfIndirectPointerField(
       size_t offset, IsolateForSandbox isolate,
       TrustedPointerPublishingScope* opt_publishing_scope);
+
+  inline void InitSelfIndirectPointerFieldWithoutPublishing(
+      size_t offset, IsolateForSandbox isolate);
 #endif  // V8_ENABLE_SANDBOX
 
   // Trusted pointers.
@@ -362,19 +403,21 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   // is disabled, they are regular tagged pointers. They must always point to an
   // ExposedTrustedObject as (only) these objects can be referenced through the
   // trusted pointer table.
-  template <IndirectPointerTag tag>
-  inline Tagged<ExposedTrustedObject> ReadTrustedPointerField(
-      size_t offset, IsolateForSandbox isolate) const;
-  template <IndirectPointerTag tag>
-  inline Tagged<ExposedTrustedObject> ReadTrustedPointerField(
-      size_t offset, IsolateForSandbox isolate, AcquireLoadTag) const;
+  template <IndirectPointerTagRange tag_range>
+  inline auto ReadTrustedPointerField(size_t offset,
+                                      IsolateForSandbox isolate) const;
+
+  template <IndirectPointerTagRange tag_range>
+  inline auto ReadTrustedPointerField(size_t offset, IsolateForSandbox isolate,
+                                      AcquireLoadTag acquire_load) const;
+
   // Like ReadTrustedPointerField, but if the field is cleared, this will
   // return Smi::zero().
-  template <IndirectPointerTag tag>
+  template <IndirectPointerTagRange tag_range>
   inline Tagged<Object> ReadMaybeEmptyTrustedPointerField(
       size_t offset, IsolateForSandbox isolate, AcquireLoadTag) const;
 
-  template <IndirectPointerTag tag>
+  template <IndirectPointerTagRange tag_range>
   inline void WriteTrustedPointerField(size_t offset,
                                        Tagged<ExposedTrustedObject> value);
 
@@ -384,9 +427,9 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   // in the TrustedPointerTable which just contains nullptr). When the sandbox
   // is disabled, this will set the field to Smi::zero().
   inline bool IsTrustedPointerFieldEmpty(size_t offset) const;
-  inline bool IsTrustedPointerFieldUnpublished(size_t offset,
-                                               IndirectPointerTag tag,
-                                               IsolateForSandbox isolate) const;
+  inline bool IsTrustedPointerFieldUnpublished(
+      size_t offset, IndirectPointerTagRange tag_range,
+      IsolateForSandbox isolate) const;
   inline void ClearTrustedPointerField(size_t offest);
   inline void ClearTrustedPointerField(size_t offest, ReleaseStoreTag);
 
@@ -430,14 +473,14 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
       int byte_offset, ExternalPointerTagRange tag_range) const;
   inline CppHeapPointerSlot RawCppHeapPointerField(int byte_offset) const;
   inline IndirectPointerSlot RawIndirectPointerField(
-      int byte_offset, IndirectPointerTag tag) const;
+      int byte_offset, IndirectPointerTagRange tag_range) const;
 
   // Return the write barrier mode for this. Callers of this function
   // must be able to present a reference to an DisallowGarbageCollection
   // object as a sign that they are not going to use this function
   // from code that allocates and thus invalidates the returned write
   // barrier mode.
-  inline WriteBarrierMode GetWriteBarrierMode(
+  inline WriteBarrierModeScope GetWriteBarrierMode(
       const DisallowGarbageCollection& promise);
 
   // Dispatched behavior.
@@ -461,7 +504,10 @@ class HeapObject : public TaggedImpl<HeapObjectReferenceType::STRONG, Address> {
   static void VerifyCodePointer(Isolate* isolate, Tagged<Object> p);
 #endif
 
-  static inline AllocationAlignment RequiredAlignment(Tagged<Map> map);
+  static inline AllocationAlignment RequiredAlignment(
+      InSharedSpace in_shared_space, Tagged<Map> map);
+  static inline AllocationAlignment RequiredAlignment(
+      AllocationSpace allocation_space, Tagged<Map> map);
   bool inline CheckRequiredAlignment(PtrComprCageBase cage_base) const;
 
   // Whether the object needs rehashing. That is the case if the object's
@@ -559,33 +605,35 @@ constexpr HeapObject Tagged<HeapObject>::ToRawPtr() const {
 #define IS_TYPE_FUNCTION_DECL(Type)                                            \
   V8_INLINE bool Is##Type(Tagged<HeapObject> obj);                             \
   V8_INLINE bool Is##Type(Tagged<HeapObject> obj, PtrComprCageBase cage_base); \
-  V8_INLINE bool Is##Type(HeapObject obj);                                     \
+  V8_INLINE bool Is##Type(HeapObject);                                         \
   V8_INLINE bool Is##Type(HeapObject obj, PtrComprCageBase cage_base);         \
   V8_INLINE bool Is##Type(const HeapObjectLayout* obj);                        \
-  V8_INLINE bool Is##Type(const HeapObjectLayout* obj,                         \
+  V8_INLINE bool Is##Type(const HeapObjectLayout* ob,                          \
                           PtrComprCageBase cage_base);
 HEAP_OBJECT_TYPE_LIST(IS_TYPE_FUNCTION_DECL)
 IS_TYPE_FUNCTION_DECL(HashTableBase)
 IS_TYPE_FUNCTION_DECL(SmallOrderedHashTable)
 IS_TYPE_FUNCTION_DECL(PropertyDictionary)
+IS_TYPE_FUNCTION_DECL(AnyHole)
 #undef IS_TYPE_FUNCTION_DECL
 
 // Most calls to Is<Oddball> should go via the Tagged<Object> overloads, withst
 // an Isolate/LocalIsolate/ReadOnlyRoots parameter.
-#define IS_TYPE_FUNCTION_DECL(Type, Value, _)                             \
+#define IS_TYPE_FUNCTION_DECL(Type, ...)                                  \
   V8_INLINE bool Is##Type(Tagged<HeapObject> obj);                        \
   V8_INLINE bool Is##Type(HeapObject obj);                                \
   V8_INLINE bool Is##Type(const HeapObjectLayout* obj, Isolate* isolate); \
   V8_INLINE bool Is##Type(const HeapObjectLayout* obj);
 ODDBALL_LIST(IS_TYPE_FUNCTION_DECL)
 HOLE_LIST(IS_TYPE_FUNCTION_DECL)
-IS_TYPE_FUNCTION_DECL(NullOrUndefined, , /* unused */)
+IS_TYPE_FUNCTION_DECL(UndefinedContextCell)
+IS_TYPE_FUNCTION_DECL(NullOrUndefined)
 #undef IS_TYPE_FUNCTION_DECL
 
 #define DECL_STRUCT_PREDICATE(NAME, Name, name)                                \
   V8_INLINE bool Is##Name(Tagged<HeapObject> obj);                             \
   V8_INLINE bool Is##Name(Tagged<HeapObject> obj, PtrComprCageBase cage_base); \
-  V8_INLINE bool Is##Name(HeapObject obj);                                     \
+  V8_INLINE bool Is##Name(HeapObject);                                         \
   V8_INLINE bool Is##Name(HeapObject obj, PtrComprCageBase cage_base);         \
   V8_INLINE bool Is##Name(const HeapObjectLayout* obj);                        \
   V8_INLINE bool Is##Name(const HeapObjectLayout* obj,                         \
@@ -595,7 +643,7 @@ STRUCT_LIST(DECL_STRUCT_PREDICATE)
 
 // Whether the object is located outside of the sandbox or in read-only
 // space. Currently only needed due to Code objects. Once they are fully
-// migrated into trusted space, this can be replaced by !InsideSandbox().
+// migrated into trusted space, this can be replaced by OutsideSandbox().
 static_assert(!kAllCodeObjectsLiveInTrustedSpace);
 V8_INLINE bool OutsideSandboxOrInReadonlySpace(Tagged<HeapObject> obj);
 

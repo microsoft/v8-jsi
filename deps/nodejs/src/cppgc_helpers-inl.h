@@ -11,16 +11,18 @@ namespace node {
 template <typename T>
 void CppgcMixin::Wrap(T* ptr, Realm* realm, v8::Local<v8::Object> obj) {
   CHECK_GE(obj->InternalFieldCount(), T::kInternalFieldCount);
-  ptr->realm_ = realm;
   v8::Isolate* isolate = realm->isolate();
   ptr->traced_reference_ = v8::TracedReference<v8::Object>(isolate, obj);
   // Note that ptr must be of concrete type T in Wrap.
-  v8::Object::Wrap<v8::CppHeapPointerTag::kDefaultTag>(isolate, obj, ptr);
+  auto* wrappable = static_cast<v8::Object::Wrappable*>(ptr);
+  v8::Object::Wrap<v8::CppHeapPointerTag::kDefaultTag>(isolate, obj, wrappable);
   // Keep the layout consistent with BaseObjects.
   obj->SetAlignedPointerInInternalField(
-      kEmbedderType, realm->isolate_data()->embedder_id_for_cppgc());
-  obj->SetAlignedPointerInInternalField(kSlot, ptr);
-  realm->TrackCppgcWrapper(ptr);
+      kEmbedderType,
+      realm->isolate_data()->embedder_id_for_cppgc(),
+      EmbedderDataTag::kEmbedderType);
+  obj->SetAlignedPointerInInternalField(kSlot, ptr, EmbedderDataTag::kDefault);
+  ptr->list_node_ = realm->TrackCppgcWrapper(ptr);
 }
 
 template <typename T>
@@ -40,22 +42,32 @@ T* CppgcMixin::Unwrap(v8::Local<v8::Object> obj) {
   if (obj->InternalFieldCount() != T::kInternalFieldCount) {
     return nullptr;
   }
-  T* ptr = static_cast<T*>(obj->GetAlignedPointerFromInternalField(T::kSlot));
+  T* ptr = static_cast<T*>(obj->GetAlignedPointerFromInternalField(
+      T::kSlot, EmbedderDataTag::kDefault));
   return ptr;
 }
 
 v8::Local<v8::Object> CppgcMixin::object() const {
-  return traced_reference_.Get(realm_->isolate());
+  return traced_reference_.Get(realm()->isolate());
 }
 
 Environment* CppgcMixin::env() const {
-  return realm_->env();
+  return realm()->env();
+}
+
+Realm* CppgcMixin::realm() const {
+  return list_node_ == nullptr ? nullptr : list_node_->realm;
+}
+
+void CppgcMixin::Finalize() {
+  Realm* current_realm = realm();
+  if (current_realm == nullptr) return;
+  this->Clean(current_realm);
+  list_node_->realm = nullptr;
 }
 
 CppgcMixin::~CppgcMixin() {
-  if (realm_ != nullptr) {
-    realm_->set_should_purge_empty_cppgc_wrappers(true);
-  }
+  delete list_node_;
 }
 
 }  // namespace node

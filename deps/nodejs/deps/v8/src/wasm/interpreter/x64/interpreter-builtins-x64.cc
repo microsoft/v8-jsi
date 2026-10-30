@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "src/codegen/code-factory.h"
+#include "src/codegen/interface-descriptors-inl.h"
 #include "src/codegen/macro-assembler.h"
 #include "src/codegen/signature.h"
 #include "src/execution/frame-constants.h"
@@ -195,7 +196,8 @@ void LoadFunctionDataAndWasmInstance(MacroAssembler* masm,
       function_data,
       FieldOperand(shared_function_info,
                    SharedFunctionInfo::kTrustedFunctionDataOffset),
-      kUnknownIndirectPointerTag, kScratchRegister);
+      kWasmExportedFunctionDataIndirectPointerTag, kScratchRegister);
+
   shared_function_info = no_reg;
 
   Register trusted_instance_data = wasm_instance;
@@ -239,10 +241,17 @@ void LoadValueTypesArray(MacroAssembler* masm, Register function_data,
                    WasmExportedFunctionData::kPackedArgsSizeOffset));
   __ SmiToInt32(signature_data);
 
-  Register signature = valuetypes_array_ptr;
+  Register internal_function = valuetypes_array_ptr;
+  __ LoadProtectedPointerField(
+      internal_function,
+      MemOperand(
+          function_data,
+          WasmExportedFunctionData::kProtectedInternalOffset - kHeapObjectTag));
+
+  Register signature = internal_function;
   __ movq(signature,
-          MemOperand(function_data,
-                     WasmExportedFunctionData::kSigOffset - kHeapObjectTag));
+          MemOperand(internal_function,
+                     WasmInternalFunction::kSigOffset - kHeapObjectTag));
   LoadFromSignature(masm, valuetypes_array_ptr, return_count, param_count);
 }
 
@@ -421,8 +430,7 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
                             kArgsOffset));
 
   Register valuetype = r12;
-  __ movl(valuetype,
-          Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
+  __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
 
   // -------------------------------------------
   // Param conversion.
@@ -440,18 +448,15 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   __ SmiUntag(param);
   // Zero extend.
   __ movl(param, param);
-  // Place the param into the proper slot in Integer section.
-  __ movq(MemOperand(current_param_slot, 0), param);
+  // Place the param into the proper slot.
+  __ movl(MemOperand(current_param_slot, 0), param);
   __ addq(current_param_slot, Immediate(sizeof(int32_t)));
   __ jmp(&param_conversion_done);
 
   Label handle_ref_param;
   __ bind(&check_ref_param);
-  __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-  __ j(equal, &handle_ref_param);
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-  __ j(not_equal, &convert_param);
+  __ testl(valuetype, Immediate(1));
+  __ j(equal, &convert_param);
 
   // Place the reference param into the proper slot.
   __ bind(&handle_ref_param);
@@ -493,13 +498,6 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   // -------------------------------------------
   // Prepare for the Wasm call.
   // -------------------------------------------
-  // Set thread_in_wasm_flag.
-  Register thread_in_wasm_flag_addr = r12;
-  __ movq(
-      thread_in_wasm_flag_addr,
-      MemOperand(kRootRegister, Isolate::thread_in_wasm_flag_address_offset()));
-  __ movl(MemOperand(thread_in_wasm_flag_addr, 0), Immediate(1));
-  thread_in_wasm_flag_addr = no_reg;
 
   Register function_index = r12;
   __ movl(
@@ -527,14 +525,6 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   __ Move(MemOperand(rbp, kArgRetsIsArgsOffset), 0);
 
   function_index = no_reg;
-
-  // Unset thread_in_wasm_flag.
-  thread_in_wasm_flag_addr = r8;
-  __ movq(
-      thread_in_wasm_flag_addr,
-      MemOperand(kRootRegister, Isolate::thread_in_wasm_flag_address_offset()));
-  __ movl(MemOperand(thread_in_wasm_flag_addr, 0), Immediate(0));
-  thread_in_wasm_flag_addr = no_reg;
 
   // -------------------------------------------
   // Return handling.
@@ -569,7 +559,7 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   PrepareForBuiltinCall(masm, array_start, return_count, wasm_instance);
   __ movq(rax, return_count);
   __ SmiTag(rax);
-  // Create JSArray to hold results.
+  // Create JSArray to hold results. Possible GC here.
   __ Call(BUILTIN_CODE(masm->isolate(), WasmAllocateJSArray),
           RelocInfo::CODE_TARGET);
   __ movq(jsarray, rax);
@@ -624,8 +614,10 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   //  - the receiver
   // and transfer the control to the return address (the return address is
   // expected to be on the top of the stack).
+  // Add 1 to include the receiver in the cleanup count.
   // We cannot use just the ret instruction for this, because we cannot pass the
   // number of slots to remove in a Register as an argument.
+  __ incq(param_count);
   __ DropArguments(param_count, rbx);
   __ ret(0);
 
@@ -697,7 +689,7 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   RestoreAfterJsToWasmConversionBuiltinCall(
       masm, function_data, wasm_instance, valuetypes_array_ptr,
       current_param_slot, param_count, array_start);
-  __ Movsd(MemOperand(current_param_slot, 0), xmm0);
+  __ Movss(MemOperand(current_param_slot, 0), xmm0);
   __ addq(current_param_slot, Immediate(sizeof(float)));
   __ jmp(&param_conversion_done);
 
@@ -727,8 +719,7 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
 
   __ movq(valuetypes_array_ptr, MemOperand(rbp, kValueTypesArrayStartOffset));
   // The first valuetype of the array is the return's valuetype.
-  __ movl(valuetype,
-          Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
+  __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
 
   Label return_kWasmI32;
   Label return_kWasmI64;
@@ -748,11 +739,8 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   __ cmpq(valuetype, Immediate(wasm::kWasmF64.raw_bit_field()));
   __ j(equal, &return_kWasmF64);
 
-  __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-  __ j(equal, &return_kWasmRef);
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-  __ j(equal, &return_kWasmRef);
+  __ testl(valuetype, Immediate(1));
+  __ j(not_equal, &return_kWasmRef);
 
   // Invalid type. Wasm cannot return Simd results to JavaScript.
   __ int3();
@@ -849,11 +837,24 @@ void Builtins::Generate_GenericJSToWasmInterpreterWrapper(
   __ cmpq(fixed_array, Immediate(0));
   __ j(equal, &next_return_value);
 
-  // Store result in JSArray
+  // Store result into JSArray.
   __ StoreTaggedField(FieldOperand(fixed_array, result_index,
                                    static_cast<ScaleFactor>(kTaggedSizeLog2),
                                    OFFSET_OF_DATA_START(FixedArray)),
                       return_value);
+  PrepareForWasmToJsConversionBuiltinCall(
+      masm, return_count, result_index, current_return_slot,
+      valuetypes_array_ptr, wasm_instance, fixed_array, jsarray);
+  Register slot_address = WriteBarrierDescriptor::SlotAddressRegister();
+  __ leaq(slot_address, FieldOperand(fixed_array, result_index,
+                                     static_cast<ScaleFactor>(kTaggedSizeLog2),
+                                     OFFSET_OF_DATA_START(FixedArray)));
+  __ RecordWrite(fixed_array, slot_address, return_value,
+                 SaveFPRegsMode::kIgnore);
+  RestoreAfterWasmToJsConversionBuiltinCall(
+      masm, jsarray, fixed_array, wasm_instance, valuetypes_array_ptr,
+      current_return_slot, result_index, return_count);
+
   __ jmp(&next_return_value);
 }
 
@@ -902,12 +903,12 @@ void Builtins::Generate_WasmInterpreterCWasmEntry(MacroAssembler* masm) {
   // rbp-0x08  Marker(StackFrame::C_WASM_ENTRY)
   // rbp       Old RBP
 
-#ifndef V8_OS_POSIX
+#ifdef V8_TARGET_OS_WIN
   // Offsets for arguments passed in WasmToJSCallSig. See declaration of
   // {WasmToJSCallSig} in src/wasm/interpreter/wasm-interpreter-runtime.h.
   constexpr int kCEntryFpParameterOffset = 0x30;
   constexpr int kCallableOffset = 0x38;
-#endif  // !V8_OS_POSIX
+#endif  // V8_TARGET_OS_WIN
 
   // Set up the stackframe.
   __ EnterFrame(StackFrame::C_WASM_ENTRY);
@@ -949,17 +950,17 @@ void Builtins::Generate_WasmInterpreterCWasmEntry(MacroAssembler* masm) {
   isolate_root = no_reg;
 
   Register callable = r8;
-#ifdef V8_OS_POSIX
-  __ movq(MemOperand(rbp, WasmInterpreterCWasmEntryConstants::kCEntryFPOffset),
-          r8);            // saved_c_entry_fp
-  __ movq(callable, r9);  // callable
-#else                     // Windows
+#ifdef V8_TARGET_OS_WIN
   // Store c_entry_fp into slot
   __ movq(rbx, MemOperand(rbp, kCEntryFpParameterOffset));
   __ movq(MemOperand(rbp, WasmInterpreterCWasmEntryConstants::kCEntryFPOffset),
           rbx);
   __ movq(callable, MemOperand(rbp, kCallableOffset));
-#endif                    // V8_OS_POSIX
+#else   // !V8_TARGET_OS_WIN
+  __ movq(MemOperand(rbp, WasmInterpreterCWasmEntryConstants::kCEntryFPOffset),
+          r8);            // saved_c_entry_fp
+  __ movq(callable, r9);  // callable
+#endif  // V8_TARGET_OS_WIN
 
   // Jump to a faked try block that does the invoke, with a faked catch
   // block that sets the pending exception.
@@ -1083,7 +1084,7 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
                      WasmToJSInterpreterFrameConstants::kGCScanSlotLimitOffset),
           rsp);
 
-#if V8_OS_POSIX
+#ifndef V8_TARGET_OS_WIN
   // Windows has a different calling convention.
   signature = r9;
   __ movq(signature, kCArgRegs[3]);
@@ -1091,7 +1092,7 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   __ movq(target_js_function, kCArgRegs[0]);
   packed_args = rdx;
   __ movq(packed_args, kCArgRegs[1]);
-#endif                    // V8_OS_POSIX
+#endif                    // !V8_TARGET_OS_WIN
   __ movq(callable, r8);  // Callable passed in r8.
 
   Register shared_function_info = r15;
@@ -1193,13 +1194,9 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
     Label loop_copy_param_ref, load_ref_param, set_and_move;
 
     __ bind(&loop_copy_param_ref);
-    __ movl(valuetype,
-            Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
-    __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-    __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-    __ j(equal, &load_ref_param);
-    __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-    __ j(equal, &load_ref_param);
+    __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
+    __ testl(valuetype, Immediate(1));
+    __ j(not_equal, &load_ref_param);
 
     // Initialize non-ref type slots to zero since they can be visited by GC
     // when converting wasm numbers into heap numbers.
@@ -1257,8 +1254,7 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   Label loop_through_params;
   __ bind(&loop_through_params);
 
-  __ movl(valuetype,
-          Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
+  __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
 
   // -------------------------------------------
   // Param conversion.
@@ -1295,11 +1291,8 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
 
   // Skip Ref params. We already copied reference params in the first loop.
   __ bind(&check_ref_param);
-  __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-  __ j(equal, &skip_ref_param);
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-  __ j(not_equal, &convert_param);
+  __ testl(valuetype, Immediate(1));
+  __ j(equal, &convert_param);
 
   __ bind(&skip_ref_param);
   __ addq(current_param_slot_offset, Immediate(kSystemPointerSize));
@@ -1319,14 +1312,6 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   // Prepare for the function call.
   // -------------------------------------------
   __ bind(&prepare_for_js_call);
-
-  // Reset thread_in_wasm_flag.
-  Register thread_in_wasm_flag_addr = rcx;
-  __ movq(
-      thread_in_wasm_flag_addr,
-      MemOperand(kRootRegister, Isolate::thread_in_wasm_flag_address_offset()));
-  __ movl(MemOperand(thread_in_wasm_flag_addr, 0), Immediate(0));
-  thread_in_wasm_flag_addr = no_reg;
 
   // -------------------------------------------
   // Call the JS function.
@@ -1402,14 +1387,18 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   // rsi: context.
   __ movq(rbx, MemOperand(rbp, kReturnCountOffset));
   __ addq(rbx, rbx);
+  __ pushq(return_reg);  // result
   __ pushq(context);
+
+  // We can have a GC here!
   __ Call(BUILTIN_CODE(masm->isolate(), IterableToFixedArrayForWasm),
           RelocInfo::CODE_TARGET);
   __ movq(MemOperand(rbp,
                      WasmToJSInterpreterFrameConstants::kGCScanSlotLimitOffset),
           rsp);
-  __ popq(context);
   __ movq(fixed_array, rax);
+  __ popq(context);
+  __ popq(return_reg);
   __ movq(return_count, MemOperand(rbp, kReturnCountOffset));
   __ movq(packed_args, MemOperand(rbp, kPackedArrayOffset));
   __ movq(signature, MemOperand(rbp, kSignatureOffset));
@@ -1467,14 +1456,10 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
 
   // Copy if the current return value is a ref type.
   __ bind(&copy_return_if_ref);
-  __ movl(valuetype,
-          Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
+  __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
 
-  __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-  __ j(equal, &copy_return_ref);
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-  __ j(equal, &copy_return_ref);
+  __ testl(valuetype, Immediate(1));
+  __ j(not_equal, &copy_return_ref);
 
   Label inc_result_32bit;
   __ cmpq(valuetype, Immediate(wasm::kWasmI32.raw_bit_field()));
@@ -1519,18 +1504,11 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   // -------------------------------------------
 
   __ bind(&all_done);
-  // Set thread_in_wasm_flag.
-  thread_in_wasm_flag_addr = rcx;
-  __ movq(
-      thread_in_wasm_flag_addr,
-      MemOperand(kRootRegister, Isolate::thread_in_wasm_flag_address_offset()));
-  __ movl(MemOperand(thread_in_wasm_flag_addr, 0), Immediate(1));
-  thread_in_wasm_flag_addr = no_reg;
 
   // Deconstruct the stack frame.
   __ LeaveFrame(StackFrame::WASM_TO_JS);
 
-  __ xorq(rax, rax);
+  __ movq(rax, Immediate(WasmToJSInterpreterFrameConstants::kSuccess));
   __ ret(0);
 
   // --------------------------------------------------------------------------
@@ -1641,8 +1619,7 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   // The builtin expects the parameter to be in register param = rax.
 
   // The first valuetype of the array is the return's valuetype.
-  __ movl(valuetype,
-          Operand(valuetypes_array_ptr, wasm::ValueType::bit_field_offset()));
+  __ movl(valuetype, Operand(valuetypes_array_ptr, 0));
 
   Label return_kWasmI32;
   Label return_kWasmI32_not_smi;
@@ -1665,11 +1642,8 @@ void Builtins::Generate_GenericWasmToJSInterpreterWrapper(
   __ cmpq(valuetype, Immediate(wasm::kWasmF64.raw_bit_field()));
   __ j(equal, &return_kWasmF64);
 
-  __ andl(valuetype, Immediate(wasm::kWasmValueKindBitsMask));
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRefNull));
-  __ j(equal, &return_kWasmRef);
-  __ cmpq(valuetype, Immediate(wasm::ValueKind::kRef));
-  __ j(equal, &return_kWasmRef);
+  __ testl(valuetype, Immediate(1));
+  __ j(not_equal, &return_kWasmRef);
 
   // Invalid type. JavaScript cannot return Simd results to WebAssembly.
   __ int3();
@@ -1739,6 +1713,57 @@ enum IntMemoryType {
 enum IntValueType { kValueInt32, kValueInt64 };
 
 enum FloatType { kFloat32, kFloat64 };
+
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+
+using TracePopType = wasm::WasmInterpreterRuntime::TracePopType;
+using TracePushType = wasm::WasmInterpreterRuntime::TracePushType;
+
+template <TracePopType type>
+void EmitTracePop(MacroAssembler* masm, Register wasm_runtime) {
+  FrameScope scope(masm, StackFrame::MANUAL);
+  __ PushCallerSaved(SaveFPRegsMode::kSave, kReturnRegister0);
+
+  Register trace_pop = kReturnRegister0;
+  int offset = type == TracePopType::kDuplicate
+                   ? wasm::WasmInterpreterRuntime::trace_pop2_func_offset()
+                   : wasm::WasmInterpreterRuntime::trace_pop_func_offset();
+  __ movq(trace_pop, MemOperand(wasm_runtime, offset));
+
+  DCHECK_NE(wasm_runtime, kReturnRegister0);
+  __ Move(kCArgRegs[0], wasm_runtime);
+  __ PrepareCallCFunction(1);
+  __ CallCFunction(trace_pop, 1, SetIsolateDataSlots::kNo);
+
+  __ PopCallerSaved(SaveFPRegsMode::kSave, kReturnRegister0);
+}
+
+template <TracePushType type>
+void EmitTracePush(MacroAssembler* masm, Register wasm_runtime,
+                   wasm::ValueKind kind, Register slot_offset) {
+  FrameScope scope(masm, StackFrame::MANUAL);
+  __ PushCallerSaved(SaveFPRegsMode::kSave, kReturnRegister0);
+
+  Register trace_push = kReturnRegister0;
+  int offset = type == TracePushType::kReplace
+                   ? wasm::WasmInterpreterRuntime::trace_replace_func_offset()
+                   : wasm::WasmInterpreterRuntime::trace_push_func_offset();
+  __ movq(trace_push, MemOperand(wasm_runtime, offset));
+
+  DCHECK_NE(wasm_runtime, kReturnRegister0);
+  __ Move(kCArgRegs[0], wasm_runtime);
+  __ Move(kCArgRegs[1], Immediate(kind));
+  DCHECK_NE(slot_offset, kReturnRegister0);
+  DCHECK_NE(slot_offset, kCArgRegs[0]);
+  DCHECK_NE(slot_offset, kCArgRegs[1]);
+  __ Move(kCArgRegs[2], slot_offset);
+  __ shlq(kCArgRegs[2], Immediate(log2(wasm::kSlotSize)));
+  __ PrepareCallCFunction(3);
+  __ CallCFunction(trace_push, 3, SetIsolateDataSlots::kNo);
+
+  __ PopCallerSaved(SaveFPRegsMode::kSave, kReturnRegister0);
+}
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
 void EmitLoadInstruction(MacroAssembler* masm, Register result,
                          Register memory_start, Register memory_index,
@@ -2065,11 +2090,18 @@ class WasmInterpreterHandlerBuiltins {
     EmitLoadInstruction(masm, value, memory_start_plus_index, memory_offset,
                         value_type, memory_type);
 
-    Register slot_offset = rax;
+    Register slot_offset = r11;
     emitter::EmitLoadSlotOffset(masm, slot_offset,
                                 MemOperand(code, kSlotOffset));
 
     WriteToSlot(masm, sp, slot_offset, value, value_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePush<TracePushType::kNormal>(masm, wasm_runtime,
+                                          value_type == kValueInt64
+                                              ? wasm::ValueKind::kI64
+                                              : wasm::ValueKind::kI32,
+                                          slot_offset);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2117,6 +2149,12 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitLoadInstruction(masm, memory_start_plus_index, memory_offset, sp,
                         slot_offset, float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePush<TracePushType::kNormal>(
+        masm, wasm_runtime,
+        float_type == kFloat64 ? wasm::ValueKind::kF64 : wasm::ValueKind::kF32,
+        slot_offset);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2168,6 +2206,9 @@ class WasmInterpreterHandlerBuiltins {
     Register value = r9;
     EmitLoadInstruction(masm, value, memory_start_plus_offset, memory_index,
                         value_type, memory_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2217,6 +2258,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitLoadInstruction(masm, memory_start_plus_offset, memory_index, xmm4,
                         float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2274,6 +2318,14 @@ class WasmInterpreterHandlerBuiltins {
 
     WriteToSlot(masm, sp, result_slot_offset, value, value_type);
 
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePush<TracePushType::kReplace>(masm, wasm_runtime,
+                                           value_type == kValueInt64
+                                               ? wasm::ValueKind::kI64
+                                               : wasm::ValueKind::kI32,
+                                           result_slot_offset);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
+
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
     __ addq(code, Immediate(kInstructionCodeLength));
@@ -2325,6 +2377,12 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitLoadInstruction(masm, memory_start_plus_offset, memory_index, sp,
                         result_slot_offset, float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePush<TracePushType::kReplace>(
+        masm, wasm_runtime,
+        float_type == kFloat64 ? wasm::ValueKind::kF64 : wasm::ValueKind::kF32,
+        result_slot_offset);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2381,6 +2439,9 @@ class WasmInterpreterHandlerBuiltins {
                         value_type, memory_type);
 
     WriteToSlot(masm, sp, set_slot_offset, value, value_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2433,6 +2494,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitLoadInstruction(masm, memory_start_plus_offset, memory_index, sp,
                         set_slot_offset, float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2484,6 +2548,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_offset, memory_index,
                          memory_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2538,6 +2605,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_offset, memory_index,
                          float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2611,6 +2681,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_offset, memory_index,
                          memory_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kDuplicate>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = rax;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2677,6 +2750,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_offset, memory_index,
                          float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kDuplicate>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = r10;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2743,6 +2819,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_store_index,
                          store_offset, memory_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = rax;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2814,6 +2893,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_store_index,
                          store_offset, memory_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kDuplicate>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = rax;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2889,6 +2971,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_store_index,
                          store_offset, float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kNormal>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = rax;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);
@@ -2968,6 +3053,9 @@ class WasmInterpreterHandlerBuiltins {
 
     EmitStoreInstruction(masm, value, memory_start_plus_store_index,
                          store_offset, float_type);
+#ifdef V8_ENABLE_DRUMBRAKE_TRACING
+    EmitTracePop<TracePopType::kDuplicate>(masm, wasm_runtime);
+#endif  // V8_ENABLE_DRUMBRAKE_TRACING
 
     Register next_handler_id = rax;
     EmitLoadNextInstructionId(masm, next_handler_id, code, kNextHandlerId);

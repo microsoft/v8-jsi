@@ -10,7 +10,6 @@
 
 #include "src/base/logging.h"
 #include "src/heap/heap-layout-inl.h"
-#include "src/heap/incremental-marking-inl.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/mark-compact-inl.h"
 #include "src/heap/marking.h"
@@ -18,7 +17,7 @@
 namespace v8 {
 namespace internal {
 
-template <typename TSlot>
+template <typename TSlot, RecordYoungSlot kRecordYoung>
 void MarkingBarrier::Write(Tagged<HeapObject> host, TSlot slot,
                            Tagged<HeapObject> value) {
   DCHECK(IsCurrentMarkingBarrier(host));
@@ -27,8 +26,13 @@ void MarkingBarrier::Write(Tagged<HeapObject> host, TSlot slot,
 
   MarkValue(host, value);
 
-  if (slot.address() && IsCompacting(host)) {
-    MarkCompactCollector::RecordSlot(host, slot, value);
+  // When recording slots to young pointers, we need to call RecordSlot even if
+  // IsCompacting() returns true. This is because IsCompacting() simply returns
+  // false when there are no evacuation candidates. New space pages are not
+  // considered evacuation candidates and may still be relocated.
+  if (slot.address() &&
+      (static_cast<bool>(kRecordYoung) || IsCompacting(host))) {
+    MarkCompactCollector::RecordSlot<TSlot, kRecordYoung>(host, slot, value);
   }
 }
 
@@ -43,21 +47,22 @@ void MarkingBarrier::MarkValue(Tagged<HeapObject> host,
   // local marking barrier. Also from the point-of-view of the shared space
   // isolate (= main isolate) also shared objects are considered local.
   if (V8_UNLIKELY(uses_shared_heap_) && !is_shared_space_isolate_) {
+    auto* host_chunk = MemoryChunk::FromHeapObject(host);
     // Check whether incremental marking is enabled for that object's space.
-    if (!MemoryChunk::FromHeapObject(host)->IsMarking()) {
+    if (!host_chunk->IsMarking()) {
       return;
     }
 
-    if (v8_flags.black_allocated_pages &&
-        HeapLayout::InBlackAllocatedPage(value)) {
+    auto* value_chunk = MemoryChunk::FromHeapObject(value);
+    if (value_chunk->IsBlackAllocated()) {
       return;
     }
 
-    if (HeapLayout::InWritableSharedSpace(host)) {
+    if (host_chunk->InWritableSharedSpace()) {
       // Invoking shared marking barrier when storing into shared objects.
       MarkValueShared(value);
       return;
-    } else if (HeapLayout::InWritableSharedSpace(value)) {
+    } else if (value_chunk->InWritableSharedSpace()) {
       // No marking needed when storing shared objects in local objects.
       return;
     }

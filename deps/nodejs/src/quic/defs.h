@@ -12,8 +12,8 @@
 namespace node::quic {
 
 #define NGTCP2_SUCCESS 0
-#define NGTCP2_ERR(V) (V != NGTCP2_SUCCESS)
-#define NGTCP2_OK(V) (V == NGTCP2_SUCCESS)
+#define NGTCP2_ERR(V) ((V) != NGTCP2_SUCCESS)
+#define NGTCP2_OK(V) ((V) == NGTCP2_SUCCESS)
 
 #define IF_QUIC_DEBUG(env)                                                     \
   if (env->enabled_debug_list()->enabled(DebugCategory::QUIC)) [[unlikely]]
@@ -79,6 +79,39 @@ bool SetOption(Environment* env,
       return false;
     }
     options->*member = num->Value();
+  }
+  return true;
+}
+
+template <typename Opt, uint16_t Opt::*member>
+bool SetOption(Environment* env,
+               Opt* options,
+               const v8::Local<v8::Object>& object,
+               const v8::Local<v8::String>& name) {
+  v8::Local<v8::Value> value;
+  if (!object->Get(env->context(), name).ToLocal(&value)) return false;
+  if (!value->IsUndefined()) {
+    if (!value->IsUint32()) {
+      Utf8Value nameStr(env->isolate(), name);
+      THROW_ERR_INVALID_ARG_VALUE(
+          env, "The %s option must be an uint16", nameStr);
+      return false;
+    }
+    v8::Local<v8::Uint32> num;
+    if (!value->ToUint32(env->context()).ToLocal(&num)) {
+      Utf8Value nameStr(env->isolate(), name);
+      THROW_ERR_INVALID_ARG_VALUE(
+          env, "The %s option must be an uint16", nameStr);
+      return false;
+    }
+    uint32_t val = num->Value();
+    if (val > 0xFFFF) {
+      Utf8Value nameStr(env->isolate(), name);
+      THROW_ERR_INVALID_ARG_VALUE(
+          env, "The %s option must fit in a uint16", nameStr);
+      return false;
+    }
+    options->*member = static_cast<uint16_t>(val);
   }
   return true;
 }
@@ -161,33 +194,105 @@ uint64_t GetStat(Stats* stats) {
     name##_STATS(STAT_FIELD)                                                   \
   };
 
-#define JS_METHOD(name)                                                        \
-  static void name(const v8::FunctionCallbackInfo<v8::Value>& args)
+#define JS_METHOD_IMPL(name)                                                   \
+  void name(const v8::FunctionCallbackInfo<v8::Value>& args)
+
+#define JS_METHOD(name) static JS_METHOD_IMPL(name)
+
+#define JS_CONSTRUCTOR(name)                                                   \
+  inline static bool HasInstance(Environment* env,                             \
+                                 v8::Local<v8::Value> value) {                 \
+    return GetConstructorTemplate(env)->HasInstance(value);                    \
+  }                                                                            \
+  static v8::Local<v8::FunctionTemplate> GetConstructorTemplate(               \
+      Environment* env)
+
+#define JS_CONSTRUCTOR_IMPL(name, template, body)                              \
+  v8::Local<v8::FunctionTemplate> name::GetConstructorTemplate(                \
+      Environment* env) {                                                      \
+    auto& state = BindingData::Get(env);                                       \
+    auto tmpl = state.template();                                              \
+    if (tmpl.IsEmpty()) {                                                      \
+      body state.set_##template(tmpl);                                         \
+    }                                                                          \
+    return tmpl;                                                               \
+  }
+
+#define JS_ILLEGAL_CONSTRUCTOR()                                               \
+  tmpl = NewFunctionTemplate(env->isolate(), IllegalConstructor)
+
+#define JS_NEW_CONSTRUCTOR() tmpl = NewFunctionTemplate(env->isolate(), New)
+
+#define JS_INHERIT(name) tmpl->Inherit(name::GetConstructorTemplate(env));
+
+#define JS_CLASS(name)                                                         \
+  tmpl->InstanceTemplate()->SetInternalFieldCount(kInternalFieldCount);        \
+  tmpl->SetClassName(state.name##_string())
+
+#define JS_CLASS_FIELDS(name, fields)                                          \
+  tmpl->InstanceTemplate()->SetInternalFieldCount(fields);                     \
+  tmpl->SetClassName(state.name##_string())
+
+#define JS_NEW_INSTANCE_OR_RETURN(env, name, ret)                              \
+  v8::Local<v8::Object> name;                                                  \
+  if (!GetConstructorTemplate(env)                                             \
+           ->InstanceTemplate()                                                \
+           ->NewInstance(env->context())                                       \
+           .ToLocal(&name)) {                                                  \
+    return ret;                                                                \
+  }
+
+#define JS_NEW_INSTANCE(env, name)                                             \
+  v8::Local<v8::Object> name;                                                  \
+  if (!GetConstructorTemplate(env)                                             \
+           ->InstanceTemplate()                                                \
+           ->NewInstance(env->context())                                       \
+           .ToLocal(&name)) {                                                  \
+    return;                                                                    \
+  }
+
+#define JS_BINDING_INIT_BOILERPLATE()                                          \
+  static void InitPerIsolate(IsolateData* isolate_data,                        \
+                             v8::Local<v8::ObjectTemplate> target);            \
+  static void InitPerContext(Realm* realm, v8::Local<v8::Object> target);      \
+  static void RegisterExternalReferences(ExternalReferenceRegistry* registry)
+
+#define JS_TRY_ALLOCATE_BACKING(env, name, len)                                \
+  auto name = v8::ArrayBuffer::NewBackingStore(                                \
+      env->isolate(),                                                          \
+      len,                                                                     \
+      v8::BackingStoreInitializationMode::kUninitialized,                      \
+      v8::BackingStoreOnFailureMode::kReturnNull);                             \
+  if (!name) {                                                                 \
+    THROW_ERR_MEMORY_ALLOCATION_FAILED(env);                                   \
+    return;                                                                    \
+  }
+
+#define JS_TRY_ALLOCATE_BACKING_OR_RETURN(env, name, len, ret)                 \
+  auto name = v8::ArrayBuffer::NewBackingStore(                                \
+      env->isolate(),                                                          \
+      len,                                                                     \
+      v8::BackingStoreInitializationMode::kUninitialized,                      \
+      v8::BackingStoreOnFailureMode::kReturnNull);                             \
+  if (!name) {                                                                 \
+    THROW_ERR_MEMORY_ALLOCATION_FAILED(env);                                   \
+    return ret;                                                                \
+  }
+
+#define JS_DEFINE_READONLY_PROPERTY(env, target, name, value)                  \
+  target                                                                       \
+      ->DefineOwnProperty(                                                     \
+          env->context(), name, value, v8::PropertyAttribute::ReadOnly)        \
+      .Check();
 
 enum class Side : uint8_t {
   CLIENT,
   SERVER,
 };
 
-enum class EndpointLabel : uint8_t {
-  LOCAL,
-  REMOTE,
-};
-
 enum class Direction : uint8_t {
   BIDIRECTIONAL,
   UNIDIRECTIONAL,
-};
-
-enum class HeadersKind : uint8_t {
-  HINTS,
-  INITIAL,
-  TRAILING,
-};
-
-enum class HeadersFlags : uint8_t {
-  NONE,
-  TERMINAL,
 };
 
 enum class StreamPriority : uint8_t {
@@ -197,8 +302,20 @@ enum class StreamPriority : uint8_t {
 };
 
 enum class StreamPriorityFlags : uint8_t {
-  NONE,
   NON_INCREMENTAL,
+  INCREMENTAL,
+};
+
+enum class HeadersSupportState : uint8_t {
+  UNKNOWN,
+  SUPPORTED,
+  UNSUPPORTED,
+};
+
+enum class StreamCallbacksSupportState : uint8_t {
+  UNKNOWN,
+  SUPPORTED,
+  UNSUPPORTED,
 };
 
 enum class PathValidationResult : uint8_t {
@@ -210,6 +327,7 @@ enum class PathValidationResult : uint8_t {
 enum class DatagramStatus : uint8_t {
   ACKNOWLEDGED,
   LOST,
+  ABANDONED,
 };
 
 #define CC_ALGOS(V)                                                            \
@@ -221,16 +339,45 @@ enum class DatagramStatus : uint8_t {
 CC_ALGOS(V)
 #undef V
 
-constexpr uint64_t NGTCP2_APP_NOERROR = 65280;
+using error_code = uint64_t;
+using stream_id = int64_t;
+using datagram_id = uint64_t;
+
 constexpr size_t kDefaultMaxPacketLength = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
-constexpr size_t kMaxSizeT = std::numeric_limits<size_t>::max();
+constexpr uint64_t kMaxSizeT = std::numeric_limits<size_t>::max();
 constexpr uint64_t kMaxSafeJsInteger = 9007199254740991;
 constexpr auto kSocketAddressInfoTimeout = 60 * NGTCP2_SECONDS;
 constexpr size_t kMaxVectorCount = 16;
+constexpr stream_id kMaxStreamId = std::numeric_limits<stream_id>::max();
 
-using error_code = uint64_t;
+// A token bucket rate limiter using lazy refill. No timer needed — tokens
+// are computed on demand from the elapsed time since the last check.
+// Used to cap the total rate of stateless responses (retry, reset,
+// version negotiation, immediate close) regardless of source address,
+// preventing spoofed-source floods from bypassing per-host limits.
+struct TokenBucket final {
+  double rate;       // tokens per second (refill rate)
+  double burst;      // maximum tokens (bucket capacity)
+  double tokens;     // current token count
+  uint64_t last_ts;  // last refill timestamp (nanoseconds, uv_hrtime)
 
-class DebugIndentScope {
+  TokenBucket() : rate(0), burst(0), tokens(0), last_ts(0) {}
+  TokenBucket(double rate, double burst);
+
+  // Reinitialize the bucket with new rate/burst parameters if it
+  // hasn't been initialized yet (last_ts == 0). Used for per-host
+  // buckets in the address LRU where the rate/burst aren't known
+  // at construction time.
+  void InitOnce(double r, double b, uint64_t now);
+
+  // Try to consume one token. Refills based on elapsed time, then
+  // attempts to consume. Returns true if the request is allowed.
+  // The caller provides the current timestamp to avoid redundant
+  // uv_hrtime() calls in hot paths.
+  bool consume(uint64_t now);
+};
+
+class DebugIndentScope final {
  public:
   inline DebugIndentScope() { ++indent_; }
   DISALLOW_COPY_AND_MOVE(DebugIndentScope)
@@ -248,7 +395,8 @@ class DebugIndentScope {
   }
 
  private:
-  static int indent_;
+  // NOLINTNEXTLINE(runtime/thread_local)
+  static thread_local int indent_;
 };
 
 }  // namespace node::quic

@@ -17,8 +17,10 @@ TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 
 ## Build
 
-`v8jsi.dll` is built from the vendored Node.js v24.x tree via `scripts/build.ts`
+`v8jsi.dll` is built from the vendored Node.js v26.x tree via `scripts/build.ts`
 (which wraps `deps/nodejs/vcbuild.bat` with the right narrow-build flags).
+Node.js v24 remains the tooling runtime. Both engine variants disable Temporal
+and Node-only LIEF tooling, so Rust is not a build prerequisite.
 
 Canonical entry point:
 ```powershell

@@ -6,6 +6,10 @@ const {
   TypedArrayPrototypeGetSymbolToStringTag,
 } = primordials;
 
+function isDataView(value) {
+  return ArrayBufferIsView(value) && TypedArrayPrototypeGetSymbolToStringTag(value) === undefined;
+}
+
 function isTypedArray(value) {
   return TypedArrayPrototypeGetSymbolToStringTag(value) !== undefined;
 }
@@ -61,6 +65,7 @@ function isBigUint64Array(value) {
 module.exports = {
   ...internalBinding('types'),
   isArrayBufferView: ArrayBufferIsView,
+  isDataView,
   isTypedArray,
   isUint8Array,
   isUint8ClampedArray,
@@ -76,40 +81,40 @@ module.exports = {
   isBigUint64Array,
 };
 
-let isCryptoKey;
-let isKeyObject;
+let isCryptoKeyFn;
+let isKeyObjectFn;
 
 ObjectDefineProperties(module.exports, {
   isKeyObject: {
     __proto__: null,
     configurable: false,
     enumerable: true,
-    value(obj) {
+    value: function isKeyObject(obj) {
       if (!process.versions.openssl) {
         return false;
       }
 
-      if (!isKeyObject) {
-        ({ isKeyObject } = require('internal/crypto/keys'));
+      if (!isKeyObjectFn) {
+        ({ isKeyObject: isKeyObjectFn } = require('internal/crypto/keys'));
       }
 
-      return isKeyObject(obj);
+      return isKeyObjectFn(obj);
     },
   },
   isCryptoKey: {
     __proto__: null,
     configurable: false,
     enumerable: true,
-    value(obj) {
+    value: function isCryptoKey(obj) {
       if (!process.versions.openssl) {
         return false;
       }
 
-      if (!isCryptoKey) {
-        ({ isCryptoKey } = require('internal/crypto/keys'));
+      if (!isCryptoKeyFn) {
+        ({ isCryptoKey: isCryptoKeyFn } = require('internal/crypto/keys'));
       }
 
-      return isCryptoKey(obj);
+      return isCryptoKeyFn(obj);
     },
   },
 });

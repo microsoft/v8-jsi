@@ -47,6 +47,7 @@
 #include "src/heap/cppgc/unmarker.h"
 #include "src/heap/cppgc/visitor.h"
 #include "src/heap/gc-tracer.h"
+#include "src/heap/heap-controller.h"
 #include "src/heap/heap.h"
 #include "src/heap/marking-worklist.h"
 #include "src/heap/minor-mark-sweep.h"
@@ -226,8 +227,8 @@ UnifiedHeapConcurrentMarker::CreateConcurrentMarkingVisitor(
       heap(), v8_heap_, marking_state, collection_type_);
 }
 
-void FatalOutOfMemoryHandlerImpl(const std::string& reason,
-                                 const SourceLocation&, HeapBase* heap) {
+void FatalOutOfMemoryHandlerImpl(const std::string& reason, SourceLocation,
+                                 HeapBase* heap) {
   auto* cpp_heap = static_cast<v8::internal::CppHeap*>(heap);
   auto* isolate = cpp_heap->isolate();
   DCHECK_NOT_NULL(isolate);
@@ -241,7 +242,7 @@ void FatalOutOfMemoryHandlerImpl(const std::string& reason,
 }
 
 void GlobalFatalOutOfMemoryHandlerImpl(const std::string& reason,
-                                       const SourceLocation&, HeapBase* heap) {
+                                       SourceLocation, HeapBase* heap) {
   V8::FatalProcessOutOfMemory(nullptr, reason.c_str());
 }
 
@@ -316,6 +317,23 @@ class UnifiedHeapMarker final : public cppgc::internal::MarkerBase {
       return;
     }
     MarkerBase::AdvanceMarkingOnAllocationImpl();
+  }
+
+  bool AdvanceMarkingOnStep(v8::base::TimeDelta max_duration,
+                            std::optional<size_t> marked_bytes_limit,
+                            cppgc::EmbedderStackState stack_state) {
+    // This is similar to MarkerBase::IncrementalMarkingStep() with the
+    // difference that we accept a duration instead of using the default
+    // duration and that the bytes limit is
+    if (stack_state == StackState::kNoHeapPointers) {
+      mutator_marking_state_.FlushNotFullyConstructedObjects();
+    }
+    if (!marked_bytes_limit.has_value()) {
+      marked_bytes_limit.emplace(schedule().GetNextIncrementalStepDuration(
+          heap().stats_collector()->allocated_object_size()));
+    }
+    return MarkerBase::AdvanceMarkingWithLimits(max_duration,
+                                                *marked_bytes_limit);
   }
 
  protected:
@@ -462,10 +480,16 @@ CppHeap::MetricRecorderAdapter::ExtractLastIncrementalMarkEvent() {
 }
 
 void CppHeap::MetricRecorderAdapter::ClearCachedEvents() {
+  DCHECK(!last_young_gc_event_.has_value());
   incremental_mark_batched_events_.events.clear();
   incremental_sweep_batched_events_.events.clear();
   last_incremental_mark_event_.reset();
   last_full_gc_event_.reset();
+}
+
+void CppHeap::MetricRecorderAdapter::ClearCachedYoungEvents() {
+  DCHECK(incremental_mark_batched_events_.events.empty());
+  DCHECK(!last_incremental_mark_event_.has_value());
   last_young_gc_event_.reset();
 }
 
@@ -610,7 +634,8 @@ void CppHeap::AttachIsolate(Isolate* isolate) {
   static_cast<CppgcPlatformAdapter*>(platform())
       ->SetIsolate(reinterpret_cast<v8::Isolate*>(isolate_));
   if (auto* heap_profiler = heap()->heap_profiler()) {
-    heap_profiler->AddBuildEmbedderGraphCallback(&CppGraphBuilder::Run, this);
+    heap_profiler->SetInternalBuildEmbedderGraphCallback(&CppGraphBuilder::Run,
+                                                         this);
     heap_profiler->set_native_move_listener(
         std::make_unique<MoveListenerImpl>(heap_profiler, this));
   }
@@ -657,8 +682,7 @@ void CppHeap::DetachIsolate() {
   sweeping_on_mutator_thread_observer_.reset();
 
   if (auto* heap_profiler = heap()->heap_profiler()) {
-    heap_profiler->RemoveBuildEmbedderGraphCallback(&CppGraphBuilder::Run,
-                                                    this);
+    heap_profiler->SetInternalBuildEmbedderGraphCallback(nullptr, nullptr);
     heap_profiler->set_native_move_listener(nullptr);
   }
   SetMetricRecorder(nullptr);
@@ -743,9 +767,6 @@ void CppHeap::UpdateGCCapabilitiesFromFlags() {
   sweeping_support_ = v8_flags.single_threaded_gc
                           ? CppHeap::SweepingType::kIncremental
                           : CppHeap::SweepingType::kIncrementalAndConcurrent;
-
-  page_backend_->page_pool().SetDecommitPooledPages(
-      v8_flags.decommit_pooled_pages);
 }
 
 void CppHeap::InitializeMarking(
@@ -850,7 +871,8 @@ size_t CppHeap::last_bytes_marked() const {
 }
 
 bool CppHeap::AdvanceMarking(v8::base::TimeDelta max_duration,
-                             size_t marked_bytes_limit) {
+                             std::optional<size_t> marked_bytes_limit,
+                             cppgc::EmbedderStackState stack_state) {
   if (!TracingInitialized()) {
     return true;
   }
@@ -864,8 +886,8 @@ bool CppHeap::AdvanceMarking(v8::base::TimeDelta max_duration,
     marker_->NotifyConcurrentMarkingOfWorkIfNeeded(
         cppgc::TaskPriority::kUserBlocking);
   }
-  marking_done_ =
-      marker_->AdvanceMarkingWithLimits(max_duration, marked_bytes_limit);
+  marking_done_ = marker_->To<UnifiedHeapMarker>().AdvanceMarkingOnStep(
+      max_duration, marked_bytes_limit, stack_state);
   DCHECK_IMPLIES(in_atomic_pause_, marking_done_);
   is_in_v8_marking_step_ = false;
   return marking_done_;
@@ -1019,9 +1041,9 @@ void CppHeap::CompactAndSweep() {
         SelectSweepingType(), compactable_space_handling,
         ShouldReduceMemory(current_gc_flags_)
             ? cppgc::internal::SweepingConfig::FreeMemoryHandling::
-                  kDiscardWherePossible
+                  kReleaseMemory
             : cppgc::internal::SweepingConfig::FreeMemoryHandling::
-                  kDoNotDiscard};
+                  kRetainMemory};
     DCHECK_IMPLIES(!isolate_,
                    SweepingType::kAtomic == sweeping_config.sweeping_type);
     sweeper().Start(sweeping_config);
@@ -1113,9 +1135,11 @@ void CppHeap::CollectGarbageForTesting(CollectionType collection_type,
     }
     EnterFinalPause(stack_state);
     EnterProcessGlobalAtomicPause();
-    CHECK(AdvanceMarking(v8::base::TimeDelta::Max(), SIZE_MAX));
+    CHECK(AdvanceMarking(v8::base::TimeDelta::Max(), SIZE_MAX,
+                         StackState::kMayContainHeapPointers));
     if (FinishConcurrentMarkingIfNeeded()) {
-      CHECK(AdvanceMarking(v8::base::TimeDelta::Max(), SIZE_MAX));
+      CHECK(AdvanceMarking(v8::base::TimeDelta::Max(), SIZE_MAX,
+                           StackState::kMayContainHeapPointers));
     }
     FinishMarkingAndProcessWeakness();
     CompactAndSweep();
@@ -1270,13 +1294,6 @@ CppHeap::CreateCppMarkingStateForMutatorThread() {
       marker()->To<UnifiedHeapMarker>().GetMutatorMarkingState());
 }
 
-CppHeap::PauseConcurrentMarkingScope::PauseConcurrentMarkingScope(
-    CppHeap* cpp_heap) {
-  if (cpp_heap && cpp_heap->marker()) {
-    pause_scope_.emplace(*cpp_heap->marker());
-  }
-}
-
 void CppHeap::CollectGarbage(cppgc::internal::GCConfig config) {
   if (!IsGCAllowed()) {
     return;
@@ -1284,7 +1301,7 @@ void CppHeap::CollectGarbage(cppgc::internal::GCConfig config) {
   // TODO(mlippautz): Respect full config.
   const auto flags =
       (config.free_memory_handling ==
-       cppgc::internal::GCConfig::FreeMemoryHandling::kDiscardWherePossible)
+       cppgc::internal::GCConfig::FreeMemoryHandling::kReleaseMemory)
           ? GCFlag::kReduceMemoryFootprint
           : GCFlag::kNoFlags;
   isolate_->heap()->CollectAllGarbage(
@@ -1327,6 +1344,14 @@ void CppHeap::StartIncrementalGarbageCollection(cppgc::internal::GCConfig) {
   UNIMPLEMENTED();
 }
 
+bool CppHeap::RetryAllocate(v8::base::FunctionRef<bool()> allocate) {
+  if (!IsGCAllowed()) {
+    return false;
+  }
+  return isolate_->heap()->allocator()->RetryCustomAllocate(
+      std::move(allocate), AllocationType::kOld);
+}
+
 size_t CppHeap::epoch() const { UNIMPLEMENTED(); }
 
 #ifdef V8_ENABLE_ALLOCATION_TIMEOUT
@@ -1361,12 +1386,6 @@ bool CppHeap::IsDetachedGCAllowed() const {
 
 bool CppHeap::IsGCAllowed() const {
   return isolate_ && HeapBase::IsGCAllowed();
-}
-
-bool CppHeap::IsGCForbidden() const {
-  return (isolate_ && isolate_->InFastCCall() &&
-          !v8_flags.allow_allocation_in_fast_api_call) ||
-         HeapBase::IsGCForbidden();
 }
 
 bool CppHeap::CurrentThreadIsHeapThread() const {

@@ -1,6 +1,8 @@
 'use strict';
 const {
+  ArrayFrom,
   ArrayPrototypeEvery,
+  ArrayPrototypeJoin,
   ArrayPrototypePush,
   ArrayPrototypePushApply,
   ArrayPrototypeShift,
@@ -9,11 +11,15 @@ const {
   ArrayPrototypeSplice,
   ArrayPrototypeUnshift,
   ArrayPrototypeUnshiftApply,
+  BigInt,
   Error,
   FunctionPrototype,
+  MathFloor,
   MathMax,
+  MathRound,
   Number,
   NumberPrototypeToFixed,
+  ObjectFreeze,
   ObjectKeys,
   ObjectSeal,
   Promise,
@@ -27,6 +33,7 @@ const {
   SafePromiseAllReturnVoid,
   SafePromiseRace,
   SafeSet,
+  SetPrototypeUnion,
   StringPrototypeStartsWith,
   StringPrototypeTrim,
   Symbol,
@@ -47,12 +54,19 @@ const {
   },
 } = require('internal/errors');
 const { MockTracker } = require('internal/test_runner/mock/mock');
+const {
+  evaluateTagFilters,
+  kEmptyTagArray,
+  validateAndCanonicalizeTagValues,
+} = require('internal/test_runner/tag_filter');
 const { TestsStream } = require('internal/test_runner/tests_stream');
 const {
   createDeferredCallback,
+  createSeededGenerator,
   countCompletedTest,
   isTestFailureError,
   reporterScope,
+  testChannel,
 } = require('internal/test_runner/utils');
 const {
   kEmptyObject,
@@ -67,6 +81,7 @@ const {
   validateNumber,
   validateObject,
   validateOneOf,
+  validateString,
   validateUint32,
 } = require('internal/validators');
 const {
@@ -289,6 +304,10 @@ class TestContext {
     return this.#test.attempt ?? 0;
   }
 
+  get tags() {
+    return this.#test.tags;
+  }
+
   get workerId() {
     const envWorkerId = process.env.NODE_TEST_WORKER_ID;
     return Number(envWorkerId) || undefined;
@@ -296,6 +315,10 @@ class TestContext {
 
   diagnostic(message) {
     this.#test.diagnostic(message);
+  }
+
+  log(message, data) {
+    this.#test.log(message, data);
   }
 
   plan(count, options = kEmptyObject) {
@@ -332,7 +355,7 @@ class TestContext {
           if (plan !== null) {
             plan.count();
           }
-          innerOk(ok, args.length, ...args);
+          innerOk(ok, ...args);
         }
 
         assert.ok = ok;
@@ -494,6 +517,22 @@ class SuiteContext {
   get fullName() {
     return getFullName(this.#suite);
   }
+
+  get passed() {
+    return this.#suite.passed;
+  }
+
+  get attempt() {
+    return this.#suite.attempt ?? 0;
+  }
+
+  diagnostic(message) {
+    this.#suite.diagnostic(message);
+  }
+
+  log(message, data) {
+    this.#suite.log(message, data);
+  }
 }
 
 function parseExpectFailure(expectFailure) {
@@ -534,12 +573,14 @@ class Test extends AsyncResource {
   abortController;
   outerSignal;
   #reportedSubtest;
+  #tagsArray = null;
 
   constructor(options) {
     super('Test');
 
     let { fn, name, parent } = options;
     const { concurrency, entryFile, expectFailure, loc, only, timeout, todo, skip, signal, plan } = options;
+    const rawTags = options.tags;
 
     if (typeof fn !== 'function') {
       fn = noop;
@@ -560,7 +601,18 @@ class Test extends AsyncResource {
     this.diagnostics = [];
     this.filtered = false;
     this.filteredByName = false;
+    this.filteredByTag = false;
     this.hasOnlyTests = false;
+
+    // Hooks pass no tags option, so rawTags is undefined for them.
+    const ownTags = rawTags !== undefined ?
+      validateAndCanonicalizeTagValues(rawTags, 'options.tags') :
+      kEmptyTagArray;
+
+    const ownTagSet = new SafeSet(ownTags);
+    this.tagSet = parent !== null && parent.tagSet.size > 0 ?
+      SetPrototypeUnion(parent.tagSet, ownTagSet) :
+      ownTagSet;
 
     if (parent === null) {
       this.root = this;
@@ -575,10 +627,12 @@ class Test extends AsyncResource {
       this.timeout = kDefaultTimeout;
       this.entryFile = entryFile;
       this.testDisambiguator = new SafeMap();
+      this.nextTestId = 1;
+      this.testId = 0;
     } else {
       const nesting = parent.parent === null ? parent.nesting :
         parent.nesting + 1;
-      const { config, isFilteringByName, isFilteringByOnly } = parent.root.harness;
+      const { config, isFilteringByName, isFilteringByOnly, isFilteringByTags } = parent.root.harness;
 
       this.root = parent.root;
       this.harness = null;
@@ -591,12 +645,22 @@ class Test extends AsyncResource {
       this.childNumber = parent.subtests.length + 1;
       this.timeout = parent.timeout;
       this.entryFile = parent.entryFile;
+      this.testId = this.root.nextTestId++;
 
       if (isFilteringByName) {
         this.filteredByName = this.willBeFilteredByName();
         if (!this.filteredByName) {
           for (let t = this.parent; t !== null && t.filteredByName; t = t.parent) {
             t.filteredByName = false;
+          }
+        }
+      }
+
+      if (isFilteringByTags) {
+        this.filteredByTag = this.willBeFilteredByTags();
+        if (!this.filteredByTag) {
+          for (let t = this.parent; t !== null && t.filteredByTag; t = t.parent) {
+            t.filteredByTag = false;
           }
         }
       }
@@ -690,11 +754,17 @@ class Test extends AsyncResource {
     this.message = typeof skip === 'string' ? skip :
       typeof todo === 'string' ? todo : null;
     this.activeSubtests = 0;
+    this.subtestQueueRandom = this.config.randomize ?
+      createSeededGenerator(this.config.randomSeed) :
+      null;
     this.pendingSubtests = [];
+    this.pendingSubtestsScheduled = false;
     this.readySubtests = new SafeMap();
     this.unfinishedSubtests = new SafeSet();
     this.subtestsPromise = null;
     this.subtests = [];
+    this.nextReportOrder = 1;
+    this.reportOrder = 0;
     this.waitingOn = 0;
     this.finished = false;
     this.hooks = {
@@ -733,31 +803,59 @@ class Test extends AsyncResource {
     }
 
     if (this.loc != null && this.root.harness.previousRuns != null) {
-      let testIdentifier = `${relative(this.config.cwd, this.loc.file)}:${this.loc.line}:${this.loc.column}`;
-      const disambiguator = this.root.testDisambiguator.get(testIdentifier);
+      const baseIdentifier = `${relative(this.config.cwd, this.loc.file)}:${this.loc.line}:${this.loc.column}`;
+      let testIdentifier = baseIdentifier;
+      const disambiguator = this.root.testDisambiguator.get(baseIdentifier);
       if (disambiguator !== undefined) {
         testIdentifier += `:(${disambiguator})`;
-        this.root.testDisambiguator.set(testIdentifier, disambiguator + 1);
+        this.root.testDisambiguator.set(baseIdentifier, disambiguator + 1);
       } else {
-        this.root.testDisambiguator.set(testIdentifier, 1);
+        this.root.testDisambiguator.set(baseIdentifier, 1);
       }
       this.attempt = this.root.harness.previousRuns.length;
       const previousAttempt = this.root.harness.previousRuns[this.attempt - 1]?.[testIdentifier];
       if (previousAttempt != null) {
         this.passedAttempt = previousAttempt.passed_on_attempt;
+        if (previousAttempt.duration_ms !== undefined) {
+          this.replayedDurationNs = BigInt(MathRound(previousAttempt.duration_ms * 1_000_000));
+        }
         this.fn = () => {
+          // Restore the original duration on the synthetic replay. Suites are
+          // skipped here because Suite.run() unconditionally reassigns
+          // startTime later; only non-suite tests benefit from setting it.
+          if (this.reportedType !== 'suite') {
+            this.startTime = hrtime();
+            this.endTime = this.startTime + (this.replayedDurationNs ?? 0n);
+          }
           for (let i = 0; i < (previousAttempt.children?.length ?? 0); i++) {
             const child = previousAttempt.children[i];
             const t = this.createSubtest(Test, child.name, { __proto__: null }, noop, {
               __proto__: null,
               loc: [child.line, child.column, child.file],
             }, noop);
-            t.endTime = t.startTime = hrtime();
-            t.start();
+            t.startTime = hrtime();
+            t.endTime = t.startTime + (t.replayedDurationNs ?? 0n);
+            // For suites, Suite.run() starts the subtests via SafePromiseAll.
+            // Starting them here as well would run them twice, re-invoking the
+            // synthetic children-creator against a now-incremented disambiguator
+            // and producing spurious failures.
+            if (this.reportedType !== 'suite') {
+              t.start();
+            }
           }
         };
       }
     }
+  }
+
+  get tags() {
+    if (this.#tagsArray !== null) {
+      return this.#tagsArray;
+    }
+    this.#tagsArray = this.tagSet.size === 0 ?
+      kEmptyTagArray :
+      ObjectFreeze(ArrayFrom(this.tagSet));
+    return this.#tagsArray;
   }
 
   applyFilters() {
@@ -776,7 +874,12 @@ class Test extends AsyncResource {
           this.parent.hasOnlyTests ||
           this.only === false) {
         this.filtered = true;
+        return;
       }
+    }
+
+    if (this.filteredByTag) {
+      this.filtered = true;
     }
   }
 
@@ -790,6 +893,10 @@ class Test extends AsyncResource {
       return true;
     }
     return false;
+  }
+
+  willBeFilteredByTags() {
+    return !evaluateTagFilters(this.config.testTagFilters, this.tagSet);
   }
 
   /**
@@ -820,14 +927,50 @@ class Test extends AsyncResource {
     ArrayPrototypePush(this.pendingSubtests, deferred);
   }
 
+  schedulePendingSubtests() {
+    if (this.pendingSubtestsScheduled) {
+      return;
+    }
+
+    this.pendingSubtestsScheduled = true;
+    queueMicrotask(() => {
+      this.pendingSubtestsScheduled = false;
+      this.processPendingSubtests();
+    });
+  }
+
+  /**
+   * Ensure each subtest has a contiguous, per-parent reporting order.
+   * This is assigned at dequeue time for randomized runs, but tests that are
+   * cancelled before dequeue still need an order to be reported.
+   * @param {Test} subtest
+   * @returns {void}
+   */
+  assignReportOrder(subtest) {
+    if (subtest.reportOrder === 0) {
+      subtest.reportOrder = this.nextReportOrder++;
+    }
+  }
+
+  dequeuePendingSubtest() {
+    if (!this.subtestQueueRandom || this.pendingSubtests.length < 2) {
+      return ArrayPrototypeShift(this.pendingSubtests);
+    }
+
+    // Pick a uniformly random pending sibling when randomization is enabled.
+    const index = MathFloor(this.subtestQueueRandom() * this.pendingSubtests.length);
+    return ArrayPrototypeSplice(this.pendingSubtests, index, 1)[0];
+  }
+
   /**
    * @returns {Promise<void>}
    */
   async processPendingSubtests() {
     while (this.pendingSubtests.length > 0 && this.hasConcurrency()) {
-      const deferred = ArrayPrototypeShift(this.pendingSubtests);
+      const deferred = this.dequeuePendingSubtest();
       const test = deferred.test;
-      test.reporter.dequeue(test.nesting, test.loc, test.name, this.reportedType);
+      this.assignReportOrder(test);
+      test.reporter.dequeue(test.nesting, test.loc, test.name, this.reportedType, test.testId, this.testId, test.tags);
       await test.run();
       deferred.resolve();
     }
@@ -838,7 +981,8 @@ class Test extends AsyncResource {
    * @returns {void}
    */
   addReadySubtest(subtest) {
-    this.readySubtests.set(subtest.childNumber, subtest);
+    this.assignReportOrder(subtest);
+    this.readySubtests.set(subtest.reportOrder, subtest);
 
     if (this.unfinishedSubtests.delete(subtest) &&
         this.unfinishedSubtests.size === 0) {
@@ -1068,6 +1212,12 @@ class Test extends AsyncResource {
     ArrayPrototypePush(this.diagnostics, message);
   }
 
+  log(message, data) {
+    validateString(message, 'message');
+    this.reporter.log(this.nesting, this.loc, message, data,
+                      this.name, this.testId, this.parent?.testId);
+  }
+
   start() {
     this.applyFilters();
 
@@ -1083,7 +1233,8 @@ class Test extends AsyncResource {
     // it. Otherwise, return a Promise to the caller and mark the test as
     // pending for later execution.
     this.parent.unfinishedSubtests.add(this);
-    this.reporter.enqueue(this.nesting, this.loc, this.name, this.reportedType);
+    this.reporter.enqueue(this.nesting, this.loc, this.name, this.reportedType,
+                          this.testId, this.parent?.testId, this.tags);
     if (this.root.harness.buildPromise || !this.parent.hasConcurrency()) {
       const deferred = PromiseWithResolvers();
 
@@ -1092,7 +1243,22 @@ class Test extends AsyncResource {
       return deferred.promise;
     }
 
-    this.reporter.dequeue(this.nesting, this.loc, this.name, this.reportedType);
+    // When this parent dequeues subtests through subtestQueueRandom, defer the
+    // first start to the next microtask so siblings created in the same
+    // synchronous turn are all eligible for the first randomized pick, rather
+    // than letting declaration order claim the initial concurrency slot(s).
+    if (this.parent.subtestQueueRandom) {
+      const deferred = PromiseWithResolvers();
+
+      setOwnProperty(deferred, 'test', this);
+      this.parent.addPendingSubtest(deferred);
+      this.parent.schedulePendingSubtests();
+      return deferred.promise;
+    }
+
+    this.parent.assignReportOrder(this);
+    this.reporter.dequeue(this.nesting, this.loc, this.name, this.reportedType,
+                          this.testId, this.parent?.testId, this.tags);
     return this.run();
   }
 
@@ -1103,8 +1269,14 @@ class Test extends AsyncResource {
     }
   }
 
+  #ctx;
+  getCtx() {
+    this.#ctx ??= new TestContext(this);
+    return this.#ctx;
+  }
+
   getRunArgs() {
-    const ctx = new TestContext(this);
+    const ctx = this.getCtx();
     return { __proto__: null, ctx, args: [ctx] };
   }
 
@@ -1140,6 +1312,17 @@ class Test extends AsyncResource {
     }
     this.startTime ??= hrtime();
 
+    // Channel context object shared across all lifecycle events for this test run.
+    // Only tests emit events; hooks do not. This way, the test's span encompasses
+    // its before/beforeEach hooks, the test body, and its afterEach/after hooks.
+    const channelContext = this.hookType === undefined ? {
+      __proto__: null,
+      name: this.name,
+      nesting: this.nesting,
+      file: this.entryFile,
+      type: this.reportedType,
+    } : null;
+
     if (this[kShouldAbort]()) {
       this.postRun();
       return;
@@ -1167,6 +1350,9 @@ class Test extends AsyncResource {
 
     let stopPromise;
 
+    let publishEnd = () => testChannel.end.publish(channelContext);
+    let publishError = (err) => testChannel.error.publish({ __proto__: null, ...channelContext, error: err });
+
     try {
       if (this.parent?.hooks.before.length > 0) {
         // This hook usually runs immediately, we need to wait for it to finish
@@ -1177,7 +1363,22 @@ class Test extends AsyncResource {
       }
       stopPromise = stopTest(this.timeout, this.signal);
       const runArgs = ArrayPrototypeSlice(args);
-      ArrayPrototypeUnshift(runArgs, this.fn, ctx);
+
+      // Wrap the test function with runStores if the channel has subscribers.
+      // The wrapped function is what gets passed to runInAsyncScope, ensuring that
+      // the test runs within both the runStores context (for AsyncLocalStorage/bindStore)
+      // AND the AsyncResource scope. It's critical that runStores wraps the function,
+      // not the runInAsyncScope call itself, to maintain AsyncLocalStorage bindings.
+      let testFn = this.fn;
+      if (channelContext !== null && testChannel.start.hasSubscribers) {
+        testFn = (...fnArgs) => testChannel.start.runStores(channelContext, () => {
+          publishEnd = AsyncResource.bind(publishEnd);
+          publishError = AsyncResource.bind(publishError);
+          return ReflectApply(this.fn, this, fnArgs);
+        });
+      }
+
+      ArrayPrototypeUnshift(runArgs, testFn, ctx);
 
       const promises = [];
       if (this.fn.length === runArgs.length - 1) {
@@ -1226,6 +1427,9 @@ class Test extends AsyncResource {
       await afterEach();
       await after();
     } catch (err) {
+      if (channelContext !== null && testChannel.error.hasSubscribers) {
+        publishError(err);
+      }
       if (isTestFailureError(err)) {
         if (err.failureType === kTestTimeoutFailure) {
           this.#cancel(err);
@@ -1244,6 +1448,11 @@ class Test extends AsyncResource {
       // cause them to not run for further tests.
       if (this.parent !== null) {
         this.abortController.abort();
+      }
+
+      // Publish diagnostics_channel end event if the channel has subscribers (in both success and error cases)
+      if (channelContext !== null && testChannel.end.hasSubscribers) {
+        publishEnd();
       }
     }
 
@@ -1321,7 +1530,10 @@ class Test extends AsyncResource {
         const report = this.getReportDetails();
         report.details.passed = this.passed;
         this.testNumber ||= ++this.parent.outputSubtestCount;
-        this.reporter.complete(this.nesting, this.loc, this.testNumber, this.name, report.details, report.directive);
+        this.reporter.complete(
+          this.nesting, this.loc, this.testNumber, this.name,
+          report.details, report.directive, this.testId, this.parent?.testId, this.tags,
+        );
         this.parent.activeSubtests--;
       }
 
@@ -1398,7 +1610,7 @@ class Test extends AsyncResource {
   isClearToSend() {
     return this.parent === null ||
       (
-        this.parent.waitingOn === this.childNumber && this.parent.isClearToSend()
+        this.parent.waitingOn === this.reportOrder && this.parent.isClearToSend()
       );
   }
 
@@ -1461,6 +1673,17 @@ class Test extends AsyncResource {
       details.passed_on_attempt = this.passedAttempt;
     }
 
+    // Generate classname from suite hierarchy for JUnit reporter
+    if (this.parent && this.parent !== this.root) {
+      const parts = [];
+      for (let t = this.parent; t !== t.root; t = t.parent) {
+        ArrayPrototypeUnshift(parts, t.name);
+      }
+      if (parts.length > 0) {
+        details.classname = ArrayPrototypeJoin(parts, '.');
+      }
+    }
+
     return { __proto__: null, details, directive };
   }
 
@@ -1474,9 +1697,15 @@ class Test extends AsyncResource {
     const report = this.getReportDetails();
 
     if (this.passed) {
-      this.reporter.ok(this.nesting, this.loc, this.testNumber, this.name, report.details, report.directive);
+      this.reporter.ok(
+        this.nesting, this.loc, this.testNumber, this.name,
+        report.details, report.directive, this.testId, this.parent?.testId, this.tags,
+      );
     } else {
-      this.reporter.fail(this.nesting, this.loc, this.testNumber, this.name, report.details, report.directive);
+      this.reporter.fail(
+        this.nesting, this.loc, this.testNumber, this.name,
+        report.details, report.directive, this.testId, this.parent?.testId, this.tags,
+      );
     }
 
     for (let i = 0; i < this.diagnostics.length; i++) {
@@ -1490,7 +1719,7 @@ class Test extends AsyncResource {
     }
     this.#reportedSubtest = true;
     this.parent.reportStarted();
-    this.reporter.start(this.nesting, this.loc, this.name);
+    this.reporter.start(this.nesting, this.loc, this.name, this.testId, this.parent?.testId, this.tags);
   }
 
   clearExecutionTime() {
@@ -1527,6 +1756,11 @@ class TestHook extends Test {
     this.#args = args;
     return super.run();
   }
+
+  getCtx() {
+    return this.parentTest.getCtx();
+  }
+
   getRunArgs() {
     return this.#args;
   }
@@ -1547,7 +1781,7 @@ class TestHook extends Test {
         __proto__: null,
         duration_ms: this.duration(),
         error,
-      }, undefined);
+      }, undefined, undefined, undefined, parent.tags);
     }
   }
 }
@@ -1572,21 +1806,73 @@ class Suite extends Test {
   }
 
   async createBuild() {
+    const channelContext = {
+      __proto__: null,
+      name: this.name,
+      nesting: this.nesting,
+      file: this.entryFile,
+      type: this.reportedType,
+    };
+    let publishEnd = () => testChannel.end.publish(channelContext);
+    let publishError = (err) => testChannel.error.publish({ __proto__: null, ...channelContext, error: err });
+
     try {
       const { ctx, args } = this.getRunArgs();
-      const runArgs = [this.fn, ctx];
+
+      // Wrap the suite function with runStores if the channel has subscribers.
+      // The wrapped function is what gets passed to runInAsyncScope, ensuring that
+      // the suite runs within both the runStores context (for AsyncLocalStorage/bindStore)
+      // AND the AsyncResource scope. It's critical that runStores wraps the function,
+      // not the runInAsyncScope call itself, to maintain AsyncLocalStorage bindings.
+      let suiteFn = this.fn;
+      if (testChannel.start.hasSubscribers) {
+        const baseFn = this.fn;
+        suiteFn = (...fnArgs) => testChannel.start.runStores(channelContext, () => {
+          publishEnd = AsyncResource.bind(publishEnd);
+          publishError = AsyncResource.bind(publishError);
+          return ReflectApply(baseFn, this, fnArgs);
+        });
+      }
+
+      const runArgs = [suiteFn, ctx];
       ArrayPrototypePushApply(runArgs, args);
+
       await ReflectApply(this.runInAsyncScope, this, runArgs);
     } catch (err) {
+      if (testChannel.error.hasSubscribers) {
+        publishError(err);
+      }
       this.fail(new ERR_TEST_FAILURE(err, kTestCodeFailure));
     }
 
+    this.#publishEnd = publishEnd;
     this.buildPhaseFinished = true;
+  }
+
+  #publishEnd = null;
+
+  #publishSuiteEnd() {
+    const publishEnd = this.#publishEnd;
+    this.#publishEnd = null;
+    if (publishEnd !== null && testChannel.end.hasSubscribers) {
+      publishEnd();
+    }
+  }
+
+  #ctx;
+  getCtx() {
+    this.#ctx ??= new TestContext(this);
+    return this.#ctx;
   }
 
   getRunArgs() {
     const ctx = new SuiteContext(this);
     return { __proto__: null, ctx, args: [ctx] };
+  }
+
+  async filteredRun() {
+    await this.buildSuite;
+    return super.filteredRun();
   }
 
   async run() {
@@ -1629,6 +1915,7 @@ class Suite extends Test {
       }
     } finally {
       stopPromise?.[SymbolDispose]();
+      this.#publishSuiteEnd();
     }
 
     this.postRun();

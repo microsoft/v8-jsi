@@ -1,48 +1,115 @@
 #include "node_config_file.h"
 #include "debug_utils-inl.h"
+#include "node_version.h"
 #include "simdjson.h"
 
-#include <string>
+#include <algorithm>
+#include <cinttypes>
 
 namespace node {
 
+constexpr std::string_view kConfigFileFlag = "--config-file";
+// TODO(marco-ippolito): Remove these aliases in a semver-major.
+constexpr std::string_view kExperimentalConfigFileFlag =
+    "--experimental-config-file";
+constexpr std::string_view kDefaultConfigFileFlag =
+    "--experimental-default-config-file";
+constexpr std::string_view kDefaultConfigFileName = "node.config.json";
+constexpr std::string_view kSchemaField = "$schema";
+
+inline bool HasEqualsPrefix(std::string_view arg, std::string_view flag) {
+  return arg.size() > flag.size() && arg.starts_with(flag) &&
+         arg[flag.size()] == '=';
+}
+
+inline bool IsBareConfigFileFlag(std::string_view arg) {
+  return arg == kConfigFileFlag || arg == kExperimentalConfigFileFlag ||
+         arg == kDefaultConfigFileFlag;
+}
+
+inline bool IsConfigFileFlag(std::string_view arg) {
+  return IsBareConfigFileFlag(arg) || HasEqualsPrefix(arg, kConfigFileFlag) ||
+         HasEqualsPrefix(arg, kExperimentalConfigFileFlag) ||
+         HasEqualsPrefix(arg, kDefaultConfigFileFlag);
+}
+
+inline std::string DefaultConfigFileArg() {
+  return std::string(kConfigFileFlag) + "=" +
+         std::string(kDefaultConfigFileName);
+}
+
+// Returns the index of the first entry in `args` that is neither the program
+// name nor an option for Node.js itself. Everything from there on is the
+// script and its arguments, or follows `--`, so it must not be read as a
+// config file flag.
+size_t GetNodeOptionsEnd(const std::vector<std::string>& args) {
+  // The bare flags take no value. Spell them out the way GetDataFromArgs()
+  // does before the real parse, otherwise the parser would consume the next
+  // argument as the path.
+  std::vector<std::string> remaining;
+  remaining.reserve(args.size());
+  for (const std::string& arg : args) {
+    remaining.push_back(IsBareConfigFileFlag(arg) ? DefaultConfigFileArg()
+                                                  : arg);
+  }
+
+  // Parsing into throwaway options stops exactly where the real parse will.
+  // Any errors are reported by the real parse later on.
+  PerProcessOptions options;
+  std::vector<std::string> v8_args;
+  std::vector<std::string> errors;
+  options_parser::Parse(
+      &remaining, nullptr, &v8_args, &options, kDisallowedInEnvvar, &errors);
+
+  // `remaining` is left with the program name and the unparsed arguments.
+  return args.size() - remaining.size() + 1;
+}
+
 std::optional<std::string_view> ConfigReader::GetDataFromArgs(
-    const std::vector<std::string>& args) {
-  constexpr std::string_view flag_path = "--experimental-config-file";
-  constexpr std::string_view default_file =
-      "--experimental-default-config-file";
+    std::vector<std::string>* args) {
+  std::optional<std::string_view> result;
+  invalid_default_config_file_argument_ = false;
 
-  bool has_default_config_file = false;
+  // Only pay for the extra parse when a config file flag might be present.
+  if (args->empty() || std::ranges::none_of(*args, IsConfigFileFlag)) {
+    return result;
+  }
 
-  for (auto it = args.begin(); it != args.end(); ++it) {
-    if (*it == flag_path) {
-      // Case: "--experimental-config-file foo"
-      if (auto next = std::next(it); next != args.end()) {
-        return *next;
+  const size_t node_options_end = GetNodeOptionsEnd(*args);
+  for (size_t i = 1; i < node_options_end; ++i) {
+    std::string& arg = (*args)[i];
+
+    if (IsBareConfigFileFlag(arg)) {
+      // --config-file, --experimental-config-file or
+      // --experimental-default-config-file
+      arg = DefaultConfigFileArg();
+      result = kDefaultConfigFileName;
+    } else if (HasEqualsPrefix(arg, kConfigFileFlag) ||
+               HasEqualsPrefix(arg, kExperimentalConfigFileFlag)) {
+      // --config-file=path or --experimental-config-file=path
+      std::string_view path = std::string_view(arg).substr(arg.find('=') + 1);
+      if (!path.empty()) {
+        result = path;
       }
-    } else if (it->starts_with(flag_path)) {
-      // Case: "--experimental-config-file=foo"
-      if (it->size() > flag_path.size() && (*it)[flag_path.size()] == '=') {
-        return std::string_view(*it).substr(flag_path.size() + 1);
-      }
-    } else if (*it == default_file || it->starts_with(default_file)) {
-      has_default_config_file = true;
+    } else if (HasEqualsPrefix(arg, kDefaultConfigFileFlag)) {
+      invalid_default_config_file_argument_ = true;
     }
   }
 
-  if (has_default_config_file) {
-    return "node.config.json";
-  }
+  return result;
+}
 
-  return std::nullopt;
+bool ConfigReader::HasInvalidDefaultConfigFileArgument() const {
+  return invalid_default_config_file_argument_;
 }
 
 ParseResult ConfigReader::ProcessOptionValue(
-    const std::pair<std::string, options_parser::OptionType>& option_info,
+    const std::pair<std::string, options_parser::OptionMappingDetails>&
+        option_details,
     simdjson::ondemand::value* option_value,
     std::vector<std::string>* output) {
-  const std::string& option_name = option_info.first;
-  const options_parser::OptionType option_type = option_info.second;
+  const std::string& option_name = option_details.first;
+  const options_parser::OptionType option_type = option_details.second.type;
 
   switch (option_type) {
     case options_parser::OptionType::kBoolean: {
@@ -150,7 +217,8 @@ ParseResult ConfigReader::ParseOptions(
     std::unordered_set<std::string>* unique_options,
     const std::string& namespace_name) {
   // Determine which options map to use and output vector
-  std::unordered_map<std::string, options_parser::OptionType> options_map;
+  std::unordered_map<std::string, options_parser::OptionMappingDetails>
+      options_map;
   std::vector<std::string>* output_vector;
 
   if (namespace_name == "nodeOptions") {
@@ -207,6 +275,244 @@ ParseResult ConfigReader::ParseOptions(
   return ParseResult::Valid;
 }
 
+ParseResult ConfigReader::ParseNodeVersion(
+    simdjson::ondemand::value* version_value,
+    const std::string_view& config_path) {
+  int64_t version;
+  if (version_value->get_int64().get(version)) {
+    FPrintF(stderr,
+            "\"nodeVersion\" value unexpected for %s "
+            "(should be an integer)\n",
+            config_path.data());
+    return ParseResult::InvalidContent;
+  }
+
+  if (version != NODE_MAJOR_VERSION) {
+    FPrintF(stderr,
+            "\"nodeVersion\" %" PRId64
+            " does not match current Node.js version %d "
+            "for %s\n",
+            version,
+            NODE_MAJOR_VERSION,
+            config_path.data());
+    return ParseResult::InvalidContent;
+  }
+
+  return ParseResult::Valid;
+}
+
+ParseResult ConfigReader::ParseConfigs(simdjson::ondemand::array* configs,
+                                       const std::string_view& config_path) {
+  size_t index = 0;
+
+  for (auto raw_config : *configs) {
+    simdjson::ondemand::object config_wrapper;
+    if (raw_config.get_object().get(config_wrapper)) {
+      FPrintF(stderr,
+              "\"configs[%zu]\" value unexpected for %s "
+              "(should be an object)\n",
+              index,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+
+    simdjson::ondemand::value version_value;
+    auto version_error =
+        config_wrapper.find_field_unordered("nodeVersion").get(version_value);
+    if (version_error == simdjson::NO_SUCH_FIELD) {
+      FPrintF(stderr,
+              "\"configs[%zu].nodeVersion\" is required for %s\n",
+              index,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+    if (version_error) {
+      return ParseResult::InvalidContent;
+    }
+
+    int64_t version;
+    if (version_value.get_int64().get(version)) {
+      FPrintF(stderr,
+              "\"configs[%zu].nodeVersion\" value unexpected for %s "
+              "(should be an integer)\n",
+              index,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+
+    if (version != NODE_MAJOR_VERSION) {
+      index++;
+      continue;
+    }
+
+    simdjson::ondemand::value config_value;
+    auto config_error =
+        config_wrapper.find_field_unordered("config").get(config_value);
+    if (config_error == simdjson::NO_SUCH_FIELD) {
+      FPrintF(stderr,
+              "\"configs[%zu].config\" is required for %s\n",
+              index,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+    if (config_error) {
+      return ParseResult::InvalidContent;
+    }
+
+    simdjson::ondemand::object selected_config;
+    if (config_value.get_object().get(selected_config)) {
+      FPrintF(stderr,
+              "\"configs[%zu].config\" value unexpected for %s "
+              "(should be an object)\n",
+              index,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+
+    return ParseConfigObject(&selected_config, config_path, false);
+  }
+
+  FPrintF(stderr,
+          "No config found for current Node.js version %d in "
+          "\"configs\" for %s\n",
+          NODE_MAJOR_VERSION,
+          config_path.data());
+  return ParseResult::InvalidContent;
+}
+
+ParseResult ConfigReader::ParseConfigObject(
+    simdjson::ondemand::object* config_object,
+    const std::string_view& config_path,
+    bool allow_version_selection) {
+  // Get all available namespaces for validation
+  std::vector<std::string> available_namespaces =
+      options_parser::MapAvailableNamespaces();
+  // Add "nodeOptions" as a special case for backward compatibility
+  available_namespaces.emplace_back("nodeOptions");
+
+  // Create a set for faster lookup of valid namespaces
+  std::unordered_set<std::string> valid_namespaces(available_namespaces.begin(),
+                                                   available_namespaces.end());
+  // Create a set to track unique options
+  std::unordered_set<std::string> unique_options;
+  // Namespaces in OPTION_NAMESPACE_LIST
+  std::unordered_set<std::string> namespaces_with_implicit_flags;
+
+  // Iterate through the main object to find all namespaces
+  for (auto field : *config_object) {
+    std::string_view field_name;
+    if (field.unescaped_key().get(field_name)) {
+      return ParseResult::InvalidContent;
+    }
+
+    std::string namespace_name(field_name);
+
+    if (namespace_name == "$schema") {
+      continue;
+    }
+
+    if (namespace_name == "nodeVersion") {
+      simdjson::ondemand::value version_value;
+      if (field.value().get(version_value)) {
+        return ParseResult::InvalidContent;
+      }
+      ParseResult result = ParseNodeVersion(&version_value, config_path);
+      if (result != ParseResult::Valid) {
+        return result;
+      }
+      continue;
+    }
+
+    if (namespace_name == "configs") {
+      if (!allow_version_selection) {
+        FPrintF(stderr,
+                "\"configs\" is not allowed inside a versioned config "
+                "for %s\n",
+                config_path.data());
+        return ParseResult::InvalidContent;
+      }
+
+      simdjson::ondemand::array configs;
+      auto field_error = field.value().get_array().get(configs);
+      if (field_error) {
+        FPrintF(stderr,
+                "\"configs\" value unexpected for %s "
+                "(should be an array)\n",
+                config_path.data());
+        return ParseResult::InvalidContent;
+      }
+      ParseResult result = ParseConfigs(&configs, config_path);
+      if (result != ParseResult::Valid) {
+        return result;
+      }
+      continue;
+    }
+
+    // TODO(@marco-ippolito): Remove warning for testRunner namespace
+    if (namespace_name == "testRunner") {
+      FPrintF(stderr,
+              "the \"testRunner\" namespace has been removed. "
+              "Use \"test\" instead.\n");
+      // Better to throw an error than to ignore it
+      // Otherwise users might think their test suite is green
+      // when it's not running
+      return ParseResult::InvalidContent;
+    }
+
+    if (namespace_name == kSchemaField) {
+      continue;
+    }
+
+    // Check if this field is a valid namespace
+    if (!valid_namespaces.contains(namespace_name)) {
+      FPrintF(stderr, "Unknown namespace %s\n", namespace_name);
+      return ParseResult::InvalidContent;
+    }
+
+    // List of implicit namespace flags
+    for (auto ns_enum : options_parser::AllNamespaces()) {
+      std::string ns_str = options_parser::NamespaceEnumToString(ns_enum);
+      if (!ns_str.empty() && namespace_name == ns_str) {
+        namespaces_with_implicit_flags.insert(namespace_name);
+        break;
+      }
+    }
+
+    // Get the namespace object
+    simdjson::ondemand::object namespace_object;
+    auto field_error = field.value().get_object().get(namespace_object);
+
+    // If namespace value is not an object
+    if (field_error) {
+      FPrintF(stderr,
+              "\"%s\" value unexpected for %s (should be an object)\n",
+              namespace_name,
+              config_path.data());
+      return ParseResult::InvalidContent;
+    }
+
+    // Process options for this namespace using the unified method
+    ParseResult result =
+        ParseOptions(&namespace_object, &unique_options, namespace_name);
+    if (result != ParseResult::Valid) {
+      return result;
+    }
+  }
+
+  // Add implicit flags for namespaces (--bench, --test, --permission, --watch)
+  // These flags are automatically enabled when their namespace is present
+  for (const auto& ns : namespaces_with_implicit_flags) {
+    std::string flag = "--" + ns;
+    std::string no_flag = "--no-" + ns;
+    // We skip if the user has already set the flag or its negation
+    if (!unique_options.contains(flag) && !unique_options.contains(no_flag)) {
+      namespace_options_.push_back(flag);
+    }
+  }
+
+  return ParseResult::Valid;
+}
+
 ParseResult ConfigReader::ParseConfig(const std::string_view& config_path) {
   std::string file_content;
   // Read the configuration file
@@ -240,53 +546,40 @@ ParseResult ConfigReader::ParseConfig(const std::string_view& config_path) {
     return ParseResult::InvalidContent;
   }
 
-  // Get all available namespaces for validation
-  std::vector<std::string> available_namespaces =
-      options_parser::MapAvailableNamespaces();
-  // Add "nodeOptions" as a special case for backward compatibility
-  available_namespaces.emplace_back("nodeOptions");
-
-  // Create a set for faster lookup of valid namespaces
-  std::unordered_set<std::string> valid_namespaces(available_namespaces.begin(),
-                                                   available_namespaces.end());
-  // Create a set to track unique options
-  std::unordered_set<std::string> unique_options;
-  // Iterate through the main object to find all namespaces
+  bool has_configs = false;
+  bool has_other_fields = false;
   for (auto field : main_object) {
     std::string_view field_name;
     if (field.unescaped_key().get(field_name)) {
       return ParseResult::InvalidContent;
     }
 
-    // Check if this field is a valid namespace
-    std::string namespace_name(field_name);
-    if (!valid_namespaces.contains(namespace_name)) {
-      // If not, skip it
+    if (field_name == "$schema") {
       continue;
     }
 
-    // Get the namespace object
-    simdjson::ondemand::object namespace_object;
-    auto field_error = field.value().get_object().get(namespace_object);
-
-    // If namespace value is not an object
-    if (field_error) {
-      FPrintF(stderr,
-              "\"%s\" value unexpected for %s (should be an object)\n",
-              namespace_name,
-              config_path.data());
-      return ParseResult::InvalidContent;
-    }
-
-    // Process options for this namespace using the unified method
-    ParseResult result =
-        ParseOptions(&namespace_object, &unique_options, namespace_name);
-    if (result != ParseResult::Valid) {
-      return result;
+    if (field_name == "configs") {
+      has_configs = true;
+    } else {
+      has_other_fields = true;
     }
   }
 
-  return ParseResult::Valid;
+  if (has_configs && has_other_fields) {
+    FPrintF(stderr,
+            "\"configs\" cannot be mixed with other configuration fields "
+            "for %s\n",
+            config_path.data());
+    return ParseResult::InvalidContent;
+  }
+
+  // Walk the document again, this time to parse the configuration.
+  document.rewind();
+  if (document.get_object().get(main_object)) {
+    return ParseResult::InvalidContent;
+  }
+
+  return ParseConfigObject(&main_object, config_path, true);
 }
 
 std::string ConfigReader::GetNodeOptions() {

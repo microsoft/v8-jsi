@@ -752,8 +752,7 @@ struct AbiHostObjectProxy {
   }
 
   static void Enumerator(const v8::PropertyCallbackInfo<v8::Array> &info) {
-    AbiHostObjectProxy *proxy =
-        GetProxyFromThis(info.This(), info.GetIsolate());
+    AbiHostObjectProxy *proxy = GetProxy(info);
     if (!proxy || !proxy->hostObject) {
       info.GetReturnValue().Set(v8::Array::New(info.GetIsolate()));
       return;
@@ -788,11 +787,10 @@ private:
   template <typename T>
   static AbiHostObjectProxy *
   GetProxy(const v8::PropertyCallbackInfo<T> &info) {
-    return GetProxyFromThis(info.This(), info.GetIsolate());
+    return GetProxyFromHolder(info.HolderV2());
   }
 
-  static AbiHostObjectProxy *GetProxyFromThis(v8::Local<v8::Object> obj,
-                                               v8::Isolate * /*isolate*/) {
+  static AbiHostObjectProxy *GetProxyFromHolder(v8::Local<v8::Object> obj) {
     while (obj->InternalFieldCount() != 1) {
       v8::Local<v8::Value> proto = obj->GetPrototypeV2();
       if (proto.IsEmpty() || !proto->IsObject())
@@ -1157,8 +1155,8 @@ JsiRuntimeState::~JsiRuntimeState() {
 
 // Adapted from V8 d8 utility code (was V8Runtime::PromiseRejectCallback).
 void JsiRuntimeState::PromiseRejectCallback(v8::PromiseRejectMessage data) {
-  if (data.GetEvent() == v8::kPromiseRejectAfterResolved ||
-      data.GetEvent() == v8::kPromiseResolveAfterResolved) {
+  if (data.GetEvent() != v8::kPromiseRejectWithNoHandler &&
+      data.GetEvent() != v8::kPromiseHandlerAddedAfterReject) {
     return;
   }
   v8::Local<v8::Promise> promise = data.GetPromise();

@@ -68,7 +68,8 @@ Maybe<void> RandomBytesTraits::AdditionalConfig(
 bool RandomBytesTraits::DeriveBits(Environment* env,
                                    const RandomBytesConfig& params,
                                    ByteSource* unused,
-                                   CryptoJobMode mode) {
+                                   CryptoJobMode mode,
+                                   CryptoErrorStore* errors) {
   return ncrypto::CSPRNG(params.buffer, params.size);
 }
 
@@ -155,7 +156,8 @@ Maybe<void> RandomPrimeTraits::AdditionalConfig(
 bool RandomPrimeTraits::DeriveBits(Environment* env,
                                    const RandomPrimeConfig& params,
                                    ByteSource* unused,
-                                   CryptoJobMode mode) {
+                                   CryptoJobMode mode,
+                                   CryptoErrorStore* errors) {
   return params.prime.generate(
       BignumPointer::PrimeConfig{
           .bits = params.bits,
@@ -194,7 +196,8 @@ Maybe<void> CheckPrimeTraits::AdditionalConfig(
 bool CheckPrimeTraits::DeriveBits(Environment* env,
                                   const CheckPrimeConfig& params,
                                   ByteSource* out,
-                                  CryptoJobMode mode) {
+                                  CryptoJobMode mode,
+                                  CryptoErrorStore* errors) {
   int ret = params.candidate.isPrime(params.checks, getPrimeCheckCallback(env));
   if (ret < 0) [[unlikely]]
     return false;
@@ -211,13 +214,47 @@ MaybeLocal<Value> CheckPrimeTraits::EncodeOutput(Environment* env,
 }
 
 namespace Random {
+static void RandomFillSync(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  CHECK(IsAnyBufferSource(args[0]));  // Buffer to fill
+  CHECK(args[1]->IsUint32());         // Offset
+  CHECK(args[2]->IsUint32());         // Size
+
+  ArrayBufferOrViewContents<unsigned char> in(args[0]);
+
+  const uint32_t byte_offset = args[1].As<Uint32>()->Value();
+  const uint32_t size = args[2].As<Uint32>()->Value();
+  CHECK_GE(byte_offset + size, byte_offset);  // Overflow check.
+  CHECK_LE(byte_offset + size, in.size());    // Bounds check.
+
+  env->PrintSyncTrace();
+  if (ERR_peek_error() != 0) ERR_clear_error();
+  if (ncrypto::CSPRNG(in.data() + byte_offset, size)) {
+    if (ERR_peek_error() != 0) ERR_clear_error();
+    return;
+  }
+
+  CryptoErrorStore errors;
+  errors.Capture();
+  if (errors.Empty()) {
+    errors.Insert(NodeCryptoError::DERIVING_BITS_FAILED);
+    errors.SetNodeErrorCode("ERR_CRYPTO_OPERATION_FAILED");
+  }
+  Local<Value> exception;
+  if (errors.ToException(env).ToLocal(&exception)) {
+    env->isolate()->ThrowException(exception);
+  }
+}
+
 void Initialize(Environment* env, Local<Object> target) {
+  SetMethod(env->context(), target, "randomFillSync", RandomFillSync);
   RandomBytesJob::Initialize(env, target);
   RandomPrimeJob::Initialize(env, target);
   CheckPrimeJob::Initialize(env, target);
 }
 
 void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
+  registry->Register(RandomFillSync);
   RandomBytesJob::RegisterExternalReferences(registry);
   RandomPrimeJob::RegisterExternalReferences(registry);
   CheckPrimeJob::RegisterExternalReferences(registry);

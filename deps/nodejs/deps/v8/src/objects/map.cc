@@ -25,6 +25,7 @@
 #include "src/objects/js-objects.h"
 #include "src/objects/map-updater.h"
 #include "src/objects/maybe-object.h"
+#include "src/objects/objects.h"
 #include "src/objects/oddball.h"
 #include "src/objects/property.h"
 #include "src/objects/transitions-inl.h"
@@ -43,7 +44,7 @@ Tagged<Map> Map::GetPrototypeChainRootMap(Isolate* isolate) const {
   if (constructor_function_index != Map::kNoConstructorFunctionIndex) {
     Tagged<Context> native_context = isolate->context()->native_context();
     Tagged<JSFunction> constructor_function =
-        Cast<JSFunction>(native_context->get(constructor_function_index));
+        Cast<JSFunction>(native_context->GetNoCell(constructor_function_index));
     return constructor_function->initial_map();
   }
   return ReadOnlyRoots(isolate).null_value()->map();
@@ -56,12 +57,14 @@ std::optional<Tagged<JSFunction>> Map::GetConstructorFunction(
   if (IsPrimitiveMap(map)) {
     int const constructor_function_index = map->GetConstructorFunctionIndex();
     if (constructor_function_index != kNoConstructorFunctionIndex) {
-      return Cast<JSFunction>(native_context->get(constructor_function_index));
+      return Cast<JSFunction>(
+          native_context->GetNoCell(constructor_function_index));
     }
   }
   return {};
 }
 
+// LINT.IfChange(get_visitor_id)
 VisitorId Map::GetVisitorId(Tagged<Map> map) {
   static_assert(kVisitorIdCount <= 256);
 
@@ -115,6 +118,7 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case ORDERED_HASH_SET_TYPE:
     case ORDERED_NAME_DICTIONARY_TYPE:
     case NAME_DICTIONARY_TYPE:
+    case SIMPLE_NAME_DICTIONARY_TYPE:
     case GLOBAL_DICTIONARY_TYPE:
     case NUMBER_DICTIONARY_TYPE:
     case SIMPLE_NUMBER_DICTIONARY_TYPE:
@@ -136,6 +140,9 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
 
     case NATIVE_CONTEXT_TYPE:
       return kVisitNativeContext;
+
+    case CONTEXT_CELL_TYPE:
+      return kVisitContextCell;
 
     case EPHEMERON_HASH_TABLE_TYPE:
       return kVisitEphemeronHashTable;
@@ -164,9 +171,6 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case PROPERTY_CELL_TYPE:
       return kVisitPropertyCell;
 
-    case CONTEXT_SIDE_PROPERTY_CELL_TYPE:
-      return kVisitContextSidePropertyCell;
-
     case TRANSITION_ARRAY_TYPE:
       return kVisitTransitionArray;
 
@@ -177,13 +181,13 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case ACCESSOR_INFO_TYPE:
       return kVisitAccessorInfo;
 
+    case INTERCEPTOR_INFO_TYPE:
+      return kVisitInterceptorInfo;
+
     case FUNCTION_TEMPLATE_INFO_TYPE:
       return kVisitFunctionTemplateInfo;
 
     case OBJECT_TEMPLATE_INFO_TYPE:
-      return kVisitStruct;
-
-    case JS_PROXY_TYPE:
       return kVisitStruct;
 
     case SYMBOL_TYPE:
@@ -212,6 +216,12 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
 
     case JS_TYPED_ARRAY_TYPE:
       return kVisitJSTypedArray;
+
+    [[unlikely]] case JS_DETACHED_TYPED_ARRAY_TYPE:
+      return kVisitJSTypedArray;
+
+    case DOUBLE_STRING_CACHE_TYPE:
+      return kVisitDoubleStringCache;
 
     case SMALL_ORDERED_HASH_MAP_TYPE:
       return kVisitSmallOrderedHashMap;
@@ -261,6 +271,7 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case JS_ITERATOR_TAKE_HELPER_TYPE:
     case JS_ITERATOR_DROP_HELPER_TYPE:
     case JS_ITERATOR_FLAT_MAP_HELPER_TYPE:
+    case JS_ITERATOR_CONCAT_HELPER_TYPE:
     case JS_ITERATOR_PROTOTYPE_TYPE:
     case JS_MAP_ITERATOR_PROTOTYPE_TYPE:
     case JS_MAP_KEY_ITERATOR_TYPE:
@@ -269,6 +280,7 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case JS_MAP_VALUE_ITERATOR_TYPE:
     case JS_MESSAGE_OBJECT_TYPE:
     case JS_MODULE_NAMESPACE_TYPE:
+    case JS_DEFERRED_MODULE_NAMESPACE_TYPE:
     case JS_OBJECT_PROTOTYPE_TYPE:
     case JS_OBJECT_TYPE:
     case JS_PRIMITIVE_WRAPPER_TYPE:
@@ -286,7 +298,7 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case JS_SHARED_STRUCT_TYPE:
     case JS_STRING_ITERATOR_PROTOTYPE_TYPE:
     case JS_STRING_ITERATOR_TYPE:
-    case JS_TEMPORAL_CALENDAR_TYPE:
+#ifdef V8_TEMPORAL_SUPPORT
     case JS_TEMPORAL_DURATION_TYPE:
     case JS_TEMPORAL_INSTANT_TYPE:
     case JS_TEMPORAL_PLAIN_DATE_TYPE:
@@ -294,8 +306,8 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case JS_TEMPORAL_PLAIN_MONTH_DAY_TYPE:
     case JS_TEMPORAL_PLAIN_TIME_TYPE:
     case JS_TEMPORAL_PLAIN_YEAR_MONTH_TYPE:
-    case JS_TEMPORAL_TIME_ZONE_TYPE:
     case JS_TEMPORAL_ZONED_DATE_TIME_TYPE:
+#endif  // V8_TEMPORAL_SUPPORT
     case JS_TYPED_ARRAY_PROTOTYPE_TYPE:
     case JS_VALID_ITERATOR_WRAPPER_TYPE:
     case JS_RAW_JSON_TYPE:
@@ -335,6 +347,9 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case JS_GLOBAL_OBJECT_TYPE:
     case JS_SPECIAL_API_OBJECT_TYPE:
       return kVisitJSApiObject;
+
+    case CPP_HEAP_EXTERNAL_OBJECT_TYPE:
+      return kVisitCppHeapExternalObject;
 
     case JS_DATE_TYPE:
       return kVisitJSDate;
@@ -384,7 +399,6 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
     case ENUM_CACHE_TYPE:
     case ERROR_STACK_DATA_TYPE:
     case FUNCTION_TEMPLATE_RARE_DATA_TYPE:
-    case INTERCEPTOR_INFO_TYPE:
     case MODULE_REQUEST_TYPE:
     case PROMISE_CAPABILITY_TYPE:
     case PROMISE_REACTION_TYPE:
@@ -404,6 +418,9 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
 
     case PROTOTYPE_INFO_TYPE:
       return kVisitPrototypeInfo;
+
+    case PROTOTYPE_SHARED_CLOSURE_INFO_TYPE:
+      return kVisitPrototypeSharedClosureInfo;
 
     case DEBUG_INFO_TYPE:
       return kVisitDebugInfo;
@@ -435,8 +452,6 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
 #if V8_ENABLE_WEBASSEMBLY
     case WASM_ARRAY_TYPE:
       return kVisitWasmArray;
-    case WASM_CONTINUATION_OBJECT_TYPE:
-      return kVisitWasmContinuationObject;
     case WASM_MEMORY_MAP_DESCRIPTOR_TYPE:
       return kVisitWasmMemoryMapDescriptor;
     case WASM_FUNC_REF_TYPE:
@@ -453,8 +468,8 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
       return kVisitWasmResumeData;
     case WASM_STRUCT_TYPE:
       return kVisitWasmStruct;
-    case WASM_SUSPENDER_OBJECT_TYPE:
-      return kVisitWasmSuspenderObject;
+    case WASM_CONTINUATION_OBJECT_TYPE:
+      return kVisitWasmContinuationObject;
     case WASM_SUSPENDING_OBJECT_TYPE:
       return kVisitWasmSuspendingObject;
     case WASM_TABLE_OBJECT_TYPE:
@@ -482,6 +497,7 @@ VisitorId Map::GetVisitorId(Tagged<Map> map) {
   FATAL("Instance type %s (code %d) not mapped to VisitorId.", name.c_str(),
         instance_type);
 }
+// LINT.ThenChange()
 
 // static
 MaybeObjectDirectHandle Map::WrapFieldType(DirectHandle<FieldType> type) {
@@ -640,20 +656,20 @@ Map::FieldCounts Map::GetFieldCounts() const {
 }
 
 void Map::DeprecateTransitionTree(Isolate* isolate) {
+  DCHECK(CanBeDeprecated());
+  return DeprecateTransitionTreeImpl(isolate);
+}
+
+void Map::DeprecateTransitionTreeImpl(Isolate* isolate) {
   if (is_deprecated()) return;
   DisallowGarbageCollection no_gc;
   ReadOnlyRoots roots(isolate);
   TransitionsAccessor transitions(isolate, *this);
   transitions.ForEachTransition(
-      &no_gc, [&](Tagged<Map> map) { map->DeprecateTransitionTree(isolate); },
-      [&](Tagged<Map> map) {
-        if (v8_flags.move_prototype_transitions_first) {
-          map->DeprecateTransitionTree(isolate);
-        }
-      },
+      &no_gc,
+      [&](Tagged<Map> map) { map->DeprecateTransitionTreeImpl(isolate); },
       nullptr);
   DCHECK(!IsFunctionTemplateInfo(constructor_or_back_pointer()));
-  DCHECK(CanBeDeprecated());
   set_is_deprecated(true);
   if (v8_flags.log_maps) {
     LOG(isolate, MapEvent("Deprecate", direct_handle(*this, isolate), {}));
@@ -702,11 +718,13 @@ Tagged<Map> Map::FindRootMap(PtrComprCageBase cage_base) const {
   while (true) {
     Tagged<Map> parent;
     if (!result->TryGetBackPointer(cage_base, &parent)) {
-      // Initial map must not contain descriptors in the descriptors array
-      // that do not belong to the map.
-      DCHECK_LE(result->NumberOfOwnDescriptors(),
-                result->instance_descriptors(cage_base, kRelaxedLoad)
-                    ->number_of_descriptors());
+#if DEBUG
+      if (IsJSObjectMap(result)) {
+        DCHECK_LE(result->NumberOfOwnDescriptors(),
+                  result->instance_descriptors(cage_base, kAcquireLoad)
+                      ->number_of_descriptors());
+      }
+#endif
       return result;
     }
     result = parent;
@@ -717,7 +735,7 @@ Tagged<Map> Map::FindFieldOwner(PtrComprCageBase cage_base,
                                 InternalIndex descriptor) const {
   DisallowGarbageCollection no_gc;
   DCHECK_EQ(PropertyLocation::kField,
-            instance_descriptors(cage_base, kRelaxedLoad)
+            instance_descriptors(cage_base, kAcquireLoad)
                 ->GetDetails(descriptor)
                 .location());
   Tagged<Map> result = *this;
@@ -765,9 +783,9 @@ MaybeHandle<Map> Map::TryUpdate(Isolate* isolate, Handle<Map> old_map) {
       isolate, *old_map, ConcurrencyMode::kSynchronous);
   if (!new_map.has_value()) return MaybeHandle<Map>();
   if (v8_flags.fast_map_update) {
-    TransitionsAccessor::SetMigrationTarget(isolate, old_map, new_map.value());
+    TransitionsAccessor::SetMigrationTarget(isolate, old_map, *new_map);
   }
-  return handle(new_map.value(), isolate);
+  return handle(*new_map, isolate);
 }
 
 Tagged<Map> Map::TryReplayPropertyTransitions(Isolate* isolate,
@@ -1093,7 +1111,7 @@ DirectHandle<Map> Map::TransitionElementsTo(Isolate* isolate,
     DisallowGarbageCollection no_gc;
     if (native_context->GetInitialJSArrayMap(from_kind) == *map) {
       Tagged<Object> maybe_transitioned_map =
-          native_context->get(Context::ArrayMapIndex(to_kind));
+          native_context->GetNoCell(Context::ArrayMapIndex(to_kind));
       if (IsMap(maybe_transitioned_map)) {
         return direct_handle(Cast<Map>(maybe_transitioned_map), isolate);
       }
@@ -1176,7 +1194,7 @@ Handle<Map> Map::AsElementsKind(Isolate* isolate, DirectHandle<Map> map,
 
 int Map::NumberOfEnumerableProperties() const {
   int result = 0;
-  Tagged<DescriptorArray> descs = instance_descriptors(kRelaxedLoad);
+  Tagged<DescriptorArray> descs = instance_descriptors(kAcquireLoad);
   for (InternalIndex i : IterateOwnDescriptors()) {
     if ((int{descs->GetDetails(i).attributes()} & ONLY_ENUMERABLE) == 0 &&
         !Object::FilterKey(descs->GetKey(i), ENUMERABLE_STRINGS)) {
@@ -1188,7 +1206,7 @@ int Map::NumberOfEnumerableProperties() const {
 
 int Map::NextFreePropertyIndex() const {
   int number_of_own_descriptors = NumberOfOwnDescriptors();
-  Tagged<DescriptorArray> descs = instance_descriptors(kRelaxedLoad);
+  Tagged<DescriptorArray> descs = instance_descriptors(kAcquireLoad);
   // Search properties backwards to find the last field.
   for (int i = number_of_own_descriptors - 1; i >= 0; --i) {
     PropertyDetails details = descs->GetDetails(InternalIndex(i));
@@ -1272,6 +1290,13 @@ Handle<Map> Map::RawCopy(Isolate* isolate, DirectHandle<Map> src_handle,
     }
     // Same as bit_field comment above.
     raw->set_bit_field3(new_bit_field3);
+    if (v8_flags.proto_assign_seq_lazy_func_opt) {
+      if (Tagged<PrototypeSharedClosureInfo> infos;
+          src_handle->TryGetPrototypeSharedClosureInfo(&infos)) {
+        raw->SetPrototypeSharedClosureInfo(infos);
+      }
+    }
+
     raw->clear_padding();
   }
   DirectHandle<JSPrototype> prototype(src_handle->prototype(), isolate);
@@ -1280,6 +1305,7 @@ Handle<Map> Map::RawCopy(Isolate* isolate, DirectHandle<Map> src_handle,
 }
 
 Handle<Map> Map::Normalize(Isolate* isolate, DirectHandle<Map> fast_map,
+                           InstanceType new_instance_type,
                            ElementsKind new_elements_kind,
                            DirectHandle<JSPrototype> new_prototype,
                            PropertyNormalizationMode mode, bool use_cache,
@@ -1288,6 +1314,9 @@ Handle<Map> Map::Normalize(Isolate* isolate, DirectHandle<Map> fast_map,
 
   Tagged<Map> meta_map = fast_map->map();
   if (fast_map->is_prototype_map()) {
+    use_cache = false;
+  }
+  if (fast_map->instance_type() != new_instance_type) {
     use_cache = false;
   }
   DirectHandle<NormalizedMapCache> cache;
@@ -1359,6 +1388,7 @@ Handle<Map> Map::Normalize(Isolate* isolate, DirectHandle<Map> fast_map,
     }
   } else {
     new_map = Map::CopyNormalized(isolate, fast_map, mode);
+    new_map->set_instance_type(new_instance_type);
     new_map->set_elements_kind(new_elements_kind);
     if (!new_prototype.is_null()) {
       Map::SetPrototype(isolate, new_map, new_prototype);
@@ -1566,6 +1596,22 @@ Handle<Map> Map::CopyReplaceDescriptors(
     DirectHandle<DescriptorArray> descriptors, TransitionFlag flag,
     MaybeDirectHandle<Name> maybe_name, const char* reason,
     TransitionKindFlag transition_kind) {
+  // Special transitions need to pass an InitMap function to initialize the map
+  // before inserting it into the transition tree.
+  CHECK_IMPLIES(flag == INSERT_TRANSITION,
+                transition_kind == PROPERTY_TRANSITION ||
+                    transition_kind == SIMPLE_PROPERTY_TRANSITION);
+  return CopyReplaceDescriptors(
+      isolate, map, descriptors, flag, [&](Handle<Map>) {}, maybe_name, reason,
+      transition_kind);
+}
+
+template <typename InitMapCb>
+Handle<Map> Map::CopyReplaceDescriptors(
+    Isolate* isolate, DirectHandle<Map> map,
+    DirectHandle<DescriptorArray> descriptors, TransitionFlag flag,
+    const InitMapCb& InitMap, MaybeDirectHandle<Name> maybe_name,
+    const char* reason, TransitionKindFlag transition_kind) {
   DCHECK(descriptors->IsSortedNoDuplicates());
 
   Handle<Map> result = CopyDropDescriptors(isolate, map);
@@ -1577,18 +1623,18 @@ Handle<Map> Map::CopyReplaceDescriptors(
     result->set_may_have_interesting_properties(true);
   }
 
+  bool insert_transition = false;
   if (map->is_prototype_map()) {
     result->InitializeDescriptors(isolate, *descriptors);
   } else {
     if (flag == INSERT_TRANSITION &&
         TransitionsAccessor::CanHaveMoreTransitions(isolate, map)) {
+      insert_transition = true;
       result->InitializeDescriptors(isolate, *descriptors);
 
       DCHECK(!maybe_name.is_null());
-      ConnectTransition(isolate, map, result, name, transition_kind);
       is_connected = true;
-    } else if ((transition_kind == PROTOTYPE_TRANSITION &&
-                v8_flags.move_prototype_transitions_first) ||
+    } else if (transition_kind == PROTOTYPE_TRANSITION ||
                isolate->bootstrapper()->IsActive()) {
       // Prototype transitions are always between root maps. UpdatePrototype
       // uses the MapUpdater and instance migration. Thus, field generalization
@@ -1597,11 +1643,13 @@ Handle<Map> Map::CopyReplaceDescriptors(
                      IsUndefined(map->GetBackPointer()));
       result->InitializeDescriptors(isolate, *descriptors);
     } else {
-      DCHECK_IMPLIES(transition_kind == PROTOTYPE_TRANSITION,
-                     !v8_flags.move_prototype_transitions_first);
-      descriptors->GeneralizeAllFields(transition_kind == PROTOTYPE_TRANSITION);
+      descriptors->GeneralizeAllFields();
       result->InitializeDescriptors(isolate, *descriptors);
     }
+  }
+  InitMap(result);
+  if (insert_transition) {
+    ConnectTransition(isolate, map, result, name, transition_kind);
   }
   if (v8_flags.log_maps && !is_connected) {
     LOG(isolate,
@@ -1685,6 +1733,24 @@ void Map::InstallDescriptors(Isolate* isolate, DirectHandle<Map> parent,
                     force_connect);
 }
 
+// static
+Handle<Map> Map::AsDetachedTypedArray(Isolate* isolate, DirectHandle<Map> map) {
+  DCHECK(InstanceTypeChecker::IsJSTypedArray(map->instance_type()));
+  ReadOnlyRoots roots(isolate);
+  Handle<Map> new_map;
+  if (!TransitionsAccessor::SearchSpecial(isolate, map, roots.detached_symbol())
+           .ToHandle(&new_map)) {
+    new_map = Map::Copy(isolate, map, "detached TypedArray");
+    new_map->set_instance_type(JS_DETACHED_TYPED_ARRAY_TYPE);
+    if (TransitionsAccessor::CanHaveMoreTransitions(isolate, map)) {
+      DirectHandle<Name> name = isolate->factory()->detached_symbol();
+      Map::ConnectTransition(isolate, map, new_map, name, SPECIAL_TRANSITION);
+    }
+    map->NotifyLeafMapLayoutChange(isolate);
+  }
+  return new_map;
+}
+
 Handle<Map> Map::CopyAsElementsKind(Isolate* isolate, DirectHandle<Map> map,
                                     ElementsKind kind, TransitionFlag flag) {
   // Only certain objects are allowed to have non-terminal fast transitional
@@ -1740,7 +1806,7 @@ DirectHandle<Map> Map::AsLanguageMode(
   // using |strict_function_transition_symbol| as a key.
   if (is_sloppy(shared_info->language_mode())) return initial_map;
 
-  DirectHandle<Map> function_map(Cast<Map>(isolate->native_context()->get(
+  DirectHandle<Map> function_map(Cast<Map>(isolate->native_context()->GetNoCell(
                                      shared_info->function_map_index())),
                                  isolate);
 
@@ -1858,68 +1924,70 @@ Handle<Map> Map::CopyForPreventExtensions(
       DescriptorArray::CopyUpToAddAttributes(
           isolate, direct_handle(map->instance_descriptors(isolate), isolate),
           num_descriptors, attrs_to_add);
+
+  auto InitMap = [&](Handle<Map> new_map) {
+    new_map->set_is_extensible(false);
+    if (!IsTypedArrayOrRabGsabTypedArrayElementsKind(map->elements_kind())) {
+      ElementsKind new_kind = IsStringWrapperElementsKind(map->elements_kind())
+                                  ? SLOW_STRING_WRAPPER_ELEMENTS
+                                  : DICTIONARY_ELEMENTS;
+      if (!old_map_is_dictionary_elements_kind) {
+        switch (map->elements_kind()) {
+          case PACKED_ELEMENTS:
+            if (attrs_to_add == SEALED) {
+              new_kind = PACKED_SEALED_ELEMENTS;
+            } else if (attrs_to_add == FROZEN) {
+              new_kind = PACKED_FROZEN_ELEMENTS;
+            } else {
+              new_kind = PACKED_NONEXTENSIBLE_ELEMENTS;
+            }
+            break;
+          case PACKED_NONEXTENSIBLE_ELEMENTS:
+            if (attrs_to_add == SEALED) {
+              new_kind = PACKED_SEALED_ELEMENTS;
+            } else if (attrs_to_add == FROZEN) {
+              new_kind = PACKED_FROZEN_ELEMENTS;
+            }
+            break;
+          case PACKED_SEALED_ELEMENTS:
+            if (attrs_to_add == FROZEN) {
+              new_kind = PACKED_FROZEN_ELEMENTS;
+            }
+            break;
+          case HOLEY_ELEMENTS:
+            if (attrs_to_add == SEALED) {
+              new_kind = HOLEY_SEALED_ELEMENTS;
+            } else if (attrs_to_add == FROZEN) {
+              new_kind = HOLEY_FROZEN_ELEMENTS;
+            } else {
+              new_kind = HOLEY_NONEXTENSIBLE_ELEMENTS;
+            }
+            break;
+          case HOLEY_NONEXTENSIBLE_ELEMENTS:
+            if (attrs_to_add == SEALED) {
+              new_kind = HOLEY_SEALED_ELEMENTS;
+            } else if (attrs_to_add == FROZEN) {
+              new_kind = HOLEY_FROZEN_ELEMENTS;
+            }
+            break;
+          case HOLEY_SEALED_ELEMENTS:
+            if (attrs_to_add == FROZEN) {
+              new_kind = HOLEY_FROZEN_ELEMENTS;
+            }
+            break;
+          default:
+            break;
+        }
+      }
+      new_map->set_elements_kind(new_kind);
+    }
+  };
+
   // Do not track transitions during bootstrapping.
   TransitionFlag flag =
       isolate->bootstrapper()->IsActive() ? OMIT_TRANSITION : INSERT_TRANSITION;
-  Handle<Map> new_map =
-      CopyReplaceDescriptors(isolate, map, new_desc, flag, transition_marker,
-                             reason, SPECIAL_TRANSITION);
-  new_map->set_is_extensible(false);
-  if (!IsTypedArrayOrRabGsabTypedArrayElementsKind(map->elements_kind())) {
-    ElementsKind new_kind = IsStringWrapperElementsKind(map->elements_kind())
-                                ? SLOW_STRING_WRAPPER_ELEMENTS
-                                : DICTIONARY_ELEMENTS;
-    if (!old_map_is_dictionary_elements_kind) {
-      switch (map->elements_kind()) {
-        case PACKED_ELEMENTS:
-          if (attrs_to_add == SEALED) {
-            new_kind = PACKED_SEALED_ELEMENTS;
-          } else if (attrs_to_add == FROZEN) {
-            new_kind = PACKED_FROZEN_ELEMENTS;
-          } else {
-            new_kind = PACKED_NONEXTENSIBLE_ELEMENTS;
-          }
-          break;
-        case PACKED_NONEXTENSIBLE_ELEMENTS:
-          if (attrs_to_add == SEALED) {
-            new_kind = PACKED_SEALED_ELEMENTS;
-          } else if (attrs_to_add == FROZEN) {
-            new_kind = PACKED_FROZEN_ELEMENTS;
-          }
-          break;
-        case PACKED_SEALED_ELEMENTS:
-          if (attrs_to_add == FROZEN) {
-            new_kind = PACKED_FROZEN_ELEMENTS;
-          }
-          break;
-        case HOLEY_ELEMENTS:
-          if (attrs_to_add == SEALED) {
-            new_kind = HOLEY_SEALED_ELEMENTS;
-          } else if (attrs_to_add == FROZEN) {
-            new_kind = HOLEY_FROZEN_ELEMENTS;
-          } else {
-            new_kind = HOLEY_NONEXTENSIBLE_ELEMENTS;
-          }
-          break;
-        case HOLEY_NONEXTENSIBLE_ELEMENTS:
-          if (attrs_to_add == SEALED) {
-            new_kind = HOLEY_SEALED_ELEMENTS;
-          } else if (attrs_to_add == FROZEN) {
-            new_kind = HOLEY_FROZEN_ELEMENTS;
-          }
-          break;
-        case HOLEY_SEALED_ELEMENTS:
-          if (attrs_to_add == FROZEN) {
-            new_kind = HOLEY_FROZEN_ELEMENTS;
-          }
-          break;
-        default:
-          break;
-      }
-    }
-    new_map->set_elements_kind(new_kind);
-  }
-  return new_map;
+  return CopyReplaceDescriptors(isolate, map, new_desc, flag, InitMap,
+                                transition_marker, reason, SPECIAL_TRANSITION);
 }
 
 namespace {
@@ -1929,8 +1997,9 @@ bool CanHoldValue(Tagged<DescriptorArray> descriptors, InternalIndex descriptor,
   PropertyDetails details = descriptors->GetDetails(descriptor);
   if (details.location() == PropertyLocation::kField) {
     if (details.kind() == PropertyKind::kData) {
-      return IsGeneralizableTo(constness, details.constness()) &&
-             Object::FitsRepresentation(value, details.representation()) &&
+      if (!IsGeneralizableTo(constness, details.constness())) return false;
+      if (IsUninitializedHole(value)) return true;
+      return Object::FitsRepresentation(value, details.representation()) &&
              FieldType::NowContains(descriptors->GetFieldType(descriptor),
                                     value);
     } else {
@@ -1995,9 +2064,7 @@ DirectHandle<Map> Map::TransitionToDataProperty(
 
   DCHECK(IsUniqueName(*name));
   DCHECK(!map->is_dictionary_map());
-
-  // Migrate to the newest map before storing the property.
-  map = Update(isolate, map);
+  CHECK(!map->is_deprecated());
 
   MaybeHandle<Map> maybe_transition = TransitionsAccessor::SearchTransition(
       isolate, map, *name, PropertyKind::kData, attributes);
@@ -2278,10 +2345,14 @@ bool CheckEquivalentModuloProto(const Tagged<Map> first,
 
 bool Map::EquivalentToForTransition(
     const Tagged<Map> other, ConcurrencyMode cmode,
-    DirectHandle<HeapObject> new_prototype) const {
+    DirectHandle<HeapObject> new_prototype,
+    std::optional<InstanceType> new_instance_type) const {
   CHECK_EQ(GetConstructor(), other->GetConstructor());
-  CHECK_EQ(instance_type(), other->instance_type());
-
+  if (new_instance_type) {
+    if (*new_instance_type != other->instance_type()) return false;
+  } else {
+    CHECK_EQ(instance_type(), other->instance_type());
+  }
   if (bit_field() != other->bit_field()) return false;
   if (new_prototype.is_null()) {
     if (prototype() != other->prototype()) return false;
@@ -2375,16 +2446,24 @@ void Map::SetInstanceDescriptors(Isolate* isolate,
 
 // static
 DirectHandle<PrototypeInfo> Map::GetOrCreatePrototypeInfo(
-    DirectHandle<JSObject> prototype, Isolate* isolate) {
-  DCHECK(IsJSObjectThatCanBeTrackedAsPrototype(*prototype));
+    DirectHandle<JSReceiver> prototype, Isolate* isolate) {
+  DCHECK(IsAnyObjectThatCanBeTrackedAsPrototype(*prototype));
   {
     Tagged<PrototypeInfo> prototype_info;
     if (prototype->map()->TryGetPrototypeInfo(&prototype_info)) {
       return direct_handle(prototype_info, isolate);
     }
   }
+
   DirectHandle<PrototypeInfo> proto_info =
       isolate->factory()->NewPrototypeInfo();
+
+  if (v8_flags.proto_assign_seq_lazy_func_opt) {
+    if (Tagged<PrototypeSharedClosureInfo> closure_infos;
+        prototype->map()->TryGetPrototypeSharedClosureInfo(&closure_infos)) {
+      proto_info->set_prototype_shared_closure_info(closure_infos);
+    }
+  }
   prototype->map()->set_prototype_info(*proto_info, kReleaseStore);
   return proto_info;
 }
@@ -2400,6 +2479,14 @@ DirectHandle<PrototypeInfo> Map::GetOrCreatePrototypeInfo(
   }
   DirectHandle<PrototypeInfo> proto_info =
       isolate->factory()->NewPrototypeInfo();
+
+  if (v8_flags.proto_assign_seq_lazy_func_opt) {
+    if (Tagged<PrototypeSharedClosureInfo> closure_infos;
+        prototype_map->TryGetPrototypeSharedClosureInfo(&closure_infos)) {
+      proto_info->set_prototype_shared_closure_info(closure_infos);
+    }
+  }
+
   prototype_map->set_prototype_info(*proto_info, kReleaseStore);
   return proto_info;
 }
@@ -2417,50 +2504,48 @@ void Map::SetShouldBeFastPrototypeMap(DirectHandle<Map> map, bool value,
 
 // static
 Handle<UnionOf<Smi, Cell>> Map::GetOrCreatePrototypeChainValidityCell(
-    DirectHandle<Map> map, Isolate* isolate) {
-  DirectHandle<Object> maybe_prototype;
-  if (IsJSGlobalObjectMap(*map)) {
-    DCHECK(map->is_prototype_map());
-    // Global object is prototype of a global proxy and therefore we can
-    // use its validity cell for guarding global object's prototype change.
-    maybe_prototype = isolate->global_object();
-  } else {
-    maybe_prototype = direct_handle(
-        map->GetPrototypeChainRootMap(isolate)->prototype(), isolate);
+    DirectHandle<Map> map, Isolate* isolate,
+    DirectHandle<PrototypeInfo>* out_prototype_info) {
+  DirectHandle<Map> validity_cell_holder_map;
+  {
+    Tagged<Map> holder_map;
+    if (!TryGetValidityCellHolderMap(*map, isolate, &holder_map)) {
+      // Prototype value is not a JSObject.
+      return handle(Map::kNoValidityCellSentinel, isolate);
+    }
+    validity_cell_holder_map = direct_handle(holder_map, isolate);
   }
-  if (!IsJSObjectThatCanBeTrackedAsPrototype(*maybe_prototype)) {
-    return handle(Map::kPrototypeChainValidSmi, isolate);
-  }
-  auto prototype = Cast<JSObject>(maybe_prototype);
   // Ensure the prototype is registered with its own prototypes so its cell
   // will be invalidated when necessary.
-  JSObject::LazyRegisterPrototypeUser(direct_handle(prototype->map(), isolate),
-                                      isolate);
+  JSObject::LazyRegisterPrototypeUser(validity_cell_holder_map, isolate);
 
-  Tagged<Object> maybe_cell =
-      prototype->map()->prototype_validity_cell(kRelaxedLoad);
-  // Return existing cell if it's still valid.
-  if (IsCell(maybe_cell)) {
-    Tagged<Cell> cell = Cast<Cell>(maybe_cell);
-    if (cell->value() == Map::kPrototypeChainValidSmi) {
-      return handle(cell, isolate);
+  if (out_prototype_info) {
+    *out_prototype_info =
+        Map::GetOrCreatePrototypeInfo(validity_cell_holder_map, isolate);
+  }
+
+  {
+    Tagged<Object> maybe_cell =
+        validity_cell_holder_map->prototype_validity_cell(kRelaxedLoad);
+
+    // Return existing cell if it's still valid.
+    if (maybe_cell != Map::kNoValidityCellSentinel) {
+      Tagged<Cell> cell = Cast<Cell>(maybe_cell);
+      if (cell->maybe_value() != Map::kPrototypeChainInvalid) {
+        return handle(cell, isolate);
+      }
     }
   }
   // Otherwise create a new cell.
-  Handle<Cell> cell = isolate->factory()->NewCell(Map::kPrototypeChainValidSmi);
-  prototype->map()->set_prototype_validity_cell(*cell, kRelaxedStore);
-  return cell;
-}
-
-// static
-bool Map::IsPrototypeChainInvalidated(Tagged<Map> map) {
-  DCHECK(map->is_prototype_map());
-  Tagged<Object> maybe_cell = map->prototype_validity_cell(kRelaxedLoad);
-  if (IsCell(maybe_cell)) {
-    Tagged<Cell> cell = Cast<Cell>(maybe_cell);
-    return cell->value() != Map::kPrototypeChainValidSmi;
+  Handle<Cell> cell = isolate->factory()->NewCell();
+  {
+    Tagged<Map> meta_map = validity_cell_holder_map->map();
+    DCHECK(IsMapMap(meta_map));
+    Tagged<NativeContext> native_context = meta_map->native_context();
+    cell->set_maybe_value(MakeWeak(native_context));
   }
-  return true;
+  validity_cell_holder_map->set_prototype_validity_cell(*cell, kRelaxedStore);
+  return cell;
 }
 
 // static
@@ -2507,8 +2592,7 @@ Handle<Map> Map::TransitionToUpdatePrototype(
     Isolate* isolate, DirectHandle<Map> map,
     DirectHandle<JSPrototype> prototype) {
   Handle<Map> new_map;
-  DCHECK_IMPLIES(v8_flags.move_prototype_transitions_first,
-                 IsUndefined(map->GetBackPointer()));
+  DCHECK(IsUndefined(map->GetBackPointer()));
   if (auto maybe_map = TransitionsAccessor::GetPrototypeTransition(
           isolate, *map, *prototype)) {
     new_map = handle(*maybe_map, isolate);

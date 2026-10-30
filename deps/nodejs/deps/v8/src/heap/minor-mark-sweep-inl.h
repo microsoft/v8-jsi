@@ -13,7 +13,7 @@
 
 #include "src/base/build_config.h"
 #include "src/common/globals.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/heap/remembered-set-inl.h"
 #include "src/heap/young-generation-marking-visitor-inl.h"
 #include "src/objects/heap-object.h"
@@ -146,8 +146,8 @@ V8_INLINE SlotCallbackResult
 YoungGenerationRememberedSetsMarkingWorklist::MarkingItem::CheckAndMarkObject(
     Visitor* visitor, TSlot slot) {
   static_assert(
-      std::is_same<TSlot, FullMaybeObjectSlot>::value ||
-          std::is_same<TSlot, MaybeObjectSlot>::value,
+      std::is_same_v<TSlot, FullMaybeObjectSlot> ||
+          std::is_same_v<TSlot, MaybeObjectSlot>,
       "Only FullMaybeObjectSlot and MaybeObjectSlot are expected here");
   return visitor->VisitObjectViaSlotInRememberedSet(slot) ? KEEP_SLOT
                                                           : REMOVE_SLOT;

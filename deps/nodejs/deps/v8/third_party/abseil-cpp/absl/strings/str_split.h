@@ -127,7 +127,7 @@ class ByString {
   absl::string_view Find(absl::string_view text, size_t pos) const;
 
  private:
-  const std::string delimiter_;
+  std::string delimiter_;
 };
 
 // ByAsciiWhitespace
@@ -277,7 +277,7 @@ template <typename Delimiter>
 class MaxSplitsImpl {
  public:
   MaxSplitsImpl(Delimiter delimiter, int limit)
-      : delimiter_(delimiter), limit_(limit), count_(0) {}
+      : delimiter_(std::move(delimiter)), limit_(limit), count_(0) {}
   absl::string_view Find(absl::string_view text, size_t pos) {
     if (count_++ == limit_) {
       return absl::string_view(text.data() + text.size(),
@@ -382,7 +382,7 @@ struct SkipEmpty {
 //   // v[0] == " a ", v[1] == " ", v[2] == "b"
 struct SkipWhitespace {
   bool operator()(absl::string_view sp) const {
-    sp = absl::StripAsciiWhitespace(sp);
+    sp = absl::StripLeadingAsciiWhitespace(sp);
     return !sp.empty();
   }
 };

@@ -20,10 +20,10 @@ inline CompilationEnv CompilationEnv::ForModule(
     const NativeModule* native_module) {
   return CompilationEnv(
       native_module->module(), native_module->enabled_features(),
-      native_module->fast_api_targets(), native_module->fast_api_signatures());
+      native_module->fast_api_data(), native_module->coverage_data());
 }
 
-constexpr CompilationEnv CompilationEnv::NoModuleAllFeaturesForTesting() {
+inline CompilationEnv CompilationEnv::NoModuleAllFeaturesForTesting() {
   return CompilationEnv(nullptr, WasmEnabledFeatures::All(), nullptr, nullptr);
 }
 

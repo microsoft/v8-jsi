@@ -117,7 +117,19 @@ void OffHeapHashTableBase<Derived>::IterateElements(Root root,
                                                     RootVisitor* visitor) {
   OffHeapObjectSlot first_slot = slot(InternalIndex(0));
   OffHeapObjectSlot end_slot = slot(InternalIndex(capacity_));
-  visitor->VisitRootPointers(root, nullptr, first_slot, end_slot);
+  visitor->VisitCompressedRootPointers(root, nullptr, first_slot, end_slot);
+}
+
+template <typename Derived>
+void OffHeapHashTableBase<Derived>::IterateElementsRange(Root root,
+                                                         RootVisitor* visitor,
+                                                         int start, int end) {
+  DCHECK_LE(0, start);
+  DCHECK_LE(start, end);
+  DCHECK_LE(end, capacity_);
+  OffHeapObjectSlot first_slot = slot(InternalIndex(start));
+  OffHeapObjectSlot end_slot = slot(InternalIndex(end));
+  visitor->VisitCompressedRootPointers(root, nullptr, first_slot, end_slot);
 }
 
 template <typename Derived>

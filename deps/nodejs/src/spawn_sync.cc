@@ -44,6 +44,7 @@ using v8::Isolate;
 using v8::Just;
 using v8::JustVoid;
 using v8::Local;
+using v8::LocalVector;
 using v8::Maybe;
 using v8::MaybeLocal;
 using v8::Nothing;
@@ -766,7 +767,7 @@ MaybeLocal<Array> SyncProcessRunner::BuildOutputArray() {
   CHECK(!stdio_pipes_.empty());
 
   EscapableHandleScope scope(env()->isolate());
-  MaybeStackBuffer<Local<Value>, 8> js_output(stdio_pipes_.size());
+  MaybeStackBuffer<Value, 8> js_output(env()->isolate(), stdio_pipes_.size());
 
   for (uint32_t i = 0; i < stdio_pipes_.size(); i++) {
     SyncProcessStdioPipe* h = stdio_pipes_[i].get();
@@ -780,8 +781,7 @@ MaybeLocal<Array> SyncProcessRunner::BuildOutputArray() {
     }
   }
 
-  return scope.Escape(
-      Array::New(env()->isolate(), js_output.out(), js_output.length()));
+  return scope.Escape(js_output.ToArray());
 }
 
 Maybe<int> SyncProcessRunner::ParseOptions(Local<Value> js_value) {
@@ -1155,16 +1155,17 @@ Maybe<int> SyncProcessRunner::CopyJsStringArray(Local<Value> js_value,
   if (!js_value->IsArray()) return Just<int>(UV_EINVAL);
 
   Local<Context> context = env()->context();
-  js_array = js_value.As<Array>()->Clone().As<Array>();
+  js_array = js_value.As<Array>();
   length = js_array->Length();
   data_size = 0;
+
+  LocalVector<String> values(isolate, length);
 
   // Index has a pointer to every string element, plus one more for a final
   // null pointer.
   list_size = (length + 1) * sizeof *list;
 
-  // Convert all array elements to string. Modify the js object itself if
-  // needed - it's okay since we cloned the original object. Also compute the
+  // Convert all array elements to string. Also compute the
   // length of all strings, including room for a null terminator after every
   // string. Align strings to cache lines.
   for (uint32_t i = 0; i < length; i++) {
@@ -1173,17 +1174,19 @@ Maybe<int> SyncProcessRunner::CopyJsStringArray(Local<Value> js_value,
       return Nothing<int>();
     }
 
-    if (!value->IsString()) {
+    if (value->IsString()) {
+      values[i] = value.As<String>();
+    } else {
       Local<String> string;
       if (!value->ToString(env()->isolate()->GetCurrentContext())
-               .ToLocal(&string) ||
-          js_array->Set(context, i, string).IsNothing()) {
+               .ToLocal(&string)) {
         return Nothing<int>();
       }
+      values[i] = string;
     }
 
     size_t maybe_size;
-    if (!StringBytes::StorageSize(isolate, value, UTF8).To(&maybe_size)) {
+    if (!StringBytes::StorageSize(isolate, values[i], UTF8).To(&maybe_size)) {
       return Nothing<int>();
     }
     data_size += maybe_size + 1;
@@ -1197,15 +1200,8 @@ Maybe<int> SyncProcessRunner::CopyJsStringArray(Local<Value> js_value,
 
   for (uint32_t i = 0; i < length; i++) {
     list[i] = buffer + data_offset;
-    Local<Value> value;
-    if (!js_array->Get(context, i).ToLocal(&value)) {
-      return Nothing<int>();
-    }
-    data_offset += StringBytes::Write(isolate,
-                                      buffer + data_offset,
-                                      -1,
-                                      value,
-                                      UTF8);
+    data_offset +=
+        StringBytes::Write(isolate, buffer + data_offset, -1, values[i], UTF8);
     buffer[data_offset++] = '\0';
     data_offset = nbytes::RoundUp(data_offset, sizeof(void*));
   }

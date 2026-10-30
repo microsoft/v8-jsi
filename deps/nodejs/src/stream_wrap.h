@@ -103,11 +103,18 @@ class LibuvStreamWrap : public HandleWrap, public StreamBase {
 #endif
   }
 
+  // Whether `fd` is a descriptor that the process was started with and that
+  // Node.js adopts on its behalf: one of the standard streams, backing
+  // process.stdin, process.stdout and process.stderr, or the IPC channel
+  // passed through NODE_CHANNEL_FD, backing process.send(). Adopting any other
+  // existing descriptor into a stream handle requires the net permission.
+  static bool IsProcessStdioOrIPCChannel(Environment* env, int fd);
 
  private:
   static void GetWriteQueueSize(
       const v8::FunctionCallbackInfo<v8::Value>& info);
   static void SetBlocking(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void HasPendingRead(const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Callbacks for libuv
   void OnUvAlloc(size_t suggested_size, uv_buf_t* buf);

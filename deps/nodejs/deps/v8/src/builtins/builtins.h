@@ -8,9 +8,11 @@
 #include "src/base/flags.h"
 #include "src/base/vector.h"
 #include "src/builtins/builtins-definitions.h"
+#include "src/codegen/cpu-features.h"
 #include "src/common/globals.h"
 #include "src/objects/type-hints.h"
 #include "src/sandbox/code-entrypoint-tag.h"
+#include "src/sandbox/code-sandboxing-mode.h"
 
 #ifdef V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-pointer-table.h"
@@ -45,17 +47,25 @@ static constexpr T FirstFromVarArgs(T x, ...) noexcept {
 #define BUILTIN_CODE(isolate, name) \
   (isolate)->builtins()->code_handle(i::Builtin::k##name)
 
+#define ADD_ONE(Name, ...) +1
+static constexpr int kBuiltinLoadICHandlerCount =
+    0 BUILTIN_LOAD_IC_HANDLER_LIST(ADD_ONE);
+#undef ADD_ONE
+
 enum class Builtin : int32_t {
   kNoBuiltinId = -1,
 #define DEF_ENUM(Name, ...) k##Name,
   BUILTIN_LIST(DEF_ENUM, DEF_ENUM, DEF_ENUM, DEF_ENUM, DEF_ENUM, DEF_ENUM,
-               DEF_ENUM, DEF_ENUM, DEF_ENUM)
+               DEF_ENUM, DEF_ENUM, DEF_ENUM, DEF_ENUM)
 #undef DEF_ENUM
 #define EXTRACT_NAME(Name, ...) k##Name,
   // Define kFirstBytecodeHandler,
-  kFirstBytecodeHandler =
-      FirstFromVarArgs(BUILTIN_LIST_BYTECODE_HANDLERS(EXTRACT_NAME) 0)
+  kFirstBytecodeHandler = FirstFromVarArgs(
+      BUILTIN_LIST_BYTECODE_HANDLERS(EXTRACT_NAME, EXTRACT_NAME) 0),
+  kFirstLoadICHandler =
+      FirstFromVarArgs(BUILTIN_LOAD_IC_HANDLER_LIST(EXTRACT_NAME) 0),
 #undef EXTRACT_NAME
+  kLastLoadICHandler = kFirstLoadICHandler + kBuiltinLoadICHandlerCount - 1
 };
 enum class TieringBuiltin : int32_t {
 #define DEF_ENUM(Name, ...) k##Name = static_cast<int32_t>(Builtin::k##Name),
@@ -73,13 +83,44 @@ V8_INLINE bool IsValidTieringBuiltin(TieringBuiltin builtin) {
 }
 
 V8_INLINE constexpr bool operator<(Builtin a, Builtin b) {
-  using type = typename std::underlying_type<Builtin>::type;
+  using type = std::underlying_type_t<Builtin>;
   return static_cast<type>(a) < static_cast<type>(b);
 }
 
-V8_INLINE Builtin operator++(Builtin& builtin) {
-  using type = typename std::underlying_type<Builtin>::type;
+V8_INLINE constexpr Builtin operator++(Builtin& builtin) {
+  using type = std::underlying_type_t<Builtin>;
   return builtin = static_cast<Builtin>(static_cast<type>(builtin) + 1);
+}
+
+V8_INLINE constexpr Builtin operator--(Builtin& builtin) {
+  using type = std::underlying_type_t<Builtin>;
+  return builtin = static_cast<Builtin>(static_cast<type>(builtin) - 1);
+}
+
+V8_INLINE constexpr Builtin operator+(const Builtin& builtin,
+                                      const int offset) {
+  using type = std::underlying_type_t<Builtin>;
+  type b = static_cast<type>(builtin) + offset;
+  return static_cast<Builtin>(b);
+}
+
+V8_INLINE constexpr Builtin operator-(const Builtin& builtin,
+                                      const int offset) {
+  using type = std::underlying_type_t<Builtin>;
+  type b = static_cast<type>(builtin) - offset;
+  return static_cast<Builtin>(b);
+}
+
+V8_INLINE constexpr Builtin& operator+=(Builtin& builtin, const int offset) {
+  using type = std::underlying_type_t<Builtin>;
+  builtin = static_cast<Builtin>(static_cast<type>(builtin) + offset);
+  return builtin;
+}
+
+V8_INLINE constexpr Builtin& operator-=(Builtin& builtin, const int offset) {
+  using type = std::underlying_type_t<Builtin>;
+  builtin = static_cast<Builtin>(static_cast<type>(builtin) - offset);
+  return builtin;
 }
 
 class Builtins {
@@ -104,7 +145,7 @@ class Builtins {
 #define ADD_ONE(Name, ...) +1
   static constexpr int kBuiltinCount =
       0 BUILTIN_LIST(ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE,
-                     ADD_ONE, ADD_ONE, ADD_ONE);
+                     ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE);
   static constexpr int kBuiltinTier0Count = 0 BUILTIN_LIST_TIER0(
       ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE, ADD_ONE);
 #undef ADD_ONE
@@ -124,6 +165,80 @@ class Builtins {
   static constexpr bool kBytecodeHandlersAreSortedLast =
       kLastBytecodeHandlerPlusOne == kBuiltinCount;
   static_assert(kBytecodeHandlersAreSortedLast);
+
+#if V8_ENABLE_GEARBOX
+  static inline constexpr bool HasGenericSuffix(std::string_view s) {
+    return s.ends_with("_Generic");
+  }
+
+  static inline constexpr bool HasISXSuffix(std::string_view s) {
+    return s.ends_with("_ISX");
+  }
+
+  static inline constexpr bool IsISXVariant(Builtin builtin) {
+    switch (builtin) {
+#define CASE(Name, ...)  \
+  case Builtin::k##Name: \
+    return HasISXSuffix(#Name);
+
+      BUILTIN_LIST(CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE)
+#undef CASE
+      default:
+        return false;
+    }
+  }
+
+  static inline constexpr bool IsGenericVariant(Builtin builtin) {
+    switch (builtin) {
+#define CASE(Name, ...)  \
+  case Builtin::k##Name: \
+    return HasGenericSuffix(#Name);
+
+      BUILTIN_LIST(CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE, CASE)
+#undef CASE
+      default:
+        return false;
+    }
+  }
+
+  static inline constexpr bool IsGearboxPlaceholder(Builtin builtin) {
+    return IsISXVariant(builtin + kGearboxISXBuiltinIdOffset);
+  }
+
+  static inline constexpr Builtin GetGearboxPlaceholderFromVariant(
+      Builtin builtin) {
+    DCHECK(IsGenericVariant(builtin) || IsISXVariant(builtin) ||
+           IsGearboxPlaceholder(builtin));
+    if (IsISXVariant(builtin)) {
+      builtin -= kGearboxISXBuiltinIdOffset;
+      DCHECK_LE(builtin, Builtins::kLast);
+      return builtin;
+    } else if (IsGenericVariant(builtin)) {
+      builtin -= kGearboxGenericBuiltinIdOffset;
+      DCHECK_LE(builtin, Builtins::kLast);
+      return builtin;
+    } else {
+      return builtin;
+    }
+  }
+
+  static inline constexpr Builtin GetISXVariantFromGearboxPlaceholder(
+      Builtin builtin) {
+    DCHECK(IsGearboxPlaceholder(builtin));
+    return builtin + kGearboxISXBuiltinIdOffset;
+  }
+
+  static inline constexpr Builtin GetGenericVariantFromGearboxPlaceholder(
+      Builtin builtin) {
+    DCHECK(IsGearboxPlaceholder(builtin));
+    return builtin + kGearboxGenericBuiltinIdOffset;
+  }
+
+  // Now we just use only SSE4_1 as the condition for enabling ISX.
+  static inline bool CpuHasISXSupport() {
+    return CpuFeatures::IsSupported(SSE4_1);
+  }
+#endif  // V8_ENABLE_GEARBOX
 
   static constexpr bool IsBuiltinId(Builtin builtin) {
     return builtin != Builtin::kNoBuiltinId;
@@ -147,7 +262,7 @@ class Builtins {
   }
 
   // The different builtin kinds are documented in builtins-definitions.h.
-  enum Kind { CPP, TSJ, TFJ, TSC, TFC, TFS, TFH, BCH, ASM };
+  enum Kind { CPP, TFJ_TSA, TFJ, TFC_TSA, TFC, TFS, TFH, BCH_TSA, BCH, ASM };
 
   static BytecodeOffset GetContinuationBytecodeOffset(Builtin builtin);
   static Builtin GetBuiltinFromBytecodeOffset(BytecodeOffset);
@@ -201,7 +316,8 @@ class Builtins {
   V8_EXPORT_PRIVATE Tagged<Code> code(Builtin builtin);
   V8_EXPORT_PRIVATE Handle<Code> code_handle(Builtin builtin);
 
-  static CallInterfaceDescriptor CallInterfaceDescriptorFor(Builtin builtin);
+  V8_EXPORT_PRIVATE static CallInterfaceDescriptor CallInterfaceDescriptorFor(
+      Builtin builtin);
   V8_EXPORT_PRIVATE static Callable CallableFor(Isolate* isolate,
                                                 Builtin builtin);
   V8_EXPORT_PRIVATE static bool HasJSLinkage(Builtin builtin);
@@ -224,6 +340,16 @@ class Builtins {
       Builtin builtin, int function_length,
       int formal_parameter_count_with_receiver);
 
+  // Checks that a call to this JS builtin is allowed to be generated in user
+  // code. Ensures that the formal parameter count matches the builtin's
+  // parameter count and that the builtin is not a JS trampoline. The latter
+  // is a sanity check against generating direct calls to JS trampolines - this
+  // just doesn't make sense.
+  // This is a similar to JSDispatchTable::IsCompatibleCode(..) but for
+  // builtins.
+  static inline bool IsCompatibleJSBuiltin(Builtin builtin,
+                                           uint16_t parameter_count);
+
   V8_EXPORT_PRIVATE static const char* name(Builtin builtin);
   V8_EXPORT_PRIVATE static const char* NameForStackTrace(Isolate* isolate,
                                                          Builtin builtin);
@@ -240,11 +366,24 @@ class Builtins {
   // builtin_entry_table, initialized earlier via {InitializeIsolateDataTables}.
   static inline Address EntryOf(Builtin builtin, Isolate* isolate);
 
+  // Return the builtin entry inside the embedded data. Only used for Wasm where
+  // we want to use them in isolate-independent context.
+  V8_EXPORT_PRIVATE static Address EmbeddedEntryOf(Builtin builtin);
+
   V8_EXPORT_PRIVATE static Kind KindOf(Builtin builtin);
   static const char* KindNameOf(Builtin builtin);
 
   // The tag for the builtins entrypoint.
   V8_EXPORT_PRIVATE static CodeEntrypointTag EntrypointTagFor(Builtin builtin);
+
+  // Returns the sandboxing mode of the given builtin.
+  //
+  // Note that this indicates the sandboxing mode that the builtin expects at
+  // the start of its execution (in a sense part of its calling convention).
+  // Some builtins change the sandboxing mode (for example, JSEntry expects to
+  // be invoked in unsandboxed execution mode, then transitions into sandboxed
+  // execution mode), which is not represented here.
+  static CodeSandboxingMode SandboxingModeOf(Builtin builtin);
 
   V8_EXPORT_PRIVATE static bool IsCpp(Builtin builtin);
 
@@ -355,6 +494,98 @@ class Builtins {
   // Public for ia32-specific helper.
   enum class ForwardWhichFrame { kCurrentFrame, kParentFrame };
 
+  // Flags describing properties of a builtin with JS calling convention.
+  // Builtins with non-JS linkage have kDisabledNonJSBuiltin flags.
+  //
+  // This machinery is used by V8 Sandbox to ensure that builtins that belong
+  // to disabled features can't be made callable (i.e. can't be installed
+  // into a JSFunction).
+  enum class JSBuiltinStateFlag {
+    kNone = 0,
+
+    // Builtin is allowed to be installed as Code object into a JSFunction:
+    //  - it has a JS calling convention,
+    //  - it's an entry point builtin and not an arbitrary helper builtin that
+    //    has JS calling convention for convenience.
+    kEnabled = 1 << 0,
+
+    // Builtin represents some JS trampoline builtin that can be set as a
+    // JSFunction's code (for example, CompileLazy). It might or might not
+    // be currently used.
+    kCoreV8JSTrampoline = 1 << 1,
+
+    // The builtin belongs to a JS language feature that's always available,
+    // i.e. the builtin must be installed in some JSFunction by default.
+    // For example, ArrayPrototypePush or StringPrototypeConcat.
+    kCoreJS = 1 << 2,
+
+    // The builtin belongs to a feature that's enabled by a runtime flag,
+    // unlike core JS language builtins which are always available.
+    kFlagDependent = 1 << 3,
+
+    // The builtin might belong either to core JS language feature or to
+    // to a feature behind runtime flag but in either case it's is installed
+    // to JSFunctions lazily. This means that there might be no JSFunction
+    // instances with this builtin in the heap even though the corresponding
+    // JS feature is enabled.
+    // For example, V8 lazily creates JSFunctions with
+    // AsyncGeneratorAwaitResolveClosure and AsyncGeneratorAwaitRejectClosure
+    // builtins as a part of AsyncGeneratorAwait logic, see
+    // AsyncGeneratorBuiltinsAssembler::AsyncGeneratorAwait().
+    kLazy = 1 << 4,
+
+    // Builtin has non-JS linkage. State of this flag must be equivalent to
+    // (!HasJSLinkage(..)) predicate.
+    kNonJSLinkage = 1 << 5,
+
+    // Common combinations.
+    kJSTrampoline = kEnabled | kCoreV8JSTrampoline,
+    kCoreJSMandatory = kEnabled | kCoreJS,
+    kCoreJSLazy = kEnabled | kCoreJS | kLazy,
+
+    kDisabledJSBuiltin = kNone,
+    kDisabledNonJSBuiltin = kNonJSLinkage,
+    kEnabledFlagDependent = kEnabled | kFlagDependent,
+    kDisabledFlagDependent = kFlagDependent,
+    kEnabledFlagDependentLazy = kEnabled | kFlagDependent | kLazy,
+    kDisabledFlagDependentLazy = kFlagDependent | kLazy,
+  };
+  using JSBuiltinStateFlags = base::Flags<JSBuiltinStateFlag>;
+  V8_EXPORT_PRIVATE static JSBuiltinStateFlags GetJSBuiltinState(
+      Builtin builtin);
+
+  // Returns true for disabled builtins with JS linkage (all non-JS builtins
+  // are considered enabled).
+  static inline bool IsDisabled(Builtin builtin);
+
+  // Returns true if given builtin is a JS trampoline builtin - the builtin
+  // that can be installed into JSFunction as a code object. Note, that
+  // for example tiering trampoines are not allowed to be installed into
+  // JSFunctions. This predicate is used as an allow-list of cases where
+  // a signature mismatch is allowed. See JSDispatchTable::IsCompatibleCode().
+  static inline bool IsJSTrampoline(Builtin builtin);
+
+  // Returns true if given builtin is enabled and it's not a JS trampoline
+  // builtin.
+  static inline bool IsEnabledAndNotJSTrampoline(Builtin builtin);
+
+#ifdef DEBUG
+  // Verify correctness of GetJSBuiltinState() which has to be maintained
+  // manually. The idea is to iterate the heap to figure out which builtins
+  // with JS calling convention are never installed into any JSFunction and
+  // make sure that GetJSBuiltinState() works properly for such builtins.
+  //
+  // |allow_non_initial_state| defines whether the strict verification is
+  // not applicable because user code might have changed the heap state.
+  // For example, user code could have
+  //   - deleted mandatory builtin: delete String.prototype.concat;
+  //   - triggered instantiation of some lazy builtins.
+  //
+  // In any case, even in this mode there must be no usages of disabled
+  // builtins.
+  void VerifyGetJSBuiltinState(bool allow_non_initial_state);
+#endif
+
  private:
   static void Generate_CallFunction(MacroAssembler* masm,
                                     ConvertReceiverMode mode);
@@ -398,6 +629,10 @@ class Builtins {
   static void Generate_CallApiCallbackImpl(MacroAssembler* masm,
                                            CallApiCallbackMode mode);
 
+  static void Generate_CallApiAccessorImpl(MacroAssembler* masm,
+                                           bool for_interceptor,
+                                           bool for_setter);
+
 #define DECLARE_ASM(Name, ...) \
   static void Generate_##Name(MacroAssembler* masm);
 #define DECLARE_TF(Name, ...) \
@@ -408,7 +643,8 @@ class Builtins {
                               compiler::turboshaft::Graph& graph, Zone* zone);
 
   BUILTIN_LIST(IGNORE_BUILTIN, DECLARE_TS, DECLARE_TF, DECLARE_TS, DECLARE_TF,
-               DECLARE_TF, DECLARE_TF, IGNORE_BUILTIN, DECLARE_ASM)
+               DECLARE_TF, DECLARE_TF, IGNORE_BUILTIN, IGNORE_BUILTIN,
+               DECLARE_ASM)
 
 #undef DECLARE_ASM
 #undef DECLARE_TF
@@ -435,6 +671,8 @@ class Builtins {
   friend class SetupIsolateDelegate;
 };
 
+DEFINE_OPERATORS_FOR_FLAGS(Builtins::JSBuiltinStateFlags)
+
 V8_INLINE constexpr bool IsInterpreterTrampolineBuiltin(Builtin builtin_id) {
   // Check for kNoBuiltinId first to abort early when the current
   // InstructionStream object is not a builtin.
@@ -454,6 +692,12 @@ V8_INLINE constexpr bool IsBaselineTrampolineBuiltin(Builtin builtin_id) {
 
 Builtin ExampleBuiltinForTorqueFunctionPointerType(
     size_t function_pointer_type_id);
+
+#ifdef DEBUG
+// BuiltinCanAllocate is generated by mksnapshot in
+// gen/src/builtins/builtins-effects.cc.
+bool BuiltinCanAllocate(Builtin builtin);
+#endif
 
 }  // namespace internal
 }  // namespace v8

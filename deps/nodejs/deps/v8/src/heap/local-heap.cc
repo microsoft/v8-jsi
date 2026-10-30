@@ -30,7 +30,8 @@ namespace internal {
 
 thread_local LocalHeap* g_current_local_heap_ V8_CONSTINIT = nullptr;
 
-V8_TLS_DEFINE_GETTER(LocalHeap::Current, LocalHeap*, g_current_local_heap_)
+V8_TLS_DEFINE_GETTER(LocalHeap::TryGetCurrent, LocalHeap*,
+                     g_current_local_heap_)
 
 // static
 void LocalHeap::SetCurrent(LocalHeap* local_heap) {
@@ -38,14 +39,7 @@ void LocalHeap::SetCurrent(LocalHeap* local_heap) {
 }
 
 #ifdef DEBUG
-void LocalHeap::VerifyCurrent() const {
-  LocalHeap* current = LocalHeap::Current();
-
-  if (is_main_thread())
-    DCHECK_NULL(current);
-  else
-    DCHECK_EQ(current, this);
-}
+void LocalHeap::VerifyCurrent() const { DCHECK_EQ(this, LocalHeap::Current()); }
 #endif
 
 LocalHeap::LocalHeap(Heap* heap, ThreadKind kind,
@@ -71,6 +65,8 @@ LocalHeap::LocalHeap(Heap* heap, ThreadKind kind,
   if (!is_main_thread()) {
     heap_allocator_.Setup();
     SetUpMarkingBarrier();
+    boostable_priority_ =
+        V8::GetCurrentPlatform()->CreateBoostablePriorityScope();
   }
 
   heap_->safepoint()->AddLocalHeap(this, [this] {
@@ -90,8 +86,8 @@ LocalHeap::LocalHeap(Heap* heap, ThreadKind kind,
   if (persistent_handles_) {
     persistent_handles_->Attach(this);
   }
-  DCHECK_NULL(LocalHeap::Current());
   if (!is_main_thread()) {
+    saved_current_local_heap_ = LocalHeap::TryGetCurrent();
     saved_current_isolate_ = Isolate::TryGetCurrent();
     Isolate::SetCurrent(heap_->isolate());
     LocalHeap::SetCurrent(this);
@@ -120,7 +116,7 @@ LocalHeap::~LocalHeap() {
     DCHECK_EQ(Isolate::Current(), heap_->isolate());
     Isolate::SetCurrent(saved_current_isolate_);
     DCHECK_EQ(LocalHeap::Current(), this);
-    LocalHeap::SetCurrent(nullptr);
+    LocalHeap::SetCurrent(saved_current_local_heap_);
   }
 
   DCHECK(gc_epilogue_callbacks_.IsEmpty());
@@ -135,13 +131,24 @@ void LocalHeap::SetUpMainThreadForTesting() {
   SetUpSharedMarking();
 }
 
-void LocalHeap::SetUpMainThread(LinearAllocationArea& new_allocation_info,
-                                LinearAllocationArea& old_allocation_info) {
+void LocalHeap::SetUpMainThread() {
   DCHECK(is_main_thread());
   DCHECK(IsRunning());
-  heap_allocator_.Setup(&new_allocation_info, &old_allocation_info);
+  heap_allocator_.Setup();
   SetUpMarkingBarrier();
   SetUpSharedMarking();
+}
+
+void LocalHeap::BoostPriority() {
+  if (boostable_priority_) {
+    boostable_priority_->BoostPriority();
+  }
+}
+
+void LocalHeap::ResetPriority() {
+  if (boostable_priority_) {
+    boostable_priority_->Reset();
+  }
 }
 
 void LocalHeap::SetUpMarkingBarrier() {
@@ -244,7 +251,7 @@ void LocalHeap::ParkSlowPath() {
 
       if (current_state.IsCollectionRequested()) {
         if (!heap()->ignore_local_gc_requests()) {
-          heap_->CollectGarbageForBackground(this);
+          heap_->PerformRequestedGC(this);
           continue;
         }
 
@@ -299,7 +306,7 @@ void LocalHeap::UnparkSlowPath() {
           continue;
 
         if (!heap()->ignore_local_gc_requests()) {
-          heap_->CollectGarbageForBackground(this);
+          heap_->PerformRequestedGC(this);
         }
 
         return;
@@ -346,7 +353,7 @@ void LocalHeap::SafepointSlowPath() {
     }
 
     if (current_state.IsCollectionRequested()) {
-      heap_->CollectGarbageForBackground(this);
+      heap_->PerformRequestedGC(this);
     }
   } else {
     DCHECK(current_state.IsSafepointRequested());
@@ -426,9 +433,6 @@ void LocalHeap::MarkLinearAllocationAreasBlack() {
   heap_allocator_.MarkLinearAllocationAreasBlack();
 }
 
-void LocalHeap::UnmarkLinearAllocationsArea() {
-  heap_allocator_.UnmarkLinearAllocationsArea();
-}
 
 void LocalHeap::MarkSharedLinearAllocationAreasBlack() {
   if (heap_allocator_.shared_space_allocator()) {
@@ -436,11 +440,6 @@ void LocalHeap::MarkSharedLinearAllocationAreasBlack() {
   }
 }
 
-void LocalHeap::UnmarkSharedLinearAllocationsArea() {
-  if (heap_allocator_.shared_space_allocator()) {
-    heap_allocator_.shared_space_allocator()->UnmarkLinearAllocationArea();
-  }
-}
 
 void LocalHeap::FreeLinearAllocationAreasAndResetFreeLists() {
   heap_allocator_.FreeLinearAllocationAreasAndResetFreeLists();
@@ -463,6 +462,13 @@ void LocalHeap::RemoveGCEpilogueCallback(GCEpilogueCallback* callback,
                                          void* data) {
   DCHECK(IsRunning());
   gc_epilogue_callbacks_.Remove(callback, data);
+}
+
+void LocalHeap::Iterate(RootVisitor* visitor) {
+  handles_->Iterate(visitor);
+  for (GCRootsProvider* provider : roots_providers_) {
+    provider->Iterate(visitor);
+  }
 }
 
 void LocalHeap::InvokeGCEpilogueCallbacksInSafepoint(

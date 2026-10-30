@@ -339,9 +339,9 @@
 #ifndef ABSL_ATTRIBUTE_SECTION_VARIABLE
 #ifdef _AIX
 // __attribute__((section(#name))) on AIX is achieved by using the `.csect`
-// psudo op which includes an additional integer as part of its syntax indcating
-// alignment. If data fall under different alignments then you might get a
-// compilation error indicating a `Section type conflict`.
+// pseudo op which includes an additional integer as part of its syntax
+// indicating alignment. If data fall under different alignments then you might
+// get a compilation error indicating a `Section type conflict`.
 #define ABSL_ATTRIBUTE_SECTION_VARIABLE(name)
 #else
 #define ABSL_ATTRIBUTE_SECTION_VARIABLE(name) __attribute__((section(#name)))
@@ -553,7 +553,7 @@
 //
 // Prevents the compiler from complaining about variables that appear unused.
 //
-// Deprecated: Use the standard C++17 `[[maybe_unused]` instead.
+// Deprecated: Use the standard C++17 `[[maybe_unused]]` instead.
 //
 // Due to differences in positioning requirements between the old, compiler
 // specific __attribute__ syntax and the now standard `[[maybe_unused]]`, this
@@ -580,7 +580,11 @@
 // Instructs the compiler not to use natural alignment for a tagged data
 // structure, but instead to reduce its alignment to 1.
 //
-// Therefore, DO NOT APPLY THIS ATTRIBUTE TO STRUCTS CONTAINING ATOMICS. Doing
+// Use of this attribute is HIGHLY DISCOURAGED. Taking the address of or
+// binding a reference to any unaligned member is UB, and it is very easy to
+// do so unintentionally when passing such members as function arguments.
+//
+// DO NOT APPLY THIS ATTRIBUTE TO STRUCTS CONTAINING ATOMICS. Doing
 // so can cause atomic variables to be mis-aligned and silently violate
 // atomicity on x86.
 //

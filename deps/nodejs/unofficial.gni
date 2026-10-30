@@ -9,6 +9,11 @@ import("$node_v8_path/gni/v8.gni")
 # The actual configurations are put inside a template in unofficial.gni to
 # prevent accidental edits from contributors.
 template("node_gn_build") {
+  assert(!node_use_ffi,
+         "The unofficial GN build does not support node:ffi yet.")
+  assert(!node_shared_ffi,
+         "The unofficial GN build does not support shared libffi.")
+
   config("node_features") {
     defines = []
     if (is_component_build) {
@@ -26,6 +31,11 @@ template("node_gn_build") {
       defines += [ "HAVE_SQLITE=1" ]
     } else {
       defines += [ "HAVE_SQLITE=0" ]
+    }
+    if (node_use_ffi) {
+      defines += [ "HAVE_FFI=1" ]
+    } else {
+      defines += [ "HAVE_FFI=0" ]
     }
     if (node_use_amaro) {
       defines += [ "HAVE_AMARO=1" ]
@@ -71,6 +81,7 @@ template("node_gn_build") {
       "src/inspector:*",
     ]
     configs = [ ":node_external_config" ]
+    include_dirs = [ get_label_info(node_simdutf_path, "dir") ]
     libs = []
     cflags = [ "-Wno-microsoft-include" ]
     cflags_cc = [
@@ -94,7 +105,7 @@ template("node_gn_build") {
       "-Wno-unused-function",
     ]
 
-    if (current_cpu == "x86") {
+    if (target_cpu == "x86") {
       node_arch = "ia32"
     } else {
       node_arch = target_cpu
@@ -327,7 +338,10 @@ template("node_gn_build") {
       "src/builtin_info.cc",
       "src/builtin_info.h",
     ]
-    include_dirs = [ "src" ]
+    include_dirs = [
+      "src",
+      get_label_info(node_simdutf_path, "dir"),
+    ]
   }
 
   action("run_node_js2c") {

@@ -12,6 +12,7 @@
 #include "src/heap/heap-write-barrier-inl.h"
 #include "src/interpreter/bytecode-register.h"
 #include "src/objects/fixed-array-inl.h"
+#include "src/objects/trusted-pointer-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -123,12 +124,9 @@ DEF_GETTER(BytecodeArray, SourcePositionTable, Tagged<TrustedByteArray>) {
   // WARNING: This function may be called from a background thread, hence
   // changes to how it accesses the heap can easily lead to bugs.
   Tagged<Object> maybe_table = raw_source_position_table(kAcquireLoad);
-  if (IsTrustedByteArray(maybe_table))
-    return Cast<TrustedByteArray>(maybe_table);
-  DCHECK_EQ(maybe_table, Smi::zero());
-  return GetIsolateFromWritableObject(*this)
-      ->heap()
-      ->empty_trusted_byte_array();
+  if (maybe_table != Smi::zero())
+    return TrustedCast<TrustedByteArray>(maybe_table);
+  return Isolate::Current()->heap()->empty_trusted_byte_array();
 }
 
 void BytecodeArray::SetSourcePositionsFailedToCollect() {
@@ -164,14 +162,14 @@ int BytecodeArray::BytecodeArraySize() const { return SizeFor(this->length()); }
 DEF_GETTER(BytecodeArray, SizeIncludingMetadata, int) {
   int size = BytecodeArraySize();
   Tagged<Object> maybe_constant_pool = raw_constant_pool(cage_base);
-  if (IsTrustedFixedArray(maybe_constant_pool)) {
-    size += Cast<TrustedFixedArray>(maybe_constant_pool)->Size();
+  if (Tagged<TrustedFixedArray> array; TryCast(maybe_constant_pool, &array)) {
+    size += array->Size();
   } else {
     DCHECK_EQ(maybe_constant_pool, Smi::zero());
   }
   Tagged<Object> maybe_handler_table = raw_handler_table(cage_base);
-  if (IsTrustedByteArray(maybe_handler_table)) {
-    size += Cast<TrustedByteArray>(maybe_handler_table)->AllocatedSize();
+  if (Tagged<TrustedByteArray> bytes; TryCast(maybe_handler_table, &bytes)) {
+    size += bytes->AllocatedSize();
   } else {
     DCHECK_EQ(maybe_handler_table, Smi::zero());
   }
@@ -180,6 +178,20 @@ DEF_GETTER(BytecodeArray, SizeIncludingMetadata, int) {
     size += Cast<ByteArray>(maybe_table)->AllocatedSize();
   }
   return size;
+}
+
+void BytecodeArray::MarkVerified(IsolateForSandbox isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  // Only once bytecode has been verified do we "publish" it, thereby making it
+  // accessible from within the sandbox via the trusted pointer table.
+  Publish(isolate);
+#endif
+
+  // Now we also register the BytecodeArray with its in-sandbox wrapper. It
+  // would also be possible to this earlier, when allocating the BytecodeArray,
+  // but then we're in a slightly inconsistent state as many routines don't
+  // expect to see in-sandbox references to unpublished objects.
+  wrapper()->set_bytecode(*this);
 }
 
 OBJECT_CONSTRUCTORS_IMPL(BytecodeWrapper, Struct)

@@ -13,6 +13,7 @@
       'direct_dependent_settings': {
         'include_dirs': ['.'],
       },
+      'defines': [ 'MERVE_USE_SIMDUTF=1' ],
       'sources': [ '<@(merve_sources)' ],
       'conditions': [
         ['OS=="win"', {

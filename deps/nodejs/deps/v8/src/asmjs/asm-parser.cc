@@ -12,6 +12,7 @@
 
 #include "src/asmjs/asm-js.h"
 #include "src/asmjs/asm-types.h"
+#include "src/base/iterator.h"
 #include "src/base/overflowing-math.h"
 #include "src/flags/flags.h"
 #include "src/numbers/conversions-inl.h"
@@ -300,31 +301,31 @@ void AsmJsParser::BareEnd() {
 
 int AsmJsParser::FindContinueLabelDepth(AsmJsScanner::token_t label) {
   int count = 0;
-  for (auto it = block_stack_.rbegin(); it != block_stack_.rend();
-       ++it, ++count) {
+  for (const auto& info : base::Reversed(block_stack_)) {
     // A 'continue' statement targets ...
     //  - The innermost {kLoop} block if no label is given.
     //  - The matching {kLoop} block (when a label is provided).
-    if (it->kind == BlockKind::kLoop &&
-        (label == kTokenNone || it->label == label)) {
+    if (info.kind == BlockKind::kLoop &&
+        (label == kTokenNone || info.label == label)) {
       return count;
     }
+    ++count;
   }
   return -1;
 }
 
 int AsmJsParser::FindBreakLabelDepth(AsmJsScanner::token_t label) {
   int count = 0;
-  for (auto it = block_stack_.rbegin(); it != block_stack_.rend();
-       ++it, ++count) {
+  for (const auto& info : base::Reversed(block_stack_)) {
     // A 'break' statement targets ...
     //  - The innermost {kRegular} block if no label is given.
     //  - The matching {kRegular} or {kNamed} block (when a label is provided).
-    if ((it->kind == BlockKind::kRegular &&
-         (label == kTokenNone || it->label == label)) ||
-        (it->kind == BlockKind::kNamed && it->label == label)) {
+    if ((info.kind == BlockKind::kRegular &&
+         (label == kTokenNone || info.label == label)) ||
+        (info.kind == BlockKind::kNamed && info.label == label)) {
       return count;
     }
+    ++count;
   }
   return -1;
 }
@@ -414,7 +415,7 @@ void AsmJsParser::ValidateModuleParameters() {
 
 // 6.1 ValidateModule - variables
 void AsmJsParser::ValidateModuleVars() {
-  while (Peek(TOK(var)) || Peek(TOK(const))) {
+  while (!failed_ && (Peek(TOK(var)) || Peek(TOK(const)))) {
     bool mutable_variable = true;
     if (Check(TOK(var))) {
       // Had a var.
@@ -629,13 +630,14 @@ void AsmJsParser::ValidateModuleVarStdlib(VarInfo* info) {
 
 // 6.2 ValidateExport
 void AsmJsParser::ValidateExport() {
-  // clang-format off
   EXPECT_TOKEN(TOK(return));
-  // clang-format on
   if (Check('{')) {
     for (;;) {
       base::Vector<const char> name = CopyCurrentIdentifierString();
       if (!scanner_.IsGlobal() && !scanner_.IsLocal()) {
+        FAIL("Illegal export name");
+      }
+      if (name == base::CStrVector("__proto__")) {
         FAIL("Illegal export name");
       }
       Consume();
@@ -775,9 +777,7 @@ void AsmJsParser::ValidateFunction() {
 
   bool last_statement_is_return = false;
   while (!failed_ && !Peek('}')) {
-    // clang-format off
     last_statement_is_return = Peek(TOK(return));
-    // clang-format on
     RECURSE(ValidateStatement());
   }
 
@@ -807,7 +807,8 @@ void AsmJsParser::ValidateFunction() {
   }
 
   // Check against limit on number of local variables.
-  if (locals.size() + function_temp_locals_used_ > kV8MaxWasmFunctionLocals) {
+  if (locals.size() + function_temp_locals_used_ + params.size() >
+      kV8MaxWasmFunctionLocals) {
     FAIL("Number of local variables exceeds internal limit");
   }
 
@@ -1041,9 +1042,7 @@ void AsmJsParser::ValidateStatement() {
     RECURSE(EmptyStatement());
   } else if (Peek(TOK(if))) {
     RECURSE(IfStatement());
-    // clang-format off
   } else if (Peek(TOK(return))) {
-    // clang-format on
     RECURSE(ReturnStatement());
   } else if (IterationStatement()) {
     // Handled in IterationStatement.
@@ -1118,9 +1117,7 @@ void AsmJsParser::IfStatement() {
 
 // 6.5.5 ReturnStatement
 void AsmJsParser::ReturnStatement() {
-  // clang-format off
   EXPECT_TOKEN(TOK(return));
-  // clang-format on
   if (!Peek(';') && !Peek('}')) {
     // TODO(bradnelson): See if this can be factored out.
     AsmType* ret;
@@ -1863,7 +1860,6 @@ AsmType* AsmJsParser::ShiftExpression() {
     switch (scanner_.Token()) {
       case TOK(SAR): {
         EXPECT_TOKENn(TOK(SAR));
-        heap_access_shift_position_ = kNoHeapAccessShift;
         // Remember position allowing this shift-expression to be used as part
         // of a heap access operation expecting `a >> n:NumericLiteral`.
         bool imm = false;
@@ -1882,7 +1878,10 @@ AsmType* AsmJsParser::ShiftExpression() {
         if (imm && old_pos == scanner_.Position()) {
           heap_access_shift_position_ = old_code;
           heap_access_shift_value_ = shift_imm;
+        } else {
+          heap_access_shift_position_ = kNoHeapAccessShift;
         }
+
         if (!(a->IsA(AsmType::Intish()) && b->IsA(AsmType::Intish()))) {
           FAILn("Expected intish for operator >>.");
         }
@@ -1893,7 +1892,6 @@ AsmType* AsmJsParser::ShiftExpression() {
 #define HANDLE_CASE(op, opcode, name, result)                        \
   case TOK(op): {                                                    \
     EXPECT_TOKENn(TOK(op));                                          \
-    heap_access_shift_position_ = kNoHeapAccessShift;                \
     AsmType* b = nullptr;                                            \
     RECURSEn(b = AdditiveExpression());                              \
     if (!(a->IsA(AsmType::Intish()) && b->IsA(AsmType::Intish()))) { \
@@ -1901,6 +1899,8 @@ AsmType* AsmJsParser::ShiftExpression() {
     }                                                                \
     current_function_builder_->Emit(kExpr##opcode);                  \
     a = AsmType::result();                                           \
+    /* Must happen after the RECURSE call to unset its state! */     \
+    heap_access_shift_position_ = kNoHeapAccessShift;                \
     continue;                                                        \
   }
         HANDLE_CASE(SHL, I32Shl, "<<", Signed);

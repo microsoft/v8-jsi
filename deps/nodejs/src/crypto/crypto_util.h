@@ -22,6 +22,24 @@
 #include <string>
 #include <vector>
 
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L && !defined(OPENSSL_NO_COMP_ALG)
+#define NODE_OPENSSL_HAS_CERT_COMP 1
+#endif
+
+namespace node {
+namespace crypto {
+class ByteSource;
+}
+
+template <>
+struct MemoryRetainerTraits<crypto::ByteSource> {
+  static void MemoryInfo(MemoryTracker* tracker,
+                         const crypto::ByteSource& value);
+  static const char* MemoryInfoName(const crypto::ByteSource& value);
+  static size_t SelfSize(const crypto::ByteSource& value);
+};
+}  // namespace node
+
 namespace node::crypto {
 // Currently known sizes of commonly used OpenSSL struct sizes.
 // OpenSSL considers it's various structs to be opaque and the
@@ -32,12 +50,25 @@ namespace node::crypto {
 constexpr size_t kSizeOf_DH = 144;
 constexpr size_t kSizeOf_EC_KEY = 80;
 constexpr size_t kSizeOf_EVP_CIPHER_CTX = 168;
+constexpr size_t kSizeOf_EVP_MAC_CTX = 16;
 constexpr size_t kSizeOf_EVP_MD_CTX = 48;
 constexpr size_t kSizeOf_EVP_PKEY = 72;
 constexpr size_t kSizeOf_EVP_PKEY_CTX = 80;
 constexpr size_t kSizeOf_HMAC_CTX = 32;
+constexpr size_t kSizeOf_SSL_CTX = 240;
+constexpr size_t kSizeOf_X509 = 128;
 
-bool ProcessFipsOptions();
+template <typename T>
+constexpr T NumBitsToBytes(T bits) {
+  return (bits / CHAR_BIT) + ((CHAR_BIT - 1 + (bits % CHAR_BIT)) / CHAR_BIT);
+}
+
+// Applies the FIPS related command line options. Returns a description of
+// what went wrong, or std::nullopt when there was nothing to do or the
+// options were applied successfully.
+std::optional<std::string> ProcessFipsOptions();
+bool IsFipsEnabled();
+void InstallFipsIndicatorCallback();
 
 bool InitCryptoOnce(v8::Isolate* isolate);
 void InitCryptoOnce();
@@ -72,13 +103,23 @@ void Decode(const v8::FunctionCallbackInfo<v8::Value>& args,
   }
 }
 
-#define NODE_CRYPTO_ERROR_CODES_MAP(V)                                        \
-    V(CIPHER_JOB_FAILED, "Cipher job failed")                                 \
-    V(DERIVING_BITS_FAILED, "Deriving bits failed")                           \
-    V(ENGINE_NOT_FOUND, "Engine \"%s\" was not found")                        \
-    V(INVALID_KEY_TYPE, "Invalid key type")                                   \
-    V(KEY_GENERATION_JOB_FAILED, "Key generation job failed")                 \
-    V(OK, "Ok")                                                               \
+#define NODE_CRYPTO_ERROR_CODES_MAP(V)                                         \
+  V(ALLOCATION_FAILED, "Failed to allocate output buffer")                     \
+  V(ARGON2_FAILED, "Argon2 derivation failed")                                 \
+  V(CIPHER_JOB_FAILED, "Cipher job failed")                                    \
+  V(CONTEXT_UNSUPPORTED, "Context parameter is unsupported")                   \
+  V(DECAPSULATION_FAILED, "Decapsulation failed")                              \
+  V(DERIVING_BITS_FAILED, "Deriving bits failed")                              \
+  V(ECDH_FAILED, "ECDH key agreement failed")                                  \
+  V(ENCAPSULATION_FAILED, "Encapsulation failed")                              \
+  V(ENGINE_NOT_FOUND, "Engine \"%s\" was not found")                           \
+  V(HKDF_FAILED, "HKDF derivation failed")                                     \
+  V(INVALID_KEY_TYPE, "Invalid key type")                                      \
+  V(KEY_GENERATION_JOB_FAILED, "Key generation job failed")                    \
+  V(KMAC_FAILED, "KMAC derivation failed")                                     \
+  V(OK, "Ok")                                                                  \
+  V(PBKDF2_FAILED, "PBKDF2 derivation failed")                                 \
+  V(SCRYPT_FAILED, "scrypt derivation failed")
 
 enum class NodeCryptoError {
 #define V(CODE, DESCRIPTION) CODE,
@@ -115,12 +156,16 @@ struct CryptoErrorStore final : public MemoryRetainer {
       Environment* env,
       v8::Local<v8::String> exception_string = v8::Local<v8::String>()) const;
 
+  void SetNodeErrorCode(const char* code) { node_error_code_ = code; }
+
   SET_NO_MEMORY_INFO()
   SET_MEMORY_INFO_NAME(CryptoErrorStore)
   SET_SELF_SIZE(CryptoErrorStore)
 
  private:
   std::vector<std::string> errors_;
+  unsigned long primary_openssl_error_ = 0;  // NOLINT(runtime/int)
+  const char* node_error_code_ = nullptr;
 };
 
 template <typename... Args>
@@ -182,6 +227,15 @@ class ByteSource final {
     return ncrypto::BignumPointer(data<unsigned char>(), size());
   }
 
+  inline ByteSource ToCopy() const {
+    if (empty()) return {};
+    CHECK_NOT_NULL(data_);
+    auto data = MallocOpenSSL<char>(size());
+    CHECK_NOT_NULL(data);
+    memcpy(data, data_, size());
+    return ByteSource::Allocated(data, size());
+  }
+
   // Creates a v8::BackingStore that takes over responsibility for
   // any allocated data. The ByteSource will be reset with size = 0
   // after being called.
@@ -225,6 +279,9 @@ class ByteSource final {
       Environment* env, v8::Local<v8::Value> value);
 
  private:
+  friend struct node::MemoryRetainerTraits<ByteSource>;
+  friend void TruncateToBitLength(size_t length_bits, ByteSource* bytes);
+
   const void* data_ = nullptr;
   void* allocated_data_ = nullptr;
   size_t size_ = 0;
@@ -233,12 +290,47 @@ class ByteSource final {
       : data_(data), allocated_data_(allocated_data), size_(size) {}
 };
 
-enum CryptoJobMode {
-  kCryptoJobAsync,
-  kCryptoJobSync
-};
+void TruncateToBitLength(size_t length_bits, ByteSource* bytes);
+
+enum CryptoJobMode { kCryptoJobAsync, kCryptoJobSync, kCryptoJobWebCrypto };
 
 CryptoJobMode GetCryptoJobMode(v8::Local<v8::Value> args);
+bool IsCryptoJobAsync(CryptoJobMode mode);
+
+struct CShakeOptions final : public MemoryRetainer {
+  enum Flag : uint8_t {
+    kFunctionName = 1 << 0,
+    kCustomization = 1 << 1,
+  };
+
+  std::string function_name;
+  std::string customization;
+  uint8_t flags = 0;
+
+  CShakeOptions() = default;
+  CShakeOptions(CShakeOptions&& other) noexcept;
+  CShakeOptions& operator=(CShakeOptions&& other) noexcept;
+
+  bool empty() const { return flags == 0; }
+  bool has(Flag flag) const { return (flags & flag) != 0; }
+
+  bool Initialize(ncrypto::EVPMDCtxPointer* ctx, const EVP_MD* digest) const;
+
+  void MemoryInfo(MemoryTracker* tracker) const override;
+  SET_MEMORY_INFO_NAME(CShakeOptions)
+  SET_SELF_SIZE(CShakeOptions)
+};
+
+v8::Maybe<void> GetCShakeOptions(
+    const v8::FunctionCallbackInfo<v8::Value>& args,
+    unsigned int offset,
+    CShakeOptions* options);
+
+v8::MaybeLocal<v8::Value> CreateWebCryptoJobError(Environment* env,
+                                                  v8::Local<v8::Value> cause);
+
+v8::MaybeLocal<v8::Value> ToWebCryptoJobResult(Environment* env,
+                                               v8::Local<v8::Value> value);
 
 template <typename CryptoJobTraits>
 class CryptoJob : public AsyncWrap, public ThreadPoolWork {
@@ -267,9 +359,53 @@ class CryptoJob : public AsyncWrap, public ThreadPoolWork {
 
   void AfterThreadPoolWork(int status) override {
     Environment* env = AsyncWrap::env();
-    CHECK_EQ(mode_, kCryptoJobAsync);
+    CHECK(IsCryptoJobAsync(mode_));
     CHECK(status == 0 || status == UV_ECANCELED);
     std::unique_ptr<CryptoJob> ptr(this);
+    if (mode_ == kCryptoJobWebCrypto) {
+      v8::HandleScope handle_scope(env->isolate());
+      v8::Context::Scope context_scope(env->context());
+      InternalCallbackScope callback_scope(this);
+
+      if (status == UV_ECANCELED) {
+        v8::Local<v8::Value> exception = v8::Exception::Error(
+            OneByteString(env->isolate(), "The operation was canceled"));
+        ptr->RejectWebCrypto(exception);
+        return;
+      }
+
+      v8::Local<v8::Value> err;
+      v8::Local<v8::Value> result;
+      {
+        node::errors::TryCatchScope try_catch(env);
+        if (ptr->ToResult(&err, &result).IsNothing()) {
+          CHECK(try_catch.HasCaught());
+          CHECK(try_catch.CanContinue());
+          err = try_catch.Exception();
+        }
+      }
+
+      if (!err.IsEmpty() && !err->IsUndefined()) {
+        ptr->RejectWebCrypto(err);
+        return;
+      }
+
+      CHECK(!result.IsEmpty());
+      v8::Local<v8::Value> webcrypto_result;
+      {
+        node::errors::TryCatchScope try_catch(env);
+        if (!ToWebCryptoJobResult(env, result).ToLocal(&webcrypto_result)) {
+          CHECK(try_catch.HasCaught());
+          CHECK(try_catch.CanContinue());
+          ptr->RejectWebCrypto(try_catch.Exception());
+          return;
+        }
+      }
+
+      ptr->ResolveWebCrypto(webcrypto_result);
+      return;
+    }
+
     // If the job was canceled do not execute the callback.
     // TODO(@jasnell): We should likely revisit skipping the
     // callback on cancel as that could leave the JS in a pending
@@ -324,6 +460,19 @@ class CryptoJob : public AsyncWrap, public ThreadPoolWork {
 
     CryptoJob<CryptoJobTraits>* job;
     ASSIGN_OR_RETURN_UNWRAP(&job, args.This());
+    if (job->mode() == kCryptoJobWebCrypto) {
+      v8::Local<v8::Promise::Resolver> resolver;
+      if (!v8::Promise::Resolver::New(env->context()).ToLocal(&resolver)) {
+        return;
+      }
+
+      CHECK(job->resolver_.IsEmpty());
+      job->resolver_.Reset(env->isolate(), resolver);
+      args.GetReturnValue().Set(resolver->GetPromise());
+
+      return job->ScheduleWork();
+    }
+
     if (job->mode() == kCryptoJobAsync)
       return job->ScheduleWork();
 
@@ -360,9 +509,80 @@ class CryptoJob : public AsyncWrap, public ThreadPoolWork {
   }
 
  private:
+  void ResolveWebCrypto(v8::Local<v8::Value> value) {
+    Environment* env = AsyncWrap::env();
+    v8::Local<v8::Context> context = env->context();
+    v8::Local<v8::Promise::Resolver> resolver =
+        v8::Local<v8::Promise::Resolver>::New(env->isolate(), resolver_);
+
+    bool should_delete_then = false;
+    v8::Local<v8::String> then_key;
+    v8::Local<v8::Value> exception;
+    {
+      node::errors::TryCatchScope try_catch(env);
+      if (value->IsObject()) {
+        then_key = env->then_string();
+        v8::Local<v8::Object> object = value.As<v8::Object>();
+        v8::Maybe<bool> has_own_then =
+            object->HasOwnProperty(context, then_key);
+        if (has_own_then.IsNothing()) {
+          if (try_catch.HasCaught() && try_catch.CanContinue()) {
+            exception = try_catch.Exception();
+          }
+        } else if (!has_own_then.FromJust()) {
+          if (object
+                  ->DefineOwnProperty(context,
+                                      then_key,
+                                      v8::Undefined(env->isolate()),
+                                      v8::DontEnum)
+                  .FromMaybe(false)) {
+            should_delete_then = true;
+          } else if (try_catch.HasCaught() && try_catch.CanContinue()) {
+            exception = try_catch.Exception();
+          } else {
+            exception = v8::Exception::Error(OneByteString(
+                env->isolate(), "Failed to prepare WebCrypto job result"));
+          }
+        }
+      }
+
+      if (exception.IsEmpty() && resolver->Resolve(context, value).IsJust()) {
+        if (should_delete_then) {
+          USE(value.As<v8::Object>()->Delete(context, then_key));
+        }
+        resolver_.Reset();
+        return;
+      }
+      if (try_catch.HasCaught() && try_catch.CanContinue()) {
+        exception = try_catch.Exception();
+      }
+    }
+
+    if (should_delete_then) {
+      USE(value.As<v8::Object>()->Delete(context, then_key));
+    }
+    if (!exception.IsEmpty()) {
+      USE(resolver->Reject(context, exception));
+    }
+    resolver_.Reset();
+  }
+
+  void RejectWebCrypto(v8::Local<v8::Value> cause) {
+    Environment* env = AsyncWrap::env();
+    v8::Local<v8::Value> exception;
+    if (!CreateWebCryptoJobError(env, cause).ToLocal(&exception)) {
+      exception = cause;
+    }
+    v8::Local<v8::Promise::Resolver> resolver =
+        v8::Local<v8::Promise::Resolver>::New(env->isolate(), resolver_);
+    USE(resolver->Reject(env->context(), exception));
+    resolver_.Reset();
+  }
+
   const CryptoJobMode mode_;
   CryptoErrorStore errors_;
   AdditionalParams params_;
+  v8::Global<v8::Promise::Resolver> resolver_;
 };
 
 template <typename DeriveBitsTraits>
@@ -397,28 +617,26 @@ class DeriveBitsJob final : public CryptoJob<DeriveBitsTraits> {
     CryptoJob<DeriveBitsTraits>::RegisterExternalReferences(New, registry);
   }
 
-  DeriveBitsJob(
-      Environment* env,
-      v8::Local<v8::Object> object,
-      CryptoJobMode mode,
-      AdditionalParams&& params)
+  DeriveBitsJob(Environment* env,
+                v8::Local<v8::Object> object,
+                CryptoJobMode mode,
+                AdditionalParams&& params)
       : CryptoJob<DeriveBitsTraits>(
-            env,
-            object,
-            DeriveBitsTraits::Provider,
-            mode,
-            std::move(params)) {}
+            env, object, DeriveBitsTraits::Provider, mode, std::move(params)) {}
 
   void DoThreadPoolWork() override {
     ncrypto::ClearErrorOnReturn clear_error_on_return;
+    CryptoErrorStore* errors = CryptoJob<DeriveBitsTraits>::errors();
     if (!DeriveBitsTraits::DeriveBits(AsyncWrap::env(),
                                       *CryptoJob<DeriveBitsTraits>::params(),
                                       &out_,
-                                      this->mode())) {
-      CryptoErrorStore* errors = CryptoJob<DeriveBitsTraits>::errors();
-      errors->Capture();
-      if (errors->Empty())
+                                      this->mode(),
+                                      errors)) {
+      if (errors->Empty()) errors->Capture();
+      if (errors->Empty()) {
         errors->Insert(NodeCryptoError::DERIVING_BITS_FAILED);
+        errors->SetNodeErrorCode("ERR_CRYPTO_OPERATION_FAILED");
+      }
       return;
     }
     success_ = true;
@@ -451,7 +669,7 @@ class DeriveBitsJob final : public CryptoJob<DeriveBitsTraits> {
 
   SET_SELF_SIZE(DeriveBitsJob)
   void MemoryInfo(MemoryTracker* tracker) const override {
-    tracker->TrackFieldWithSize("out", out_.size());
+    tracker->TraitTrackInline(out_, "out");
     CryptoJob<DeriveBitsTraits>::MemoryInfo(tracker);
   }
 
@@ -555,8 +773,8 @@ class ArrayBufferOrViewContents final {
   }
 
   template <typename M>
+    requires(sizeof(M) == 1)
   void CopyTo(M* dest, size_t len) const {
-    static_assert(sizeof(M) == 1, "sizeof(M) must equal 1");
     len = std::min(len, size());
     if (len > 0 && data() != nullptr) {
       memcpy(dest, data(), len);

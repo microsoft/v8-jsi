@@ -33,7 +33,6 @@ const {
   ArrayPrototypeSort,
   ArrayPrototypeSplice,
   ArrayPrototypeUnshift,
-  NumberIsInteger,
   ObjectAssign,
   ObjectDefineProperty,
   ObjectPrototypeHasOwnProperty,
@@ -41,6 +40,7 @@ const {
   RegExpPrototypeExec,
   SafeSet,
   StringPrototypeIncludes,
+  StringPrototypeIndexOf,
   StringPrototypeSlice,
   StringPrototypeToUpperCase,
   SymbolDispose,
@@ -70,18 +70,19 @@ const {
     ERR_CHILD_PROCESS_STDIO_MAXBUFFER,
     ERR_INVALID_ARG_TYPE,
     ERR_INVALID_ARG_VALUE,
-    ERR_OUT_OF_RANGE,
   },
   genericNodeError,
 } = require('internal/errors');
 const { clearTimeout, setTimeout } = require('timers');
 const { getValidatedPath } = require('internal/fs/utils');
 const {
-  isInt32,
   validateAbortSignal,
   validateArray,
   validateBoolean,
   validateFunction,
+  validateInteger,
+  validateInt32,
+  validateNumber,
   validateObject,
   validateString,
 } = require('internal/validators');
@@ -92,6 +93,8 @@ const {
   ChildProcess,
   stdioStringToArray,
 } = child_process;
+
+const { getEnvPairs } = internalBinding('process_wrap');
 
 const MAX_BUFFER = 1024 * 1024;
 
@@ -547,16 +550,35 @@ function getPermissionModelFlagsToCopy() {
   return permissionModelFlagsToCopy;
 }
 
+function hasPermissionFlagInEnv(nodeOptions) {
+  // Parse NODE_OPTIONS into individual tokens and check if any token
+  // is an actual --permission or --permission-audit flag. We use exact
+  // token matching rather than substring matching to avoid false positives
+  // when unrelated option values contain '--permission' (e.g.,
+  // --title=--permission).
+  if (!nodeOptions) return false;
+  const tokens = nodeOptions.split(/\s+/);
+  return tokens.some((token) =>
+    token === '--permission' ||
+    token.startsWith('--permission=') ||
+    token === '--permission-audit' ||
+    token.startsWith('--permission-audit='),
+  );
+}
+
 function copyPermissionModelFlagsToEnv(env, key, args) {
   // Do not override if permission was already passed to file
-  if (args.includes('--permission') || (env[key] && env[key].indexOf('--permission') !== -1)) {
+  if (args.includes('--permission') || args.includes('--permission-audit') ||
+      hasPermissionFlagInEnv(env[key])) {
     return;
   }
 
   const flagsToCopy = getPermissionModelFlagsToCopy();
+  const copiedFlags = new SafeSet();
   for (const arg of process.execArgv) {
     for (const flag of flagsToCopy) {
       if (arg.startsWith(flag)) {
+        copiedFlags.add(flag);
         env[key] = `${env[key] ? env[key] + ' ' + arg : arg}`;
       }
     }
@@ -603,13 +625,13 @@ function normalizeSpawnArguments(file, args, options) {
   }
 
   // Validate the uid, if present.
-  if (options.uid != null && !isInt32(options.uid)) {
-    throw new ERR_INVALID_ARG_TYPE('options.uid', 'int32', options.uid);
+  if (options.uid != null) {
+    validateInt32(options.uid, 'options.uid');
   }
 
   // Validate the gid, if present.
-  if (options.gid != null && !isInt32(options.gid)) {
-    throw new ERR_INVALID_ARG_TYPE('options.gid', 'int32', options.gid);
+  if (options.gid != null) {
+    validateInt32(options.gid, 'options.gid');
   }
 
   // Validate the shell, if present.
@@ -680,60 +702,74 @@ function normalizeSpawnArguments(file, args, options) {
     ArrayPrototypeUnshift(args, file);
   }
 
-  // Shallow copy to guarantee changes won't impact process.env
-  const env = options.env || { ...process.env };
-  const envPairs = [];
+  let envPairs;
+  if (!options.env && !permission.isEnabled()) {
+    // Default: the child inherits this process's environment. Take it as
+    // 'KEY=value' strings in one native pass over the environment block
+    // instead of copying process.env (one interceptor round trip and one
+    // getenv() scan per variable). Everything copyProcessEnvToEnv() would
+    // propagate below is part of it by definition, and entries of the real
+    // environment block cannot contain null bytes.
+    envPairs = getEnvPairs();
+    if (process.platform === 'win32') {
+      envPairs = dedupeWindowsEnvPairs(envPairs);
+    }
+  } else {
+    // Shallow copy to guarantee changes won't impact process.env
+    const env = options.env || { ...process.env };
+    envPairs = [];
 
-  // process.env.NODE_V8_COVERAGE always propagates, making it possible to
-  // collect coverage for programs that spawn with white-listed environment.
-  copyProcessEnvToEnv(env, 'NODE_V8_COVERAGE', options.env);
+    // process.env.NODE_V8_COVERAGE always propagates, making it possible to
+    // collect coverage for programs that spawn with white-listed environment.
+    copyProcessEnvToEnv(env, 'NODE_V8_COVERAGE', options.env);
 
-  if (isZOS) {
-    // The following environment variables must always propagate if set.
-    copyProcessEnvToEnv(env, '_BPXK_AUTOCVT', options.env);
-    copyProcessEnvToEnv(env, '_CEE_RUNOPTS', options.env);
-    copyProcessEnvToEnv(env, '_TAG_REDIR_ERR', options.env);
-    copyProcessEnvToEnv(env, '_TAG_REDIR_IN', options.env);
-    copyProcessEnvToEnv(env, '_TAG_REDIR_OUT', options.env);
-    copyProcessEnvToEnv(env, 'STEPLIB', options.env);
-    copyProcessEnvToEnv(env, 'LIBPATH', options.env);
-    copyProcessEnvToEnv(env, '_EDC_SIG_DFLT', options.env);
-    copyProcessEnvToEnv(env, '_EDC_SUSV3', options.env);
-  }
+    if (isZOS) {
+      // The following environment variables must always propagate if set.
+      copyProcessEnvToEnv(env, '_BPXK_AUTOCVT', options.env);
+      copyProcessEnvToEnv(env, '_CEE_RUNOPTS', options.env);
+      copyProcessEnvToEnv(env, '_TAG_REDIR_ERR', options.env);
+      copyProcessEnvToEnv(env, '_TAG_REDIR_IN', options.env);
+      copyProcessEnvToEnv(env, '_TAG_REDIR_OUT', options.env);
+      copyProcessEnvToEnv(env, 'STEPLIB', options.env);
+      copyProcessEnvToEnv(env, 'LIBPATH', options.env);
+      copyProcessEnvToEnv(env, '_EDC_SIG_DFLT', options.env);
+      copyProcessEnvToEnv(env, '_EDC_SUSV3', options.env);
+    }
 
-  if (permission.isEnabled()) {
-    copyPermissionModelFlagsToEnv(env, 'NODE_OPTIONS', args);
-  }
+    if (permission.isEnabled()) {
+      copyPermissionModelFlagsToEnv(env, 'NODE_OPTIONS', args);
+    }
 
-  let envKeys = [];
-  // Prototype values are intentionally included.
-  for (const key in env) {
-    ArrayPrototypePush(envKeys, key);
-  }
+    let envKeys = [];
+    // Prototype values are intentionally included.
+    for (const key in env) {
+      ArrayPrototypePush(envKeys, key);
+    }
 
-  if (process.platform === 'win32') {
-    // On Windows env keys are case insensitive. Filter out duplicates,
-    // keeping only the first one (in lexicographic order)
-    const sawKey = new SafeSet();
-    envKeys = ArrayPrototypeFilter(
-      ArrayPrototypeSort(envKeys),
-      (key) => {
-        const uppercaseKey = StringPrototypeToUpperCase(key);
-        if (sawKey.has(uppercaseKey)) {
-          return false;
-        }
-        sawKey.add(uppercaseKey);
-        return true;
-      },
-    );
-  }
+    if (process.platform === 'win32') {
+      // On Windows env keys are case insensitive. Filter out duplicates,
+      // keeping only the first one (in lexicographic order)
+      const sawKey = new SafeSet();
+      envKeys = ArrayPrototypeFilter(
+        ArrayPrototypeSort(envKeys),
+        (key) => {
+          const uppercaseKey = StringPrototypeToUpperCase(key);
+          if (sawKey.has(uppercaseKey)) {
+            return false;
+          }
+          sawKey.add(uppercaseKey);
+          return true;
+        },
+      );
+    }
 
-  for (const key of envKeys) {
-    const value = env[key];
-    if (value !== undefined) {
-      validateArgumentNullCheck(key, `options.env['${key}']`);
-      validateArgumentNullCheck(value, `options.env['${key}']`);
-      ArrayPrototypePush(envPairs, `${key}=${value}`);
+    for (const key of envKeys) {
+      const value = env[key];
+      if (value !== undefined) {
+        validateArgumentNullCheck(key, `options.env['${key}']`);
+        validateArgumentNullCheck(value, `options.env['${key}']`);
+        ArrayPrototypePush(envPairs, `${key}=${value}`);
+      }
     }
   }
 
@@ -749,6 +785,34 @@ function normalizeSpawnArguments(file, args, options) {
     windowsHide: !!options.windowsHide,
     windowsVerbatimArguments: !!windowsVerbatimArguments,
   };
+}
+
+/**
+ * Windows environment variable names are case-insensitive: keep only the
+ * first entry for each name in lexicographic order of the names, exactly like
+ * the key filtering applied to a user-supplied `options.env`.
+ * @param {string[]} envPairs 'KEY=value' strings
+ * @returns {string[]}
+ */
+function dedupeWindowsEnvPairs(envPairs) {
+  const keyed = [];
+  for (let i = 0; i < envPairs.length; i++) {
+    const pair = envPairs[i];
+    // Names never start with '=' here (hidden variables are not enumerated),
+    // so the first '=' ends the name.
+    const eq = StringPrototypeIndexOf(pair, '=');
+    ArrayPrototypePush(keyed, { key: eq === -1 ? pair : StringPrototypeSlice(pair, 0, eq), pair });
+  }
+  ArrayPrototypeSort(keyed, (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const sawKey = new SafeSet();
+  const result = [];
+  for (let i = 0; i < keyed.length; i++) {
+    const uppercaseKey = StringPrototypeToUpperCase(keyed[i].key);
+    if (sawKey.has(uppercaseKey)) continue;
+    sawKey.add(uppercaseKey);
+    ArrayPrototypePush(result, keyed[i].pair);
+  }
+  return result;
 }
 
 function abortChildProcess(child, killSignal, reason) {
@@ -807,7 +871,8 @@ function spawn(file, args, options) {
       }
     }, options.timeout);
 
-    child.once('exit', () => {
+    // 'close' always fires after 'exit', or after 'error' on a spawn failure.
+    child.once('close', () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
@@ -856,8 +921,8 @@ function spawn(file, args, options) {
  * @returns {{
  *   pid: number;
  *   output: Array;
- *   stdout: Buffer | string;
- *   stderr: Buffer | string;
+ *   stdout: Buffer | string | null;
+ *   stderr: Buffer | string | null;
  *   status: number | null;
  *   signal: string | null;
  *   error: Error;
@@ -945,7 +1010,7 @@ function checkExecSyncError(ret, args, cmd) {
  *   windowsHide?: boolean;
  *   shell?: boolean | string;
  *   }} [options]
- * @returns {Buffer | string}
+ * @returns {Buffer | string | null}
  */
 function execFileSync(file, args, options) {
   ({ file, args, options } = normalizeExecFileArgs(file, args, options));
@@ -983,7 +1048,7 @@ function execFileSync(file, args, options) {
  *   encoding?: string;
  *   windowsHide?: boolean;
  *   }} [options]
- * @returns {Buffer | string}
+ * @returns {Buffer | string | null}
  */
 function execSync(command, options) {
   const opts = normalizeExecArgs(command, options, null);
@@ -1018,17 +1083,15 @@ function validateArgumentsNullCheck(args, propName) {
 
 
 function validateTimeout(timeout) {
-  if (timeout != null && !(NumberIsInteger(timeout) && timeout >= 0)) {
-    throw new ERR_OUT_OF_RANGE('timeout', 'an unsigned integer', timeout);
+  if (timeout != null) {
+    validateInteger(timeout, 'timeout', 0);
   }
 }
 
 
 function validateMaxBuffer(maxBuffer) {
-  if (maxBuffer != null && !(typeof maxBuffer === 'number' && maxBuffer >= 0)) {
-    throw new ERR_OUT_OF_RANGE('options.maxBuffer',
-                               'a positive number',
-                               maxBuffer);
+  if (maxBuffer != null) {
+    validateNumber(maxBuffer, 'options.maxBuffer', 0);
   }
 }
 

@@ -7,7 +7,7 @@ const {
   ArrayBufferPrototypeSlice,
   ArrayBufferPrototypeTransfer,
   ArrayPrototypePush,
-  ArrayPrototypeShift,
+  AsyncIteratorPrototype,
   DataView,
   FunctionPrototypeBind,
   FunctionPrototypeCall,
@@ -24,6 +24,7 @@ const {
   Symbol,
   SymbolAsyncIterator,
   SymbolDispose,
+  SymbolIterator,
   SymbolToStringTag,
   TypedArrayPrototypeGetLength,
   Uint8Array,
@@ -32,6 +33,7 @@ const {
 const {
   AbortError,
   codes: {
+    ERR_ARG_NOT_ITERABLE,
     ERR_ILLEGAL_CONSTRUCTOR,
     ERR_INVALID_ARG_TYPE,
     ERR_INVALID_ARG_VALUE,
@@ -48,6 +50,7 @@ const {
 const {
   isArrayBufferView,
   isDataView,
+  isSharedArrayBuffer,
 } = require('internal/util/types');
 
 const {
@@ -60,6 +63,7 @@ const {
 const {
   validateAbortSignal,
   validateBuffer,
+  validateNumber,
   validateObject,
   kValidateObjectAllowObjects,
   kValidateObjectAllowObjectsAndNull,
@@ -93,27 +97,35 @@ const {
   ArrayBufferViewGetBuffer,
   ArrayBufferViewGetByteLength,
   ArrayBufferViewGetByteOffset,
-  AsyncIterator,
+  Queue,
   canCopyArrayBuffer,
   cloneAsUint8Array,
   copyArrayBuffer,
-  createPromiseCallback,
+  createPromiseCallback1Param,
+  createRawCallback1Param,
   customInspect,
+  defaultSizeAlgorithm,
   dequeueValue,
   enqueueValueWithSize,
   extractHighWaterMark,
   extractSizeAlgorithm,
-  lazyTransfer,
+  getNonWritablePropertyDescriptor,
   isBrandCheck,
-  resetQueue,
-  setPromiseHandled,
-  nonOpCancel,
-  nonOpPull,
-  nonOpStart,
-  getIterator,
-  iteratorNext,
-  kType,
+  kEmptyQueue,
+  kParkedAlgorithmResult,
+  kPendingPromise,
+  kResolvedPromise,
   kState,
+  kType,
+  lazyTransfer,
+  materializeQueue,
+  nonOpCallback,
+  nonOpCancel,
+  rejectedHandledRecord,
+  resetQueue,
+  resolvedRecord,
+  setPromiseHandled,
+  thenAlgorithmResult,
 } = require('internal/webstreams/util');
 
 const {
@@ -128,7 +140,7 @@ const {
   writableStreamCloseQueuedOrInFlight,
   writableStreamDefaultWriterCloseWithErrorPropagation,
   writableStreamDefaultWriterRelease,
-  writableStreamDefaultWriterWrite,
+  writableStreamDefaultWriterWriteWithRequest,
 } = require('internal/webstreams/writablestream');
 
 const { Buffer } = require('buffer');
@@ -169,14 +181,6 @@ function lazyReadableReleasingError() {
   releasingError.stack = SideEffectFreeRegExpPrototypeSymbolReplace(userModuleRegExp, releasingError.stack, '');
   return releasingError;
 }
-
-const getNonWritablePropertyDescriptor = (value) => {
-  return {
-    __proto__: null,
-    configurable: true,
-    value,
-  };
-};
 
 /**
  * @typedef {import('../abort_controller').AbortSignal} AbortSignal
@@ -249,12 +253,16 @@ class ReadableStream {
    */
   constructor(source = kEmptyObject, strategy = kEmptyObject) {
     markTransferMode(this, false, true);
+    // Internal construction (tee, transform streams, adapters, transfer):
+    // the caller sets up the controller, so every ReadableStream shares
+    // one hidden class and no per-instance prototype swap is needed.
+    if (source === kSkipThrow) {
+      this[kState] = createReadableStreamState();
+      return;
+    }
     validateObject(source, 'source', kValidateObjectAllowObjects);
     validateObject(strategy, 'strategy', kValidateObjectAllowObjectsAndNull);
     this[kState] = createReadableStreamState();
-
-    this[kIsClosedPromise] = PromiseWithResolvers();
-    this[kControllerErrorFunction] = () => {};
 
     // The spec requires handling of the strategy first
     // here. Specifically, if getting the size and
@@ -294,6 +302,36 @@ class ReadableStream {
 
   get [kIsReadable]() {
     return this[kState].state === 'readable';
+  }
+
+  [kControllerErrorFunction](error) {
+    // Used by the internal stream interop (addAbortSignal). Historically
+    // only default controllers were wired here; byte stream controllers
+    // keep the previous no-op behavior.
+    const controller = this[kState].controller;
+    if (isReadableStreamDefaultController(controller))
+      controller.error(error);
+  }
+
+  // Used by the internal stream interop (end-of-stream). Materialized
+  // lazily since its settlement is derivable from the stream state; the
+  // settle sites in readableStreamClose/Error only touch the cache.
+  get [kIsClosedPromise]() {
+    let cache = this[kState].closedPromise;
+    if (cache === undefined) {
+      switch (this[kState].state) {
+        case 'readable':
+          cache = PromiseWithResolvers();
+          break;
+        case 'closed':
+          cache = resolvedRecord();
+          break;
+        default:
+          cache = rejectedHandledRecord(this[kState].storedError);
+      }
+      this[kState].closedPromise = cache;
+    }
+    return cache;
   }
 
   /**
@@ -464,98 +502,10 @@ class ReadableStream {
 
     // eslint-disable-next-line no-use-before-define
     const reader = new ReadableStreamDefaultReader(this);
-
-    // No __proto__ here to avoid the performance hit.
-    const state = {
-      done: false,
-      current: undefined,
-    };
-    let started = false;
-
-    // The nextSteps function is not an async function in order
-    // to make it more efficient. Because nextSteps explicitly
-    // creates a Promise and returns it in the common case,
-    // making it an async function just causes two additional
-    // unnecessary Promise allocations to occur, which just add
-    // cost.
-    function nextSteps() {
-      if (state.done)
-        return PromiseResolve({ done: true, value: undefined });
-
-      if (reader[kState].stream === undefined) {
-        return PromiseReject(
-          new ERR_INVALID_STATE.TypeError(
-            'The reader is not bound to a ReadableStream'));
-      }
-      const promise = PromiseWithResolvers();
-
-      // eslint-disable-next-line no-use-before-define
-      readableStreamDefaultReaderRead(reader, new ReadableStreamAsyncIteratorReadRequest(reader, state, promise));
-      return promise.promise;
-    }
-
-    async function returnSteps(value) {
-      if (state.done)
-        return { done: true, value }; // eslint-disable-line node-core/avoid-prototype-pollution
-      state.done = true;
-
-      if (reader[kState].stream === undefined) {
-        throw new ERR_INVALID_STATE.TypeError(
-          'The reader is not bound to a ReadableStream');
-      }
-      assert(!reader[kState].readRequests.length);
-      if (!preventCancel) {
-        const result = readableStreamReaderGenericCancel(reader, value);
-        readableStreamReaderGenericRelease(reader);
-        await result;
-        return { done: true, value }; // eslint-disable-line node-core/avoid-prototype-pollution
-      }
-
-      readableStreamReaderGenericRelease(reader);
-      return { done: true, value }; // eslint-disable-line node-core/avoid-prototype-pollution
-    }
-
-    // TODO(@jasnell): Explore whether an async generator
-    // can be used here instead of a custom iterator object.
-    return ObjectSetPrototypeOf({
-      // Changing either of these functions (next or return)
-      // to async functions causes a failure in the streams
-      // Web Platform Tests that check for use of a modified
-      // Promise.prototype.then. Since the await keyword
-      // uses Promise.prototype.then, it is open to prototype
-      // pollution, which causes the test to fail. The other
-      // await uses here do not trigger that failure because
-      // the test that fails does not trigger those code paths.
-      next() {
-        // If this is the first read, delay by one microtask
-        // to ensure that the controller has had an opportunity
-        // to properly start and perform the initial pull.
-        // TODO(@jasnell): The spec doesn't call this out so
-        // need to investigate if it's a bug in our impl or
-        // the spec.
-        if (!started) {
-          state.current = PromiseResolve();
-          started = true;
-        }
-        state.current = state.current !== undefined ?
-          PromisePrototypeThen(state.current, nextSteps, nextSteps) :
-          nextSteps();
-        return state.current;
-      },
-
-      return(error) {
-        started = true;
-        state.current = state.current !== undefined ?
-          PromisePrototypeThen(
-            state.current,
-            () => returnSteps(error),
-            () => returnSteps(error)) :
-          returnSteps(error);
-        return state.current;
-      },
-
-      [SymbolAsyncIterator]() { return this; },
-    }, AsyncIterator);
+    // eslint-disable-next-line no-use-before-define
+    const state = new ReadableStreamAsyncIteratorReadRequest(reader, preventCancel);
+    // eslint-disable-next-line no-use-before-define
+    return new ReadableStreamAsyncIterator(state);
   }
 
   [kInspect](depth, options) {
@@ -613,7 +563,7 @@ class ReadableStream {
       // lingering promise not being properly resolved.
       // https://github.com/nodejs/node/issues/51486
       new transfer.CrossRealmTransformReadableSource(port, true),
-      0, () => 1);
+      0, defaultSizeAlgorithm);
   }
 }
 
@@ -638,24 +588,8 @@ ObjectDefineProperties(ReadableStream, {
   from: kEnumerableProperty,
 });
 
-function InternalTransferredReadableStream() {
-  ObjectSetPrototypeOf(this, ReadableStream.prototype);
-  markTransferMode(this, false, true);
-  this[kType] = 'ReadableStream';
-  this[kState] = createReadableStreamState();
-
-  this[kIsClosedPromise] = PromiseWithResolvers();
-}
-
-ObjectSetPrototypeOf(InternalTransferredReadableStream.prototype, ReadableStream.prototype);
-ObjectSetPrototypeOf(InternalTransferredReadableStream, ReadableStream);
-
 function TransferredReadableStream() {
-  const stream = new InternalTransferredReadableStream();
-
-  stream.constructor = ReadableStream;
-
-  return stream;
+  return new ReadableStream(kSkipThrow);
 }
 
 TransferredReadableStream.prototype[kDeserialize] = () => {};
@@ -671,7 +605,7 @@ class ReadableStreamBYOBRequest {
 
   /**
    * @readonly
-   * @type {ArrayBufferView}
+   * @type {Uint8Array}
    */
   get view() {
     if (!isReadableStreamBYOBRequest(this))
@@ -758,32 +692,195 @@ function createReadableStreamBYOBRequest(controller, view) {
   return stream;
 }
 
+// Per-iterator state. It doubles as the iterator's read request: at most
+// one read is ever in flight (next() chains through `current`), and the
+// request is consumed before the next read starts, so only its promise
+// record changes per read.
 class ReadableStreamAsyncIteratorReadRequest {
-  constructor(reader, state, promise) {
+  constructor(reader, preventCancel) {
     this.reader = reader;
-    this.state = state;
-    this.promise = promise;
+    this.preventCancel = preventCancel;
+    this.done = false;
+    this.started = false;
+    this.current = undefined;
+    this.promise = undefined;
+    this.chainedNextSteps = undefined;
   }
 
   [kChunk](chunk) {
-    this.state.current = undefined;
-    this.promise.resolve({ value: chunk, done: false });
+    this.current = undefined;
+    this.promise.resolve({ done: false, value: chunk });
   }
 
   [kClose]() {
-    this.state.current = undefined;
-    this.state.done = true;
+    this.current = undefined;
+    this.done = true;
     readableStreamReaderGenericRelease(this.reader);
     this.promise.resolve({ done: true, value: undefined });
   }
 
   [kError](error) {
-    this.state.current = undefined;
-    this.state.done = true;
+    this.current = undefined;
+    this.done = true;
     readableStreamReaderGenericRelease(this.reader);
     this.promise.reject(error);
   }
 }
+
+// next() is not an async function: it explicitly creates and returns a
+// promise in the common case, so an async function would only add two
+// promise allocations.
+function readableStreamAsyncIteratorNextSteps(state) {
+  if (state.done)
+    return PromiseResolve({ done: true, value: undefined });
+
+  const reader = state.reader;
+  if (reader[kState].stream === undefined) {
+    return PromiseReject(
+      new ERR_INVALID_STATE.TypeError(
+        'The reader is not bound to a ReadableStream'));
+  }
+  const promise = PromiseWithResolvers();
+
+  state.promise = promise;
+  readableStreamDefaultReaderRead(reader, state);
+  return promise.promise;
+}
+
+// Not an async function either: the cancel path settles one microtask
+// after the cancel promise, exactly as `await` would.
+function readableStreamAsyncIteratorReturnSteps(state, value) {
+  const iterResult = { done: true, value };
+  if (state.done)
+    return PromiseResolve(iterResult);
+  state.done = true;
+
+  try {
+    const reader = state.reader;
+    if (reader[kState].stream === undefined) {
+      throw new ERR_INVALID_STATE.TypeError(
+        'The reader is not bound to a ReadableStream');
+    }
+    assert(!reader[kState].readRequests.length);
+    if (!state.preventCancel) {
+      const result = readableStreamReaderGenericCancel(reader, value);
+      readableStreamReaderGenericRelease(reader);
+      return PromisePrototypeThen(result, () => iterResult);
+    }
+
+    readableStreamReaderGenericRelease(reader);
+    return PromiseResolve(iterResult);
+  } catch (error) {
+    return PromiseReject(error);
+  }
+}
+
+// The methods live on a shared prototype, as for any WebIDL async iterator,
+// rather than being created per iterator. Neither method may be an async
+// function: `await` goes through Promise.prototype.then, which the streams
+// WPTs patch.
+class ReadableStreamAsyncIterator {
+  #state;
+
+  constructor(state) {
+    this.#state = state;
+  }
+
+  next() {
+    if (typeof this !== 'object' || this === null || !(#state in this)) {
+      return PromiseReject(
+        new ERR_INVALID_THIS('ReadableStreamAsyncIterator'));
+    }
+    const state = this.#state;
+    // If this is the first read, delay by one microtask
+    // to ensure that the controller has had an opportunity
+    // to properly start and perform the initial pull.
+    // TODO(@jasnell): The spec doesn't call this out so
+    // need to investigate if it's a bug in our impl or
+    // the spec.
+    if (!state.started) {
+      state.current = kResolvedPromise;
+      state.started = true;
+    }
+    if (state.current !== undefined) {
+      let steps = state.chainedNextSteps;
+      if (steps === undefined) {
+        steps = state.chainedNextSteps =
+          () => readableStreamAsyncIteratorNextSteps(state);
+      }
+      state.current = PromisePrototypeThen(state.current, steps, steps);
+      return state.current;
+    }
+    // No read is in flight. Mirror the buffered fast path of
+    // ReadableStreamDefaultReader.read(): when data is already queued
+    // in the controller, resolve immediately without allocating a
+    // read request. The result settles synchronously, so leaving
+    // state.current undefined matches the state the slow path reaches
+    // once its read request callbacks have settled.
+    const stream = state.reader[kState].stream;
+    if (!state.done && stream !== undefined &&
+        stream[kState].state === 'readable') {
+      const controller = stream[kState].controller;
+      if (isReadableStreamDefaultController(controller)) {
+        if (controller[kState].queue.length > 0) {
+          stream[kState].disturbed = true;
+          const chunk = dequeueValue(controller);
+
+          if (controller[kState].closeRequested &&
+              !controller[kState].queue.length) {
+            readableStreamDefaultControllerClearAlgorithms(controller);
+            readableStreamClose(stream);
+          } else if (!controller[kState].closeRequested &&
+                     controller[kState].started &&
+                     controller[kState].highWaterMark -
+                       controller[kState].queueTotalSize > 0) {
+            // Reduced ShouldCallPull, as in the read() fast path.
+            readableStreamDefaultControllerPull(controller);
+          }
+
+          return PromiseResolve({ done: false, value: chunk });
+        }
+      } else if (controller[kState].queueTotalSize > 0) {
+        // Byte controller with buffered data: same shape as above via
+        // the queue-filled arm of the byte controller's pull steps.
+        stream[kState].disturbed = true;
+        return PromiseResolve({
+          done: false,
+
+          value: readableByteStreamControllerDequeueChunk(controller),
+        });
+      }
+    }
+    state.current = readableStreamAsyncIteratorNextSteps(state);
+    return state.current;
+  }
+
+  return(value) {
+    if (typeof this !== 'object' || this === null || !(#state in this)) {
+      return PromiseReject(
+        new ERR_INVALID_THIS('ReadableStreamAsyncIterator'));
+    }
+    const state = this.#state;
+    state.started = true;
+    state.current = state.current !== undefined ?
+      PromisePrototypeThen(
+        state.current,
+        () => readableStreamAsyncIteratorReturnSteps(state, value),
+        () => readableStreamAsyncIteratorReturnSteps(state, value)) :
+      readableStreamAsyncIteratorReturnSteps(state, value);
+    return state.current;
+  }
+}
+
+delete ReadableStreamAsyncIterator.prototype.constructor;
+ObjectSetPrototypeOf(ReadableStreamAsyncIterator.prototype,
+                     AsyncIteratorPrototype);
+ObjectDefineProperties(ReadableStreamAsyncIterator.prototype, {
+  next: kEnumerableProperty,
+  return: kEnumerableProperty,
+  [SymbolToStringTag]:
+    getNonWritablePropertyDescriptor('ReadableStream AsyncIterator'),
+});
 
 class DefaultReadRequest {
   constructor() {
@@ -791,18 +888,43 @@ class DefaultReadRequest {
   }
 
   [kChunk](value) {
-    this[kState].resolve?.({ value, done: false });
+    this[kState].resolve({ done: false, value });
   }
 
   [kClose]() {
-    this[kState].resolve?.({ value: undefined, done: true });
+    this[kState].resolve({ done: true, value: undefined });
   }
 
   [kError](error) {
-    this[kState].reject?.(error);
+    this[kState].reject(error);
   }
 
   get promise() { return this[kState].promise; }
+}
+
+// Read (into) request record for the internal consumers (pipeTo, tee).
+// The step functions are per-consumer closures, but the record is a class
+// instance rather than an object literal: a literal with computed symbol
+// keys is rebuilt through the runtime on every evaluation, which costs
+// microseconds per pipe or tee (and per read in the byte tee's BYOB path).
+class StepsReadRequest {
+  constructor(chunkSteps, closeSteps, errorSteps) {
+    this.chunkSteps = chunkSteps;
+    this.closeSteps = closeSteps;
+    this.errorSteps = errorSteps;
+  }
+
+  [kChunk](chunk) {
+    this.chunkSteps(chunk);
+  }
+
+  [kClose](chunk) {
+    this.closeSteps(chunk);
+  }
+
+  [kError](error) {
+    this.errorSteps(error);
+  }
 }
 
 class ReadIntoRequest {
@@ -811,15 +933,15 @@ class ReadIntoRequest {
   }
 
   [kChunk](value) {
-    this[kState].resolve?.({ value, done: false });
+    this[kState].resolve({ done: false, value });
   }
 
   [kClose](value) {
-    this[kState].resolve?.({ value, done: true });
+    this[kState].resolve({ done: true, value });
   }
 
   [kError](error) {
-    this[kState].reject?.(error);
+    this[kState].reject(error);
   }
 
   get promise() { return this[kState].promise; }
@@ -835,13 +957,10 @@ class ReadableStreamDefaultReader {
     if (!isReadableStream(stream))
       throw new ERR_INVALID_ARG_TYPE('stream', 'ReadableStream', stream);
     this[kState] = {
-      readRequests: [],
+      // All fields are unconditionally assigned during setup.
+      readRequests: undefined,
       stream: undefined,
-      close: {
-        promise: undefined,
-        resolve: undefined,
-        reject: undefined,
-      },
+      close: undefined,
     };
     setupReadableStreamDefaultReader(this, stream);
   }
@@ -864,24 +983,42 @@ class ReadableStreamDefaultReader {
     const stream = this[kState].stream;
     const controller = stream[kState].controller;
 
-    // Fast path: if data is already buffered in a default controller,
+    // Fast path: if data is already buffered in the controller's queue,
     // return a resolved promise immediately without creating a read request.
     // This is spec-compliant because read() returns a Promise, and
     // Promise.resolve() callbacks still run in the microtask queue.
-    if (stream[kState].state === 'readable' &&
-        isReadableStreamDefaultController(controller) &&
-        controller[kState].queue.length > 0) {
-      stream[kState].disturbed = true;
-      const chunk = dequeueValue(controller);
+    if (stream[kState].state === 'readable') {
+      if (isReadableStreamDefaultController(controller)) {
+        if (controller[kState].queue.length > 0) {
+          stream[kState].disturbed = true;
+          const chunk = dequeueValue(controller);
 
-      if (controller[kState].closeRequested && !controller[kState].queue.length) {
-        readableStreamDefaultControllerClearAlgorithms(controller);
-        readableStreamClose(stream);
-      } else {
-        readableStreamDefaultControllerCallPullIfNeeded(controller);
+          if (controller[kState].closeRequested && !controller[kState].queue.length) {
+            readableStreamDefaultControllerClearAlgorithms(controller);
+            readableStreamClose(stream);
+          } else if (!controller[kState].closeRequested &&
+                     controller[kState].started &&
+                     controller[kState].highWaterMark -
+                       controller[kState].queueTotalSize > 0) {
+            // ShouldCallPull reduced to the conditions not already
+            // established on this path: the state is readable and the
+            // queue was non-empty, so no read requests can be parked.
+            readableStreamDefaultControllerPull(controller);
+          }
+
+          return PromiseResolve({ done: false, value: chunk });
+        }
+      } else if (controller[kState].queueTotalSize > 0) {
+        // Byte controller with buffered data: mirror the queue-filled arm
+        // of its pull steps (which never consults pendingPullIntos) minus
+        // the read request.
+        stream[kState].disturbed = true;
+        return PromiseResolve({
+          done: false,
+
+          value: readableByteStreamControllerDequeueChunk(controller),
+        });
       }
-
-      return PromiseResolve({ value: chunk, done: false });
     }
 
     // Slow path: create request and go through normal flow
@@ -905,7 +1042,7 @@ class ReadableStreamDefaultReader {
   get closed() {
     if (!isReadableStreamDefaultReader(this))
       return PromiseReject(new ERR_INVALID_THIS('ReadableStreamDefaultReader'));
-    return this[kState].close.promise;
+    return readerClosedPromise(this).promise;
   }
 
   /**
@@ -926,7 +1063,7 @@ class ReadableStreamDefaultReader {
     return customInspect(depth, options, this[kType], {
       stream: this[kState].stream,
       readRequests: this[kState].readRequests.length,
-      close: this[kState].close.promise,
+      close: readerClosedPromise(this).promise,
     });
   }
 }
@@ -949,13 +1086,10 @@ class ReadableStreamBYOBReader {
     if (!isReadableStream(stream))
       throw new ERR_INVALID_ARG_TYPE('stream', 'ReadableStream', stream);
     this[kState] = {
+      // All fields are unconditionally assigned during setup.
       stream: undefined,
-      readIntoRequests: [],
-      close: {
-        promise: undefined,
-        resolve: undefined,
-        reject: undefined,
-      },
+      readIntoRequests: undefined,
+      close: undefined,
     };
     setupReadableStreamBYOBReader(this, stream);
   }
@@ -970,55 +1104,15 @@ class ReadableStreamBYOBReader {
    *   done : boolean,
    * }>}
    */
-  async read(view, options = kEmptyObject) {
-    if (!isReadableStreamBYOBReader(this))
-      throw new ERR_INVALID_THIS('ReadableStreamBYOBReader');
-    if (!isArrayBufferView(view)) {
-      throw new ERR_INVALID_ARG_TYPE(
-        'view',
-        [
-          'Buffer',
-          'TypedArray',
-          'DataView',
-        ],
-        view,
-      );
+  read(view, options = kEmptyObject) {
+    // Returns the read request's promise directly, as the spec does,
+    // instead of adopting it through an async wrapper (an extra promise
+    // and two microtask hops per read); argument errors become rejections.
+    try {
+      return readableStreamBYOBReaderReadView(this, view, options);
+    } catch (error) {
+      return PromiseReject(error);
     }
-    validateObject(options, 'options', kValidateObjectAllowObjectsAndNull);
-
-    const viewByteLength = ArrayBufferViewGetByteLength(view);
-    const viewBuffer = ArrayBufferViewGetBuffer(view);
-    const viewBufferByteLength = ArrayBufferPrototypeGetByteLength(viewBuffer);
-
-    if (viewByteLength === 0 || viewBufferByteLength === 0) {
-      throw new ERR_INVALID_STATE.TypeError(
-        'View or Viewed ArrayBuffer is zero-length or detached');
-    }
-
-    // Supposed to assert here that the view's buffer is not
-    // detached, but there's no API available to use to check that.
-
-    const min = options?.min ?? 1;
-    if (typeof min !== 'number')
-      throw new ERR_INVALID_ARG_TYPE('options.min', 'number', min);
-    if (!NumberIsInteger(min))
-      throw new ERR_INVALID_ARG_VALUE('options.min', min, 'must be an integer');
-    if (min <= 0)
-      throw new ERR_INVALID_ARG_VALUE('options.min', min, 'must be greater than 0');
-    if (!isDataView(view)) {
-      if (min > TypedArrayPrototypeGetLength(view)) {
-        throw new ERR_OUT_OF_RANGE('options.min', '<= view.length', min);
-      }
-    } else if (min > viewByteLength) {
-      throw new ERR_OUT_OF_RANGE('options.min', '<= view.byteLength', min);
-    }
-
-    if (this[kState].stream === undefined) {
-      throw new ERR_INVALID_STATE.TypeError('The reader is not attached to a stream');
-    }
-    const readIntoRequest = new ReadIntoRequest();
-    readableStreamBYOBReaderRead(this, view, min, readIntoRequest);
-    return readIntoRequest.promise;
   }
 
   releaseLock() {
@@ -1036,7 +1130,7 @@ class ReadableStreamBYOBReader {
   get closed() {
     if (!isReadableStreamBYOBReader(this))
       return PromiseReject(new ERR_INVALID_THIS('ReadableStreamBYOBReader'));
-    return this[kState].close.promise;
+    return readerClosedPromise(this).promise;
   }
 
   /**
@@ -1057,7 +1151,7 @@ class ReadableStreamBYOBReader {
     return customInspect(depth, options, this[kType], {
       stream: this[kState].stream,
       readIntoRequests: this[kState].readIntoRequests.length,
-      close: this[kState].close.promise,
+      close: readerClosedPromise(this).promise,
     });
   }
 }
@@ -1072,7 +1166,7 @@ ObjectDefineProperties(ReadableStreamBYOBReader.prototype, {
 
 class ReadableStreamDefaultController {
   [kType] = 'ReadableStreamDefaultController';
-  [kState] = {};
+  [kState];
 
   constructor(skipThrowSymbol = undefined) {
     if (skipThrowSymbol !== kSkipThrow) {
@@ -1135,7 +1229,7 @@ ObjectDefineProperties(ReadableStreamDefaultController.prototype, {
 
 class ReadableByteStreamController {
   [kType] = 'ReadableByteStreamController';
-  [kState] = {};
+  [kState];
 
   constructor(skipThrowSymbol = undefined) {
     if (skipThrowSymbol !== kSkipThrow) {
@@ -1157,7 +1251,7 @@ class ReadableByteStreamController {
         byteOffset,
         bytesFilled,
         byteLength,
-      } = this[kState].pendingPullIntos[0];
+      } = this[kState].pendingPullIntos.peek();
       const view =
         new Uint8Array(
           buffer,
@@ -1197,6 +1291,15 @@ class ReadableByteStreamController {
     validateBuffer(chunk);
     const chunkByteLength = ArrayBufferViewGetByteLength(chunk);
     const chunkBuffer = ArrayBufferViewGetBuffer(chunk);
+
+    if (isSharedArrayBuffer(chunkBuffer)) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'chunk',
+        chunk,
+        'must not be backed by a SharedArrayBuffer',
+      );
+    }
+
     const chunkBufferByteLength = ArrayBufferPrototypeGetByteLength(chunkBuffer);
     if (chunkByteLength === 0 || chunkBufferByteLength === 0) {
       throw new ERR_INVALID_STATE.TypeError(
@@ -1231,9 +1334,11 @@ class ReadableByteStreamController {
       pendingPullIntos,
     } = this[kState];
     if (pendingPullIntos.length > 0) {
-      const firstPendingPullInto = pendingPullIntos[0];
+      const firstPendingPullInto = pendingPullIntos.peek();
       firstPendingPullInto.type = 'none';
-      this[kState].pendingPullIntos = [firstPendingPullInto];
+      const queue = new Queue();
+      queue.push(firstPendingPullInto);
+      this[kState].pendingPullIntos = queue;
     }
   }
 
@@ -1251,59 +1356,29 @@ ObjectDefineProperties(ReadableByteStreamController.prototype, {
   [SymbolToStringTag]: getNonWritablePropertyDescriptor(ReadableByteStreamController.name),
 });
 
-function InternalReadableStream(start, pull, cancel, highWaterMark, size) {
-  ObjectSetPrototypeOf(this, ReadableStream.prototype);
-  markTransferMode(this, false, true);
-  this[kType] = 'ReadableStream';
-  this[kState] = createReadableStreamState();
-  this[kIsClosedPromise] = PromiseWithResolvers();
-  const controller = new ReadableStreamDefaultController(kSkipThrow);
+function createReadableStream(start, pull, cancel, highWaterMark = 1, size = defaultSizeAlgorithm) {
+  const stream = new ReadableStream(kSkipThrow);
   setupReadableStreamDefaultController(
-    this,
-    controller,
+    stream,
+    new ReadableStreamDefaultController(kSkipThrow),
     start,
     pull,
     cancel,
     highWaterMark,
     size);
-}
-
-ObjectSetPrototypeOf(InternalReadableStream.prototype, ReadableStream.prototype);
-ObjectSetPrototypeOf(InternalReadableStream, ReadableStream);
-
-function createReadableStream(start, pull, cancel, highWaterMark = 1, size = () => 1) {
-  const stream = new InternalReadableStream(start, pull, cancel, highWaterMark, size);
-
-  // For spec compliance the InternalReadableStream must be a ReadableStream
-  stream.constructor = ReadableStream;
   return stream;
 }
 
-function InternalReadableByteStream(start, pull, cancel) {
-  ObjectSetPrototypeOf(this, ReadableStream.prototype);
-  markTransferMode(this, false, true);
-  this[kType] = 'ReadableStream';
-  this[kState] = createReadableStreamState();
-  this[kIsClosedPromise] = PromiseWithResolvers();
-  const controller = new ReadableByteStreamController(kSkipThrow);
+function createReadableByteStream(start, pull, cancel) {
+  const stream = new ReadableStream(kSkipThrow);
   setupReadableByteStreamController(
-    this,
-    controller,
+    stream,
+    new ReadableByteStreamController(kSkipThrow),
     start,
     pull,
     cancel,
     0,
     undefined);
-}
-
-ObjectSetPrototypeOf(InternalReadableByteStream.prototype, ReadableStream.prototype);
-ObjectSetPrototypeOf(InternalReadableByteStream, ReadableStream);
-
-function createReadableByteStream(start, pull, cancel) {
-  const stream = new InternalReadableByteStream(start, pull, cancel);
-
-  // For spec compliance the InternalReadableByteStream must be a ReadableStream
-  stream.constructor = ReadableStream;
   return stream;
 }
 
@@ -1322,60 +1397,133 @@ const isReadableStreamBYOBReader =
 
 // ---- ReadableStream Implementation
 
+// The state record classes null out their prototype chain to keep
+// Object.prototype out of property lookups; every field ever assigned
+// is declared so the shape never transitions.
+class ReadableStreamTransferState {
+  writable = undefined;
+  port1 = undefined;
+  port2 = undefined;
+  promise = undefined;
+}
+ObjectSetPrototypeOf(ReadableStreamTransferState.prototype, null);
+
+class ReadableStreamState {
+  closedPromise = undefined;
+  disturbed = false;
+  reader = undefined;
+  state = 'readable';
+  storedError = undefined;
+  controller = undefined;
+  transfer = new ReadableStreamTransferState();
+}
+ObjectSetPrototypeOf(ReadableStreamState.prototype, null);
+
 function createReadableStreamState() {
-  return {
-    __proto__: null,
-    disturbed: false,
-    reader: undefined,
-    state: 'readable',
-    storedError: undefined,
-    transfer: {
-      __proto__: null,
-      writable: undefined,
-      port1: undefined,
-      port2: undefined,
-      promise: undefined,
-    },
-  };
+  return new ReadableStreamState();
 }
 
 function readableStreamFromIterable(iterable) {
   let stream;
-  const iteratorRecord = getIterator(iterable, 'async');
+  const iteratorGetter = iterable[SymbolAsyncIterator] ?? iterable[SymbolIterator];
+  if (iteratorGetter == null || typeof iteratorGetter !== 'function') {
+    throw new ERR_ARG_NOT_ITERABLE(iterable);
+  }
+  const iterator = FunctionPrototypeCall(iteratorGetter, iterable);
+  if (iterator === null || (typeof iterator !== 'object' && typeof iterator !== 'function')) {
+    throw new ERR_INVALID_STATE.TypeError('The iterator method must return an object');
+  }
+  // Per GetIteratorDirect, the next method is looked up once.
+  const nextMethod = iterator.next;
+  const startAlgorithm = nonOpCallback;
 
-  const startAlgorithm = nonOpStart;
+  // Callback-style pull: the reaction steps are reused across chunks and
+  // completion is delivered to the controller's cached pull reactions
+  // (the kParkedAlgorithmResult contract). One pull runs at a time, so a
+  // single slot carries a non-thenable next() result between steps.
+  let pendingIterResult;
 
-  async function pullAlgorithm() {
-    const nextResult = iteratorNext(iteratorRecord);
-    const nextPromise = PromiseResolve(nextResult);
-    return PromisePrototypeThen(nextPromise, (iterResult) => {
-      if (typeof iterResult !== 'object' || iterResult === null) {
-        throw new ERR_INVALID_STATE.TypeError(
-          'The promise returned by the iterator.next() method must fulfill with an object');
-      }
+  function rejectPull(error) {
+    readableStreamDefaultControllerError(stream[kState].controller, error);
+  }
+
+  function processIterResult(iterResult) {
+    const controller = stream[kState].controller;
+    if (typeof iterResult !== 'object' || iterResult === null) {
+      rejectPull(new ERR_INVALID_STATE.TypeError(
+        'The promise returned by the iterator.next() method must fulfill with an object'));
+      return;
+    }
+    try {
       if (iterResult.done) {
-        readableStreamDefaultControllerClose(stream[kState].controller);
+        readableStreamDefaultControllerClose(controller);
       } else {
-        readableStreamDefaultControllerEnqueue(stream[kState].controller, iterResult.value);
+        const value = iterResult.value;
+        if (value !== null &&
+            (typeof value === 'object' || typeof value === 'function')) {
+          // Adopted like `await iterResult.value`, keeping the observable
+          // .then lookup on plain objects.
+          PromisePrototypeThen(PromiseResolve(value), enqueueValue, rejectPull);
+          return;
+        }
+        readableStreamDefaultControllerEnqueue(controller, value);
       }
-    });
+    } catch (error) {
+      rejectPull(error);
+      return;
+    }
+    // pullFulfilled exists: the controller creates it before the pull.
+    controller[kState].pullFulfilled();
+  }
+
+  function enqueueValue(value) {
+    const controller = stream[kState].controller;
+    try {
+      readableStreamDefaultControllerEnqueue(controller, value);
+    } catch (error) {
+      rejectPull(error);
+      return;
+    }
+    controller[kState].pullFulfilled();
+  }
+
+  function processPendingIterResult() {
+    const iterResult = pendingIterResult;
+    pendingIterResult = undefined;
+    processIterResult(iterResult);
+  }
+
+  function pullAlgorithm() {
+    let nextResult;
+    try {
+      nextResult = FunctionPrototypeCall(nextMethod, iterator);
+    } catch (error) {
+      return PromiseReject(error);
+    }
+    if (nextResult !== null &&
+        (typeof nextResult === 'object' || typeof nextResult === 'function')) {
+      // Mirrors `await iterator.next()`: processIterResult runs at the
+      // microtask position the await resumed.
+      PromisePrototypeThen(
+        PromiseResolve(nextResult), processIterResult, rejectPull);
+      return kParkedAlgorithmResult;
+    }
+    // A non-thenable next() result fails validation a microtask later.
+    pendingIterResult = nextResult;
+    PromisePrototypeThen(kResolvedPromise, processPendingIterResult);
+    return kParkedAlgorithmResult;
   }
 
   async function cancelAlgorithm(reason) {
-    const iterator = iteratorRecord.iterator;
     const returnMethod = iterator.return;
     if (returnMethod === undefined) {
-      return PromiseResolve();
+      return;
     }
-    const returnResult = FunctionPrototypeCall(returnMethod, iterator, reason);
-    const returnPromise = PromiseResolve(returnResult);
-    return PromisePrototypeThen(returnPromise, (iterResult) => {
-      if (typeof iterResult !== 'object' || iterResult === null) {
-        throw new ERR_INVALID_STATE.TypeError(
-          'The promise returned by the iterator.return() method must fulfill with an object');
-      }
-      return undefined;
-    });
+    const iterResult = await FunctionPrototypeCall(returnMethod, iterator, reason);
+    if (typeof iterResult !== 'object' || iterResult === null) {
+      throw new ERR_INVALID_STATE.TypeError(
+        'The promise returned by the iterator.return() method must fulfill with an object');
+    }
   }
 
   stream = createReadableStream(
@@ -1386,6 +1534,42 @@ function readableStreamFromIterable(iterable) {
   );
 
   return stream;
+}
+
+// Duck-types the lazily materialized [[closedPromise]] record of a reader
+// or writer that only pipeTo or tee holds a reference to. Settling the
+// record enqueues the watcher at the microtask position a reaction on the
+// promise would have had, without materializing the promise; the shared
+// pending promise satisfies the probes on the erroring/release paths.
+class ClosedPromiseHook {
+  constructor(onResolved, onRejected) {
+    this.promise = kPendingPromise;
+    this.onResolved = onResolved;
+    this.onRejected = onRejected;
+  }
+
+  resolve() {
+    if (this.onResolved !== undefined)
+      PromisePrototypeThen(kResolvedPromise, this.onResolved);
+  }
+
+  reject(error) {
+    const onRejected = this.onRejected;
+    PromisePrototypeThen(kResolvedPromise, () => onRejected(error));
+  }
+}
+
+// Installs an error watcher as the [[closedPromise]] record of a reader
+// that only its caller holds. A reader of an already errored stream would
+// have observed a rejected promise, so its watcher is enqueued right away.
+function watchReaderErrored(reader, onRejected) {
+  const stream = reader[kState].stream;
+  if (stream[kState].state === 'errored') {
+    const error = stream[kState].storedError;
+    PromisePrototypeThen(kResolvedPromise, () => onRejected(error));
+    return;
+  }
+  reader[kState].close = new ClosedPromiseHook(undefined, onRejected);
 }
 
 function readableStreamPipeTo(
@@ -1422,14 +1606,51 @@ function readableStreamPipeTo(
 
   const promise = PromiseWithResolvers();
 
-  const state = {
-    currentWrite: PromiseResolve(),
+  // One shared write request tracks every chunk written to the
+  // destination, instead of a { promise, resolve, reject } record per
+  // write. `stall` is armed by waitForPendingWrites() during shutdown;
+  // `failed`/`failure` latch a write that could not proceed.
+  const writeTracker = {
+    // Non-undefined: queue entries are discriminated from kNilRequest
+    // by `promise === undefined`.
+    promise: null,
+    pending: 0,
+    failed: false,
+    failure: undefined,
+    stall: null,
+    resolve() {
+      if (--this.pending === 0 && this.stall !== null) {
+        const stall = this.stall;
+        this.stall = null;
+        if (this.failed)
+          stall.reject(this.failure);
+        else
+          stall.resolve();
+      }
+    },
+    reject(error) {
+      this.pending--;
+      this.failed = true;
+      this.failure = error;
+      if (this.stall !== null) {
+        const stall = this.stall;
+        this.stall = null;
+        stall.reject(error);
+      }
+    },
   };
 
   // The error here can be undefined. The rejected arg
   // tells us that the promise must be rejected even
   // when error is undefine.
   function finalize(rejected, error) {
+    // The pipe is the only observer of the reader's and writer's promise
+    // records (including the ready hook installed by parkOnReady), and
+    // it is done with them: dropping them lets release skip the
+    // pending-promise probes and the rejections nothing would handle.
+    writer[kState].ready = undefined;
+    writer[kState].close = undefined;
+    reader[kState].close = undefined;
     writableStreamDefaultWriterRelease(writer);
     readableStreamReaderGenericRelease(reader);
     if (signal !== undefined)
@@ -1440,11 +1661,14 @@ function readableStreamPipeTo(
       promise.resolve();
   }
 
-  async function waitForCurrentWrite() {
-    const write = state.currentWrite;
-    await write;
-    if (write !== state.currentWrite)
-      await waitForCurrentWrite();
+  function waitForPendingWrites() {
+    if (writeTracker.pending === 0) {
+      return writeTracker.failed ?
+        PromiseReject(writeTracker.failure) :
+        PromiseResolve();
+    }
+    writeTracker.stall = PromiseWithResolvers();
+    return writeTracker.stall.promise;
   }
 
   function shutdownWithAnAction(action, rejected, originalError) {
@@ -1453,7 +1677,7 @@ function readableStreamPipeTo(
     if (dest[kState].state === 'writable' &&
         !writableStreamCloseQueuedOrInFlight(dest)) {
       PromisePrototypeThen(
-        waitForCurrentWrite(),
+        waitForPendingWrites(),
         complete,
         (error) => finalize(true, error));
       return;
@@ -1474,7 +1698,7 @@ function readableStreamPipeTo(
     if (dest[kState].state === 'writable' &&
         !writableStreamCloseQueuedOrInFlight(dest)) {
       PromisePrototypeThen(
-        waitForCurrentWrite(),
+        waitForPendingWrites(),
         () => finalize(rejected, error),
         (error) => finalize(true, error));
       return;
@@ -1517,39 +1741,63 @@ function readableStreamPipeTo(
       error);
   }
 
-  function watchErrored(stream, promise, action) {
-    if (stream[kState].state === 'errored')
-      action(stream[kState].storedError);
-    else
-      PromisePrototypeThen(promise, undefined, action);
+  // The pump loop is callback-driven to avoid per-iteration promise
+  // allocations. At most one read is in flight at a time, so one read
+  // request and one forwarding function are reused for every chunk;
+  // the chunk travels through `pendingChunk`.
+  let pendingChunk;
+  let readRequest;
+  let readyHook;
+
+  // Ready promise rejection is handled by the destination-errored
+  // watcher.
+  function ignoreReadyRejection() {}
+
+  // Parks the pump on the destination's backpressure by installing a
+  // record that duck-types the writer's lazily-materialized
+  // [[readyPromise]] record: writableStreamUpdateBackpressure resolves it
+  // when backpressure clears (after publishing the new backpressure
+  // state), which re-enters the pump directly instead of rotating a
+  // fresh promise record plus reaction per flip. The pipe holds the only
+  // reference to the writer, so the record is never observable as a real
+  // ready promise; the erroring/release paths probe `promise` via
+  // isPromisePending() and call `reject`, so it carries the shared
+  // pending promise and a no-op reject.
+  function parkOnReady() {
+    readyHook ??= {
+      promise: kPendingPromise,
+      resolve: pump,
+      reject: ignoreReadyRejection,
+    };
+    writer[kState].ready = readyHook;
   }
 
-  function watchClosed(stream, promise, action) {
-    if (stream[kState].state === 'closed')
-      action();
-    else
-      PromisePrototypeThen(promise, action, () => {});
+  function forwardChunk() {
+    const chunk = pendingChunk;
+    pendingChunk = undefined;
+    writableStreamDefaultWriterWriteWithRequest(writer, chunk, writeTracker);
+    pump();
   }
 
-  async function step() {
-    if (shuttingDown) return true;
+  function pump() {
+    if (shuttingDown) return;
 
     if (dest[kState].backpressure) {
-      await writer[kState].ready.promise;
-      if (shuttingDown) return true;
+      parkOnReady();
+      return;
     }
 
     const controller = source[kState].controller;
 
     // Fast path: batch reads when data is buffered in a default controller.
-    // This avoids creating PipeToReadableStreamReadRequest objects and
-    // reduces promise allocation overhead.
+    // This avoids parking read requests and reduces promise allocation
+    // overhead.
     if (source[kState].state === 'readable' &&
         isReadableStreamDefaultController(controller) &&
         controller[kState].queue.length > 0) {
 
       while (controller[kState].queue.length > 0) {
-        if (shuttingDown) return true;
+        if (shuttingDown) return;
 
         const chunk = dequeueValue(controller);
 
@@ -1559,9 +1807,8 @@ function readableStreamPipeTo(
         }
 
         // Write the chunk - we're already in a separate microtask from enqueue
-        // because we awaited writer[kState].ready.promise above
-        state.currentWrite = writableStreamDefaultWriterWrite(writer, chunk);
-        setPromiseHandled(state.currentWrite);
+        // because we awaited the writer ready promise above.
+        writableStreamDefaultWriterWriteWithRequest(writer, chunk, writeTracker);
 
         // Check backpressure after each write
         if (dest[kState].backpressure) {
@@ -1578,24 +1825,37 @@ function readableStreamPipeTo(
 
       // Check if stream closed during batch
       if (source[kState].state === 'closed') {
-        return true;
+        return;
       }
 
-      // Yield to microtask queue between batches to allow events/signals to fire
-      return false;
+      // Park on backpressure directly: the ready hook resumes the pump
+      // when a completed write clears it.
+      if (dest[kState].backpressure) {
+        parkOnReady();
+        return;
+      }
+
+      // Yield to the microtask queue between batches so completed-write
+      // reactions and events/signals fire; a shared resolved promise
+      // enqueues the continuation at the same position as queueMicrotask
+      // without the per-batch scheduling overhead.
+      PromisePrototypeThen(kResolvedPromise, pump);
+      return;
     }
 
-    // Slow path: use read request for async reads
-    const promise = PromiseWithResolvers();
-    // eslint-disable-next-line no-use-before-define
-    readableStreamDefaultReaderRead(reader, new PipeToReadableStreamReadRequest(writer, state, promise));
-
-    return promise.promise;
-  }
-
-  async function run() {
-    // Run until step resolves as true
-    while (!await step());
+    // Slow path: park a lazily materialized read request. Close and
+    // error are handled by the source watchers.
+    readRequest ??= new StepsReadRequest(
+      (chunk) => {
+        // Per spec, pipeTo must queue a microtask for the write to avoid
+        // synchronous write during enqueue(). See WHATWG Streams spec
+        // "ReadableStreamPipeTo" step 15's "chunk steps".
+        pendingChunk = chunk;
+        PromisePrototypeThen(kResolvedPromise, forwardChunk);
+      },
+      nonOpCallback,
+      nonOpCallback);
+    readableStreamDefaultReaderRead(reader, readRequest);
   }
 
   if (signal !== undefined) {
@@ -1607,9 +1867,9 @@ function readableStreamPipeTo(
     disposable = addAbortListener(signal, abortAlgorithm);
   }
 
-  setPromiseHandled(run());
+  pump();
 
-  watchErrored(source, reader[kState].close.promise, (error) => {
+  function onSourceErrored(error) {
     if (!preventAbort) {
       return shutdownWithAnAction(
         () => writableStreamAbort(dest, error),
@@ -1617,9 +1877,17 @@ function readableStreamPipeTo(
         error);
     }
     shutdown(true, error);
-  });
+  }
 
-  watchErrored(dest, writer[kState].close.promise, (error) => {
+  function onSourceClosed() {
+    if (!preventClose) {
+      return shutdownWithAnAction(
+        () => writableStreamDefaultWriterCloseWithErrorPropagation(writer));
+    }
+    shutdown();
+  }
+
+  function onDestErrored(error) {
     if (!preventCancel) {
       return shutdownWithAnAction(
         () => readableStreamCancel(source, error),
@@ -1627,15 +1895,30 @@ function readableStreamPipeTo(
         error);
     }
     shutdown(true, error);
-  });
+  }
 
-  watchClosed(source, reader[kState].close.promise, () => {
-    if (!preventClose) {
-      return shutdownWithAnAction(
-        () => writableStreamDefaultWriterCloseWithErrorPropagation(writer));
-    }
-    shutdown();
-  });
+  // The spec installs the source-errored watcher before the dest-errored
+  // one and the source-closed watcher last; a source that is already
+  // errored is handled before the dest watcher is installed, and an
+  // already-closed source after it, as before. The pipe holds the only
+  // references to its reader and writer, so instead of reacting to their
+  // [[closedPromise]] the watchers are installed as the records
+  // themselves (see ClosedPromiseHook).
+  if (source[kState].state === 'errored') {
+    onSourceErrored(source[kState].storedError);
+  } else if (source[kState].state !== 'closed') {
+    reader[kState].close =
+      new ClosedPromiseHook(onSourceClosed, onSourceErrored);
+  }
+
+  if (dest[kState].state === 'errored') {
+    onDestErrored(dest[kState].storedError);
+  } else {
+    writer[kState].close = new ClosedPromiseHook(undefined, onDestErrored);
+  }
+
+  if (source[kState].state === 'closed')
+    onSourceClosed();
 
   if (writableStreamCloseQueuedOrInFlight(dest) ||
       dest[kState].state === 'closed') {
@@ -1650,33 +1933,6 @@ function readableStreamPipeTo(
   }
 
   return promise.promise;
-}
-
-class PipeToReadableStreamReadRequest {
-  constructor(writer, state, promise) {
-    this.writer = writer;
-    this.state = state;
-    this.promise = promise;
-  }
-
-  [kChunk](chunk) {
-    // Per spec, pipeTo must queue a microtask for the write to avoid
-    // synchronous write during enqueue(). See WHATWG Streams spec
-    // "ReadableStreamPipeTo" step 15's "chunk steps".
-    queueMicrotask(() => {
-      this.state.currentWrite = writableStreamDefaultWriterWrite(this.writer, chunk);
-      setPromiseHandled(this.state.currentWrite);
-      this.promise.resolve(false);
-    });
-  }
-
-  [kClose]() {
-    this.promise.resolve(true);
-  }
-
-  [kError](error) {
-    this.promise.reject(error);
-  }
 }
 
 function readableStreamTee(stream, cloneForBranch2) {
@@ -1695,33 +1951,70 @@ function readableStreamDefaultTee(stream, cloneForBranch2) {
   let reason2;
   let branch1;
   let branch2;
-  const cancelPromise = PromiseWithResolvers();
 
-  async function pullAlgorithm() {
+  // The spec's cancelPromise is materialized by the first branch cancel;
+  // until then its settlement is tracked by `cancelSettled`, so a tee
+  // whose branches are never canceled allocates no promise record for it.
+  let cancelPromise;
+  let cancelSettled = false;
+
+  function settleCancelPromise() {
+    if (cancelPromise !== undefined)
+      cancelPromise.resolve();
+    else
+      cancelSettled = true;
+  }
+
+  function cancelPromiseRecord() {
+    if (cancelPromise === undefined) {
+      cancelPromise = PromiseWithResolvers();
+      if (cancelSettled)
+        cancelPromise.resolve();
+    }
+    return cancelPromise;
+  }
+
+  // At most one read is ever in flight (`reading` guards pullAlgorithm),
+  // so one read request object and one forwarding microtask function are
+  // reused for every chunk; the chunk travels through `pendingChunk`.
+  // The request is materialized lazily on the first pull so that tee()
+  // itself stays allocation-light.
+  let pendingChunk;
+  let readRequest;
+  function forwardChunk() {
+    reading = false;
+    const value1 = pendingChunk;
+    let value2 = pendingChunk;
+    pendingChunk = undefined;
+    if (!canceled2 && cloneForBranch2) {
+      value2 = structuredClone(value2);
+    }
+    if (!canceled1) {
+      readableStreamDefaultControllerEnqueue(
+        branch1[kState].controller,
+        value1);
+    }
+    if (!canceled2) {
+      readableStreamDefaultControllerEnqueue(
+        branch2[kState].controller,
+        value2);
+    }
+  }
+
+  // A non-thenable pull result reaches the controller's pull-fulfilled
+  // step at the same microtask position as the async wrapper's promise
+  // did, without the implicit promise per pull.
+  function pullAlgorithm() {
     if (reading) return;
     reading = true;
-    const readRequest = {
-      [kChunk](value) {
-        queueMicrotask(() => {
-          reading = false;
-          const value1 = value;
-          let value2 = value;
-          if (!canceled2 && cloneForBranch2) {
-            value2 = structuredClone(value2);
-          }
-          if (!canceled1) {
-            readableStreamDefaultControllerEnqueue(
-              branch1[kState].controller,
-              value1);
-          }
-          if (!canceled2) {
-            readableStreamDefaultControllerEnqueue(
-              branch2[kState].controller,
-              value2);
-          }
-        });
+    readRequest ??= new StepsReadRequest(
+      (value) => {
+        // The microtask is required by the spec (ReadableStreamTee's
+        // "chunk steps" queue one).
+        pendingChunk = value;
+        PromisePrototypeThen(kResolvedPromise, forwardChunk);
       },
-      [kClose]() {
+      () => {
         // The `process.nextTick()` is not part of the spec.
         // This approach was needed to avoid a race condition working with esm
         // Further information, see: https://github.com/nodejs/node/issues/39758
@@ -1732,50 +2025,50 @@ function readableStreamDefaultTee(stream, cloneForBranch2) {
           if (!canceled2)
             readableStreamDefaultControllerClose(branch2[kState].controller);
           if (!canceled1 || !canceled2)
-            cancelPromise.resolve();
+            settleCancelPromise();
         });
       },
-      [kError]() {
+      () => {
         reading = false;
-      },
-    };
+      });
     readableStreamDefaultReaderRead(reader, readRequest);
   }
 
   function cancel1Algorithm(reason) {
     canceled1 = true;
     reason1 = reason;
+    const record = cancelPromiseRecord();
     if (canceled2) {
       const compositeReason = [reason1, reason2];
-      cancelPromise.resolve(readableStreamCancel(stream, compositeReason));
+      record.resolve(readableStreamCancel(stream, compositeReason));
     }
-    return cancelPromise.promise;
+    return record.promise;
   }
 
   function cancel2Algorithm(reason) {
     canceled2 = true;
     reason2 = reason;
+    const record = cancelPromiseRecord();
     if (canceled1) {
       const compositeReason = [reason1, reason2];
-      cancelPromise.resolve(readableStreamCancel(stream, compositeReason));
+      record.resolve(readableStreamCancel(stream, compositeReason));
     }
-    return cancelPromise.promise;
+    return record.promise;
   }
 
   branch1 =
-    createReadableStream(nonOpStart, pullAlgorithm, cancel1Algorithm);
+    createReadableStream(nonOpCallback, pullAlgorithm, cancel1Algorithm);
   branch2 =
-    createReadableStream(nonOpStart, pullAlgorithm, cancel2Algorithm);
+    createReadableStream(nonOpCallback, pullAlgorithm, cancel2Algorithm);
 
-  PromisePrototypeThen(
-    reader[kState].close.promise,
-    undefined,
-    (error) => {
-      readableStreamDefaultControllerError(branch1[kState].controller, error);
-      readableStreamDefaultControllerError(branch2[kState].controller, error);
-      if (!canceled1 || !canceled2)
-        cancelPromise.resolve();
-    });
+  // The tee holds the only reference to the reader, so the error watcher
+  // is installed as its [[closedPromise]] record (see ClosedPromiseHook).
+  watchReaderErrored(reader, (error) => {
+    readableStreamDefaultControllerError(branch1[kState].controller, error);
+    readableStreamDefaultControllerError(branch2[kState].controller, error);
+    if (!canceled1 || !canceled2)
+      settleCancelPromise();
+  });
 
   return [branch1, branch2];
 }
@@ -1794,25 +2087,93 @@ function readableByteStreamTee(stream) {
   let reason2;
   let branch1;
   let branch2;
-  const cancelDeferred = PromiseWithResolvers();
 
-  function forwardReaderError(thisReader) {
-    PromisePrototypeThen(
-      thisReader[kState].close.promise,
-      undefined,
-      (error) => {
-        if (thisReader !== reader) {
-          return;
-        }
-        readableStreamDefaultControllerError(branch1[kState].controller, error);
-        readableStreamDefaultControllerError(branch2[kState].controller, error);
-        if (!canceled1 || !canceled2) {
-          cancelDeferred.resolve();
-        }
-      },
-    );
+  // See readableStreamDefaultTee.
+  let cancelDeferred;
+  let cancelSettled = false;
+
+  function settleCancelDeferred() {
+    if (cancelDeferred !== undefined)
+      cancelDeferred.resolve();
+    else
+      cancelSettled = true;
   }
 
+  function cancelDeferredRecord() {
+    if (cancelDeferred === undefined) {
+      cancelDeferred = PromiseWithResolvers();
+      if (cancelSettled)
+        cancelDeferred.resolve();
+    }
+    return cancelDeferred;
+  }
+
+  // The tee holds the only reference to each reader it creates, so the
+  // error watcher is installed as the reader's [[closedPromise]] record
+  // (see ClosedPromiseHook); releasing a reader rejects it like the
+  // promise, and the guard below ignores a reader that was swapped out.
+  function forwardReaderError(thisReader) {
+    watchReaderErrored(thisReader, (error) => {
+      if (thisReader !== reader) {
+        return;
+      }
+      readableStreamDefaultControllerError(branch1[kState].controller, error);
+      readableStreamDefaultControllerError(branch2[kState].controller, error);
+      if (!canceled1 || !canceled2) {
+        settleCancelDeferred();
+      }
+    });
+  }
+
+  // As in readableStreamDefaultTee, only one read is ever in flight, so
+  // the default-reader read request and its forwarding microtask are
+  // shared across all chunks.
+  let pendingChunk;
+  function forwardChunk() {
+    readAgainForBranch1 = false;
+    readAgainForBranch2 = false;
+    const chunk1 = pendingChunk;
+    let chunk2 = pendingChunk;
+    pendingChunk = undefined;
+
+    if (!canceled1 && !canceled2) {
+      try {
+        chunk2 = cloneAsUint8Array(chunk1);
+      } catch (error) {
+        readableByteStreamControllerError(
+          branch1[kState].controller,
+          error,
+        );
+        readableByteStreamControllerError(
+          branch2[kState].controller,
+          error,
+        );
+        cancelDeferredRecord().resolve(readableStreamCancel(stream, error));
+        return;
+      }
+    }
+    if (!canceled1) {
+      readableByteStreamControllerEnqueue(
+        branch1[kState].controller,
+        chunk1,
+      );
+    }
+    if (!canceled2) {
+      readableByteStreamControllerEnqueue(
+        branch2[kState].controller,
+        chunk2,
+      );
+    }
+    reading = false;
+
+    if (readAgainForBranch1) {
+      pull1Algorithm();
+    } else if (readAgainForBranch2) {
+      pull2Algorithm();
+    }
+  }
+
+  let defaultReadRequest;
   function pullWithDefaultReader() {
     if (isReadableStreamBYOBReader(reader)) {
       readableStreamBYOBReaderRelease(reader);
@@ -1820,52 +2181,12 @@ function readableByteStreamTee(stream) {
       forwardReaderError(reader);
     }
 
-    const readRequest = {
-      [kChunk](chunk) {
-        queueMicrotask(() => {
-          readAgainForBranch1 = false;
-          readAgainForBranch2 = false;
-          const chunk1 = chunk;
-          let chunk2 = chunk;
-
-          if (!canceled1 && !canceled2) {
-            try {
-              chunk2 = cloneAsUint8Array(chunk);
-            } catch (error) {
-              readableByteStreamControllerError(
-                branch1[kState].controller,
-                error,
-              );
-              readableByteStreamControllerError(
-                branch2[kState].controller,
-                error,
-              );
-              cancelDeferred.resolve(readableStreamCancel(stream, error));
-              return;
-            }
-          }
-          if (!canceled1) {
-            readableByteStreamControllerEnqueue(
-              branch1[kState].controller,
-              chunk1,
-            );
-          }
-          if (!canceled2) {
-            readableByteStreamControllerEnqueue(
-              branch2[kState].controller,
-              chunk2,
-            );
-          }
-          reading = false;
-
-          if (readAgainForBranch1) {
-            pull1Algorithm();
-          } else if (readAgainForBranch2) {
-            pull2Algorithm();
-          }
-        });
+    defaultReadRequest ??= new StepsReadRequest(
+      (chunk) => {
+        pendingChunk = chunk;
+        PromisePrototypeThen(kResolvedPromise, forwardChunk);
       },
-      [kClose]() {
+      () => {
         reading = false;
 
         if (!canceled1) {
@@ -1881,15 +2202,13 @@ function readableByteStreamTee(stream) {
           readableByteStreamControllerRespond(branch2[kState].controller, 0);
         }
         if (!canceled1 || !canceled2) {
-          cancelDeferred.resolve();
+          settleCancelDeferred();
         }
       },
-      [kError]() {
+      () => {
         reading = false;
-      },
-    };
-
-    readableStreamDefaultReaderRead(reader, readRequest);
+      });
+    readableStreamDefaultReaderRead(reader, defaultReadRequest);
   }
 
   function pullWithBYOBReader(view, forBranch2) {
@@ -1901,8 +2220,8 @@ function readableByteStreamTee(stream) {
 
     const byobBranch = forBranch2 === true ? branch2 : branch1;
     const otherBranch = forBranch2 === false ? branch2 : branch1;
-    const readIntoRequest = {
-      [kChunk](chunk) {
+    const readIntoRequest = new StepsReadRequest(
+      (chunk) => {
         queueMicrotask(() => {
           readAgainForBranch1 = false;
           readAgainForBranch2 = false;
@@ -1923,7 +2242,7 @@ function readableByteStreamTee(stream) {
                 otherBranch[kState].controller,
                 error,
               );
-              cancelDeferred.resolve(readableStreamCancel(stream, error));
+              cancelDeferredRecord().resolve(readableStreamCancel(stream, error));
               return;
             }
             if (!byobCanceled) {
@@ -1952,7 +2271,7 @@ function readableByteStreamTee(stream) {
           }
         });
       },
-      [kClose](chunk) {
+      (chunk) => {
         reading = false;
 
         const byobCanceled = forBranch2 === true ? canceled2 : canceled1;
@@ -1982,20 +2301,19 @@ function readableByteStreamTee(stream) {
           }
         }
         if (!byobCanceled || !otherCanceled) {
-          cancelDeferred.resolve();
+          settleCancelDeferred();
         }
       },
-      [kError]() {
+      () => {
         reading = false;
-      },
-    };
+      });
     readableStreamBYOBReaderRead(reader, view, 1, readIntoRequest);
   }
 
   function pull1Algorithm() {
     if (reading) {
       readAgainForBranch1 = true;
-      return PromiseResolve();
+      return;
     }
     reading = true;
 
@@ -2005,13 +2323,12 @@ function readableByteStreamTee(stream) {
     } else {
       pullWithBYOBReader(byobRequest[kState].view, false);
     }
-    return PromiseResolve();
   }
 
   function pull2Algorithm() {
     if (reading) {
       readAgainForBranch2 = true;
-      return PromiseResolve();
+      return;
     }
     reading = true;
 
@@ -2021,31 +2338,32 @@ function readableByteStreamTee(stream) {
     } else {
       pullWithBYOBReader(byobRequest[kState].view, true);
     }
-    return PromiseResolve();
   }
 
   function cancel1Algorithm(reason) {
     canceled1 = true;
     reason1 = reason;
+    const record = cancelDeferredRecord();
     if (canceled2) {
-      cancelDeferred.resolve(readableStreamCancel(stream, [reason1, reason2]));
+      record.resolve(readableStreamCancel(stream, [reason1, reason2]));
     }
-    return cancelDeferred.promise;
+    return record.promise;
   }
 
   function cancel2Algorithm(reason) {
     canceled2 = true;
     reason2 = reason;
+    const record = cancelDeferredRecord();
     if (canceled1) {
-      cancelDeferred.resolve(readableStreamCancel(stream, [reason1, reason2]));
+      record.resolve(readableStreamCancel(stream, [reason1, reason2]));
     }
-    return cancelDeferred.promise;
+    return record.promise;
   }
 
   branch1 =
-    createReadableByteStream(nonOpStart, pull1Algorithm, cancel1Algorithm);
+    createReadableByteStream(nonOpCallback, pull1Algorithm, cancel1Algorithm);
   branch2 =
-    createReadableByteStream(nonOpStart, pull2Algorithm, cancel2Algorithm);
+    createReadableByteStream(nonOpCallback, pull2Algorithm, cancel2Algorithm);
 
   forwardReaderError(reader);
 
@@ -2090,9 +2408,9 @@ function readableStreamCancel(stream, reason) {
     reader,
   } = stream[kState];
   if (reader !== undefined && readableStreamHasBYOBReader(stream)) {
-    for (let n = 0; n < reader[kState].readIntoRequests.length; n++)
-      reader[kState].readIntoRequests[n][kClose]();
-    reader[kState].readIntoRequests = [];
+    const readIntoRequests = reader[kState].readIntoRequests;
+    while (readIntoRequests.length)
+      readIntoRequests.shift()[kClose]();
   }
 
   return PromisePrototypeThen(
@@ -2103,7 +2421,7 @@ function readableStreamCancel(stream, reason) {
 function readableStreamClose(stream) {
   assert(stream[kState].state === 'readable');
   stream[kState].state = 'closed';
-  stream[kIsClosedPromise].resolve();
+  stream[kState].closedPromise?.resolve();
   const {
     reader,
   } = stream[kState];
@@ -2111,12 +2429,12 @@ function readableStreamClose(stream) {
   if (reader === undefined)
     return;
 
-  reader[kState].close.resolve();
+  reader[kState].close?.resolve();
 
   if (readableStreamHasDefaultReader(stream)) {
-    for (let n = 0; n < reader[kState].readRequests.length; n++)
-      reader[kState].readRequests[n][kClose]();
-    reader[kState].readRequests = [];
+    const readRequests = reader[kState].readRequests;
+    while (readRequests.length)
+      readRequests.shift()[kClose]();
   }
 }
 
@@ -2124,8 +2442,11 @@ function readableStreamError(stream, error) {
   assert(stream[kState].state === 'readable');
   stream[kState].state = 'errored';
   stream[kState].storedError = error;
-  setPromiseHandled(stream[kIsClosedPromise].promise);
-  stream[kIsClosedPromise].reject(error);
+  const closedPromiseCache = stream[kState].closedPromise;
+  if (closedPromiseCache !== undefined) {
+    setPromiseHandled(closedPromiseCache.promise);
+    closedPromiseCache.reject(error);
+  }
 
   const {
     reader,
@@ -2134,18 +2455,21 @@ function readableStreamError(stream, error) {
   if (reader === undefined)
     return;
 
-  setPromiseHandled(reader[kState].close.promise);
-  reader[kState].close.reject(error);
+  const closeCache = reader[kState].close;
+  if (closeCache !== undefined) {
+    setPromiseHandled(closeCache.promise);
+    closeCache.reject(error);
+  }
 
   if (readableStreamHasDefaultReader(stream)) {
-    for (let n = 0; n < reader[kState].readRequests.length; n++)
-      reader[kState].readRequests[n][kError](error);
-    reader[kState].readRequests = [];
+    const readRequests = reader[kState].readRequests;
+    while (readRequests.length)
+      readRequests.shift()[kError](error);
   } else {
     assert(readableStreamHasBYOBReader(stream));
-    for (let n = 0; n < reader[kState].readIntoRequests.length; n++)
-      reader[kState].readIntoRequests[n][kError](error);
-    reader[kState].readIntoRequests = [];
+    const readIntoRequests = reader[kState].readIntoRequests;
+    while (readIntoRequests.length)
+      readIntoRequests.shift()[kError](error);
   }
 }
 
@@ -2189,7 +2513,7 @@ function readableStreamFulfillReadRequest(stream, chunk, done) {
     reader,
   } = stream[kState];
   assert(reader[kState].readRequests.length);
-  const readRequest = ArrayPrototypeShift(reader[kState].readRequests);
+  const readRequest = reader[kState].readRequests.shift();
 
   // TODO(@jasnell): It's not clear under what exact conditions done
   // will be true here. The spec requires this check but none of the
@@ -2207,7 +2531,7 @@ function readableStreamFulfillReadIntoRequest(stream, chunk, done) {
     reader,
   } = stream[kState];
   assert(reader[kState].readIntoRequests.length);
-  const readIntoRequest = ArrayPrototypeShift(reader[kState].readIntoRequests);
+  const readIntoRequest = reader[kState].readIntoRequests.shift();
   if (done)
     readIntoRequest[kClose](chunk);
   else
@@ -2217,15 +2541,21 @@ function readableStreamFulfillReadIntoRequest(stream, chunk, done) {
 function readableStreamAddReadRequest(stream, readRequest) {
   assert(readableStreamHasDefaultReader(stream));
   assert(stream[kState].state === 'readable');
-  ArrayPrototypePush(stream[kState].reader[kState].readRequests, readRequest);
+  const readerState = stream[kState].reader[kState];
+  let readRequests = readerState.readRequests;
+  if (readRequests === kEmptyQueue)
+    readRequests = readerState.readRequests = new Queue();
+  readRequests.push(readRequest);
 }
 
 function readableStreamAddReadIntoRequest(stream, readIntoRequest) {
   assert(readableStreamHasBYOBReader(stream));
   assert(stream[kState].state !== 'errored');
-  ArrayPrototypePush(
-    stream[kState].reader[kState].readIntoRequests,
-    readIntoRequest);
+  const readerState = stream[kState].reader[kState];
+  let readIntoRequests = readerState.readIntoRequests;
+  if (readIntoRequests === kEmptyQueue)
+    readIntoRequests = readerState.readIntoRequests = new Queue();
+  readIntoRequests.push(readIntoRequest);
 }
 
 function readableStreamReaderGenericCancel(reader, reason) {
@@ -2239,26 +2569,53 @@ function readableStreamReaderGenericCancel(reader, reason) {
 function readableStreamReaderGenericInitialize(reader, stream) {
   reader[kState].stream = stream;
   stream[kState].reader = reader;
-  switch (stream[kState].state) {
-    case 'readable':
-      reader[kState].close = PromiseWithResolvers();
-      break;
-    case 'closed':
-      reader[kState].close = {
-        promise: PromiseResolve(),
+  // The reader's closed promise (reader[kState].close) is materialized
+  // lazily by readerClosedPromise(); its settlement is fully derivable
+  // from the reader/stream state, so nothing is allocated here.
+}
+
+// Materializes the reader's [[closedPromise]] record on first
+// observation. While unobserved, its settlement is derivable: a
+// detached reader was released (rejected with the shared released
+// error); otherwise it follows the stream state. The settle sites
+// (readableStreamClose/Error, readableStreamReaderGenericRelease)
+// only touch the record when it has been materialized.
+function readerClosedPromise(reader) {
+  let close = reader[kState].close;
+  if (close === undefined) {
+    const stream = reader[kState].stream;
+    if (stream === undefined) {
+      close = {
+        promise: PromiseReject(lazyReadableReleasedError()),
         resolve: undefined,
         reject: undefined,
       };
-      break;
-    case 'errored':
-      reader[kState].close = {
-        promise: PromiseReject(stream[kState].storedError),
-        resolve: undefined,
-        reject: undefined,
-      };
-      setPromiseHandled(reader[kState].close.promise);
-      break;
+      setPromiseHandled(close.promise);
+    } else {
+      switch (stream[kState].state) {
+        case 'readable':
+          close = PromiseWithResolvers();
+          break;
+        case 'closed':
+          close = {
+            promise: PromiseResolve(),
+            resolve: undefined,
+            reject: undefined,
+          };
+          break;
+        case 'errored':
+          close = {
+            promise: PromiseReject(stream[kState].storedError),
+            resolve: undefined,
+            reject: undefined,
+          };
+          setPromiseHandled(close.promise);
+          break;
+      }
+    }
+    reader[kState].close = close;
   }
+  return close;
 }
 
 function readableStreamDefaultReaderRelease(reader) {
@@ -2270,10 +2627,9 @@ function readableStreamDefaultReaderRelease(reader) {
 }
 
 function readableStreamDefaultReaderErrorReadRequests(reader, e) {
-  for (let n = 0; n < reader[kState].readRequests.length; ++n) {
-    reader[kState].readRequests[n][kError](e);
-  }
-  reader[kState].readRequests = [];
+  const readRequests = reader[kState].readRequests;
+  while (readRequests.length)
+    readRequests.shift()[kError](e);
 }
 
 function readableStreamBYOBReaderRelease(reader) {
@@ -2285,10 +2641,9 @@ function readableStreamBYOBReaderRelease(reader) {
 }
 
 function readableStreamBYOBReaderErrorReadIntoRequests(reader, e) {
-  for (let n = 0; n < reader[kState].readIntoRequests.length; ++n) {
-    reader[kState].readIntoRequests[n][kError](e);
-  }
-  reader[kState].readIntoRequests = [];
+  const readIntoRequests = reader[kState].readIntoRequests;
+  while (readIntoRequests.length)
+    readIntoRequests.shift()[kError](e);
 }
 
 function readableStreamReaderGenericRelease(reader) {
@@ -2298,22 +2653,72 @@ function readableStreamReaderGenericRelease(reader) {
   assert(stream !== undefined);
   assert(stream[kState].reader === reader);
 
-  const releasedStateError = lazyReadableReleasedError();
+  const closeCache = reader[kState].close;
   if (stream[kState].state === 'readable') {
-    reader[kState].close.reject?.(releasedStateError);
+    if (closeCache !== undefined) {
+      closeCache.reject(lazyReadableReleasedError());
+      setPromiseHandled(closeCache.promise);
+    }
   } else {
-    reader[kState].close = {
-      promise: PromiseReject(releasedStateError),
-      resolve: undefined,
-      reject: undefined,
-    };
+    // The spec replaces [[closedPromise]] here. Dropping the cache makes
+    // the next observation derive the released rejection.
+    reader[kState].close = undefined;
   }
-  setPromiseHandled(reader[kState].close.promise);
 
   stream[kState].controller[kRelease]();
 
   stream[kState].reader = undefined;
   reader[kState].stream = undefined;
+}
+
+// The argument validation half of ReadableStreamBYOBReader.prototype.read().
+function readableStreamBYOBReaderReadView(reader, view, options) {
+  if (!isReadableStreamBYOBReader(reader))
+    throw new ERR_INVALID_THIS('ReadableStreamBYOBReader');
+  validateBuffer(view, 'view');
+  validateObject(options, 'options', kValidateObjectAllowObjectsAndNull);
+
+  const viewByteLength = ArrayBufferViewGetByteLength(view);
+  const viewBuffer = ArrayBufferViewGetBuffer(view);
+
+  if (isSharedArrayBuffer(viewBuffer)) {
+    throw new ERR_INVALID_ARG_VALUE(
+      'view',
+      view,
+      'must not be backed by a SharedArrayBuffer',
+    );
+  }
+
+  const viewBufferByteLength = ArrayBufferPrototypeGetByteLength(viewBuffer);
+
+  if (viewByteLength === 0 || viewBufferByteLength === 0) {
+    throw new ERR_INVALID_STATE.TypeError(
+      'View or Viewed ArrayBuffer is zero-length or detached');
+  }
+
+  // Supposed to assert here that the view's buffer is not
+  // detached, but there's no API available to use to check that.
+
+  const min = options?.min ?? 1;
+  validateNumber(min, 'options.min');
+  if (!NumberIsInteger(min))
+    throw new ERR_INVALID_ARG_VALUE('options.min', min, 'must be an integer');
+  if (min <= 0)
+    throw new ERR_INVALID_ARG_VALUE('options.min', min, 'must be greater than 0');
+  if (!isDataView(view)) {
+    if (min > TypedArrayPrototypeGetLength(view)) {
+      throw new ERR_OUT_OF_RANGE('options.min', '<= view.length', min);
+    }
+  } else if (min > viewByteLength) {
+    throw new ERR_OUT_OF_RANGE('options.min', '<= view.byteLength', min);
+  }
+
+  if (reader[kState].stream === undefined) {
+    throw new ERR_INVALID_STATE.TypeError('The reader is not attached to a stream');
+  }
+  const readIntoRequest = new ReadIntoRequest();
+  readableStreamBYOBReaderRead(reader, view, min, readIntoRequest);
+  return readIntoRequest.promise;
 }
 
 function readableStreamBYOBReaderRead(reader, view, min, readIntoRequest) {
@@ -2360,14 +2765,18 @@ function setupReadableStreamBYOBReader(reader, stream) {
   if (!isReadableByteStreamController(controller))
     throw new ERR_INVALID_ARG_VALUE('stream', stream, 'must be a byte stream');
   readableStreamReaderGenericInitialize(reader, stream);
-  reader[kState].readIntoRequests = [];
+  // The read-request queues use the same ring buffer as [[queue]], drained
+  // from a moving head rather than with ArrayPrototypeShift. Start from the
+  // shared immutable empty queue so acquiring a reader allocates no request
+  // storage until a read actually parks.
+  reader[kState].readIntoRequests = kEmptyQueue;
 }
 
 function setupReadableStreamDefaultReader(reader, stream) {
   if (isReadableStreamLocked(stream))
     throw new ERR_INVALID_STATE.TypeError('ReadableStream is locked');
   readableStreamReaderGenericInitialize(reader, stream);
-  reader[kState].readRequests = [];
+  reader[kState].readRequests = kEmptyQueue;
 }
 
 function readableStreamDefaultControllerClose(controller) {
@@ -2381,21 +2790,46 @@ function readableStreamDefaultControllerClose(controller) {
 }
 
 function readableStreamDefaultControllerEnqueue(controller, chunk) {
-  if (!readableStreamDefaultControllerCanCloseOrEnqueue(controller))
+  // Equivalent to readableStreamDefaultControllerCanCloseOrEnqueue()
+  // followed by isReadableStreamLocked() and
+  // readableStreamGetNumReadRequests(), but with the state loaded once:
+  // this runs for every enqueued chunk.
+  const controllerState = controller[kState];
+  const stream = controllerState.stream;
+  if (controllerState.closeRequested || stream[kState].state !== 'readable')
     return;
 
-  const {
-    stream,
-  } = controller[kState];
-
-  if (isReadableStreamLocked(stream) &&
-      readableStreamGetNumReadRequests(stream)) {
+  const reader = stream[kState].reader;
+  if (reader !== undefined &&
+      reader[kState] !== undefined &&
+      reader[kType] === 'ReadableStreamDefaultReader' &&
+      reader[kState].readRequests.length) {
+    // Fulfilling a read request can run user code synchronously (the
+    // pipeTo read request invokes the sink's write algorithm), so the
+    // full ShouldCallPull predicate has to be re-evaluated afterwards.
     readableStreamFulfillReadRequest(stream, chunk, false);
+  } else if (controllerState.sizeAlgorithm === defaultSizeAlgorithm) {
+    // The internal default size algorithm is never observable by user
+    // code, always returns 1, and cannot throw: enqueue with the
+    // constant size instead of calling it or validating the result.
+    // No user code runs between the guards at the top of this function
+    // and this point, so ShouldCallPull reduces to the started flag and
+    // the desired size (this branch implies no parked read requests,
+    // ruling out the reader arm of the predicate).
+    materializeQueue(controllerState).pushPair(chunk, 1);
+    controllerState.queueTotalSize++;
+    if (controllerState.started &&
+        controllerState.highWaterMark - controllerState.queueTotalSize > 0) {
+      readableStreamDefaultControllerPull(controller);
+    }
+    return;
   } else {
+    // The user-supplied size algorithm may run arbitrary code, so the
+    // full ShouldCallPull predicate has to be re-evaluated afterwards.
     try {
       const chunkSize =
         FunctionPrototypeCall(
-          controller[kState].sizeAlgorithm,
+          controllerState.sizeAlgorithm,
           undefined,
           chunk);
       enqueueValueWithSize(controller, chunk, chunkSize);
@@ -2434,26 +2868,43 @@ function readableStreamDefaultControllerGetDesiredSize(controller) {
 }
 
 function readableStreamDefaultControllerShouldCallPull(controller) {
-  const {
-    stream,
-  } = controller[kState];
-  if (!readableStreamDefaultControllerCanCloseOrEnqueue(controller) ||
-      !controller[kState].started)
+  // Single-pass version of the spec's predicate chain (CanCloseOrEnqueue,
+  // IsLocked, HasDefaultReader, GetNumReadRequests, GetDesiredSize): this
+  // runs at least once per chunk on every default-stream path. The
+  // desired-size computation is inlined because the stream state is
+  // already known to be 'readable' here.
+  const controllerState = controller[kState];
+  const stream = controllerState.stream;
+  if (controllerState.closeRequested ||
+      stream[kState].state !== 'readable' ||
+      !controllerState.started)
     return false;
 
-  if (isReadableStreamLocked(stream) &&
-      readableStreamGetNumReadRequests(stream)) {
+  const reader = stream[kState].reader;
+  if (reader !== undefined &&
+      reader[kState] !== undefined &&
+      reader[kType] === 'ReadableStreamDefaultReader' &&
+      reader[kState].readRequests.length) {
     return true;
   }
 
-  const desiredSize = readableStreamDefaultControllerGetDesiredSize(controller);
-  assert(desiredSize !== null);
-
-  return desiredSize > 0;
+  return controllerState.highWaterMark - controllerState.queueTotalSize > 0;
 }
 
 function readableStreamDefaultControllerCallPullIfNeeded(controller) {
   if (!readableStreamDefaultControllerShouldCallPull(controller))
+    return;
+  readableStreamDefaultControllerPull(controller);
+}
+
+// The ShouldCallPull half of CallPullIfNeeded, split out so that callers
+// that have already established the predicate from state in scope (the
+// enqueue path above) can skip re-running it.
+function readableStreamDefaultControllerPull(controller) {
+  // A source without pull() has nothing to run: skip the pulling/pullAgain
+  // bookkeeping, the reaction closures and the microtask that would only
+  // clear the flag again. Push-style sources hit this on every read.
+  if (controller[kState].pullAlgorithm === nonOpCallback)
     return;
   if (controller[kState].pulling) {
     controller[kState].pullAgain = true;
@@ -2461,16 +2912,34 @@ function readableStreamDefaultControllerCallPullIfNeeded(controller) {
   }
   assert(!controller[kState].pullAgain);
   controller[kState].pulling = true;
-  PromisePrototypeThen(
-    controller[kState].pullAlgorithm(controller),
-    () => {
+  if (controller[kState].pullFulfilled === undefined) {
+    // The pull reaction closures only capture the controller, so they are
+    // created once on the first pull and reused for every subsequent pull
+    // instead of allocating two fresh closures per chunk.
+    controller[kState].pullFulfilled = () => {
       controller[kState].pulling = false;
       if (controller[kState].pullAgain) {
         controller[kState].pullAgain = false;
         readableStreamDefaultControllerCallPullIfNeeded(controller);
       }
-    },
-    (error) => readableStreamDefaultControllerError(controller, error));
+    };
+    controller[kState].pullRejected =
+      (error) => readableStreamDefaultControllerError(controller, error);
+  }
+  // The pull algorithm may be a raw callback (a wrapped user source.pull
+  // returns its result uncoerced; a synchronous throw surfaces here) or an
+  // internal algorithm that always returns a promise; thenAlgorithmResult
+  // handles both.
+  let result;
+  try {
+    result = controller[kState].pullAlgorithm(controller);
+  } catch (error) {
+    result = PromiseReject(error);
+  }
+  thenAlgorithmResult(
+    result,
+    controller[kState].pullFulfilled,
+    controller[kState].pullRejected);
 }
 
 function readableStreamDefaultControllerClearAlgorithms(controller) {
@@ -2507,14 +2976,24 @@ function readableStreamDefaultControllerPullSteps(controller, readRequest) {
     if (controller[kState].closeRequested && !queue.length) {
       readableStreamDefaultControllerClearAlgorithms(controller);
       readableStreamClose(stream);
-    } else {
-      readableStreamDefaultControllerCallPullIfNeeded(controller);
+    } else if (!controller[kState].closeRequested &&
+               controller[kState].started &&
+               controller[kState].highWaterMark -
+                 controller[kState].queueTotalSize > 0) {
+      // Reduced ShouldCallPull: the state is known to be readable and the
+      // queue was non-empty, so no read requests can be parked.
+      readableStreamDefaultControllerPull(controller);
     }
     readRequest[kChunk](chunk);
     return;
   }
   readableStreamAddReadRequest(stream, readRequest);
-  readableStreamDefaultControllerCallPullIfNeeded(controller);
+  // Reduced ShouldCallPull: the state is known to be readable, an empty
+  // queue in that state implies close has not been requested (close with
+  // an empty queue closes the stream immediately), and the read request
+  // parked above already satisfies the reader-with-pending-reads arm.
+  if (controller[kState].started)
+    readableStreamDefaultControllerPull(controller);
 }
 
 function setupReadableStreamDefaultController(
@@ -2533,25 +3012,49 @@ function setupReadableStreamDefaultController(
     pullAgain: false,
     pullAlgorithm,
     pulling: false,
-    queue: [],
+    pullFulfilled: undefined,
+    pullRejected: undefined,
+    queue: kEmptyQueue,
     queueTotalSize: 0,
     started: false,
     sizeAlgorithm,
     stream,
   };
   stream[kState].controller = controller;
-  stream[kControllerErrorFunction] = FunctionPrototypeBind(controller.error, controller);
 
   const startResult = startAlgorithm();
+  // A non-thenable start result guarantees fulfillment, and no .then
+  // lookup on it is observable.
+  const startFulfilled = startResult === null ||
+    (typeof startResult !== 'object' && typeof startResult !== 'function');
 
+  // The started flag only gates calls into the pull algorithm, so for a
+  // source without pull() the post-start step has nothing observable
+  // left to do: the flag is set right away instead of from a microtask.
+  if (startFulfilled && pullAlgorithm === nonOpCallback) {
+    controller[kState].started = true;
+    return;
+  }
+
+  const started = () => {
+    controller[kState].started = true;
+    assert(!controller[kState].pulling);
+    assert(!controller[kState].pullAgain);
+    readableStreamDefaultControllerCallPullIfNeeded(controller);
+  };
+
+  if (startFulfilled) {
+    // The post-start step runs at the exact microtask position the
+    // promise reaction would have had.
+    queueMicrotask(started);
+    return;
+  }
+
+  // The wrapper promise matches the reference implementation's
+  // promiseResolvedWith(), whose extra microtask hops WPT relies on.
   PromisePrototypeThen(
     new Promise((r) => r(startResult)),
-    () => {
-      controller[kState].started = true;
-      assert(!controller[kState].pulling);
-      assert(!controller[kState].pullAgain);
-      readableStreamDefaultControllerCallPullIfNeeded(controller);
-    },
+    started,
     (error) => readableStreamDefaultControllerError(controller, error));
 }
 
@@ -2566,12 +3069,12 @@ function setupReadableStreamDefaultControllerFromSource(
   const cancel = source?.cancel;
   const startAlgorithm = start ?
     FunctionPrototypeBind(start, source, controller) :
-    nonOpStart;
+    nonOpCallback;
   const pullAlgorithm = pull ?
-    createPromiseCallback('source.pull', pull, source) :
-    nonOpPull;
+    createRawCallback1Param('source.pull', pull, source) :
+    nonOpCallback;
   const cancelAlgorithm = cancel ?
-    createPromiseCallback('source.cancel', cancel, source) :
+    createPromiseCallback1Param('source.cancel', cancel, source) :
     nonOpCancel;
 
   setupReadableStreamDefaultController(
@@ -2601,7 +3104,7 @@ function readableByteStreamControllerClose(controller) {
   }
 
   if (pendingPullIntos.length) {
-    const firstPendingPullInto = pendingPullIntos[0];
+    const firstPendingPullInto = pendingPullIntos.peek();
     if (firstPendingPullInto.bytesFilled % firstPendingPullInto.elementSize !== 0) {
       const error = new ERR_INVALID_STATE.TypeError('Partial read');
       readableByteStreamControllerError(controller, error);
@@ -2658,7 +3161,7 @@ function readableByteStreamControllerClearAlgorithms(controller) {
 
 function readableByteStreamControllerClearPendingPullIntos(controller) {
   readableByteStreamControllerInvalidateBYOBRequest(controller);
-  controller[kState].pendingPullIntos = [];
+  controller[kState].pendingPullIntos = kEmptyQueue;
 }
 
 function readableByteStreamControllerGetDesiredSize(controller) {
@@ -2675,28 +3178,29 @@ function readableByteStreamControllerGetDesiredSize(controller) {
 }
 
 function readableByteStreamControllerShouldCallPull(controller) {
-  const {
-    stream,
-  } = controller[kState];
+  // Single-pass version of the spec's predicate chain (HasDefaultReader,
+  // GetNumReadRequests, HasBYOBReader, GetNumReadIntoRequests,
+  // GetDesiredSize): this runs at least once per chunk on every byte
+  // stream path. The desired-size computation is inlined because the
+  // stream state is already known to be 'readable' here.
+  const controllerState = controller[kState];
+  const stream = controllerState.stream;
   if (stream[kState].state !== 'readable' ||
-      controller[kState].closeRequested ||
-      !controller[kState].started) {
+      controllerState.closeRequested ||
+      !controllerState.started) {
     return false;
   }
-  if (readableStreamHasDefaultReader(stream) &&
-      readableStreamGetNumReadRequests(stream) > 0) {
-    return true;
+  const reader = stream[kState].reader;
+  if (reader !== undefined && reader[kState] !== undefined) {
+    const type = reader[kType];
+    if (type === 'ReadableStreamDefaultReader') {
+      if (reader[kState].readRequests.length) return true;
+    } else if (type === 'ReadableStreamBYOBReader') {
+      if (reader[kState].readIntoRequests.length) return true;
+    }
   }
 
-  if (readableStreamHasBYOBReader(stream) &&
-      readableStreamGetNumReadIntoRequests(stream) > 0) {
-    return true;
-  }
-
-  const desiredSize = readableByteStreamControllerGetDesiredSize(controller);
-  assert(desiredSize !== null);
-
-  return desiredSize > 0;
+  return controllerState.highWaterMark - controllerState.queueTotalSize > 0;
 }
 
 function readableByteStreamControllerHandleQueueDrain(controller) {
@@ -2759,7 +3263,7 @@ function readableByteStreamControllerPullInto(
     type: 'byob',
   };
   if (pendingPullIntos.length) {
-    ArrayPrototypePush(pendingPullIntos, desc);
+    pendingPullIntos.push(desc);
     readableStreamAddReadIntoRequest(stream, readIntoRequest);
     return;
   }
@@ -2785,9 +3289,20 @@ function readableByteStreamControllerPullInto(
       return;
     }
   }
-  ArrayPrototypePush(pendingPullIntos, desc);
+  materializePendingPullIntos(controller[kState]).push(desc);
   readableStreamAddReadIntoRequest(stream, readIntoRequest);
   readableByteStreamControllerCallPullIfNeeded(controller);
+}
+
+// Pending pull-into descriptor queues start out as (and are reset to)
+// the shared immutable empty queue so that constructing a byte stream
+// never allocates descriptor storage; the two push sites that can
+// observe an empty queue materialize a real Queue on first use.
+function materializePendingPullIntos(state) {
+  const pendingPullIntos = state.pendingPullIntos;
+  if (pendingPullIntos === kEmptyQueue)
+    return state.pendingPullIntos = new Queue();
+  return pendingPullIntos;
 }
 
 function readableByteStreamControllerRespondInternal(controller, bytesWritten) {
@@ -2795,7 +3310,7 @@ function readableByteStreamControllerRespondInternal(controller, bytesWritten) {
     stream,
     pendingPullIntos,
   } = controller[kState];
-  const desc = pendingPullIntos[0];
+  const desc = pendingPullIntos.peek();
   readableByteStreamControllerInvalidateBYOBRequest(controller);
   if (stream[kState].state === 'closed') {
     if (bytesWritten)
@@ -2820,7 +3335,7 @@ function readableByteStreamControllerRespond(controller, bytesWritten) {
     stream,
   } = controller[kState];
   assert(pendingPullIntos.length);
-  const desc = pendingPullIntos[0];
+  const desc = pendingPullIntos.peek();
 
   if (stream[kState].state === 'closed') {
     if (bytesWritten !== 0)
@@ -2865,7 +3380,7 @@ function readableByteStreamControllerFillHeadPullIntoDescriptor(
     pendingPullIntos,
     byobRequest,
   } = controller[kState];
-  assert(!pendingPullIntos.length || pendingPullIntos[0] === desc);
+  assert(!pendingPullIntos.length || pendingPullIntos.peek() === desc);
   assert(byobRequest === null);
   desc.bytesFilled += size;
 }
@@ -2888,7 +3403,7 @@ function readableByteStreamControllerEnqueue(controller, chunk) {
   const transferredBuffer = ArrayBufferPrototypeTransfer(buffer);
 
   if (pendingPullIntos.length) {
-    const firstPendingPullInto = pendingPullIntos[0];
+    const firstPendingPullInto = pendingPullIntos.peek();
 
     if (ArrayBufferPrototypeGetDetached(firstPendingPullInto.buffer)) {
       throw new ERR_INVALID_STATE.TypeError(
@@ -2910,9 +3425,23 @@ function readableByteStreamControllerEnqueue(controller, chunk) {
     }
   }
 
-  if (readableStreamHasDefaultReader(stream)) {
-    readableByteStreamControllerProcessReadRequestsUsingQueue(controller);
-    if (!readableStreamGetNumReadRequests(stream)) {
+  // Single consolidated pass over the reader state. The spec routes this
+  // through HasDefaultReader / ProcessReadRequestsUsingQueue /
+  // GetNumReadRequests / FulfillReadRequest, which would re-run the same
+  // reader brand check and re-load the read request list four times on
+  // this per-chunk path.
+  const { reader } = stream[kState];
+  if (reader !== undefined &&
+      reader[kState] !== undefined &&
+      reader[kType] === 'ReadableStreamDefaultReader') {
+    const { readRequests } = reader[kState];
+    if (readRequests.length && controller[kState].queueTotalSize > 0) {
+      // Only possible when data was enqueued while the stream was not
+      // being read; read requests otherwise never coexist with a
+      // non-empty queue.
+      readableByteStreamControllerProcessReadRequestsUsingQueue(controller);
+    }
+    if (!readRequests.length) {
       readableByteStreamControllerEnqueueChunkToQueue(
         controller,
         transferredBuffer,
@@ -2921,12 +3450,13 @@ function readableByteStreamControllerEnqueue(controller, chunk) {
     } else {
       assert(!queue.length);
       if (pendingPullIntos.length) {
-        assert(pendingPullIntos[0].type === 'default');
+        assert(pendingPullIntos.peek().type === 'default');
         readableByteStreamControllerShiftPendingPullInto(controller);
       }
       const transferredView =
         new Uint8Array(transferredBuffer, byteOffset, byteLength);
-      readableStreamFulfillReadRequest(stream, transferredView, false);
+      const readRequest = readRequests.shift();
+      readRequest[kChunk](transferredView);
     }
   } else if (readableStreamHasBYOBReader(stream)) {
     readableByteStreamControllerEnqueueChunkToQueue(
@@ -2978,14 +3508,13 @@ function readableByteStreamControllerEnqueueChunkToQueue(
   buffer,
   byteOffset,
   byteLength) {
-  ArrayPrototypePush(
-    controller[kState].queue,
-    {
-      buffer,
-      byteOffset,
-      byteLength,
-    });
-  controller[kState].queueTotalSize += byteLength;
+  const state = controller[kState];
+  materializeQueue(state).push({
+    buffer,
+    byteOffset,
+    byteLength,
+  });
+  state.queueTotalSize += byteLength;
 }
 
 function readableByteStreamControllerEnqueueDetachedPullIntoToQueue(
@@ -3040,7 +3569,7 @@ function readableByteStreamControllerFillPullIntoDescriptorFromQueue(
   } = controller[kState];
 
   while (totalBytesToCopyRemaining) {
-    const headOfQueue = queue[0];
+    const headOfQueue = queue.peek();
     const bytesToCopy = MathMin(
       totalBytesToCopyRemaining,
       headOfQueue.byteLength);
@@ -3058,7 +3587,7 @@ function readableByteStreamControllerFillPullIntoDescriptorFromQueue(
       headOfQueue.byteOffset,
       bytesToCopy);
     if (headOfQueue.byteLength === bytesToCopy) {
-      ArrayPrototypeShift(queue);
+      queue.shift();
     } else {
       headOfQueue.byteOffset += bytesToCopy;
       headOfQueue.byteLength -= bytesToCopy;
@@ -3090,7 +3619,7 @@ function readableByteStreamControllerProcessPullIntoDescriptorsUsingQueue(
   while (pendingPullIntos.length) {
     if (!controller[kState].queueTotalSize)
       break;
-    const desc = pendingPullIntos[0];
+    const desc = pendingPullIntos.peek();
     if (readableByteStreamControllerFillPullIntoDescriptorFromQueue(
       controller,
       desc)) {
@@ -3170,7 +3699,7 @@ function readableByteStreamControllerRespondWithNewView(controller, view) {
   } = controller[kState];
   assert(pendingPullIntos.length);
 
-  const desc = pendingPullIntos[0];
+  const desc = pendingPullIntos.peek();
   assert(stream[kState].state !== 'errored');
 
   const viewByteLength = ArrayBufferViewGetByteLength(view);
@@ -3210,11 +3739,14 @@ function readableByteStreamControllerRespondWithNewView(controller, view) {
 
 function readableByteStreamControllerShiftPendingPullInto(controller) {
   assert(controller[kState].byobRequest === null);
-  return ArrayPrototypeShift(controller[kState].pendingPullIntos);
+  return controller[kState].pendingPullIntos.shift();
 }
 
 function readableByteStreamControllerCallPullIfNeeded(controller) {
   if (!readableByteStreamControllerShouldCallPull(controller))
+    return;
+  // See readableStreamDefaultControllerPull.
+  if (controller[kState].pullAlgorithm === nonOpCallback)
     return;
   if (controller[kState].pulling) {
     controller[kState].pullAgain = true;
@@ -3222,16 +3754,30 @@ function readableByteStreamControllerCallPullIfNeeded(controller) {
   }
   assert(!controller[kState].pullAgain);
   controller[kState].pulling = true;
-  PromisePrototypeThen(
-    controller[kState].pullAlgorithm(controller),
-    () => {
+  if (controller[kState].pullFulfilled === undefined) {
+    // See readableStreamDefaultControllerCallPullIfNeeded: created once,
+    // reused for every pull.
+    controller[kState].pullFulfilled = () => {
       controller[kState].pulling = false;
       if (controller[kState].pullAgain) {
         controller[kState].pullAgain = false;
         readableByteStreamControllerCallPullIfNeeded(controller);
       }
-    },
-    (error) => readableByteStreamControllerError(controller, error));
+    };
+    controller[kState].pullRejected =
+      (error) => readableByteStreamControllerError(controller, error);
+  }
+  // See readableStreamDefaultControllerPull for the raw-callback contract.
+  let result;
+  try {
+    result = controller[kState].pullAlgorithm(controller);
+  } catch (error) {
+    result = PromiseReject(error);
+  }
+  thenAlgorithmResult(
+    result,
+    controller[kState].pullFulfilled,
+    controller[kState].pullRejected);
 }
 
 function readableByteStreamControllerError(controller, error) {
@@ -3254,22 +3800,28 @@ function readableByteStreamControllerCancelSteps(controller, reason) {
   return result;
 }
 
-function readableByteStreamControllerFillReadRequestFromQueue(controller, readRequest) {
-  const {
-    queue,
-    queueTotalSize,
-  } = controller[kState];
-  assert(queueTotalSize > 0);
+// Dequeues the first chunk of the byte queue as a Uint8Array view,
+// handling queue drain (close-on-empty or pull) before the view is
+// created. This is the [[queueTotalSize]] > 0 arm of the byte
+// controller's pull steps; it is also called directly from the
+// buffered fast paths in ReadableStreamDefaultReader.read() and the
+// async iterator, which resolve with the view without allocating a
+// read request.
+function readableByteStreamControllerDequeueChunk(controller) {
+  assert(controller[kState].queueTotalSize > 0);
   const {
     buffer,
     byteOffset,
     byteLength,
-  } = ArrayPrototypeShift(queue);
+  } = controller[kState].queue.shift();
 
   controller[kState].queueTotalSize -= byteLength;
   readableByteStreamControllerHandleQueueDrain(controller);
-  const view = new Uint8Array(buffer, byteOffset, byteLength);
-  readRequest[kChunk](view);
+  return new Uint8Array(buffer, byteOffset, byteLength);
+}
+
+function readableByteStreamControllerFillReadRequestFromQueue(controller, readRequest) {
+  readRequest[kChunk](readableByteStreamControllerDequeueChunk(controller));
 }
 
 function readableByteStreamControllerProcessReadRequestsUsingQueue(controller) {
@@ -3286,14 +3838,13 @@ function readableByteStreamControllerProcessReadRequestsUsingQueue(controller) {
     }
     readableByteStreamControllerFillReadRequestFromQueue(
       controller,
-      ArrayPrototypeShift(reader[kState].readRequests),
+      reader[kState].readRequests.shift(),
     );
   }
 }
 
 function readableByteStreamControllerPullSteps(controller, readRequest) {
   const {
-    pendingPullIntos,
     queueTotalSize,
     stream,
   } = controller[kState];
@@ -3312,8 +3863,7 @@ function readableByteStreamControllerPullSteps(controller, readRequest) {
   if (autoAllocateChunkSize !== undefined) {
     try {
       const buffer = new ArrayBuffer(autoAllocateChunkSize);
-      ArrayPrototypePush(
-        pendingPullIntos,
+      materializePendingPullIntos(controller[kState]).push(
         {
           buffer,
           bufferByteLength: autoAllocateChunkSize,
@@ -3353,28 +3903,45 @@ function setupReadableByteStreamController(
     closeRequested: false,
     pullAgain: false,
     pulling: false,
+    pullFulfilled: undefined,
+    pullRejected: undefined,
     started: false,
     stream,
-    queue: [],
+    queue: kEmptyQueue,
     queueTotalSize: 0,
     highWaterMark,
     pullAlgorithm,
     cancelAlgorithm,
     autoAllocateChunkSize,
-    pendingPullIntos: [],
+    pendingPullIntos: kEmptyQueue,
   };
   stream[kState].controller = controller;
 
   const startResult = startAlgorithm();
+  // See setupReadableStreamDefaultController.
+  const startFulfilled = startResult === null ||
+    (typeof startResult !== 'object' && typeof startResult !== 'function');
+
+  if (startFulfilled && pullAlgorithm === nonOpCallback) {
+    controller[kState].started = true;
+    return;
+  }
+
+  const started = () => {
+    controller[kState].started = true;
+    assert(!controller[kState].pulling);
+    assert(!controller[kState].pullAgain);
+    readableByteStreamControllerCallPullIfNeeded(controller);
+  };
+
+  if (startFulfilled) {
+    queueMicrotask(started);
+    return;
+  }
 
   PromisePrototypeThen(
     new Promise((r) => r(startResult)),
-    () => {
-      controller[kState].started = true;
-      assert(!controller[kState].pulling);
-      assert(!controller[kState].pullAgain);
-      readableByteStreamControllerCallPullIfNeeded(controller);
-    },
+    started,
     (error) => readableByteStreamControllerError(controller, error));
 }
 
@@ -3389,12 +3956,12 @@ function setupReadableByteStreamControllerFromSource(
   const autoAllocateChunkSize = source?.autoAllocateChunkSize;
   const startAlgorithm = start ?
     FunctionPrototypeBind(start, source, controller) :
-    nonOpStart;
+    nonOpCallback;
   const pullAlgorithm = pull ?
-    createPromiseCallback('source.pull', pull, source, controller) :
-    nonOpPull;
+    createRawCallback1Param('source.pull', pull, source) :
+    nonOpCallback;
   const cancelAlgorithm = cancel ?
-    createPromiseCallback('source.cancel', cancel, source) :
+    createPromiseCallback1Param('source.cancel', cancel, source) :
     nonOpCancel;
 
   if (autoAllocateChunkSize === 0) {
@@ -3450,6 +4017,9 @@ module.exports = {
   readableStreamReaderGenericRelease,
   readableStreamBYOBReaderRead,
   readableStreamDefaultReaderRead,
+  kChunk,
+  kClose,
+  kError,
   setupReadableStreamBYOBReader,
   setupReadableStreamDefaultReader,
   readableStreamDefaultControllerClose,

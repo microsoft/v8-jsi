@@ -10,8 +10,10 @@ const {
   ArrayPrototypeSome,
   JSONParse,
   MathFloor,
+  MathImul,
   MathMax,
   MathMin,
+  MathRandom,
   NumberParseInt,
   NumberPrototypeToFixed,
   ObjectGetOwnPropertyDescriptor,
@@ -27,7 +29,12 @@ const {
   StringPrototypeSplit,
 } = primordials;
 
+const {
+  parseTagFilterExpression,
+} = require('internal/test_runner/tag_filter');
+
 const { AsyncResource } = require('async_hooks');
+const { tracingChannel } = require('diagnostics_channel');
 const { relative, sep, resolve } = require('path');
 const { createWriteStream, readFileSync } = require('fs');
 const { pathToFileURL } = require('internal/url');
@@ -45,9 +52,10 @@ const { compose } = require('stream');
 const {
   validateInteger,
   validateFunction,
+  validateUint32,
 } = require('internal/validators');
 const { validatePath } = require('internal/fs/utils');
-const { kEmptyObject } = require('internal/util');
+const { emitExperimentalWarning, kEmptyObject } = require('internal/util');
 
 const coverageColors = {
   __proto__: null,
@@ -58,6 +66,7 @@ const coverageColors = {
 
 const kMultipleCallbackInvocations = 'multipleCallbackInvocations';
 const kRegExpPattern = /^\/(.*)\/([a-z]*)$/;
+const kMaxRandomSeed = 0xFFFF_FFFF;
 
 const kPatterns = ['test', 'test/**/*', 'test-*', '*[._-]test'];
 const kFileExtensions = ['js', 'mjs', 'cjs'];
@@ -133,6 +142,29 @@ const kBuiltinReporters = new SafeMap([
 const kDefaultReporter = 'spec';
 const kDefaultDestination = 'stdout';
 
+/**
+ * Create a random uint32 seed.
+ * @returns {number}
+ */
+function createRandomSeed() {
+  return MathFloor(MathRandom() * (kMaxRandomSeed + 1));
+}
+
+/**
+ * Create a Mulberry32 pseudo-random number generator from a uint32 seed.
+ * @param {number} seed
+ * @returns {() => number}
+ */
+function createSeededGenerator(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) | 0;
+    let value = MathImul(state ^ state >>> 15, 1 | state);
+    value ^= value + MathImul(value ^ value >>> 7, 61 | value);
+    return ((value ^ value >>> 14) >>> 0) / 4_294_967_296;
+  };
+}
+
 function tryBuiltinReporter(name) {
   const builtinPath = kBuiltinReporters.get(name);
 
@@ -203,6 +235,7 @@ async function getReportersMap(reporters, destinations) {
 }
 
 const reporterScope = new AsyncResource('TestReporterScope');
+const testChannel = tracingChannel('node.test');
 let globalTestOptions;
 
 function parseCommandLine() {
@@ -212,11 +245,16 @@ function parseCommandLine() {
 
   const isTestRunner = getOptionValue('--test');
   const coverage = getOptionValue('--experimental-test-coverage');
+  const coverageIncludeAll = getOptionValue('--test-coverage-include-all');
   const forceExit = getOptionValue('--test-force-exit');
   const sourceMaps = getOptionValue('--enable-source-maps');
   const updateSnapshots = getOptionValue('--test-update-snapshots');
   const watch = getOptionValue('--watch');
   const timeout = getOptionValue('--test-timeout') || Infinity;
+  let randomize = getOptionValue('--test-randomize');
+  const hasRandomSeedOption = getOptionValue('[has_test_random_seed]');
+  const randomSeedOption = getOptionValue('--test-random-seed');
+  let randomSeed;
   const rerunFailuresFilePath = getOptionValue('--test-rerun-failures');
   const isChildProcess = process.env.NODE_TEST_CONTEXT === 'child';
   const isChildProcessV8 = process.env.NODE_TEST_CONTEXT === 'child-v8';
@@ -234,6 +272,8 @@ function parseCommandLine() {
   let shard;
   let testNamePatterns = mapPatternFlagToRegExArray('--test-name-pattern');
   let testSkipPatterns = mapPatternFlagToRegExArray('--test-skip-pattern');
+  let testTagFilters = null;
+  let testTagFilterExpressions = null;
 
   if (isChildProcessV8) {
     kBuiltinReporters.set('v8-serializer', 'internal/test_runner/reporter/v8-serializer');
@@ -265,6 +305,20 @@ function parseCommandLine() {
 
   if (isTestRunner) {
     isolation = getOptionValue('--test-isolation');
+
+    const tagFilterFlag = getOptionValue('--experimental-test-tag-filter');
+    if (tagFilterFlag?.length > 0) {
+      emitExperimentalWarning('Test tags');
+      // File wrappers are exempt from tag filtering, so holding the parsed
+      // ASTs in the parent is safe under any isolation mode; under
+      // isolation='process' the source expressions are re-emitted to the
+      // child processes, which re-parse and apply the filter themselves.
+      testTagFilterExpressions = tagFilterFlag;
+      testTagFilters = ArrayPrototypeMap(
+        tagFilterFlag,
+        (expr, i) => parseTagFilterExpression(expr, `--experimental-test-tag-filter[${i}]`),
+      );
+    }
 
     if (isolation === 'none') {
       concurrency = 1;
@@ -304,6 +358,15 @@ function parseCommandLine() {
     const testSkipPatternFlag = getOptionValue('--test-skip-pattern');
     testSkipPatterns = testSkipPatternFlag?.length > 0 ?
       ArrayPrototypeMap(testSkipPatternFlag, (re) => convertStringToRegExp(re, '--test-skip-pattern')) : null;
+    const tagFilterFlag = getOptionValue('--experimental-test-tag-filter');
+    if (tagFilterFlag?.length > 0) {
+      emitExperimentalWarning('Test tags');
+      testTagFilterExpressions = tagFilterFlag;
+      testTagFilters = ArrayPrototypeMap(
+        tagFilterFlag,
+        (expr, i) => parseTagFilterExpression(expr, `--experimental-test-tag-filter[${i}]`),
+      );
+    }
   }
 
   if (coverage) {
@@ -328,6 +391,12 @@ function parseCommandLine() {
     validatePath(rerunFailuresFilePath, '--test-rerun-failures');
   }
 
+  if (hasRandomSeedOption) {
+    validateUint32(randomSeedOption, '--test-random-seed');
+    randomSeed = randomSeedOption;
+    randomize = true;
+  }
+
   const setup = reporterScope.bind(async (rootReporter) => {
     const reportersMap = await getReportersMap(reporters, destinations);
     for (let i = 0; i < reportersMap.length; i++) {
@@ -343,6 +412,7 @@ function parseCommandLine() {
     isTestRunner,
     concurrency,
     coverage,
+    coverageIncludeAll,
     coverageExcludeGlobs,
     coverageIncludeGlobs,
     destinations,
@@ -359,9 +429,13 @@ function parseCommandLine() {
     sourceMaps,
     testNamePatterns,
     testSkipPatterns,
+    testTagFilterExpressions,
+    testTagFilters,
     timeout,
     updateSnapshots,
     watch,
+    randomize,
+    randomSeed,
     rerunFailuresFilePath,
   };
 
@@ -384,7 +458,7 @@ function countCompletedTest(test, harness = test.root.harness) {
   }
   if (test.reportedType === 'suite') {
     harness.counters.suites++;
-    if (!test.passed) {
+    if (!test.passed && !test.isTodo) {
       harness.success = false;
     }
     return;
@@ -652,13 +726,17 @@ async function setupGlobalSetupTeardownFunctions(globalSetupPath, cwd) {
 module.exports = {
   convertStringToRegExp,
   countCompletedTest,
+  createRandomSeed,
+  createSeededGenerator,
   createDeferredCallback,
   isTestFailureError,
   kDefaultPattern,
+  kMaxRandomSeed,
   parseCommandLine,
   reporterScope,
   shouldColorizeTestFiles,
   getCoverageReport,
   setupGlobalSetupTeardownFunctions,
   parsePreviousRuns,
+  testChannel,
 };

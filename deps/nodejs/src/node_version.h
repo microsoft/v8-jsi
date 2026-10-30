@@ -22,14 +22,14 @@
 #ifndef SRC_NODE_VERSION_H_
 #define SRC_NODE_VERSION_H_
 
-#define NODE_MAJOR_VERSION 24
-#define NODE_MINOR_VERSION 15
-#define NODE_PATCH_VERSION 1
+#define NODE_MAJOR_VERSION 26
+#define NODE_MINOR_VERSION 13
+#define NODE_PATCH_VERSION 0
 
 #define NODE_VERSION_IS_LTS 1
-#define NODE_VERSION_LTS_CODENAME "Krypton"
+#define NODE_VERSION_LTS_CODENAME "Lithium"
 
-#define NODE_VERSION_IS_RELEASE 0
+#define NODE_VERSION_IS_RELEASE 1
 
 #ifndef NODE_STRINGIFY
 #define NODE_STRINGIFY(n) NODE_STRINGIFY_HELPER(n)
@@ -41,18 +41,24 @@
 #endif
 
 #ifndef NODE_TAG
-# if NODE_VERSION_IS_RELEASE
-#  define NODE_TAG ""
-# else
-#  define NODE_TAG "-pre"
-# endif
+#if NODE_VERSION_IS_RELEASE
+#ifdef NODE_ALPHA_MAJOR_VERSION
+#define NODE_TAG                                                               \
+  "-alpha." NODE_STRINGIFY(NODE_ALPHA_MAJOR_VERSION) "." NODE_STRINGIFY(       \
+      NODE_ALPHA_MINOR_VERSION) "." NODE_STRINGIFY(NODE_ALPHA_PATCH_VERSION)
 #else
+#define NODE_TAG ""
+#endif  // NODE_ALPHA_MAJOR_VERSION
+#else   // NODE_VERSION_IS_RELEASE
+#define NODE_TAG "-pre"
+#endif  // NODE_VERSION_IS_RELEASE
+#else   // NODE_TAG
 // NODE_TAG is passed without quotes when rc.exe is run from msbuild
 # define NODE_EXE_VERSION NODE_STRINGIFY(NODE_MAJOR_VERSION) "." \
                           NODE_STRINGIFY(NODE_MINOR_VERSION) "." \
                           NODE_STRINGIFY(NODE_PATCH_VERSION)     \
                           NODE_STRINGIFY(NODE_TAG)
-#endif
+#endif  // NODE_TAG
 
 # define NODE_VERSION_STRING  NODE_STRINGIFY(NODE_MAJOR_VERSION) "." \
                               NODE_STRINGIFY(NODE_MINOR_VERSION) "." \
@@ -95,7 +101,7 @@
 #if defined(NODE_EMBEDDER_MODULE_VERSION)
 #define NODE_MODULE_VERSION NODE_EMBEDDER_MODULE_VERSION
 #else
-#define NODE_MODULE_VERSION 137
+#define NODE_MODULE_VERSION 147
 #endif
 
 // The NAPI_VERSION supported by the runtime. This is the inclusive range of

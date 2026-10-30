@@ -4,7 +4,7 @@
 
 #include "src/builtins/accessors.h"
 #include "src/execution/isolate-inl.h"
-#include "src/heap/heap-inl.h"  // For ToBoolean. TODO(jkummerow): Drop.
+#include "src/roots/roots-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -50,7 +50,6 @@ RUNTIME_FUNCTION(Runtime_FunctionGetSourceCode) {
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
-
 RUNTIME_FUNCTION(Runtime_FunctionGetScriptSourcePosition) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
@@ -60,15 +59,13 @@ RUNTIME_FUNCTION(Runtime_FunctionGetScriptSourcePosition) {
   return Smi::FromInt(pos);
 }
 
-
 RUNTIME_FUNCTION(Runtime_FunctionIsAPIFunction) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
 
   auto f = Cast<JSFunction>(args[0]);
-  return isolate->heap()->ToBoolean(f->shared()->IsApiFunction());
+  return ReadOnlyRoots(isolate).boolean_value(f->shared()->IsApiFunction());
 }
-
 
 RUNTIME_FUNCTION(Runtime_Call) {
   HandleScope scope(isolate);
@@ -83,7 +80,6 @@ RUNTIME_FUNCTION(Runtime_Call) {
   RETURN_RESULT_OR_FAILURE(isolate, Execution::Call(isolate, target, receiver,
                                                     base::VectorOf(arguments)));
 }
-
 
 }  // namespace internal
 }  // namespace v8

@@ -148,9 +148,9 @@
 /deps/cares/docs/
 /deps/cares/m4/
 
-# ── Unused deps with no .gyp targets (verified by grep of *.gyp*) ──
-# LIEF: single-executable-app packaging tool. No .gyp reference
-#   anywhere in deps/nodejs/; no reference from v8-jsi.
+# ── Node-only or unused deps ──────────────────────────────────────
+# LIEF: Node's single-executable-app packaging tool. Node 26 references
+#   lief.gyp conditionally; v8-jsi configure opts out with without_lief.
 # amaro / undici / acorn / minimatch: pure-JS bundles referenced
 #   only from node.gyp's deps_files list (lines 64-66) and
 #   config.gypi (lines 489-490) — consumed by node_js2c, which

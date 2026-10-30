@@ -9,7 +9,7 @@ const {
 
 const { defaultGetFormat } = require('internal/modules/esm/get_format');
 const { validateAttributes, emitImportAssertionWarning } = require('internal/modules/esm/assert');
-const { readFileSync } = require('fs');
+const { loaderMethods } = require('internal/modules/helpers');
 
 const { Buffer: { from: BufferFrom } } = require('buffer');
 
@@ -20,9 +20,6 @@ const {
   ERR_UNSUPPORTED_ESM_URL_SCHEME,
 } = require('internal/errors').codes;
 
-const {
-  dataURLProcessor,
-} = require('internal/data_url');
 
 /**
  * @param {URL} url URL to the module
@@ -34,8 +31,13 @@ function getSourceSync(url, context) {
   const responseURL = href;
   let source;
   if (protocol === 'file:') {
-    source = readFileSync(url);
+    // If you are reading this code to figure out how to patch Node.js module loading
+    // behavior - DO NOT depend on the patchability in new code: Node.js
+    // internals may stop going through the JavaScript fs module entirely.
+    // Prefer module.registerHooks() or other more formal fs hooks released in the future.
+    source = loaderMethods.readFileSync(url);
   } else if (protocol === 'data:') {
+    const { dataURLProcessor } = require('internal/data_url');  // Only for data: URLs.
     const result = dataURLProcessor(url);
     if (result === 'failure') {
       throw new ERR_INVALID_URL(responseURL);
@@ -141,7 +143,6 @@ function defaultLoadSync(url, context = kEmptyObject) {
 
   throwIfUnsupportedURLScheme(urlInstance, false);
 
-  let shouldBeReloadedByCJSLoader = false;
   if (urlInstance.protocol === 'node:') {
     source = null;
     format ??= 'builtin';
@@ -156,10 +157,6 @@ function defaultLoadSync(url, context = kEmptyObject) {
 
     // Now that we have the source for the module, run `defaultGetFormat` to detect its format.
     format ??= defaultGetFormat(urlInstance, context);
-
-    // For backward compatibility reasons, we need to let go through Module._load
-    // again.
-    shouldBeReloadedByCJSLoader = (format === 'commonjs');
   }
   validateAttributes(url, format, importAttributes);
 
@@ -168,7 +165,6 @@ function defaultLoadSync(url, context = kEmptyObject) {
     format,
     responseURL,
     source,
-    shouldBeReloadedByCJSLoader,
   };
 }
 
@@ -205,7 +201,7 @@ function throwIfUnsupportedURLScheme(parsed) {
  */
 function throwUnknownModuleFormat(url, format) {
   const dataUrl = RegExpPrototypeExec(
-    /^data:([^/]+\/[^;,]+)(?:[^,]*?)(;base64)?,/,
+    /^data:([^/]+\/[^;,]+)(?:;[^,]*)?,/,
     url,
   );
 

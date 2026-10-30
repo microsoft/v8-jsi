@@ -22,14 +22,13 @@ namespace crypto {
 #ifndef OPENSSL_NO_SCRYPT
 
 ScryptConfig::ScryptConfig(ScryptConfig&& other) noexcept
-  : mode(other.mode),
-    pass(std::move(other.pass)),
-    salt(std::move(other.salt)),
-    N(other.N),
-    r(other.r),
-    p(other.p),
-    maxmem(other.maxmem),
-    length(other.length) {}
+    : pass(std::move(other.pass)),
+      salt(std::move(other.salt)),
+      N(other.N),
+      r(other.r),
+      p(other.p),
+      maxmem(other.maxmem),
+      length(other.length) {}
 
 ScryptConfig& ScryptConfig::operator=(ScryptConfig&& other) noexcept {
   if (&other == this) return *this;
@@ -38,10 +37,8 @@ ScryptConfig& ScryptConfig::operator=(ScryptConfig&& other) noexcept {
 }
 
 void ScryptConfig::MemoryInfo(MemoryTracker* tracker) const {
-  if (mode == kCryptoJobAsync) {
-    tracker->TrackFieldWithSize("pass", pass.size());
-    tracker->TrackFieldWithSize("salt", salt.size());
-  }
+  tracker->TraitTrackInline(pass, "pass");
+  tracker->TraitTrackInline(salt, "salt");
 }
 
 MaybeLocal<Value> ScryptTraits::EncodeOutput(Environment* env,
@@ -57,8 +54,6 @@ Maybe<void> ScryptTraits::AdditionalConfig(
     ScryptConfig* params) {
   Environment* env = Environment::GetCurrent(args);
 
-  params->mode = mode;
-
   ArrayBufferOrViewContents<char> pass(args[offset]);
   ArrayBufferOrViewContents<char> salt(args[offset + 1]);
 
@@ -72,19 +67,15 @@ Maybe<void> ScryptTraits::AdditionalConfig(
     return Nothing<void>();
   }
 
-  params->pass = mode == kCryptoJobAsync
-      ? pass.ToCopy()
-      : pass.ToByteSource();
+  params->pass = IsCryptoJobAsync(mode) ? pass.ToCopy() : pass.ToByteSource();
 
-  params->salt = mode == kCryptoJobAsync
-      ? salt.ToCopy()
-      : salt.ToByteSource();
+  params->salt = IsCryptoJobAsync(mode) ? salt.ToCopy() : salt.ToByteSource();
 
   CHECK(args[offset + 2]->IsUint32());  // N
   CHECK(args[offset + 3]->IsUint32());  // r
   CHECK(args[offset + 4]->IsUint32());  // p
   CHECK(args[offset + 5]->IsNumber());  // maxmem
-  CHECK(args[offset + 6]->IsInt32());  // length
+  CHECK(args[offset + 6]->IsInt32());   // length
 
   params->N = args[offset + 2].As<Uint32>()->Value();
   params->r = args[offset + 3].As<Uint32>()->Value();
@@ -116,7 +107,8 @@ Maybe<void> ScryptTraits::AdditionalConfig(
 bool ScryptTraits::DeriveBits(Environment* env,
                               const ScryptConfig& params,
                               ByteSource* out,
-                              CryptoJobMode mode) {
+                              CryptoJobMode mode,
+                              CryptoErrorStore* errors) {
   // If the params.length is zero-length, just return an empty buffer.
   // It's useless, yes, but allowed via the API.
   if (params.length == 0) {
@@ -139,7 +131,11 @@ bool ScryptTraits::DeriveBits(Environment* env,
       params.maxmem,
       params.length);
 
-  if (!dp) return false;
+  if (!dp) {
+    errors->Capture();
+    errors->Insert(NodeCryptoError::SCRYPT_FAILED);
+    return false;
+  }
   DCHECK(!dp.isSecure());
   *out = ByteSource::Allocated(dp.release());
   return true;

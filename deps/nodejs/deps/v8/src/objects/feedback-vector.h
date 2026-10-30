@@ -74,6 +74,7 @@ enum class FeedbackSlotKind : uint8_t {
   kInstanceOf,
   kTypeOf,
   kCloneObject,
+  kStringAddAndInternalize,
   kJumpLoop,
 
   kLast = kJumpLoop  // Always update this if the list above changes.
@@ -289,7 +290,6 @@ class ClosureFeedbackCellArray
       TaggedArrayBase<ClosureFeedbackCellArray, ClosureFeedbackCellArrayShape>;
 
  public:
-  NEVER_READ_ONLY_SPACE
   using Shape = ClosureFeedbackCellArrayShape;
 
   V8_EXPORT_PRIVATE static DirectHandle<ClosureFeedbackCellArray> New(
@@ -309,30 +309,12 @@ class NexusConfig;
 class FeedbackVector
     : public TorqueGeneratedFeedbackVector<FeedbackVector, HeapObject> {
  public:
-  NEVER_READ_ONLY_SPACE
   DEFINE_TORQUE_GENERATED_OSR_STATE()
   DEFINE_TORQUE_GENERATED_FEEDBACK_VECTOR_FLAGS()
 
-#ifndef V8_ENABLE_LEAPTIERING
-  static_assert(TieringStateBits::is_valid(TieringState::kLastTieringState));
-
-  static constexpr uint32_t kFlagsMaybeHasTurbofanCode =
-      FeedbackVector::MaybeHasTurbofanCodeBit::kMask;
-  static constexpr uint32_t kFlagsMaybeHasMaglevCode =
-      FeedbackVector::MaybeHasMaglevCodeBit::kMask;
-  static constexpr uint32_t kFlagsHasAnyOptimizedCode =
-      FeedbackVector::MaybeHasMaglevCodeBit::kMask |
-      FeedbackVector::MaybeHasTurbofanCodeBit::kMask;
-  static constexpr uint32_t kFlagsTieringStateIsAnyRequested =
-      kNoneOrInProgressMask << FeedbackVector::TieringStateBits::kShift;
-  static constexpr uint32_t kFlagsLogNextExecution =
-      FeedbackVector::LogNextExecutionBit::kMask;
-
-  static constexpr inline uint32_t FlagMaskForNeedsProcessingCheckFrom(
-      CodeKind code_kind);
-#endif  // !V8_ENABLE_LEAPTIERING
-
   inline bool is_empty() const;
+
+  DECL_GETTER(has_metadata, bool)
 
   DECL_GETTER(metadata, Tagged<FeedbackMetadata>)
   DECL_ACQUIRE_GETTER(metadata, Tagged<FeedbackMetadata>)
@@ -372,43 +354,18 @@ class FeedbackVector
   // The `osr_state` contains the osr_urgency and maybe_has_optimized_osr_code.
   inline void reset_osr_state();
 
-#ifndef V8_ENABLE_LEAPTIERING
-  inline bool log_next_execution() const;
-  inline void set_log_next_execution(bool value = true);
-
-  inline Tagged<Code> optimized_code(IsolateForSandbox isolate) const;
-  // Whether maybe_optimized_code contains a cached Code object.
-  inline bool has_optimized_code() const;
-
-  // Similar to above, but represented internally as a bit that can be
-  // efficiently checked by generated code. May lag behind the actual state of
-  // the world, thus 'maybe'.
-  inline bool maybe_has_maglev_code() const;
-  inline void set_maybe_has_maglev_code(bool value);
-  inline bool maybe_has_turbofan_code() const;
-  inline void set_maybe_has_turbofan_code(bool value);
-
-  void SetOptimizedCode(IsolateForSandbox isolate, Tagged<Code> code);
-  void EvictOptimizedCodeMarkedForDeoptimization(
-      Isolate* isolate, Tagged<SharedFunctionInfo> shared, const char* reason);
-  void ClearOptimizedCode();
-#endif  // !V8_ENABLE_LEAPTIERING
-
   // Optimized OSR'd code is cached in JumpLoop feedback vector slots. The
   // slots either contain a Code object or the ClearedValue.
-  inline std::optional<Tagged<Code>> GetOptimizedOsrCode(Isolate* isolate,
-                                                         FeedbackSlot slot);
+  inline std::optional<Tagged<Code>> GetOptimizedOsrCode(
+      Isolate* isolate, Handle<BytecodeArray> bytecode_array,
+      FeedbackSlot slot);
   void SetOptimizedOsrCode(Isolate* isolate, FeedbackSlot slot,
                            Tagged<Code> code);
+  inline void RecomputeOptimizedOsrCodeFlags(
+      Isolate* isolate, Handle<BytecodeArray> bytecode_array);
 
-#ifdef V8_ENABLE_LEAPTIERING
   inline bool tiering_in_progress() const;
   void set_tiering_in_progress(bool);
-#else
-  inline TieringState tiering_state() const;
-  V8_EXPORT_PRIVATE void set_tiering_state(TieringState state);
-  inline void reset_tiering_state();
-#endif  // !V8_ENABLE_LEAPTIERING
 
   bool osr_tiering_in_progress();
   void set_osr_tiering_in_progress(bool osr_in_progress);
@@ -673,6 +630,10 @@ class V8_EXPORT_PRIVATE FeedbackVectorSpec {
     return AddSlot(FeedbackSlotKind::kJumpLoop);
   }
 
+  FeedbackSlot AddStringAddAndInternalizeICSlot() {
+    return AddSlot(FeedbackSlotKind::kStringAddAndInternalize);
+  }
+
 #ifdef OBJECT_PRINT
   // For gdb debugging.
   void Print();
@@ -827,7 +788,8 @@ class FeedbackMetadataIterator {
         next_slot_(FeedbackSlot(0)),
         slot_kind_(FeedbackSlotKind::kInvalid) {}
 
-  explicit FeedbackMetadataIterator(Tagged<FeedbackMetadata> metadata)
+  FeedbackMetadataIterator(Tagged<FeedbackMetadata> metadata,
+                           const DisallowGarbageCollection& no_gc)
       : metadata_(metadata),
         next_slot_(FeedbackSlot(0)),
         slot_kind_(FeedbackSlotKind::kInvalid) {}
@@ -951,7 +913,15 @@ class V8_EXPORT_PRIVATE FeedbackNexus final {
     return vector()->GetLanguageMode(slot());
   }
 
+  static inline Builtin GetLoadICHandlerForFieldIndex(int field_index,
+                                                      bool is_inobject,
+                                                      bool is_double);
+
   InlineCacheState ic_state() const;
+  static Builtin ic_handler(Tagged<MaybeObject> feedback_extra,
+                            FeedbackSlotKind kind);
+  Builtin ic_handler() const;
+
   bool IsUninitialized() const {
     return ic_state() == InlineCacheState::UNINITIALIZED;
   }
@@ -1020,10 +990,12 @@ class V8_EXPORT_PRIVATE FeedbackNexus final {
   // For KeyedLoad and KeyedStore ICs.
   IcCheckType GetKeyType() const;
   Tagged<Name> GetName() const;
+  bool IsOneMapManyNames() const;
 
   // For Call ICs.
   int GetCallCount();
   void SetSpeculationMode(SpeculationMode mode);
+  void NextSpeculationMode(SpeculationMode mode);
   SpeculationMode GetSpeculationMode();
   CallFeedbackContent GetCallFeedbackContent();
 
@@ -1031,9 +1003,9 @@ class V8_EXPORT_PRIVATE FeedbackNexus final {
   // count (taken from the type feedback vector).
   float ComputeCallFrequency();
 
-  using SpeculationModeField = base::BitField<SpeculationMode, 0, 1>;
-  using CallFeedbackContentField = base::BitField<CallFeedbackContent, 1, 1>;
-  using CallCountField = base::BitField<uint32_t, 2, 30>;
+  using SpeculationModeField = base::BitField<SpeculationMode, 0, 2>;
+  using CallFeedbackContentField = base::BitField<CallFeedbackContent, 2, 1>;
+  using CallCountField = base::BitField<uint32_t, 3, 29>;
 
   // For InstanceOf ICs.
   MaybeDirectHandle<JSObject> GetConstructorFeedback() const;

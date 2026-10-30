@@ -13,6 +13,8 @@
 #include "node_internals.h"
 #include "v8.h"
 
+#include <string>
+
 namespace node {
 namespace crypto {
 
@@ -48,51 +50,21 @@ class ECDH final : public BaseObject {
   static void GetPublicKey(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetPublicKey(const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  void MaybeCacheValidKeyPair(uint64_t generation);
   bool IsKeyPairValid();
   bool IsKeyValidForCurve(const ncrypto::BignumPointer& private_key);
 
   ncrypto::ECKeyPointer key_;
   const EC_GROUP* group_;
+  bool has_valid_key_pair_ = false;
+  uint64_t valid_key_pair_generation_ = 0;
 };
-
-struct ECDHBitsConfig final : public MemoryRetainer {
-  int id_;
-  KeyObjectData private_;
-  KeyObjectData public_;
-
-  void MemoryInfo(MemoryTracker* tracker) const override;
-  SET_MEMORY_INFO_NAME(ECDHBitsConfig)
-  SET_SELF_SIZE(ECDHBitsConfig)
-};
-
-struct ECDHBitsTraits final {
-  using AdditionalParameters = ECDHBitsConfig;
-  static constexpr const char* JobName = "ECDHBitsJob";
-  static constexpr AsyncWrap::ProviderType Provider =
-      AsyncWrap::PROVIDER_DERIVEBITSREQUEST;
-
-  static v8::Maybe<void> AdditionalConfig(
-      CryptoJobMode mode,
-      const v8::FunctionCallbackInfo<v8::Value>& args,
-      unsigned int offset,
-      ECDHBitsConfig* params);
-
-  static bool DeriveBits(Environment* env,
-                         const ECDHBitsConfig& params,
-                         ByteSource* out_,
-                         CryptoJobMode mode);
-
-  static v8::MaybeLocal<v8::Value> EncodeOutput(Environment* env,
-                                                const ECDHBitsConfig& params,
-                                                ByteSource* out);
-};
-
-using ECDHBitsJob = DeriveBitsJob<ECDHBitsTraits>;
 
 struct EcKeyPairParams final : public MemoryRetainer {
-  int curve_nid;
+  const ncrypto::KeyAlgorithm* algorithm = nullptr;
+  std::string curve_name;
   int param_encoding;
-  SET_NO_MEMORY_INFO()
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(EcKeyPairParams)
   SET_SELF_SIZE(EcKeyPairParams)
 };
@@ -114,44 +86,11 @@ struct EcKeyGenTraits final {
 
 using ECKeyPairGenJob = KeyGenJob<KeyPairGenTraits<EcKeyGenTraits>>;
 
-// There is currently no additional information that the
-// ECKeyExport needs to collect, but we need to provide
-// the base struct anyway.
-struct ECKeyExportConfig final : public MemoryRetainer {
-  SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(ECKeyExportConfig)
-  SET_SELF_SIZE(ECKeyExportConfig)
-};
-
-struct ECKeyExportTraits final {
-  static constexpr const char* JobName = "ECKeyExportJob";
-  using AdditionalParameters = ECKeyExportConfig;
-
-  static v8::Maybe<void> AdditionalConfig(
-      const v8::FunctionCallbackInfo<v8::Value>& args,
-      unsigned int offset,
-      ECKeyExportConfig* config);
-
-  static WebCryptoKeyExportStatus DoExport(const KeyObjectData& key_data,
-                                           WebCryptoKeyFormat format,
-                                           const ECKeyExportConfig& params,
-                                           ByteSource* out);
-};
-
-using ECKeyExportJob = KeyExportJob<ECKeyExportTraits>;
-
 bool ExportJWKEcKey(Environment* env,
                     const KeyObjectData& key,
                     v8::Local<v8::Object> target);
 
-bool ExportJWKEdKey(Environment* env,
-                    const KeyObjectData& key,
-                    v8::Local<v8::Object> target);
-
-KeyObjectData ImportJWKEcKey(Environment* env,
-                             v8::Local<v8::Object> jwk,
-                             const v8::FunctionCallbackInfo<v8::Value>& args,
-                             unsigned int offset);
+KeyObjectData ImportJWKEcKey(Environment* env, v8::Local<v8::Object> jwk);
 
 bool GetEcKeyDetail(Environment* env,
                     const KeyObjectData& key,

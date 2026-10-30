@@ -19,22 +19,22 @@ StreamReq::StreamReq(
 
 void StreamReq::AttachToObject(v8::Local<v8::Object> req_wrap_obj) {
   CHECK_EQ(req_wrap_obj->GetAlignedPointerFromInternalField(
-               StreamReq::kStreamReqField),
+               StreamReq::kStreamReqField, EmbedderDataTag::kDefault),
            nullptr);
   req_wrap_obj->SetAlignedPointerInInternalField(
-      StreamReq::kStreamReqField, this);
+      StreamReq::kStreamReqField, this, EmbedderDataTag::kDefault);
 }
 
 StreamReq* StreamReq::FromObject(v8::Local<v8::Object> req_wrap_obj) {
   return static_cast<StreamReq*>(
       req_wrap_obj->GetAlignedPointerFromInternalField(
-          StreamReq::kStreamReqField));
+          StreamReq::kStreamReqField, EmbedderDataTag::kDefault));
 }
 
 void StreamReq::Dispose() {
   BaseObjectPtr<AsyncWrap> destroy_me{GetAsyncWrap()};
   object()->SetAlignedPointerInInternalField(
-      StreamReq::kStreamReqField, nullptr);
+      StreamReq::kStreamReqField, nullptr, EmbedderDataTag::kDefault);
   destroy_me->Detach();
 }
 
@@ -98,38 +98,33 @@ StreamBase::StreamBase(Environment* env) : env_(env) {
   PushStreamListener(&default_listener_);
 }
 
-template <typename OtherBase>
+template <std::derived_from<AsyncWrap> OtherBase>
 SimpleShutdownWrap<OtherBase>::SimpleShutdownWrap(
-    StreamBase* stream,
-    v8::Local<v8::Object> req_wrap_obj)
-  : ShutdownWrap(stream, req_wrap_obj),
-    OtherBase(stream->stream_env(),
-              req_wrap_obj,
-              AsyncWrap::PROVIDER_SHUTDOWNWRAP) {
-}
+    StreamBase* stream, v8::Local<v8::Object> req_wrap_obj)
+    : ShutdownWrap(stream, req_wrap_obj),
+      OtherBase(stream->stream_env(),
+                req_wrap_obj,
+                AsyncWrap::PROVIDER_SHUTDOWNWRAP) {}
 
-template <typename OtherBase>
-SimpleWriteWrap<OtherBase>::SimpleWriteWrap(
-    StreamBase* stream,
-    v8::Local<v8::Object> req_wrap_obj)
-  : WriteWrap(stream, req_wrap_obj),
-    OtherBase(stream->stream_env(),
-              req_wrap_obj,
-              AsyncWrap::PROVIDER_WRITEWRAP) {
-}
+template <std::derived_from<AsyncWrap> OtherBase>
+SimpleWriteWrap<OtherBase>::SimpleWriteWrap(StreamBase* stream,
+                                            v8::Local<v8::Object> req_wrap_obj)
+    : WriteWrap(stream, req_wrap_obj),
+      OtherBase(
+          stream->stream_env(), req_wrap_obj, AsyncWrap::PROVIDER_WRITEWRAP) {}
 
 void StreamBase::AttachToObject(v8::Local<v8::Object> obj) {
   obj->SetAlignedPointerInInternalField(
-      StreamBase::kStreamBaseField, this);
+      StreamBase::kStreamBaseField, this, EmbedderDataTag::kDefault);
 }
 
 StreamBase* StreamBase::FromObject(v8::Local<v8::Object> obj) {
-  if (obj->GetAlignedPointerFromInternalField(StreamBase::kSlot) == nullptr)
+  if (obj->GetAlignedPointerFromInternalField(
+          StreamBase::kSlot, EmbedderDataTag::kDefault) == nullptr)
     return nullptr;
 
-  return static_cast<StreamBase*>(
-      obj->GetAlignedPointerFromInternalField(
-          StreamBase::kStreamBaseField));
+  return static_cast<StreamBase*>(obj->GetAlignedPointerFromInternalField(
+      StreamBase::kStreamBaseField, EmbedderDataTag::kDefault));
 }
 
 WriteWrap* WriteWrap::FromObject(v8::Local<v8::Object> req_wrap_obj) {
@@ -162,8 +157,10 @@ void WriteWrap::SetBackingStore(std::unique_ptr<v8::BackingStore> bs) {
 void StreamReq::ResetObject(v8::Local<v8::Object> obj) {
   DCHECK_GT(obj->InternalFieldCount(), StreamReq::kStreamReqField);
 
-  obj->SetAlignedPointerInInternalField(StreamReq::kSlot, nullptr);
-  obj->SetAlignedPointerInInternalField(StreamReq::kStreamReqField, nullptr);
+  obj->SetAlignedPointerInInternalField(
+      StreamReq::kSlot, nullptr, EmbedderDataTag::kDefault);
+  obj->SetAlignedPointerInInternalField(
+      StreamReq::kStreamReqField, nullptr, EmbedderDataTag::kDefault);
 }
 
 }  // namespace node

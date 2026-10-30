@@ -30,6 +30,10 @@ ExternalPointerTable::Space* IsolateForSandbox::GetExternalPointerTableSpaceFor(
   return isolate.GetExternalPointerTableSpaceFor(tag_range, host);
 }
 
+JSDispatchTable& IsolateForSandbox::GetJSDispatchTable() {
+  return isolate_->js_dispatch_table();
+}
+
 CodePointerTable::Space* IsolateForSandbox::GetCodePointerTableSpaceFor(
     Address owning_slot) {
   return ReadOnlyHeap::Contains(owning_slot)
@@ -38,15 +42,15 @@ CodePointerTable::Space* IsolateForSandbox::GetCodePointerTableSpaceFor(
 }
 
 TrustedPointerTable& IsolateForSandbox::GetTrustedPointerTableFor(
-    IndirectPointerTag tag) {
-  return IsSharedTrustedPointerType(tag)
+    IndirectPointerTagRange tag_range) {
+  return IsSharedTrustedPointerType(tag_range)
              ? isolate_->shared_trusted_pointer_table()
              : isolate_->trusted_pointer_table();
 }
 
 TrustedPointerTable::Space* IsolateForSandbox::GetTrustedPointerTableSpaceFor(
-    IndirectPointerTag tag) {
-  return IsSharedTrustedPointerType(tag)
+    IndirectPointerTagRange tag_range) {
+  return IsSharedTrustedPointerType(tag_range)
              ? isolate_->shared_trusted_pointer_space()
              : isolate_->heap()->trusted_pointer_space();
 }
@@ -64,37 +68,6 @@ bool IsolateForSandbox::SharesPointerTablesWith(IsolateForSandbox other) const {
              &other.isolate_->shared_external_pointer_table() &&
          isolate_->shared_external_pointer_space() ==
              other.isolate_->shared_external_pointer_space();
-}
-
-V8_INLINE IsolateForSandbox GetIsolateForSandbox(Tagged<HeapObject> object) {
-  // This method can be used on shared objects as opposed to
-  // GetHeapFromWritableObject because it only returns IsolateForSandbox instead
-  // of the Isolate. This is because shared objects will go to shared external
-  // pointer table which is the same for main and all worker isolates.
-  MemoryChunk* chunk = MemoryChunk::FromHeapObject(object);
-  Isolate* isolate = Isolate::FromHeap(chunk->GetHeap());
-  // Until we replace all GetIsolateForSandbox calls by
-  // GetCurrentIsolateForSandbox, do check that both return the same (or
-  // compatible, in case of shared isolate) isolates.
-  // See https://crbug.com/396607238 for context.
-  bool allow_isolate_sharing = V8_UNLIKELY(v8_flags.shared_heap);
-  if (V8_UNLIKELY(HeapLayout::InWritableSharedSpace(object))) {
-    // The only shared objects so far are shared strings, if enabled (off by
-    // default). Rethink this check once we have more shared objects.
-    CHECK(v8_flags.shared_string_table);
-    CHECK(IsString(object));
-    CHECK(isolate->is_shared_space_isolate());
-    allow_isolate_sharing = true;
-  }
-  if (allow_isolate_sharing) {
-    // TODO(396607238): Make this a `SBXCHECK`.
-    DCHECK(IsolateForSandbox{isolate}.SharesPointerTablesWith(
-        Isolate::TryGetCurrent()));
-  } else {
-    // TODO(396607238): Make this a `SBXCHECK`.
-    DCHECK_EQ(isolate, Isolate::TryGetCurrent());
-  }
-  return isolate;
 }
 
 V8_INLINE IsolateForSandbox GetCurrentIsolateForSandbox() {

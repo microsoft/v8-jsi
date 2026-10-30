@@ -26,13 +26,10 @@ namespace internal {
   V(BigInt64, bigint64, BIGINT64, int64_t)               \
   V(Uint8Clamped, uint8_clamped, UINT8_CLAMPED, uint8_t) \
   V(Float32, float32, FLOAT32, float)                    \
-  V(Float64, float64, FLOAT64, double)
+  V(Float64, float64, FLOAT64, double)                   \
+  V(Float16, float16, FLOAT16, uint16_t)
 
-#define TYPED_ARRAYS_FLOAT16(V) V(Float16, float16, FLOAT16, uint16_t)
-
-#define TYPED_ARRAYS(V) \
-  TYPED_ARRAYS_BASE(V)  \
-  TYPED_ARRAYS_FLOAT16(V)
+#define TYPED_ARRAYS(V) TYPED_ARRAYS_BASE(V)
 
 #define RAB_GSAB_TYPED_ARRAYS_BASE(V)                                    \
   V(RabGsabUint8, rab_gsab_uint8, RAB_GSAB_UINT8, uint8_t)               \
@@ -46,14 +43,10 @@ namespace internal {
   V(RabGsabUint8Clamped, rab_gsab_uint8_clamped, RAB_GSAB_UINT8_CLAMPED, \
     uint8_t)                                                             \
   V(RabGsabFloat32, rab_gsab_float32, RAB_GSAB_FLOAT32, float)           \
-  V(RabGsabFloat64, rab_gsab_float64, RAB_GSAB_FLOAT64, double)
-
-#define RAB_GSAB_TYPED_ARRAYS_FLOAT16(V) \
+  V(RabGsabFloat64, rab_gsab_float64, RAB_GSAB_FLOAT64, double)          \
   V(RabGsabFloat16, rab_gsab_float16, RAB_GSAB_FLOAT16, uint16_t)
 
-#define RAB_GSAB_TYPED_ARRAYS(V) \
-  RAB_GSAB_TYPED_ARRAYS_BASE(V)  \
-  RAB_GSAB_TYPED_ARRAYS_FLOAT16(V)
+#define RAB_GSAB_TYPED_ARRAYS(V) RAB_GSAB_TYPED_ARRAYS_BASE(V)
 
 // The TypedArrays backed by RAB / GSAB are called Uint8Array, Uint16Array etc,
 // and not RabGsabUint8Array, RabGsabUint16Array etc. This macro is used for
@@ -69,14 +62,11 @@ namespace internal {
   V(BigInt64, rab_gsab_bigint64, RAB_GSAB_BIGINT64, int64_t)               \
   V(Uint8Clamped, rab_gsab_uint8_clamped, RAB_GSAB_UINT8_CLAMPED, uint8_t) \
   V(Float32, rab_gsab_float32, RAB_GSAB_FLOAT32, float)                    \
-  V(Float64, rab_gsab_float64, RAB_GSAB_FLOAT64, double)
-
-#define RAB_GSAB_TYPED_ARRAYS_WITH_TYPED_ARRAY_TYPE_FLOAT16(V) \
+  V(Float64, rab_gsab_float64, RAB_GSAB_FLOAT64, double)                   \
   V(Float16, rab_gsab_float16, RAB_GSAB_FLOAT16, uint16_t)
 
 #define RAB_GSAB_TYPED_ARRAYS_WITH_TYPED_ARRAY_TYPE(V) \
-  RAB_GSAB_TYPED_ARRAYS_WITH_TYPED_ARRAY_TYPE_BASE(V)  \
-  RAB_GSAB_TYPED_ARRAYS_WITH_TYPED_ARRAY_TYPE_FLOAT16(V)
+  RAB_GSAB_TYPED_ARRAYS_WITH_TYPED_ARRAY_TYPE_BASE(V)
 
 // Like RAB_GSAB_TYPED_ARRAYS but has an additional parameter for
 // for the corresponding non-RAB/GSAB ElementsKind.
@@ -93,14 +83,11 @@ namespace internal {
   V(RabGsabUint8Clamped, rab_gsab_uint8_clamped, RAB_GSAB_UINT8_CLAMPED,      \
     uint8_t, UINT8_CLAMPED)                                                   \
   V(RabGsabFloat32, rab_gsab_float32, RAB_GSAB_FLOAT32, float, FLOAT32)       \
-  V(RabGsabFloat64, rab_gsab_float64, RAB_GSAB_FLOAT64, double, FLOAT64)
-
-#define RAB_GSAB_TYPED_ARRAYS_WITH_NON_RAB_GSAB_ELEMENTS_KIND_FLOAT16(V) \
+  V(RabGsabFloat64, rab_gsab_float64, RAB_GSAB_FLOAT64, double, FLOAT64)      \
   V(RabGsabFloat16, rab_gsab_float16, RAB_GSAB_FLOAT16, uint16_t, FLOAT16)
 
 #define RAB_GSAB_TYPED_ARRAYS_WITH_NON_RAB_GSAB_ELEMENTS_KIND(V) \
-  RAB_GSAB_TYPED_ARRAYS_WITH_NON_RAB_GSAB_ELEMENTS_KIND_BASE(V)  \
-  RAB_GSAB_TYPED_ARRAYS_WITH_NON_RAB_GSAB_ELEMENTS_KIND_FLOAT16(V)
+  RAB_GSAB_TYPED_ARRAYS_WITH_NON_RAB_GSAB_ELEMENTS_KIND_BASE(V)
 
 enum ElementsKind : uint8_t {
   // The "fast" kind for elements that only contain SMI values. Must be first
@@ -270,66 +257,67 @@ int GetSequenceIndexFromFastElementsKind(ElementsKind elements_kind);
 
 ElementsKind GetNextTransitionElementsKind(ElementsKind elements_kind);
 
-inline bool IsDictionaryElementsKind(ElementsKind kind) {
+constexpr inline bool IsDictionaryElementsKind(ElementsKind kind) {
   return kind == DICTIONARY_ELEMENTS;
 }
 
-inline bool IsFastArgumentsElementsKind(ElementsKind kind) {
+constexpr inline bool IsFastArgumentsElementsKind(ElementsKind kind) {
   return kind == FAST_SLOPPY_ARGUMENTS_ELEMENTS;
 }
 
-inline bool IsSlowArgumentsElementsKind(ElementsKind kind) {
+constexpr inline bool IsSlowArgumentsElementsKind(ElementsKind kind) {
   return kind == SLOW_SLOPPY_ARGUMENTS_ELEMENTS;
 }
 
-inline bool IsSloppyArgumentsElementsKind(ElementsKind kind) {
+constexpr inline bool IsSloppyArgumentsElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, FAST_SLOPPY_ARGUMENTS_ELEMENTS,
                          SLOW_SLOPPY_ARGUMENTS_ELEMENTS);
 }
 
-inline bool IsStringWrapperElementsKind(ElementsKind kind) {
+constexpr inline bool IsStringWrapperElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, FAST_STRING_WRAPPER_ELEMENTS,
                          SLOW_STRING_WRAPPER_ELEMENTS);
 }
 
-inline bool IsTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsTypedArrayElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND,
                          LAST_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
 }
 
-inline bool IsRabGsabTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsRabGsabTypedArrayElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, FIRST_RAB_GSAB_FIXED_TYPED_ARRAY_ELEMENTS_KIND,
                          LAST_RAB_GSAB_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
 }
 
-inline bool IsTypedArrayOrRabGsabTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsTypedArrayOrRabGsabTypedArrayElementsKind(
+    ElementsKind kind) {
   return base::IsInRange(kind, FIRST_FIXED_TYPED_ARRAY_ELEMENTS_KIND,
                          LAST_RAB_GSAB_FIXED_TYPED_ARRAY_ELEMENTS_KIND);
 }
 
-inline bool IsBigIntTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsBigIntTypedArrayElementsKind(ElementsKind kind) {
   return kind == BIGINT64_ELEMENTS || kind == BIGUINT64_ELEMENTS ||
          kind == RAB_GSAB_BIGINT64_ELEMENTS ||
          kind == RAB_GSAB_BIGUINT64_ELEMENTS;
 }
 
-inline constexpr bool IsFloat16TypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsFloat16TypedArrayElementsKind(ElementsKind kind) {
   return kind == FLOAT16_ELEMENTS || kind == RAB_GSAB_FLOAT16_ELEMENTS;
 }
 
-inline bool IsFloatTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsFloatTypedArrayElementsKind(ElementsKind kind) {
   return kind == FLOAT16_ELEMENTS || kind == RAB_GSAB_FLOAT16_ELEMENTS ||
          kind == FLOAT32_ELEMENTS || kind == FLOAT64_ELEMENTS ||
          kind == RAB_GSAB_FLOAT32_ELEMENTS || kind == RAB_GSAB_FLOAT64_ELEMENTS;
 }
 
-inline bool IsSignedIntTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsSignedIntTypedArrayElementsKind(ElementsKind kind) {
   return kind == INT8_ELEMENTS || kind == RAB_GSAB_INT8_ELEMENTS ||
          kind == INT16_ELEMENTS || kind == RAB_GSAB_INT16_ELEMENTS ||
          kind == INT32_ELEMENTS || kind == RAB_GSAB_INT32_ELEMENTS;
 }
 
-inline bool IsUnsignedIntTypedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsUnsignedIntTypedArrayElementsKind(ElementsKind kind) {
   return kind == UINT8_CLAMPED_ELEMENTS ||
          kind == RAB_GSAB_UINT8_CLAMPED_ELEMENTS || kind == UINT8_ELEMENTS ||
          kind == RAB_GSAB_UINT8_ELEMENTS || kind == UINT16_ELEMENTS ||
@@ -337,26 +325,26 @@ inline bool IsUnsignedIntTypedArrayElementsKind(ElementsKind kind) {
          kind == RAB_GSAB_UINT32_ELEMENTS;
 }
 
-inline bool IsWasmArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsWasmArrayElementsKind(ElementsKind kind) {
   return kind == WASM_ARRAY_ELEMENTS;
 }
 
-inline bool IsSharedArrayElementsKind(ElementsKind kind) {
+constexpr inline bool IsSharedArrayElementsKind(ElementsKind kind) {
   return kind == SHARED_ARRAY_ELEMENTS;
 }
 
-inline bool IsTerminalElementsKind(ElementsKind kind) {
+constexpr inline bool IsTerminalElementsKind(ElementsKind kind) {
   return kind == TERMINAL_FAST_ELEMENTS_KIND ||
          IsTypedArrayOrRabGsabTypedArrayElementsKind(kind) ||
          IsRabGsabTypedArrayElementsKind(kind);
 }
 
-inline bool IsFastElementsKind(ElementsKind kind) {
+constexpr inline bool IsFastElementsKind(ElementsKind kind) {
   static_assert(FIRST_FAST_ELEMENTS_KIND == 0);
   return kind <= LAST_FAST_ELEMENTS_KIND;
 }
 
-inline bool IsTransitionElementsKind(ElementsKind kind) {
+constexpr inline bool IsTransitionElementsKind(ElementsKind kind) {
   return IsFastElementsKind(kind) ||
          IsTypedArrayOrRabGsabTypedArrayElementsKind(kind) ||
          kind == FAST_SLOPPY_ARGUMENTS_ELEMENTS ||
@@ -368,30 +356,32 @@ constexpr bool IsDoubleElementsKind(ElementsKind kind) {
 }
 
 // This predicate is used for disabling respective functionality in builtins.
-inline bool IsAnyNonextensibleElementsKindUnchecked(ElementsKind kind) {
+constexpr inline bool IsAnyNonextensibleElementsKindUnchecked(
+    ElementsKind kind) {
   return base::IsInRange(kind, FIRST_ANY_NONEXTENSIBLE_ELEMENTS_KIND,
                          LAST_ANY_NONEXTENSIBLE_ELEMENTS_KIND);
 }
 
-inline bool IsAnyNonextensibleElementsKind(ElementsKind kind) {
+constexpr inline bool IsAnyNonextensibleElementsKind(ElementsKind kind) {
   return IsAnyNonextensibleElementsKindUnchecked(kind);
 }
 
-inline bool IsNonextensibleElementsKind(ElementsKind kind) {
+constexpr inline bool IsNonextensibleElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, PACKED_NONEXTENSIBLE_ELEMENTS,
                          HOLEY_NONEXTENSIBLE_ELEMENTS);
 }
 
-inline bool IsSealedElementsKind(ElementsKind kind) {
+constexpr inline bool IsSealedElementsKind(ElementsKind kind) {
   return IsSharedArrayElementsKind(kind) ||
          base::IsInRange(kind, PACKED_SEALED_ELEMENTS, HOLEY_SEALED_ELEMENTS);
 }
 
-inline bool IsFrozenElementsKind(ElementsKind kind) {
+constexpr inline bool IsFrozenElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, PACKED_FROZEN_ELEMENTS, HOLEY_FROZEN_ELEMENTS);
 }
 
-inline bool IsFastOrNonextensibleOrSealedElementsKind(ElementsKind kind) {
+constexpr inline bool IsFastOrNonextensibleOrSealedElementsKind(
+    ElementsKind kind) {
   const bool result = kind <= HOLEY_SEALED_ELEMENTS;
   DCHECK_IMPLIES(result, IsFastElementsKind(kind) ||
                              IsNonextensibleElementsKind(kind) ||
@@ -400,7 +390,7 @@ inline bool IsFastOrNonextensibleOrSealedElementsKind(ElementsKind kind) {
   return result;
 }
 
-inline bool IsSmiOrObjectElementsKind(ElementsKind kind) {
+constexpr inline bool IsSmiOrObjectElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_ELEMENTS);
 }
 
@@ -408,7 +398,7 @@ constexpr bool IsSmiElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, PACKED_SMI_ELEMENTS, HOLEY_SMI_ELEMENTS);
 }
 
-inline bool IsFastNumberElementsKind(ElementsKind kind) {
+constexpr inline bool IsFastNumberElementsKind(ElementsKind kind) {
   return IsSmiElementsKind(kind) || IsDoubleElementsKind(kind);
 }
 
@@ -416,7 +406,7 @@ constexpr bool IsObjectElementsKind(ElementsKind kind) {
   return base::IsInRange(kind, PACKED_ELEMENTS, HOLEY_ELEMENTS);
 }
 
-inline bool IsAnyHoleyNonextensibleElementsKind(ElementsKind kind) {
+constexpr inline bool IsAnyHoleyNonextensibleElementsKind(ElementsKind kind) {
   return kind == HOLEY_NONEXTENSIBLE_ELEMENTS ||
          kind == HOLEY_SEALED_ELEMENTS || kind == HOLEY_FROZEN_ELEMENTS;
 }
@@ -425,19 +415,19 @@ constexpr bool IsHoleyElementsKind(ElementsKind kind) {
   return kind % 2 == 1 && kind <= HOLEY_DOUBLE_ELEMENTS;
 }
 
-inline bool IsHoleyElementsKindForRead(ElementsKind kind) {
+constexpr inline bool IsHoleyElementsKindForRead(ElementsKind kind) {
   return kind % 2 == 1 && kind <= HOLEY_FROZEN_ELEMENTS;
 }
 
-inline bool IsHoleyOrDictionaryElementsKind(ElementsKind kind) {
+constexpr inline bool IsHoleyOrDictionaryElementsKind(ElementsKind kind) {
   return IsHoleyElementsKindForRead(kind) || kind == DICTIONARY_ELEMENTS;
 }
 
-inline bool IsFastPackedElementsKind(ElementsKind kind) {
+constexpr inline bool IsFastPackedElementsKind(ElementsKind kind) {
   return kind % 2 == 0 && kind <= PACKED_DOUBLE_ELEMENTS;
 }
 
-inline ElementsKind GetPackedElementsKind(ElementsKind holey_kind) {
+constexpr inline ElementsKind GetPackedElementsKind(ElementsKind holey_kind) {
   if (holey_kind == HOLEY_SMI_ELEMENTS) {
     return PACKED_SMI_ELEMENTS;
   }
@@ -450,7 +440,7 @@ inline ElementsKind GetPackedElementsKind(ElementsKind holey_kind) {
   return holey_kind;
 }
 
-inline ElementsKind GetHoleyElementsKind(ElementsKind packed_kind) {
+constexpr inline ElementsKind GetHoleyElementsKind(ElementsKind packed_kind) {
   if (packed_kind == PACKED_SMI_ELEMENTS) {
     return HOLEY_SMI_ELEMENTS;
   }
@@ -532,8 +522,8 @@ inline bool IsSimpleMapChangeTransition(ElementsKind from_kind,
          (IsSmiElementsKind(from_kind) && IsObjectElementsKind(to_kind));
 }
 
-bool IsMoreGeneralElementsKindTransition(ElementsKind from_kind,
-                                         ElementsKind to_kind);
+V8_EXPORT_PRIVATE bool IsMoreGeneralElementsKindTransition(
+    ElementsKind from_kind, ElementsKind to_kind);
 
 inline ElementsKind GetMoreGeneralElementsKind(ElementsKind from_kind,
                                                ElementsKind to_kind) {
@@ -543,12 +533,14 @@ inline ElementsKind GetMoreGeneralElementsKind(ElementsKind from_kind,
   return from_kind;
 }
 
-inline bool IsTransitionableFastElementsKind(ElementsKind from_kind) {
+constexpr inline bool IsTransitionableFastElementsKind(ElementsKind from_kind) {
   return IsFastElementsKind(from_kind) &&
          from_kind != TERMINAL_FAST_ELEMENTS_KIND;
 }
 
-inline bool ElementsKindEqual(ElementsKind a, ElementsKind b) { return a == b; }
+constexpr inline bool ElementsKindEqual(ElementsKind a, ElementsKind b) {
+  return a == b;
+}
 
 }  // namespace internal
 }  // namespace v8

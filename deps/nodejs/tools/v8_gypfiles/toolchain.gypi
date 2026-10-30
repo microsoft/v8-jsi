@@ -316,7 +316,7 @@
               'V8_TARGET_ARCH_S390_LE_SIM',
             ],
           }, {
-            'cflags': [ '-march=z196' ],
+            'cflags': [ '-march=z14' ],
           }],
           ],
       }],  # s390x
@@ -326,15 +326,24 @@
         ],
         'cflags': [
           '-ffp-contract=off',
+          '-mcpu=power9',
         ],
         'conditions': [
           ['OS=="aix" or OS=="os400"', {
             # Work around AIX ceil, trunc and round oddities.
-            'cflags': [ '-mcpu=power5+ -mfprnd' ],
+            'conditions': [
+              ['clang==0', {
+                'cflags': [ '-mfprnd' ],
+              }],
+            ],
           }],
           ['OS=="aix" or OS=="os400"', {
-            # Work around AIX assembler popcntb bug.
-            'cflags': [ '-mno-popcntb' ],
+            'conditions': [
+              ['clang==0', {
+                # Work around AIX assembler popcntb bug.
+                'cflags': [ '-mno-popcntb' ],
+              }],
+            ],
           }],
         ],
       }],  # ppc64
@@ -603,8 +612,13 @@
           '_ALL_SOURCE=1'],
         'conditions': [
           [ 'v8_target_arch=="ppc64"', {
-            'cflags': [ '-maix64', '-fdollars-in-identifiers', '-fno-extern-tls-init' ],
+            'cflags': [ '-maix64', '-fdollars-in-identifiers' ],
             'ldflags': [ '-maix64 -Wl,-bbigtoc' ],
+            'conditions': [
+              ['clang==0', {
+                'cflags': [ '-fno-extern-tls-init' ],
+              }],
+            ],
           }],
         ],
       }],

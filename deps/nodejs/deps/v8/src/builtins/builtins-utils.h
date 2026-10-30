@@ -45,6 +45,10 @@ class BuiltinArguments : public JavaScriptArguments {
     *address_of_arg_at(index + kArgsIndex) = value.ptr();
   }
 
+  inline Address* address_of_receiver() const {
+    return address_of_arg_at(kReceiverIndex);
+  }
+
   // Note: this should return the address after the receiver,
   // even when length() == 1.
   inline Address* address_of_first_argument() const {
@@ -54,11 +58,16 @@ class BuiltinArguments : public JavaScriptArguments {
   static constexpr int kNewTargetIndex = 0;
   static constexpr int kTargetIndex = 1;
   static constexpr int kArgcIndex = 2;
-  // TODO(ishell): this padding is required only on arm64.
-  static constexpr int kPaddingIndex = 3;
 
+  // This padding is required only on arm64 to keep the SP 16-byte aligned.
+  static constexpr int kOptionalPaddingIndex = 3;
+#if V8_TARGET_ARCH_ARM64
   static constexpr int kNumExtraArgs = 4;
-  static constexpr int kNumExtraArgsWithReceiver = 5;
+#else
+  static constexpr int kNumExtraArgs = 3;
+#endif  // V8_TARGET_ARCH_ARM64
+
+  static constexpr int kNumExtraArgsWithReceiver = kNumExtraArgs + 1;
 
   static constexpr int kArgsIndex = kNumExtraArgs;
   static constexpr int kReceiverIndex = kArgsIndex;
@@ -76,6 +85,9 @@ class BuiltinArguments : public JavaScriptArguments {
   // Gets the total number of arguments including the receiver (but
   // excluding extra arguments).
   int length() const { return Arguments::length() - kNumExtraArgs; }
+  uint32_t ulength() const { return static_cast<uint32_t>(length()); }
+
+  uint32_t argc_without_receiver() const { return ulength() - 1; }
 };
 
 static_assert(BuiltinArguments::kNewTargetIndex ==
@@ -84,14 +96,24 @@ static_assert(BuiltinArguments::kTargetIndex ==
               BuiltinExitFrameConstants::kTargetIndex);
 static_assert(BuiltinArguments::kArgcIndex ==
               BuiltinExitFrameConstants::kArgcIndex);
-static_assert(BuiltinArguments::kPaddingIndex ==
-              BuiltinExitFrameConstants::kPaddingIndex);
-
+static_assert(BuiltinArguments::kOptionalPaddingIndex ==
+              BuiltinExitFrameConstants::kOptionalPaddingIndex);
 static_assert(BuiltinArguments::kNumExtraArgs ==
               BuiltinExitFrameConstants::kNumExtraArgs);
 static_assert(BuiltinArguments::kNumExtraArgsWithReceiver ==
               BuiltinExitFrameConstants::kNumExtraArgsWithReceiver);
 
+// Currently we expect all CPP builtins to run in unsandboxed execution mode.
+// TODO(422994386): In the future, we'll want to be able to also run CPP
+// builtins in sandboxed execution mode. For that, this macro could then take
+// the builtin ID as input and look up the expected sandboxing mode.
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+#define CHECK_BUILTIN_SANDBOXING_MODE()                   \
+  DCHECK(SandboxHardwareSupport::CurrentSandboxingModeIs( \
+      CodeSandboxingMode::kUnsandboxed));
+#else
+#define CHECK_BUILTIN_SANDBOXING_MODE()
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
 // ----------------------------------------------------------------------------
 // Support macro for defining builtins in C++.
 // ----------------------------------------------------------------------------
@@ -126,6 +148,7 @@ static_assert(BuiltinArguments::kNumExtraArgsWithReceiver ==
       return Builtin_Impl_Stats_##name(args_length, args_object, isolate); \
     }                                                                      \
     BuiltinArguments args(args_length, args_object);                       \
+    CHECK_BUILTIN_SANDBOXING_MODE()                                        \
     return BUILTIN_CONVERT_RESULT(Builtin_Impl_##name(args, isolate));     \
   }                                                                        \
                                                                            \
@@ -140,6 +163,7 @@ static_assert(BuiltinArguments::kNumExtraArgsWithReceiver ==
       int args_length, Address* args_object, Isolate* isolate) {           \
     DCHECK(isolate->context().is_null() || IsContext(isolate->context())); \
     BuiltinArguments args(args_length, args_object);                       \
+    CHECK_BUILTIN_SANDBOXING_MODE()                                        \
     return BUILTIN_CONVERT_RESULT(Builtin_Impl_##name(args, isolate));     \
   }                                                                        \
                                                                            \

@@ -51,17 +51,17 @@ namespace internal {
 // preprocessor symbols CAN_USE_FPU_INSTRUCTIONS
 // can be defined to enable FPU instructions when building the
 // snapshot.
-static unsigned CpuFeaturesImpliedByCompiler() {
-  unsigned answer = 0;
+static CpuFeatureSet CpuFeaturesImpliedByCompiler() {
+  CpuFeatureSet answer;
 #ifdef CAN_USE_FPU_INSTRUCTIONS
-  answer |= 1u << FPU;
+  answer.Add(FPU);
 #endif  // def CAN_USE_FPU_INSTRUCTIONS
 
   // If the compiler is allowed to use FPU then we can use FPU too in our code
   // generation even when generating snapshots.  This won't work for cross
   // compilation.
 #if defined(__mips__) && defined(__mips_hard_float) && __mips_hard_float != 0
-  answer |= 1u << FPU;
+  answer.Add(FPU);
 #endif
 
   return answer;
@@ -83,18 +83,18 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
     // code generation.
 #ifndef __mips__
   // For the simulator build, use FPU.
-  supported_ |= 1u << FPU;
+  supported_.Add(FPU);
 #if defined(_MIPS_ARCH_MIPS64R6) && defined(_MIPS_MSA)
-  supported_ |= 1u << MIPS_SIMD;
+  supported_.Add(MIPS_SIMD);
 #endif
 #else
   // Probe for additional features at runtime.
   base::CPU cpu;
-  if (cpu.has_fpu()) supported_ |= 1u << FPU;
+  if (cpu.has_fpu()) supported_.Add(FPU);
 #if defined(_MIPS_MSA)
-  supported_ |= 1u << MIPS_SIMD;
+  supported_.Add(MIPS_SIMD);
 #else
-  if (cpu.has_msa()) supported_ |= 1u << MIPS_SIMD;
+  if (cpu.has_msa()) supported_.Add(MIPS_SIMD);
 #endif
 #endif
 
@@ -205,15 +205,9 @@ MemOperand::MemOperand(Register rm, int32_t unit, int32_t multiplier,
   offset_ = unit * multiplier + offset_addend;
 }
 
-void Assembler::AllocateAndInstallRequestedHeapNumbers(LocalIsolate* isolate) {
-  DCHECK_IMPLIES(isolate == nullptr, heap_number_requests_.empty());
-  for (auto& request : heap_number_requests_) {
-    Handle<HeapObject> object;
-    object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
-        request.heap_number());
-    Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
-    set_target_value_at(pc, reinterpret_cast<uint64_t>(object.location()));
-  }
+void Assembler::PatchInHeapNumberRequest(Address pc,
+                                         Handle<HeapNumber> object) {
+  set_target_value_at(pc, reinterpret_cast<uint64_t>(object.location()));
 }
 
 // -----------------------------------------------------------------------------

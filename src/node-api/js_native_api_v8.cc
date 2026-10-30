@@ -6,6 +6,7 @@
 #include "js_native_api.h"
 #include "js_native_api_v8.h"
 #include "util-inl.h"
+#include "v8-version.h"
 
 #define CHECK_MAYBE_NOTHING(env, maybe, status)                                \
   RETURN_STATUS_IF_FALSE((env), !((maybe).IsNothing()), (status))
@@ -350,7 +351,7 @@ inline napi_status Unwrap(napi_env env,
   RETURN_STATUS_IF_FALSE(env, value->IsObject(), napi_invalid_arg);
   v8::Local<v8::Object> obj = value.As<v8::Object>();
 
-  auto val = obj->GetPrivate(context, NAPI_PRIVATE_KEY(context, wrapper))
+  auto val = obj->GetPrivate(context, NAPI_PRIVATE_KEY(env, wrapper))
                  .ToLocalChecked();
   RETURN_STATUS_IF_FALSE(env, val->IsExternal(), napi_invalid_arg);
   Reference* reference =
@@ -361,7 +362,7 @@ inline napi_status Unwrap(napi_env env,
   }
 
   if (action == RemoveWrap) {
-    CHECK(obj->DeletePrivate(context, NAPI_PRIVATE_KEY(context, wrapper))
+    CHECK(obj->DeletePrivate(context, NAPI_PRIVATE_KEY(env, wrapper))
               .FromJust());
     if (reference->ownership() == ReferenceOwnership::kUserland) {
       // When the wrap is been removed, the finalizer should be reset.
@@ -537,7 +538,7 @@ inline napi_status Wrap(napi_env env,
   // If we've already wrapped this object, we error out.
   RETURN_STATUS_IF_FALSE(
       env,
-      !obj->HasPrivate(context, NAPI_PRIVATE_KEY(context, wrapper)).FromJust(),
+      !obj->HasPrivate(context, NAPI_PRIVATE_KEY(env, wrapper)).FromJust(),
       napi_invalid_arg);
 
   v8impl::Reference* reference = nullptr;
@@ -573,7 +574,7 @@ inline napi_status Wrap(napi_env env,
   }
 
   CHECK(obj->SetPrivate(context,
-                        NAPI_PRIVATE_KEY(context, wrapper),
+                        NAPI_PRIVATE_KEY(env, wrapper),
                         v8::External::New(env->isolate, reference))
             .FromJust());
 
@@ -1577,7 +1578,11 @@ napi_status NAPI_CDECL napi_get_prototype(napi_env env,
   CHECK_TO_OBJECT(env, context, obj, object);
 
   // This doesn't invokes Proxy's [[GetPrototypeOf]] handler.
+#if V8_MAJOR_VERSION >= 14
+  v8::Local<v8::Value> val = obj->GetPrototypeV2();
+#else
   v8::Local<v8::Value> val = obj->GetPrototype();
+#endif
   *result = v8impl::JsValueFromV8LocalValue(val);
   return GET_RETURN_STATUS(env);
 }
@@ -2427,6 +2432,13 @@ napi_status NAPI_CDECL napi_get_value_string_latin1(
     CHECK_ARG(env, result);
     *result = val.As<v8::String>()->Length();
   } else if (bufsize != 0) {
+#if V8_MAJOR_VERSION >= 14
+    uint32_t copied = static_cast<uint32_t>(
+        std::min(bufsize - 1, static_cast<size_t>(val.As<v8::String>()->Length())));
+    val.As<v8::String>()->WriteOneByteV2(
+        env->isolate, 0, copied, reinterpret_cast<uint8_t*>(buf),
+        v8::String::WriteFlags::kNullTerminate);
+#else
     int copied =
         val.As<v8::String>()->WriteOneByte(env->isolate,
                                            reinterpret_cast<uint8_t*>(buf),
@@ -2435,6 +2447,7 @@ napi_status NAPI_CDECL napi_get_value_string_latin1(
                                            v8::String::NO_NULL_TERMINATION);
 
     buf[copied] = '\0';
+#endif
     if (result != nullptr) {
       *result = copied;
     }
@@ -2463,14 +2476,24 @@ napi_status NAPI_CDECL napi_get_value_string_utf8(
 
   if (!buf) {
     CHECK_ARG(env, result);
+#if V8_MAJOR_VERSION >= 14
+    *result = val.As<v8::String>()->Utf8LengthV2(env->isolate);
+#else
     *result = val.As<v8::String>()->Utf8Length(env->isolate);
+#endif
   } else if (bufsize != 0) {
+#if V8_MAJOR_VERSION >= 14
+    size_t copied = val.As<v8::String>()->WriteUtf8V2(
+        env->isolate, buf, bufsize - 1,
+        v8::String::WriteFlags::kReplaceInvalidUtf8);
+#else
     int copied = val.As<v8::String>()->WriteUtf8(
         env->isolate,
         buf,
         bufsize - 1,
         nullptr,
         v8::String::REPLACE_INVALID_UTF8 | v8::String::NO_NULL_TERMINATION);
+#endif
 
     buf[copied] = '\0';
     if (result != nullptr) {
@@ -2507,6 +2530,13 @@ napi_status NAPI_CDECL napi_get_value_string_utf16(napi_env env,
     // V8 assumes UTF-16 length is the same as the number of characters.
     *result = val.As<v8::String>()->Length();
   } else if (bufsize != 0) {
+#if V8_MAJOR_VERSION >= 14
+    uint32_t copied = static_cast<uint32_t>(
+        std::min(bufsize - 1, static_cast<size_t>(val.As<v8::String>()->Length())));
+    val.As<v8::String>()->WriteV2(
+        env->isolate, 0, copied, reinterpret_cast<uint16_t*>(buf),
+        v8::String::WriteFlags::kNullTerminate);
+#else
     int copied = val.As<v8::String>()->Write(env->isolate,
                                              reinterpret_cast<uint16_t*>(buf),
                                              0,
@@ -2514,6 +2544,7 @@ napi_status NAPI_CDECL napi_get_value_string_utf16(napi_env env,
                                              v8::String::NO_NULL_TERMINATION);
 
     buf[copied] = '\0';
+#endif
     if (result != nullptr) {
       *result = copied;
     }
@@ -2634,7 +2665,7 @@ napi_status NAPI_CDECL napi_type_tag_object(napi_env env,
   CHECK_TO_OBJECT_WITH_PREAMBLE(env, context, obj, object_or_external);
   CHECK_ARG_WITH_PREAMBLE(env, type_tag);
 
-  auto key = NAPI_PRIVATE_KEY(context, type_tag);
+  auto key = NAPI_PRIVATE_KEY(env, type_tag);
   auto maybe_has = obj->HasPrivate(context, key);
   CHECK_MAYBE_NOTHING_WITH_PREAMBLE(env, maybe_has, napi_generic_failure);
   RETURN_STATUS_IF_FALSE_WITH_PREAMBLE(
@@ -2675,7 +2706,7 @@ napi_status NAPI_CDECL napi_check_object_type_tag(napi_env env,
   CHECK_ARG_WITH_PREAMBLE(env, result);
 
   auto maybe_value =
-      obj->GetPrivate(context, NAPI_PRIVATE_KEY(context, type_tag));
+      obj->GetPrivate(context, NAPI_PRIVATE_KEY(env, type_tag));
   CHECK_MAYBE_EMPTY_WITH_PREAMBLE(env, maybe_value, napi_generic_failure);
   v8::Local<v8::Value> val = maybe_value.ToLocalChecked();
 

@@ -7,6 +7,7 @@
 #include "src/base/macros.h"
 #include "src/builtins/builtins-utils-inl.h"
 #include "src/builtins/builtins.h"
+#include "src/common/globals.h"
 #include "src/execution/isolate.h"
 #include "src/handles/maybe-handles.h"
 #include "src/objects/heap-object.h"
@@ -25,11 +26,12 @@ BUILTIN(AsyncDisposableStackOnFulfilled) {
   HandleScope scope(isolate);
 
   DirectHandle<JSDisposableStackBase> stack(
-      Cast<JSDisposableStackBase>(isolate->context()->get(static_cast<int>(
+      Cast<
+          JSDisposableStackBase>(isolate->context()->GetNoCell(static_cast<int>(
           JSDisposableStackBase::AsyncDisposableStackContextSlots::kStack))),
       isolate);
   DirectHandle<JSPromise> promise(
-      Cast<JSPromise>(isolate->context()->get(static_cast<int>(
+      Cast<JSPromise>(isolate->context()->GetNoCell(static_cast<int>(
           JSDisposableStackBase::AsyncDisposableStackContextSlots::
               kOuterPromise))),
       isolate);
@@ -44,11 +46,12 @@ BUILTIN(AsyncDisposableStackOnRejected) {
   HandleScope scope(isolate);
 
   DirectHandle<JSDisposableStackBase> stack(
-      Cast<JSDisposableStackBase>(isolate->context()->get(static_cast<int>(
+      Cast<
+          JSDisposableStackBase>(isolate->context()->GetNoCell(static_cast<int>(
           JSDisposableStackBase::AsyncDisposableStackContextSlots::kStack))),
       isolate);
   DirectHandle<JSPromise> promise(
-      Cast<JSPromise>(isolate->context()->get(static_cast<int>(
+      Cast<JSPromise>(isolate->context()->GetNoCell(static_cast<int>(
           JSDisposableStackBase::AsyncDisposableStackContextSlots::
               kOuterPromise))),
       isolate);
@@ -81,8 +84,8 @@ BUILTIN(AsyncDisposeFromSyncDispose) {
   DirectHandle<JSPromise> promise = isolate->factory()->NewJSPromise();
 
   //        c. Let result be Completion(Call(method, O)).
-  DirectHandle<JSFunction> sync_method(
-      Cast<JSFunction>(isolate->context()->get(static_cast<int>(
+  DirectHandle<JSCallable> sync_method(
+      Cast<JSCallable>(isolate->context()->GetNoCell(static_cast<int>(
           JSDisposableStackBase::AsyncDisposeFromSyncDisposeContextSlots::
               kMethod))),
       isolate);
@@ -98,7 +101,7 @@ BUILTIN(AsyncDisposeFromSyncDispose) {
   } else {
     Tagged<Object> exception = isolate->exception();
     if (!isolate->is_catchable_by_javascript(exception)) {
-      return {};
+      return ReadOnlyRoots(isolate).exception();
     }
     //        d. IfAbruptRejectPromise(result, promiseCapability).
     isolate->clear_internal_exception();
@@ -372,7 +375,7 @@ BUILTIN(AsyncDisposableStackPrototypeMove) {
   // 5. Set newAsyncDisposableStack.[[AsyncDisposableState]] to pending.
 
   Tagged<JSFunction> constructor_function =
-      Cast<JSFunction>(isolate->native_context()->get(
+      Cast<JSFunction>(isolate->native_context()->GetNoCell(
           Context::JS_ASYNC_DISPOSABLE_STACK_FUNCTION_INDEX));
   DirectHandle<Map> map(constructor_function->initial_map(), isolate);
 

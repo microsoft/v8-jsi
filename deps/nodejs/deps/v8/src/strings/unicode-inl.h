@@ -8,6 +8,7 @@
 #include "src/strings/unicode.h"
 // Include the non-inl header before the rest of the headers.
 
+#include "simdutf.h"
 #include "src/base/logging.h"
 #include "src/utils/utils.h"
 
@@ -62,22 +63,8 @@ int Mapping<T, s>::CalculateValue(uchar c, uchar n, uchar* result) {
 #endif  // !V8_INTL_SUPPORT
 
 bool Utf16::HasUnpairedSurrogate(const uint16_t* code_units, size_t length) {
-  for (size_t i = 0; i < length; ++i) {
-    const int code_unit = code_units[i];
-    if (IsLeadSurrogate(code_unit)) {
-      // The current code unit is a leading surrogate. Check if it is followed
-      // by a trailing surrogate.
-      if (i == length - 1) return true;
-      if (!IsTrailSurrogate(code_units[i + 1])) return true;
-      // Skip the paired trailing surrogate.
-      ++i;
-    } else if (IsTrailSurrogate(code_unit)) {
-      // All paired trailing surrogates are skipped above, so this branch is
-      // only for those that are unpaired.
-      return true;
-    }
-  }
-  return false;
+  return !simdutf::validate_utf16(reinterpret_cast<const char16_t*>(code_units),
+                                  length);
 }
 
 // Decodes UTF-8 bytes incrementally, allowing the decoding of bytes as they
@@ -234,8 +221,15 @@ Utf8::EncodingResult Utf8::Encode(v8::base::Vector<const Char> string,
   const Char* characters = string.begin();
   size_t content_capacity = capacity - write_null;
   CHECK_LE(content_capacity, capacity);
-  uint16_t last = Utf16::kNoPreviousCharacter;
   size_t read_index = 0;
+  if (kSourceIsOneByte) {
+    size_t writeable = std::min(string.size(), content_capacity);
+    size_t ascii_length =
+        Utf8::WriteLeadingAscii(characters, buffer, writeable);
+    read_index = ascii_length;
+    write_index = ascii_length;
+  }
+  uint16_t last = Utf16::kNoPreviousCharacter;
   for (; read_index < string.size(); read_index++) {
     Char character = characters[read_index];
 

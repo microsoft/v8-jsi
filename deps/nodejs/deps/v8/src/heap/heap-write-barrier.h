@@ -10,9 +10,14 @@
 
 #include "include/v8-internal.h"
 #include "src/common/globals.h"
+#include "src/objects/cpp-heap-object-wrapper.h"
 #include "src/objects/heap-object.h"
+#include "src/objects/objects.h"
 
 namespace v8::internal {
+
+template <typename T, IndirectPointerTagRange kTag>
+class TrustedPointerMember;
 
 class ArrayBufferExtension;
 class InstructionStream;
@@ -24,7 +29,36 @@ class JSArrayBuffer;
 class Map;
 class MarkCompactCollector;
 class MarkingBarrier;
+class MemoryChunk;
 class RelocInfo;
+
+// A scoped object that determines the write barrier mode for a given object.
+// The mode is only valid for the lifetime of this object.
+class V8_EXPORT_PRIVATE V8_NODISCARD WriteBarrierModeScope final {
+ public:
+  explicit WriteBarrierModeScope(WriteBarrierMode mode);
+  explicit WriteBarrierModeScope(Tagged<HeapObject> object,
+                                 WriteBarrierMode mode);
+
+  ~WriteBarrierModeScope();
+
+  WriteBarrierModeScope(const WriteBarrierModeScope&) = delete;
+  WriteBarrierModeScope& operator=(const WriteBarrierModeScope&) = delete;
+
+  WriteBarrierModeScope(WriteBarrierModeScope&& other) V8_NOEXCEPT
+      : object_(other.object_),
+        mode_(other.mode_) {
+    other.mode_ = std::nullopt;
+    other.object_ = Tagged<HeapObject>();
+  }
+  WriteBarrierModeScope& operator=(WriteBarrierModeScope&&) = delete;
+
+  WriteBarrierMode operator*() { return *mode_; }
+
+ private:
+  Tagged<HeapObject> object_;
+  std::optional<WriteBarrierMode> mode_;
+};
 
 // Write barrier interface. It's preferred to use the macros defined in
 // `object-macros.h`.
@@ -44,7 +78,7 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
   static int SharedMarkingFromCode(Address raw_host, Address raw_slot);
   static int SharedFromCode(Address raw_host, Address raw_slot);
 
-  static inline WriteBarrierMode GetWriteBarrierModeForObject(
+  static inline WriteBarrierModeScope GetWriteBarrierModeForObject(
       Tagged<HeapObject> object, const DisallowGarbageCollection& promise);
 
   template <typename T>
@@ -70,12 +104,17 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
   static inline void ForIndirectPointer(
       Tagged<HeapObject> host, IndirectPointerSlot slot,
       Tagged<HeapObject> value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
+  template <typename T, IndirectPointerTagRange kTagRange>
+  static inline void ForIndirectPointer(
+      HeapObjectLayout* host, TrustedPointerMember<T, kTagRange>* slot,
+      Tagged<T> value, WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
   static inline void ForProtectedPointer(
       Tagged<TrustedObject> host, ProtectedPointerSlot slot,
       Tagged<TrustedObject> value,
       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
-  static inline void ForCppHeapPointer(Tagged<JSObject> host,
-                                       CppHeapPointerSlot slot, void* value);
+  static inline void ForCppHeapPointer(
+      Tagged<CppHeapPointerWrapperObjectT> host, CppHeapPointerSlot slot,
+      void* value);
   static inline void ForJSDispatchHandle(
       Tagged<HeapObject> host, JSDispatchHandle handle,
       WriteBarrierMode mode = UPDATE_WRITE_BARRIER);
@@ -101,18 +140,16 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
   static inline void MarkingForTesting(Tagged<HeapObject> host, ObjectSlot,
                                        Tagged<Object> value);
 
-#if defined(ENABLE_SLOW_DCHECKS) || defined(V8_ENABLE_DEBUG_CODE)
+#if V8_VERIFY_WRITE_BARRIERS
   template <typename T>
   static inline bool IsRequired(Tagged<HeapObject> host, T value);
-#endif
-
-#ifdef ENABLE_SLOW_DCHECKS
   template <typename T>
   static inline bool IsRequired(const HeapObjectLayout* host, T value);
+
   static bool VerifyDispatchHandleMarkingState(Tagged<HeapObject> host,
                                                JSDispatchHandle value,
                                                WriteBarrierMode mode);
-#endif
+#endif  // V8_VERIFY_WRITE_BARRIERS
 
   // In native code we skip any further write barrier processing if the hosts
   // page does not have the kPointersFromHereAreInterestingMask. Users of this
@@ -120,9 +157,30 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
   static constexpr bool kUninterestingPagesCanBeSkipped = true;
 
  private:
-  static bool PageFlagsAreConsistent(Tagged<HeapObject> object);
+  static inline bool IsSkipWriteBarrierMode(WriteBarrierMode mode) {
+    static_assert(SKIP_WRITE_BARRIER == 0 && SKIP_WRITE_BARRIER_SCOPE == 1 &&
+                  SKIP_WRITE_BARRIER_FOR_GC == 2 &&
+                  UNSAFE_SKIP_WRITE_BARRIER == 3);
+    return mode <= UNSAFE_SKIP_WRITE_BARRIER;
+  }
 
-  static inline bool IsImmortalImmovableHeapObject(Tagged<HeapObject> object);
+  static inline WriteBarrierMode ComputeWriteBarrierModeForObject(
+      Tagged<HeapObject> object, const DisallowGarbageCollection& promise);
+
+#if V8_VERIFY_WRITE_BARRIERS
+  template <typename T>
+  static void VerifySkipWriteBarrier(Tagged<HeapObject> host, Tagged<T> value,
+                                     WriteBarrierMode mode);
+#endif  // V8_VERIFY_WRITE_BARRIERS
+
+#if V8_VERIFY_WRITE_BARRIERS
+  static bool IsMostRecentYoungAllocation(Address object);
+
+  template <typename HostType, typename ValueType>
+  static inline bool IsRequiredCommon(HostType host, ValueType value);
+#endif
+
+  static bool PageFlagsAreConsistent(Tagged<HeapObject> object);
 
   static inline bool IsMarking(Tagged<HeapObject> object);
 
@@ -139,6 +197,7 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
                              Tagged<TrustedObject> value);
   static inline void Marking(Tagged<HeapObject> host, JSDispatchHandle handle);
 
+  template <RecordYoungSlot kRecordYoung = RecordYoungSlot::kNo>
   static void MarkingSlow(Tagged<HeapObject> host, HeapObjectSlot,
                           Tagged<HeapObject> value);
   static void MarkingSlow(Tagged<InstructionStream> host, RelocInfo*,
@@ -152,14 +211,14 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
                           Tagged<TrustedObject> value);
   static void MarkingSlow(Tagged<HeapObject> host, JSDispatchHandle handle);
   static void MarkingSlowFromTracedHandle(Tagged<HeapObject> value);
-  static void MarkingSlowFromCppHeapWrappable(Heap* heap, Tagged<JSObject> host,
-                                              CppHeapPointerSlot slot,
-                                              void* object);
+  static void MarkingSlowFromCppHeapWrappable(
+      Heap* heap, Tagged<CppHeapPointerWrapperObjectT> host,
+      CppHeapPointerSlot slot, void* object);
 
   static void GenerationalBarrierSlow(Tagged<HeapObject> object, Address slot,
                                       Tagged<HeapObject> value);
-  static inline void GenerationalBarrierForCppHeapPointer(Tagged<JSObject> host,
-                                                          void* value);
+  static inline void GenerationalBarrierForCppHeapPointer(
+      Tagged<CppHeapPointerWrapperObjectT> host, void* value);
 
   static void SharedSlow(Tagged<TrustedObject> host, ProtectedPointerSlot slot,
                          Tagged<TrustedObject> value);
@@ -171,7 +230,16 @@ class V8_EXPORT_PRIVATE WriteBarrier final {
                                                   HeapObjectSlot slot,
                                                   Tagged<HeapObject> value,
                                                   WriteBarrierMode mode);
-
+  static inline void CombinedWriteBarrierInternalForStickyMarkbits(
+      Tagged<HeapObject> host, HeapObjectSlot slot, Tagged<HeapObject> value,
+      WriteBarrierMode mode);
+  // Either marking is on, or we are dealing with an old (non-shared) to
+  // young/shared write.
+  static void CombinedWriteBarrierInternalSlow(Tagged<HeapObject> host,
+                                               MemoryChunk* host_chunk,
+                                               HeapObjectSlot slot,
+                                               Tagged<HeapObject> value,
+                                               MemoryChunk* value_chunk);
   static void CombinedGenerationalAndSharedBarrierSlow(
       Tagged<HeapObject> object, Address slot, Tagged<HeapObject> value);
   static void CombinedGenerationalAndSharedEphemeronBarrierSlow(

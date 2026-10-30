@@ -1,154 +1,99 @@
 'use strict';
 
 const {
-  SafeSet,
   StringPrototypeToLowerCase,
   TypedArrayPrototypeGetBuffer,
-  TypedArrayPrototypeSet,
-  Uint8Array,
+  TypedArrayPrototypeGetByteLength,
 } = primordials;
 
-const { Buffer } = require('buffer');
-
 const {
-  KeyObjectHandle,
   SignJob,
-  kCryptoJobAsync,
-  kKeyTypePrivate,
+  kCryptoJobWebCrypto,
+  kKeyFormatDER,
+  kKeyFormatRawPublic,
+  kKeyFormatRawSeed,
   kKeyTypePublic,
   kSignJobModeSign,
   kSignJobModeVerify,
-  kKeyFormatDER,
   kWebCryptoKeyFormatRaw,
   kWebCryptoKeyFormatPKCS8,
   kWebCryptoKeyFormatSPKI,
+  NamedKeyPairGenJob,
 } = internalBinding('crypto');
 
 const {
-  codes: {
-    ERR_CRYPTO_INVALID_JWK,
-  },
-} = require('internal/errors');
-
-const {
-  getUsagesUnion,
-  hasAnyNotIn,
+  getUsagesMask,
   jobPromise,
-  validateKeyOps,
-  kHandle,
-  kKeyObject,
+  toUsagesSet,
+  validateAlgorithm,
+  getBufferSourceByteLength,
 } = require('internal/crypto/util');
 
 const {
   lazyDOMException,
-  promisify,
 } = require('internal/util');
 
 const {
-  generateKeyPair: _generateKeyPair,
-} = require('internal/crypto/keygen');
-
-const {
+  getCryptoKeyHandle,
+  getCryptoKeyType,
   InternalCryptoKey,
-  PrivateKeyObject,
-  PublicKeyObject,
-  createPrivateKey,
-  createPublicKey,
-  kAlgorithm,
-  kKeyType,
 } = require('internal/crypto/keys');
 
-const generateKeyPair = promisify(_generateKeyPair);
+const {
+  createKeyUsages,
+  getKeyPairUsages,
+  importDerKey,
+  importJwkKey,
+  importRawKey,
+  validateJwk,
+  validateKeyUsages,
+  validateUsagesNotEmpty,
+  verifyAcceptableKeyUse,
+} = require('internal/crypto/webcrypto_util');
 
-function verifyAcceptableMlDsaKeyUse(name, isPublic, usages) {
-  const checkSet = isPublic ? ['verify'] : ['sign'];
-  if (hasAnyNotIn(usages, checkSet)) {
-    throw lazyDOMException(
-      `Unsupported key usage for a ${name} key`,
-      'SyntaxError');
-  }
-}
+const kUsages = createKeyUsages(['verify'], ['sign']);
 
-function createMlDsaRawKey(name, keyData, isPublic) {
-  const handle = new KeyObjectHandle();
-  const keyType = isPublic ? kKeyTypePublic : kKeyTypePrivate;
-  if (!handle.initPqcRaw(name, keyData, keyType)) {
-    throw lazyDOMException('Invalid keyData', 'DataError');
-  }
-
-  return isPublic ? new PublicKeyObject(handle) : new PrivateKeyObject(handle);
-}
-
-async function mlDsaGenerateKey(algorithm, extractable, keyUsages) {
+function mlDsaGenerateKey(algorithm, extractable, usages) {
   const { name } = algorithm;
-
-  const usageSet = new SafeSet(keyUsages);
-  if (hasAnyNotIn(usageSet, ['sign', 'verify'])) {
-    throw lazyDOMException(
-      `Unsupported key usage for an ${name} key`,
-      'SyntaxError');
-  }
-
-  let keyPair;
-  try {
-    keyPair = await generateKeyPair(name.toLowerCase());
-  } catch (err) {
-    throw lazyDOMException(
-      'The operation failed for an operation-specific reason',
-      { name: 'OperationError', cause: err });
-  }
-
-  const publicUsages = getUsagesUnion(usageSet, 'verify');
-  const privateUsages = getUsagesUnion(usageSet, 'sign');
+  const usagesSet = validateKeyUsages(usages, kUsages.keygen, name);
 
   const keyAlgorithm = { name };
+  const keyUsages = getKeyPairUsages(usagesSet, kUsages);
+  validateUsagesNotEmpty(keyUsages.private);
 
-  const publicKey =
-    new InternalCryptoKey(
-      keyPair.publicKey,
-      keyAlgorithm,
-      publicUsages,
-      true);
-
-  const privateKey =
-    new InternalCryptoKey(
-      keyPair.privateKey,
-      keyAlgorithm,
-      privateUsages,
-      extractable);
-
-  return { __proto__: null, privateKey, publicKey };
+  return jobPromise(() => new NamedKeyPairGenJob(
+    kCryptoJobWebCrypto,
+    name,
+    keyAlgorithm,
+    getUsagesMask(keyUsages.public),
+    getUsagesMask(keyUsages.private),
+    extractable));
 }
 
 function mlDsaExportKey(key, format) {
   try {
+    const handle = getCryptoKeyHandle(key);
     switch (format) {
       case kWebCryptoKeyFormatRaw: {
-        if (key[kKeyType] === 'private') {
-          return TypedArrayPrototypeGetBuffer(key[kKeyObject][kHandle].rawSeed());
-        }
-
-        return TypedArrayPrototypeGetBuffer(key[kKeyObject][kHandle].rawPublicKey());
+        return TypedArrayPrototypeGetBuffer(
+          getCryptoKeyType(key) === 'private' ? handle.rawSeed() : handle.rawPublicKey());
       }
       case kWebCryptoKeyFormatSPKI: {
-        return TypedArrayPrototypeGetBuffer(key[kKeyObject][kHandle].export(kKeyFormatDER, kWebCryptoKeyFormatSPKI));
+        return TypedArrayPrototypeGetBuffer(
+          handle.export(kKeyFormatDER, kWebCryptoKeyFormatSPKI));
       }
       case kWebCryptoKeyFormatPKCS8: {
-        const seed = key[kKeyObject][kHandle].rawSeed();
-        const buffer = new Uint8Array(54);
-        const orc = {
-          '__proto__': null,
-          'ML-DSA-44': 0x11,
-          'ML-DSA-65': 0x12,
-          'ML-DSA-87': 0x13,
-        }[key[kAlgorithm].name];
-        TypedArrayPrototypeSet(buffer, [
-          0x30, 0x34, 0x02, 0x01, 0x00, 0x30, 0x0b, 0x06,
-          0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04,
-          0x03, orc, 0x04, 0x22, 0x80, 0x20,
-        ], 0);
-        TypedArrayPrototypeSet(buffer, seed, 22);
-        return TypedArrayPrototypeGetBuffer(buffer);
+        const pkcs8 = handle.export(
+          kKeyFormatDER, kWebCryptoKeyFormatPKCS8, null, null);
+        // Edge case only possible when user creates a seedless KeyObject
+        // first and converts it with KeyObject.prototype.toCryptoKey.
+        // 54 = 22 bytes of PKCS#8 ASN.1 + 32-byte seed.
+        if (TypedArrayPrototypeGetByteLength(pkcs8) !== 54) {
+          throw lazyDOMException(
+            'The operation failed for an operation-specific reason',
+            { name: 'OperationError' });
+        }
+        return TypedArrayPrototypeGetBuffer(pkcs8);
       }
       default:
         return undefined;
@@ -165,33 +110,28 @@ function mlDsaImportKey(
   keyData,
   algorithm,
   extractable,
-  keyUsages) {
+  usages) {
 
   const { name } = algorithm;
-  let keyObject;
-  const usagesSet = new SafeSet(keyUsages);
+  let handle;
+  const usagesSet = toUsagesSet(usages);
   switch (format) {
-    case 'KeyObject': {
-      verifyAcceptableMlDsaKeyUse(name, keyData.type === 'public', usagesSet);
-      keyObject = keyData;
+    case 'KeyObjectHandle':
+      verifyAcceptableKeyUse(
+        name,
+        usagesSet,
+        keyData.getKeyType() === kKeyTypePublic ?
+          kUsages.public :
+          kUsages.private);
+      handle = keyData;
       break;
-    }
     case 'spki': {
-      verifyAcceptableMlDsaKeyUse(name, true, usagesSet);
-      try {
-        keyObject = createPublicKey({
-          key: keyData,
-          format: 'der',
-          type: 'spki',
-        });
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
+      verifyAcceptableKeyUse(name, usagesSet, kUsages.public);
+      handle = importDerKey(keyData, true);
       break;
     }
     case 'pkcs8': {
-      verifyAcceptableMlDsaKeyUse(name, false, usagesSet);
+      verifyAcceptableKeyUse(name, usagesSet, kUsages.private);
 
       const privOnlyLengths = {
         '__proto__': null,
@@ -199,119 +139,72 @@ function mlDsaImportKey(
         'ML-DSA-65': 4060,
         'ML-DSA-87': 4924,
       };
-      if (keyData.byteLength === privOnlyLengths[name]) {
+      if (getBufferSourceByteLength(keyData) === privOnlyLengths[name]) {
         throw lazyDOMException(
           'Importing an ML-DSA PKCS#8 key without a seed is not supported',
           'NotSupportedError');
       }
 
-      try {
-        keyObject = createPrivateKey({
-          key: keyData,
-          format: 'der',
-          type: 'pkcs8',
-        });
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
+      handle = importDerKey(keyData, false);
       break;
     }
     case 'jwk': {
-      if (!keyData.kty)
-        throw lazyDOMException('Invalid keyData', 'DataError');
-      if (keyData.kty !== 'AKP')
-        throw lazyDOMException('Invalid JWK "kty" Parameter', 'DataError');
+      const isPublic = keyData.priv === undefined;
+      verifyAcceptableKeyUse(
+        name,
+        usagesSet,
+        isPublic ? kUsages.public : kUsages.private);
+
+      validateJwk(keyData, 'AKP', extractable, usagesSet, 'sig');
+
       if (keyData.alg !== name)
         throw lazyDOMException(
           'JWK "alg" Parameter and algorithm name mismatch', 'DataError');
-      const isPublic = keyData.priv === undefined;
 
-      if (usagesSet.size > 0 && keyData.use !== undefined) {
-        if (keyData.use !== 'sig')
-          throw lazyDOMException('Invalid JWK "use" Parameter', 'DataError');
-      }
-
-      validateKeyOps(keyData.key_ops, usagesSet);
-
-      if (keyData.ext !== undefined &&
-          keyData.ext === false &&
-          extractable === true) {
-        throw lazyDOMException(
-          'JWK "ext" Parameter and extractable mismatch',
-          'DataError');
-      }
-
-      if (!isPublic && typeof keyData.pub !== 'string') {
-        throw lazyDOMException('Invalid JWK', 'DataError');
-      }
-
-      verifyAcceptableMlDsaKeyUse(
-        name,
-        isPublic,
-        usagesSet);
-
-      try {
-        const publicKeyObject = createMlDsaRawKey(
-          name,
-          Buffer.from(keyData.pub, 'base64url'),
-          true);
-
-        if (isPublic) {
-          keyObject = publicKeyObject;
-        } else {
-          keyObject = createMlDsaRawKey(
-            name,
-            Buffer.from(keyData.priv, 'base64url'),
-            false);
-
-          if (!createPublicKey(keyObject).equals(publicKeyObject)) {
-            throw new ERR_CRYPTO_INVALID_JWK();
-          }
-        }
-      } catch (err) {
-        throw lazyDOMException('Invalid keyData', { name: 'DataError', cause: err });
-      }
+      handle = importJwkKey(isPublic, keyData);
       break;
     }
     case 'raw-public':
     case 'raw-seed': {
       const isPublic = format === 'raw-public';
-      verifyAcceptableMlDsaKeyUse(name, isPublic, usagesSet);
-
-      try {
-        keyObject = createMlDsaRawKey(name, keyData, isPublic);
-      } catch (err) {
-        throw lazyDOMException('Invalid keyData', { name: 'DataError', cause: err });
-      }
+      verifyAcceptableKeyUse(
+        name,
+        usagesSet,
+        isPublic ? kUsages.public : kUsages.private);
+      handle = importRawKey(isPublic, keyData,
+                            isPublic ? kKeyFormatRawPublic : kKeyFormatRawSeed,
+                            StringPrototypeToLowerCase(name));
       break;
     }
     default:
       return undefined;
   }
 
-  if (keyObject.asymmetricKeyType !== StringPrototypeToLowerCase(name)) {
+  if (handle.getAsymmetricKeyType() !== StringPrototypeToLowerCase(name)) {
     throw lazyDOMException('Invalid key type', 'DataError');
   }
 
   return new InternalCryptoKey(
-    keyObject,
+    handle,
     { name },
-    keyUsages,
+    getUsagesMask(usagesSet),
     extractable);
 }
 
-async function mlDsaSignVerify(key, data, algorithm, signature) {
+function mlDsaSignVerify(key, data, algorithm, signature) {
   const mode = signature === undefined ? kSignJobModeSign : kSignJobModeVerify;
   const type = mode === kSignJobModeSign ? 'private' : 'public';
 
-  if (key[kKeyType] !== type)
+  if (getCryptoKeyType(key) !== type)
     throw lazyDOMException(`Key must be a ${type} key`, 'InvalidAccessError');
 
-  return await jobPromise(() => new SignJob(
-    kCryptoJobAsync,
+  validateAlgorithm(algorithm, mode === kSignJobModeSign ? 'sign' : 'verify');
+
+  return jobPromise(() => new SignJob(
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
+    undefined,
     undefined,
     undefined,
     undefined,

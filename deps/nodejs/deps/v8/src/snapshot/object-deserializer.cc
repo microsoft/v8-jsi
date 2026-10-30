@@ -8,6 +8,7 @@
 #include "src/heap/heap-inl.h"
 #include "src/heap/local-factory-inl.h"
 #include "src/objects/allocation-site-inl.h"
+#include "src/objects/allocation-site.h"
 #include "src/objects/objects.h"
 #include "src/snapshot/code-serializer.h"
 
@@ -40,7 +41,7 @@ MaybeDirectHandle<HeapObject> ObjectDeserializer::Deserialize() {
   {
     result = ReadObject();
     DeserializeDeferredObjects();
-    CHECK(new_code_objects().empty());
+    CHECK(new_instruction_stream_objects().empty());
     LinkAllocationSites();
     CHECK(new_maps().empty());
     WeakenDescriptorArrays();
@@ -71,15 +72,19 @@ void ObjectDeserializer::LinkAllocationSites() {
   // a list at deserialization time.
   for (DirectHandle<AllocationSite> site : new_allocation_sites()) {
     if (!site->HasWeakNext()) continue;
+    DirectHandle<AllocationSiteWithWeakNext> site_with_next =
+        Cast<AllocationSiteWithWeakNext>(site);
     // TODO(mvstanton): consider treating the heap()->allocation_sites_list()
     // as a (weak) root. If this root is relocated correctly, this becomes
     // unnecessary.
     if (heap->allocation_sites_list() == Smi::zero()) {
-      site->set_weak_next(ReadOnlyRoots(heap).undefined_value());
+      site_with_next->set_weak_next(ReadOnlyRoots(heap).undefined_value());
     } else {
-      site->set_weak_next(heap->allocation_sites_list());
+      site_with_next->set_weak_next(
+          Cast<UnionOf<Undefined, AllocationSiteWithWeakNext>>(
+              heap->allocation_sites_list()));
     }
-    heap->set_allocation_sites_list(*site);
+    heap->set_allocation_sites_list(*site_with_next);
   }
 }
 
@@ -112,7 +117,7 @@ MaybeDirectHandle<HeapObject> OffThreadObjectDeserializer::Deserialize(
   {
     result = ReadObject();
     DeserializeDeferredObjects();
-    CHECK(new_code_objects().empty());
+    CHECK(new_instruction_stream_objects().empty());
     CHECK(new_allocation_sites().empty());
     CHECK(new_maps().empty());
     WeakenDescriptorArrays();

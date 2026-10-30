@@ -1,11 +1,14 @@
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
-
-#include "sessionticket.h"
+#include "guard.h"
+#ifndef OPENSSL_NO_QUIC
 #include <env-inl.h>
 #include <memory_tracker-inl.h>
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <node_buffer.h>
 #include <node_errors.h>
+#include <node_sockaddr-inl.h>
+#include "session.h"
+#include "sessionticket.h"
+#include "tlscontext.h"
 
 namespace node {
 
@@ -24,12 +27,8 @@ namespace quic {
 
 namespace {
 SessionTicket::AppData::Source* GetAppDataSource(SSL* ssl) {
-  ngtcp2_crypto_conn_ref* ref =
-      static_cast<ngtcp2_crypto_conn_ref*>(SSL_get_app_data(ssl));
-  if (ref != nullptr && ref->user_data != nullptr) {
-    return static_cast<SessionTicket::AppData::Source*>(ref->user_data);
-  }
-  return nullptr;
+  auto& tls_session = TLSSession::From(ssl);
+  return &tls_session.session().ticket_app_data_source();
 }
 }  // namespace
 
@@ -44,7 +43,10 @@ Maybe<SessionTicket> SessionTicket::FromV8Value(Environment* env,
     return Nothing<SessionTicket>();
   }
 
-  Store content(value.As<ArrayBufferView>());
+  Store content;
+  if (!Store::From(value.As<ArrayBufferView>()).To(&content)) {
+    return Nothing<SessionTicket>();
+  }
   ngtcp2_vec vec = content;
 
   ValueDeserializer des(env->isolate(), vec.base, vec.len);
@@ -57,27 +59,32 @@ Maybe<SessionTicket> SessionTicket::FromV8Value(Environment* env,
   Local<Value> ticket;
   Local<Value> transport_params;
 
-  errors::TryCatchScope tryCatch(env);
-
   if (!des.ReadValue(env->context()).ToLocal(&ticket) ||
-      !des.ReadValue(env->context()).ToLocal(&transport_params) ||
-      !ticket->IsArrayBufferView() || !transport_params->IsArrayBufferView()) {
-    if (tryCatch.HasCaught()) {
-      // Any errors thrown we want to catch and suppress. The only
-      // error we want to expose to the user is that the ticket format
-      // is invalid.
-      if (!tryCatch.HasTerminated()) {
-        THROW_ERR_INVALID_ARG_VALUE(env, "The ticket format is invalid.");
-        tryCatch.ReThrow();
-      }
-      return Nothing<SessionTicket>();
-    }
-    THROW_ERR_INVALID_ARG_VALUE(env, "The ticket format is invalid.");
+      !des.ReadValue(env->context()).ToLocal(&transport_params)) {
+    return Nothing<SessionTicket>();
+  }
+  if (!ticket->IsArrayBufferView()) {
+    THROW_ERR_INVALID_ARG_TYPE(env, "The ticket must be an ArrayBufferView");
+    return Nothing<SessionTicket>();
+  }
+  if (!transport_params->IsArrayBufferView()) {
+    THROW_ERR_INVALID_ARG_TYPE(
+        env, "The transport parameters must be an ArrayBufferView");
     return Nothing<SessionTicket>();
   }
 
-  return Just(SessionTicket(Store(ticket.As<ArrayBufferView>()),
-                            Store(transport_params.As<ArrayBufferView>())));
+  Store ticket_store;
+  Store transport_params_store;
+  if (!Store::From(ticket.As<ArrayBufferView>()).To(&ticket_store)) {
+    return Nothing<SessionTicket>();
+  }
+  if (!Store::From(transport_params.As<ArrayBufferView>())
+           .To(&transport_params_store)) {
+    return Nothing<SessionTicket>();
+  }
+
+  return Just(SessionTicket(std::move(ticket_store),
+                            std::move(transport_params_store)));
 }
 
 MaybeLocal<Object> SessionTicket::encode(Environment* env) const {
@@ -128,25 +135,33 @@ SSL_TICKET_RETURN SessionTicket::DecryptedCallback(SSL* ssl,
     case SSL_TICKET_NO_DECRYPT:
       return SSL_TICKET_RETURN_IGNORE_RENEW;
     case SSL_TICKET_SUCCESS_RENEW:
-      [[fallthrough]];
+      return static_cast<SSL_TICKET_RETURN>(
+          AppData::Extract(ssl, session, AppData::Source::Flag::STATUS_RENEW));
     case SSL_TICKET_SUCCESS:
-      return static_cast<SSL_TICKET_RETURN>(AppData::Extract(ssl));
+      return static_cast<SSL_TICKET_RETURN>(AppData::Extract(ssl, session));
   }
 }
 
-SessionTicket::AppData::AppData(SSL* ssl) : ssl_(ssl) {}
+SessionTicket::AppData::AppData(SSL* ssl, SSL_SESSION* session)
+    : ssl_(ssl), session_(session) {}
+
+SSL_SESSION* SessionTicket::AppData::GetSession() const {
+  return session_ != nullptr ? session_ : SSL_get0_session(ssl_);
+}
 
 bool SessionTicket::AppData::Set(const uv_buf_t& data) {
   if (set_ || data.base == nullptr || data.len == 0) return false;
   set_ = true;
-  SSL_SESSION_set1_ticket_appdata(SSL_get0_session(ssl_), data.base, data.len);
+  SSL_SESSION_set1_ticket_appdata(GetSession(), data.base, data.len);
   return set_;
 }
 
 std::optional<const uv_buf_t> SessionTicket::AppData::Get() const {
+  auto* sess = GetSession();
+  if (sess == nullptr) return std::nullopt;
   uv_buf_t buf;
   int ret =
-      SSL_SESSION_get0_ticket_appdata(SSL_get0_session(ssl_),
+      SSL_SESSION_get0_ticket_appdata(sess,
                                       reinterpret_cast<void**>(&buf.base),
                                       reinterpret_cast<size_t*>(&buf.len));
   if (ret != 1) return std::nullopt;
@@ -160,11 +175,12 @@ void SessionTicket::AppData::Collect(SSL* ssl) {
   }
 }
 
-SessionTicket::AppData::Status SessionTicket::AppData::Extract(SSL* ssl) {
+SessionTicket::AppData::Status SessionTicket::AppData::Extract(
+    SSL* ssl, SSL_SESSION* session, Source::Flag flag) {
   auto source = GetAppDataSource(ssl);
   if (source != nullptr) {
-    AppData app_data(ssl);
-    return source->ExtractSessionTicketAppData(app_data);
+    AppData app_data(ssl, session);
+    return source->ExtractSessionTicketAppData(app_data, flag);
   }
   return Status::TICKET_IGNORE;
 }
@@ -172,4 +188,4 @@ SessionTicket::AppData::Status SessionTicket::AppData::Extract(SSL* ssl) {
 }  // namespace quic
 }  // namespace node
 
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
+#endif  // OPENSSL_NO_QUIC

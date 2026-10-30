@@ -174,9 +174,35 @@ class DataQueueImpl final : public DataQueue,
     backpressure_listeners_.erase(listener);
   }
 
+  // Both notifications below can re-enter this DataQueue: a listener may end
+  // up calling into JavaScript, which can destroy the owner of a listener and
+  // so mutate backpressure_listeners_ (or drop the last reference to this
+  // queue) while we are iterating. Hold a reference, iterate a snapshot, and
+  // re-check membership so a listener removed mid-notification is not called.
   void NotifyBackpressure(size_t amount) {
     if (idempotent_) return;
-    for (auto& listener : backpressure_listeners_) listener->EntryRead(amount);
+    if (backpressure_listeners_.empty()) return;
+    auto self = shared_from_this();
+    std::vector<BackpressureListener*> listeners(
+        backpressure_listeners_.begin(), backpressure_listeners_.end());
+    for (auto* listener : listeners) {
+      if (backpressure_listeners_.contains(listener)) {
+        listener->EntryRead(amount);
+      }
+    }
+  }
+
+  void NotifyBeforePull() {
+    if (idempotent_) return;
+    if (backpressure_listeners_.empty()) return;
+    auto self = shared_from_this();
+    std::vector<BackpressureListener*> listeners(
+        backpressure_listeners_.begin(), backpressure_listeners_.end());
+    for (auto* listener : listeners) {
+      if (backpressure_listeners_.contains(listener)) {
+        listener->BeforePull();
+      }
+    }
   }
 
   bool HasBackpressureListeners() const noexcept {
@@ -381,6 +407,11 @@ class NonIdempotentDataQueueReader final
            size_t max_count_hint = bob::kMaxCountHint) override {
     std::shared_ptr<DataQueue::Reader> self = shared_from_this();
 
+    // Let listeners flush pending data before we check the entries list.
+    // This allows, for example, the QUIC Stream to flush its receive
+    // accumulation buffer into the queue before the pull proceeds.
+    data_queue_->NotifyBeforePull();
+
     // If ended is true, this reader has already reached the end and cannot
     // provide any more data.
     if (ended_) {
@@ -391,10 +422,11 @@ class NonIdempotentDataQueueReader final
     // If the collection of entries is empty, there's nothing currently left to
     // read. How we respond depends on whether the data queue has been capped
     // or not.
+
     if (data_queue_->entries_.empty()) {
       // If the data_queue_ is empty, and not capped, then we can reasonably
       // expect more data to be provided later, but we don't know exactly when
-      // that'll happe, so the proper response here is to return a blocked
+      // that'll happen, so the proper response here is to return a blocked
       // status.
       if (!data_queue_->is_capped()) {
         std::move(next)(bob::Status::STATUS_BLOCK, nullptr, 0, [](uint64_t) {});
@@ -437,8 +469,11 @@ class NonIdempotentDataQueueReader final
     CHECK(!pull_pending_);
     pull_pending_ = true;
     int status = current_reader->Pull(
-        [this, next = std::move(next)](
-            int status, const DataQueue::Vec* vecs, uint64_t count, Done done) {
+        [this, next = std::move(next), options, data, count, max_count_hint](
+            int status,
+            const DataQueue::Vec* vecs,
+            uint64_t vcount,
+            Done done) mutable {
           pull_pending_ = false;
 
           // In each of these cases, we do not expect that the source will
@@ -446,13 +481,27 @@ class NonIdempotentDataQueueReader final
           CHECK_IMPLIES(status == bob::Status::STATUS_BLOCK ||
                             status == bob::Status::STATUS_WAIT ||
                             status == bob::Status::STATUS_EOS,
-                        vecs == nullptr && count == 0);
+                        vecs == nullptr && vcount == 0);
           if (status == bob::Status::STATUS_EOS) {
             data_queue_->entries_.erase(data_queue_->entries_.begin());
-            ended_ = data_queue_->entries_.empty();
             current_reader_ = nullptr;
-            if (!ended_) status = bob::Status::STATUS_CONTINUE;
-            std::move(next)(status, nullptr, 0, [](uint64_t) {});
+            if (!data_queue_->entries_.empty()) {
+              // More entries remain. Pull from the next entry immediately
+              // rather than returning empty CONTINUE, which would leave
+              // callers with no data and no way to know they should retry.
+              Pull(std::move(next), options, data, count, max_count_hint);
+            } else if (!data_queue_->is_capped()) {
+              // The queue is empty but not capped — more data may arrive
+              // later. Return BLOCK so the consumer waits rather than
+              // falsely treating this as end-of-stream.
+              std::move(next)(
+                  bob::Status::STATUS_BLOCK, nullptr, 0, [](uint64_t) {});
+            } else {
+              // Empty and capped — truly done.
+              ended_ = true;
+              std::move(next)(
+                  bob::Status::STATUS_EOS, nullptr, 0, [](uint64_t) {});
+            }
             return;
           }
 
@@ -461,7 +510,7 @@ class NonIdempotentDataQueueReader final
           if (data_queue_->HasBackpressureListeners()) {
             // How much did we actually read?
             size_t read = 0;
-            for (uint64_t n = 0; n < count; n++) {
+            for (uint64_t n = 0; n < vcount; n++) {
               read += vecs[n].len;
             }
             data_queue_->NotifyBackpressure(read);
@@ -469,7 +518,7 @@ class NonIdempotentDataQueueReader final
 
           // Now that we have updated this readers state, we can forward
           // everything on to the outer next.
-          std::move(next)(status, vecs, count, std::move(done));
+          std::move(next)(status, vecs, vcount, std::move(done));
         },
         options,
         data,
@@ -819,13 +868,19 @@ class FdEntry final : public EntryImpl {
   // the race
   //   condition described in the comment above.
  public:
-  static std::unique_ptr<FdEntry> Create(Environment* env, Local<Value> path) {
+  static std::unique_ptr<FdEntry> Create(Environment* env,
+                                         Local<Value> path,
+                                         int* status) {
     // We're only going to create the FdEntry if the file exists.
     uv_fs_t req = uv_fs_t();
     auto cleanup = OnScopeLeave([&] { uv_fs_req_cleanup(&req); });
 
     auto buf = std::make_shared<BufferValue>(env->isolate(), path);
-    if (uv_fs_stat(nullptr, &req, buf->out(), nullptr) < 0) return nullptr;
+    int err = uv_fs_stat(nullptr, &req, buf->out(), nullptr);
+    if (err < 0) {
+      if (status != nullptr) *status = err;
+      return nullptr;
+    }
 
     return std::make_unique<FdEntry>(
         env, std::move(buf), req.statbuf, 0, req.statbuf.st_size);
@@ -888,11 +943,11 @@ class FdEntry final : public EntryImpl {
     uv_fs_t req = uv_fs_t();
     auto cleanup = OnScopeLeave([&] { uv_fs_req_cleanup(&req); });
     // TODO(jasnell): Note the use of a sync fs call here is a bit unfortunate.
-    // Doing this asynchronously creates a bit of a race condition tho, a file
-    // could be unmodified when we call the operation but then by the time the
-    // async callback is triggered to give us that answer the file is modified.
-    // While such silliness is still possible here, the sync call at least makes
-    // it less likely to hit the race.
+    // Doing this asynchronously creates a bit of a race condition though, a
+    // file could be unmodified when we call the operation but then by the time
+    // the async callback is triggered to give us that answer the file is
+    // modified. While such silliness is still possible here, the sync call at
+    // least makes it less likely to hit the race.
     if (uv_fs_fstat(nullptr, &req, fd, nullptr) < 0) return true;
     return entry->is_modified(req.statbuf);
   }
@@ -916,6 +971,7 @@ class FdEntry final : public EntryImpl {
               fs::FileHandle::New(realm->GetBindingData<fs::BindingData>(),
                                   file,
                                   Local<Object>(),
+                                  {},
                                   entry->start_,
                                   entry->end_ - entry->start_)),
           entry);
@@ -1133,8 +1189,9 @@ std::unique_ptr<DataQueue::Entry> DataQueue::CreateDataQueueEntry(
 }
 
 std::unique_ptr<DataQueue::Entry> DataQueue::CreateFdEntry(Environment* env,
-                                                           Local<Value> path) {
-  return FdEntry::Create(env, path);
+                                                           Local<Value> path,
+                                                           int* status) {
+  return FdEntry::Create(env, path, status);
 }
 
 void DataQueue::Initialize(Environment* env, v8::Local<v8::Object> target) {

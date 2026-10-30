@@ -12,7 +12,7 @@
 #include "src/execution/isolate.h"
 #include "src/execution/local-isolate.h"
 #include "src/handles/handles.h"
-#include "src/heap/page-metadata-inl.h"
+#include "src/heap/normal-page-inl.h"
 #include "src/heap/read-only-heap-inl.h"
 #include "src/objects/api-callbacks.h"
 #include "src/objects/cell.h"
@@ -32,20 +32,16 @@
 #include "src/objects/tagged.h"
 #include "src/roots/static-roots.h"
 
-#if V8_ENABLE_WEBASSEMBLY
-#include "src/wasm/wasm-objects.h"
-#endif
-
 namespace v8 {
 namespace internal {
 
 V8_INLINE constexpr bool operator<(RootIndex lhs, RootIndex rhs) {
-  using type = typename std::underlying_type<RootIndex>::type;
+  using type = std::underlying_type_t<RootIndex>;
   return static_cast<type>(lhs) < static_cast<type>(rhs);
 }
 
 V8_INLINE RootIndex operator++(RootIndex& index) {
-  using type = typename std::underlying_type<RootIndex>::type;
+  using type = std::underlying_type_t<RootIndex>;
   index = static_cast<RootIndex>(static_cast<type>(index) + 1);
   return index;
 }
@@ -83,7 +79,7 @@ IndirectHandle<Object> RootsTable::handle_at(RootIndex index) {
   return IndirectHandle<Object>(&(*this)[index]);
 }
 
-ReadOnlyRoots GetReadOnlyRoots() {
+V8_RO_CONST ReadOnlyRoots GetReadOnlyRoots() {
   ReadOnlyHeap* shared_ro_heap =
       IsolateGroup::current()->shared_read_only_heap();
   // If this check fails in code that runs during initialization use
@@ -106,18 +102,23 @@ ReadOnlyRoots::ReadOnlyRoots(LocalIsolate* isolate)
 // have the right type, and to avoid the heavy #includes that would be
 // required for checked casts.
 
-#define ROOT_ACCESSOR(Type, name, CamelName)                        \
-  Tagged<Type> ReadOnlyRoots::name() const {                        \
-    return unchecked_##name();                                      \
-  }                                                                 \
-  Tagged<Type> ReadOnlyRoots::unchecked_##name() const {            \
-    return UncheckedCast<Type>(object_at(RootIndex::k##CamelName)); \
+#define ROOT_ACCESSOR(Type, name, CamelName)                         \
+  V8_RO_CONST Tagged<Type> ReadOnlyRoots::name() const {             \
+    return unchecked_##name();                                       \
+  }                                                                  \
+  V8_RO_CONST Tagged<Type> ReadOnlyRoots::unchecked_##name() const { \
+    return UncheckedCast<Type>(object_at(RootIndex::k##CamelName));  \
   }
 READ_ONLY_ROOT_LIST(ROOT_ACCESSOR)
 #undef ROOT_ACCESSOR
 
-Tagged<Boolean> ReadOnlyRoots::boolean_value(bool value) const {
+V8_RO_CONST Tagged<Boolean> ReadOnlyRoots::boolean_value(bool value) const {
   return value ? Tagged<Boolean>(true_value()) : Tagged<Boolean>(false_value());
+}
+
+V8_RO_CONST Tagged<String> ReadOnlyRoots::single_character_string(
+    int code) const {
+  return Cast<String>(object_at(RootsTable::SingleCharacterStringIndex(code)));
 }
 
 Address ReadOnlyRoots::first_name_for_protector() const {
@@ -136,18 +137,18 @@ bool ReadOnlyRoots::IsNameForProtector(Tagged<HeapObject> object) const {
 void ReadOnlyRoots::VerifyNameForProtectorsPages() const {
   // The symbols and strings that can cause protector invalidation should
   // reside on the same page so we can do a fast range check.
-  CHECK_EQ(PageMetadata::FromAddress(first_name_for_protector()),
-           PageMetadata::FromAddress(last_name_for_protector()));
+  CHECK_EQ(BasePage::FromAddress(first_name_for_protector()),
+           BasePage::FromAddress(last_name_for_protector()));
 }
 
-Tagged<Object> ReadOnlyRoots::object_at(RootIndex root_index) const {
+V8_RO_CONST Tagged<Object> ReadOnlyRoots::object_at(
+    RootIndex root_index) const {
   return Tagged<Object>(address_at(root_index));
 }
 
-Address ReadOnlyRoots::address_at(RootIndex root_index) const {
+V8_RO_CONST Address ReadOnlyRoots::address_at(RootIndex root_index) const {
 #if V8_STATIC_ROOTS_BOOL
   return V8HeapCompressionScheme::DecompressTagged(
-      V8HeapCompressionScheme::base(),
       StaticReadOnlyRootsPointerTable[static_cast<int>(root_index)]);
 #else
   size_t index = static_cast<size_t>(root_index);

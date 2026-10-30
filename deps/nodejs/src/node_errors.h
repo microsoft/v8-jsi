@@ -53,7 +53,6 @@ void OOMErrorHandler(const char* location, const v8::OOMDetails& details);
   V(ERR_CRYPTO_CUSTOM_ENGINE_NOT_SUPPORTED, Error)                             \
   V(ERR_CRYPTO_INCOMPATIBLE_KEY_OPTIONS, Error)                                \
   V(ERR_CRYPTO_INITIALIZATION_FAILED, Error)                                   \
-  V(ERR_CRYPTO_INVALID_ARGON2_PARAMS, TypeError)                               \
   V(ERR_CRYPTO_INVALID_AUTH_TAG, TypeError)                                    \
   V(ERR_CRYPTO_INVALID_COUNTER, TypeError)                                     \
   V(ERR_CRYPTO_INVALID_CURVE, TypeError)                                       \
@@ -63,12 +62,15 @@ void OOMErrorHandler(const char* location, const v8::OOMDetails& details);
   V(ERR_CRYPTO_INVALID_KEYLEN, RangeError)                                     \
   V(ERR_CRYPTO_INVALID_KEYPAIR, RangeError)                                    \
   V(ERR_CRYPTO_INVALID_KEYTYPE, RangeError)                                    \
+  V(ERR_CRYPTO_INVALID_MAC, TypeError)                                         \
   V(ERR_CRYPTO_INVALID_MESSAGELEN, RangeError)                                 \
   V(ERR_CRYPTO_INVALID_SCRYPT_PARAMS, RangeError)                              \
   V(ERR_CRYPTO_INVALID_STATE, Error)                                           \
   V(ERR_CRYPTO_INVALID_TAG_LENGTH, RangeError)                                 \
   V(ERR_CRYPTO_JWK_UNSUPPORTED_CURVE, Error)                                   \
   V(ERR_CRYPTO_JWK_UNSUPPORTED_KEY_TYPE, Error)                                \
+  V(ERR_CRYPTO_MAC_NOT_SUPPORTED, Error)                                       \
+  V(ERR_CRYPTO_MAC_UPDATE_FAILED, Error)                                       \
   V(ERR_CRYPTO_OPERATION_FAILED, Error)                                        \
   V(ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH, RangeError)                           \
   V(ERR_CRYPTO_UNKNOWN_CIPHER, Error)                                          \
@@ -79,6 +81,9 @@ void OOMErrorHandler(const char* location, const v8::OOMDetails& details);
   V(ERR_DLOPEN_FAILED, Error)                                                  \
   V(ERR_ENCODING_INVALID_ENCODED_DATA, TypeError)                              \
   V(ERR_EXECUTION_ENVIRONMENT_NOT_AVAILABLE, Error)                            \
+  V(ERR_FFI_CALL_FAILED, Error)                                                \
+  V(ERR_FFI_INVALID_POINTER, Error)                                            \
+  V(ERR_FFI_LIBRARY_CLOSED, Error)                                             \
   V(ERR_FS_CP_EINVAL, Error)                                                   \
   V(ERR_FS_CP_DIR_TO_NON_DIR, Error)                                           \
   V(ERR_FS_CP_NON_DIR_TO_DIR, Error)                                           \
@@ -91,6 +96,7 @@ void OOMErrorHandler(const char* location, const v8::OOMDetails& details);
   V(ERR_HEAP_PROFILE_HAVE_BEEN_STARTED, Error)                                 \
   V(ERR_HEAP_PROFILE_NOT_STARTED, Error)                                       \
   V(ERR_ILLEGAL_CONSTRUCTOR, Error)                                            \
+  V(ERR_INSPECTOR_NOT_AVAILABLE, Error)                                        \
   V(ERR_INVALID_ADDRESS, Error)                                                \
   V(ERR_INVALID_ARG_VALUE, TypeError)                                          \
   V(ERR_OSSL_EVP_INVALID_DIGEST, Error)                                        \
@@ -119,7 +125,7 @@ void OOMErrorHandler(const char* location, const v8::OOMDetails& details);
   V(ERR_OPERATION_FAILED, TypeError)                                           \
   V(ERR_OPTIONS_BEFORE_BOOTSTRAPPING, Error)                                   \
   V(ERR_OUT_OF_RANGE, RangeError)                                              \
-  V(ERR_REQUIRE_ASYNC_MODULE, Error)                                           \
+  V(ERR_RX_MEMORY_NOT_SUPPORTED, Error)                                        \
   V(ERR_SCRIPT_EXECUTION_INTERRUPTED, Error)                                   \
   V(ERR_SCRIPT_EXECUTION_TIMEOUT, Error)                                       \
   V(ERR_SOURCE_PHASE_NOT_DEFINED, SyntaxError)                                 \
@@ -195,7 +201,6 @@ ERRORS_WITH_CODE(V)
   V(ERR_CRYPTO_INCOMPATIBLE_KEY_OPTIONS,                                       \
     "The selected key encoding is incompatible with the key type")             \
   V(ERR_CRYPTO_INITIALIZATION_FAILED, "Initialization failed")                 \
-  V(ERR_CRYPTO_INVALID_ARGON2_PARAMS, "Invalid Argon2 params")                 \
   V(ERR_CRYPTO_INVALID_AUTH_TAG, "Invalid authentication tag")                 \
   V(ERR_CRYPTO_INVALID_COUNTER, "Invalid counter")                             \
   V(ERR_CRYPTO_INVALID_CURVE, "Invalid EC curve name")                         \
@@ -218,6 +223,7 @@ ERRORS_WITH_CODE(V)
   V(ERR_CRYPTO_UNSUPPORTED_OPERATION, "Unsupported crypto operation")          \
   V(ERR_CRYPTO_JOB_INIT_FAILED, "Failed to initialize crypto job config")      \
   V(ERR_DLOPEN_FAILED, "DLOpen failed")                                        \
+  V(ERR_FFI_LIBRARY_CLOSED, "Library is closed")                               \
   V(ERR_EXECUTION_ENVIRONMENT_NOT_AVAILABLE,                                   \
     "Context not associated with Node.js environment")                         \
   V(ERR_ILLEGAL_CONSTRUCTOR, "Illegal constructor")                            \
@@ -264,28 +270,6 @@ inline void THROW_ERR_SCRIPT_EXECUTION_TIMEOUT(Environment* env,
                                                int64_t timeout) {
   THROW_ERR_SCRIPT_EXECUTION_TIMEOUT(
       env, "Script execution timed out after %dms", timeout);
-}
-
-inline void THROW_ERR_REQUIRE_ASYNC_MODULE(
-    Environment* env,
-    v8::Local<v8::Value> filename,
-    v8::Local<v8::Value> parent_filename) {
-  static constexpr const char* prefix =
-      "require() cannot be used on an ESM graph with top-level await. Use "
-      "import() instead. To see where the top-level await comes from, use "
-      "--experimental-print-required-tla.";
-  std::string message = prefix;
-  if (!parent_filename.IsEmpty() && parent_filename->IsString()) {
-    Utf8Value utf8(env->isolate(), parent_filename);
-    message += "\n  From ";
-    message += utf8.ToStringView();
-  }
-  if (!filename.IsEmpty() && filename->IsString()) {
-    Utf8Value utf8(env->isolate(), filename);
-    message += "\n  Requiring ";
-    message += utf8.ToStringView();
-  }
-  THROW_ERR_REQUIRE_ASYNC_MODULE(env, message);
 }
 
 inline v8::Local<v8::Object> ERR_BUFFER_TOO_LARGE(v8::Isolate* isolate) {

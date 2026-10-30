@@ -3,7 +3,7 @@
 // mkv8snapshot.exe, sbox.exe, v8host.dll). It emits only the version NUMBERS;
 // the shared + per-binary strings live in src/version_info.rc.
 //
-// The version comes from config.json.v8jsi_version (the Node.js-aligned 24.x
+// The version comes from config.json.v8jsi_version (the Node.js-aligned 26.x
 // scheme the new package ships on), NOT config.json.version (the legacy
 // ReactNative.V8Jsi.Windows scheme). The legacy build keeps its own resource via
 // src/version.rc + scripts/fetch_code.ps1 and is intentionally left untouched.

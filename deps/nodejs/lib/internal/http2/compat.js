@@ -300,11 +300,12 @@ function onStreamCloseRequest() {
   req.emit('close');
 }
 
-function onStreamTimeout(kind) {
-  return function onStreamTimeout() {
-    const obj = this[kind];
-    obj.emit('timeout');
-  };
+function onStreamTimeoutRequest() {
+  this[kRequest].emit('timeout');
+}
+
+function onStreamTimeoutResponse() {
+  this[kResponse].emit('timeout');
 }
 
 class Http2ServerRequest extends Readable {
@@ -332,7 +333,7 @@ class Http2ServerRequest extends Readable {
     stream.on('error', onStreamError);
     stream.on('aborted', onStreamAbortedRequest);
     stream.on('close', onStreamCloseRequest);
-    stream.on('timeout', onStreamTimeout(kRequest));
+    stream.on('timeout', onStreamTimeoutRequest);
     this.on('pause', onRequestPause);
     this.on('resume', onRequestResume);
   }
@@ -486,7 +487,7 @@ class Http2ServerResponse extends Stream {
     stream.on('aborted', onStreamAbortedResponse);
     stream.on('close', onStreamCloseResponse);
     stream.on('wantTrailers', onStreamTrailersReady);
-    stream.on('timeout', onStreamTimeout(kResponse));
+    stream.on('timeout', onStreamTimeoutResponse);
   }
 
   // User land modules such as finalhandler just check truthiness of this
@@ -551,12 +552,20 @@ class Http2ServerResponse extends Stream {
     return this[kStream].writableHighWaterMark;
   }
 
+  get writableObjectMode() {
+    return this[kStream].writableObjectMode;
+  }
+
   get writableFinished() {
     return this[kStream].writableFinished;
   }
 
   get writableLength() {
     return this[kStream].writableLength;
+  }
+
+  get writableNeedDrain() {
+    return this[kStream].writableNeedDrain;
   }
 
   set statusCode(code) {
@@ -596,7 +605,13 @@ class Http2ServerResponse extends Stream {
 
   getHeaders() {
     const headers = { __proto__: null };
-    return ObjectAssign(headers, this[kHeaders]);
+    const source = this[kHeaders];
+    const keys = ObjectKeys(source);
+    for (let index = 0; index < keys.length; index++) {
+      const key = keys[index];
+      headers[key] = source[key];
+    }
+    return headers;
   }
 
   hasHeader(name) {
@@ -893,15 +908,37 @@ class Http2ServerResponse extends Stream {
     this[kStream].respond(headers, options);
   }
 
-  // TODO doesn't support callbacks
-  writeContinue() {
+  writeInformation(statusCode, headers) {
+    if (typeof statusCode !== 'number' ||
+        statusCode < 100 || statusCode > 199) {
+      throw new ERR_HTTP2_STATUS_INVALID(statusCode);
+    }
+    if (statusCode === 101) {
+      throw new ERR_HTTP2_STATUS_INVALID(statusCode);
+    }
+
     const stream = this[kStream];
+
     if (stream.headersSent || this[kState].closed)
       return false;
-    stream.additionalHeaders({
-      [HTTP2_HEADER_STATUS]: HTTP_STATUS_CONTINUE,
-    });
+
+    const outHeaders = { __proto__: null };
+    if (headers !== undefined && headers !== null) {
+      validateObject(headers, 'headers');
+      const keys = ObjectKeys(headers);
+      for (let i = 0; i < keys.length; i++) {
+        outHeaders[keys[i]] = headers[keys[i]];
+      }
+    }
+    outHeaders[HTTP2_HEADER_STATUS] = statusCode;
+
+    stream.additionalHeaders(outHeaders);
     return true;
+  }
+
+  // TODO doesn't support callbacks
+  writeContinue() {
+    return this.writeInformation(HTTP_STATUS_CONTINUE);
   }
 
   writeEarlyHints(hints) {
@@ -913,7 +950,11 @@ class Http2ServerResponse extends Stream {
 
     for (const key of ObjectKeys(hints)) {
       if (key !== 'link') {
-        headers[key] = hints[key];
+        const name = key.trim().toLowerCase();
+        assertValidHeader(name, hints[key]);
+        if (!checkIsHttpToken(name))
+          throw new ERR_INVALID_HTTP_TOKEN('Header name', name);
+        headers[name] = hints[key];
       }
     }
 
@@ -921,18 +962,9 @@ class Http2ServerResponse extends Stream {
       return false;
     }
 
-    const stream = this[kStream];
+    headers.Link = linkHeaderValue;
 
-    if (stream.headersSent || this[kState].closed)
-      return false;
-
-    stream.additionalHeaders({
-      ...headers,
-      [HTTP2_HEADER_STATUS]: HTTP_STATUS_EARLY_HINTS,
-      'Link': linkHeaderValue,
-    });
-
-    return true;
+    return this.writeInformation(HTTP_STATUS_EARLY_HINTS, headers);
   }
 }
 

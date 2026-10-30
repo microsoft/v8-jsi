@@ -869,7 +869,7 @@ std::ostream& operator<<(std::ostream& os, TruncateKind kind) {
   V(Float64InsertHighWord32, Operator::kNoProperties, 2, 0, 1)             \
   V(LoadStackCheckOffset, Operator::kNoProperties, 0, 0, 1)                \
   V(LoadFramePointer, Operator::kNoProperties, 0, 0, 1)                    \
-  V(LoadRootRegister, Operator::kNoProperties, 0, 0, 1)                    \
+  V(LoadRootRegister, Operator::kPure, 0, 0, 1)                            \
   V(LoadParentFramePointer, Operator::kNoProperties, 0, 0, 1)              \
   V(Int32PairAdd, Operator::kNoProperties, 4, 0, 2)                        \
   V(Int32PairSub, Operator::kNoProperties, 4, 0, 2)                        \
@@ -1395,6 +1395,11 @@ struct MachineOperatorGlobalCache {
     Store##Type##AssertNoWriteBarrier##Operator()                          \
         : Store##Type##Operator(kAssertNoWriteBarrier) {}                  \
   };                                                                       \
+  struct Store##Type##SkippedWriteBarrier##Operator final                  \
+      : public Store##Type##Operator {                                     \
+    Store##Type##SkippedWriteBarrier##Operator()                           \
+        : Store##Type##Operator(kSkippedWriteBarrier) {}                   \
+  };                                                                       \
   struct Store##Type##MapWriteBarrier##Operator final                      \
       : public Store##Type##Operator {                                     \
     Store##Type##MapWriteBarrier##Operator()                               \
@@ -1457,6 +1462,8 @@ struct MachineOperatorGlobalCache {
   Store##Type##NoWriteBarrier##Operator kStore##Type##NoWriteBarrier;      \
   Store##Type##AssertNoWriteBarrier##Operator                              \
       kStore##Type##AssertNoWriteBarrier;                                  \
+  Store##Type##SkippedWriteBarrier##Operator                               \
+      kStore##Type##SkippedWriteBarrier;                                   \
   Store##Type##MapWriteBarrier##Operator kStore##Type##MapWriteBarrier;    \
   Store##Type##PointerWriteBarrier##Operator                               \
       kStore##Type##PointerWriteBarrier;                                   \
@@ -1788,6 +1795,19 @@ struct MachineOperatorGlobalCache {
                    1, 1, 0, 1, 0) {}
   };
   DebugBreakOperator kDebugBreak;
+
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  template <CodeSandboxingMode mode>
+  struct SwitchSandboxModeOperator : public Operator1<CodeSandboxingMode> {
+    SwitchSandboxModeOperator()
+        : Operator1<CodeSandboxingMode>(IrOpcode::kSwitchSandboxMode,
+                                        Operator::kNoDeopt | Operator::kNoThrow,
+                                        "SwitchSandboxMode", 0, 1, 1, 0, 1, 0,
+                                        mode) {}
+  };
+  SwitchSandboxModeOperator<CodeSandboxingMode::kSandboxed> kEnterSandbox;
+  SwitchSandboxModeOperator<CodeSandboxingMode::kUnsandboxed> kExitSandbox;
+#endif
 
   struct StackPointerGreaterThanOperator : public Operator1<StackCheckKind> {
     explicit StackPointerGreaterThanOperator(StackCheckKind kind)
@@ -2136,6 +2156,8 @@ const Operator* MachineOperatorBuilder::Store(StoreRepresentation store_rep) {
         return &cache_.k##Store##kRep##NoWriteBarrier;           \
       case kAssertNoWriteBarrier:                                \
         return &cache_.k##Store##kRep##AssertNoWriteBarrier;     \
+      case kSkippedWriteBarrier:                                 \
+        return &cache_.k##Store##kRep##SkippedWriteBarrier;      \
       case kMapWriteBarrier:                                     \
         return &cache_.k##Store##kRep##MapWriteBarrier;          \
       case kPointerWriteBarrier:                                 \
@@ -2263,6 +2285,20 @@ const Operator* MachineOperatorBuilder::AbortCSADcheck() {
 const Operator* MachineOperatorBuilder::DebugBreak() {
   return &cache_.kDebugBreak;
 }
+
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+const Operator* MachineOperatorBuilder::SwitchSandboxMode(
+    CodeSandboxingMode mode) {
+  switch (mode) {
+    case CodeSandboxingMode::kUnsandboxed:
+      return &cache_.kExitSandbox;
+    case CodeSandboxingMode::kSandboxed:
+      return &cache_.kEnterSandbox;
+    default:
+      UNREACHABLE();
+  }
+}
+#endif
 
 const Operator* MachineOperatorBuilder::Comment(const char* msg) {
   return zone_->New<CommentOperator>(msg);

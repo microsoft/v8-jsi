@@ -10,7 +10,9 @@ const {
   BigInt,
   BigIntPrototypeToString,
   DataView,
+  DataViewPrototypeGetByteLength,
   DataViewPrototypeGetUint8,
+  DateNow,
   FunctionPrototypeBind,
   FunctionPrototypeCall,
   MathMin,
@@ -19,7 +21,12 @@ const {
   NumberPrototypeToString,
   StringFromCharCodeApply,
   StringPrototypePadStart,
+  TypedArrayPrototypeFill,
   TypedArrayPrototypeGetBuffer,
+  TypedArrayPrototypeGetByteLength,
+  TypedArrayPrototypeGetLength,
+  TypedArrayPrototypeGetSymbolToStringTag,
+  Uint8Array,
 } = primordials;
 
 const {
@@ -28,6 +35,7 @@ const {
   CheckPrimeJob,
   kCryptoJobAsync,
   kCryptoJobSync,
+  randomFillSync: randomFillSyncImpl,
   secureBuffer,
 } = internalBinding('crypto');
 
@@ -57,6 +65,8 @@ const {
 const {
   isArrayBufferView,
   isAnyArrayBuffer,
+  isDataView,
+  isSharedArrayBuffer,
   isTypedArray,
   isFloat16Array,
   isFloat32Array,
@@ -65,8 +75,45 @@ const {
 
 const { FastBuffer } = require('internal/buffer');
 
+const {
+  namespace: {
+    isBuildingSnapshot,
+  },
+  addAfterUserSerializeCallback,
+  addBeforeUserDeserializeCallback,
+} = require('internal/v8/startup_snapshot');
+
 const kMaxInt32 = 2 ** 31 - 1;
 const kMaxPossibleLength = MathMin(kMaxLength, kMaxInt32);
+
+function getByteLength(buf) {
+  if (isArrayBufferView(buf)) {
+    return isDataView(buf) ?
+      DataViewPrototypeGetByteLength(buf) : TypedArrayPrototypeGetByteLength(buf);
+  }
+  if (isSharedArrayBuffer(buf))
+    return TypedArrayPrototypeGetByteLength(new Uint8Array(buf));
+  return ArrayBufferPrototypeGetByteLength(buf);
+}
+
+function getElementSize(buf) {
+  switch (TypedArrayPrototypeGetSymbolToStringTag(buf)) {
+    case 'Int16Array':
+    case 'Uint16Array':
+    case 'Float16Array':
+      return 2;
+    case 'Int32Array':
+    case 'Uint32Array':
+    case 'Float32Array':
+      return 4;
+    case 'Float64Array':
+    case 'BigInt64Array':
+    case 'BigUint64Array':
+      return 8;
+    default:
+      return 1;
+  }
+}
 
 function assertOffset(offset, elementSize, length) {
   validateNumber(offset, 'offset');
@@ -124,29 +171,21 @@ function randomFillSync(buf, offset = 0, size) {
       buf);
   }
 
-  const elementSize = buf.BYTES_PER_ELEMENT || 1;
+  const elementSize = getElementSize(buf);
+  const byteLength = getByteLength(buf);
 
-  offset = assertOffset(offset, elementSize, buf.byteLength);
+  offset = assertOffset(offset, elementSize, byteLength);
 
   if (size === undefined) {
-    size = buf.byteLength - offset;
+    size = byteLength - offset;
   } else {
-    size = assertSize(size, elementSize, offset, buf.byteLength);
+    size = assertSize(size, elementSize, offset, byteLength);
   }
 
   if (size === 0)
     return buf;
 
-  const job = new RandomBytesJob(
-    kCryptoJobSync,
-    buf,
-    offset,
-    size);
-
-  const err = job.run()[0];
-  if (err)
-    throw err;
-
+  randomFillSyncImpl(buf, offset, size);
   return buf;
 }
 
@@ -158,26 +197,27 @@ function randomFill(buf, offset, size, callback) {
       buf);
   }
 
-  const elementSize = buf.BYTES_PER_ELEMENT || 1;
+  const elementSize = getElementSize(buf);
 
   if (typeof offset === 'function') {
     callback = offset;
     offset = 0;
     // Size is a length here, assertSize() call turns it into a number of bytes
-    size = buf.length;
+    size = isTypedArray(buf) ? TypedArrayPrototypeGetLength(buf) : undefined;
   } else if (typeof size === 'function') {
     callback = size;
-    size = buf.length - offset;
+    size = (isTypedArray(buf) ? TypedArrayPrototypeGetLength(buf) : getByteLength(buf)) - offset;
   } else {
     validateFunction(callback, 'callback');
   }
 
-  offset = assertOffset(offset, elementSize, buf.byteLength);
+  const byteLength = getByteLength(buf);
+  offset = assertOffset(offset, elementSize, byteLength);
 
   if (size === undefined) {
-    size = buf.byteLength - offset;
+    size = byteLength - offset;
   } else {
-    size = assertSize(size, elementSize, offset, buf.byteLength);
+    size = assertSize(size, elementSize, offset, byteLength);
   }
 
   if (size === 0) {
@@ -327,10 +367,11 @@ function getRandomValues(data) {
       'The data argument must be an integer-type TypedArray',
       'TypeMismatchError');
   }
-  if (data.byteLength > 65536) {
-    throw lazyDOMException(
-      'The requested length exceeds 65,536 bytes',
-      'QuotaExceededError');
+  const byteLength = TypedArrayPrototypeGetByteLength(data);
+  if (byteLength > 65536) {
+    const { QuotaExceededError } = internalBinding('messaging');
+    throw new QuotaExceededError(
+      'The requested length exceeds 65,536 bytes');
   }
   randomFillSync(data, 0);
   return data;
@@ -347,6 +388,27 @@ let uuidData;
 let uuidNotBuffered;
 let uuidBatch = 0;
 
+if (isBuildingSnapshot()) {
+  const resetRandomCaches = () => {
+    TypedArrayPrototypeFill(randomCache, 0);
+    randomCacheOffset = randomCache.length;
+    if (uuidData !== undefined) {
+      TypedArrayPrototypeFill(uuidData, 0);
+      uuidData = undefined;
+    }
+    if (uuidNotBuffered !== undefined) {
+      TypedArrayPrototypeFill(uuidNotBuffered, 0);
+      uuidNotBuffered = undefined;
+    }
+    uuidBatch = 0;
+  };
+  // Clear cached random data after user serialization callbacks.
+  addAfterUserSerializeCallback(resetRandomCaches);
+  // Microtasks and exit handlers can refill the caches after serialization
+  // callbacks, so also reset them before any user deserialization callbacks.
+  addBeforeUserDeserializeCallback(resetRandomCaches);
+}
+
 let hexBytesCache;
 function getHexBytes() {
   if (hexBytesCache === undefined) {
@@ -359,7 +421,7 @@ function getHexBytes() {
   return hexBytesCache;
 }
 
-function serializeUUID(buf, offset = 0) {
+function serializeUUID(buf, version, variant, offset = 0) {
   const kHexBytes = getHexBytes();
   // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
   return kHexBytes[buf[offset]] +
@@ -370,10 +432,10 @@ function serializeUUID(buf, offset = 0) {
     kHexBytes[buf[offset + 4]] +
     kHexBytes[buf[offset + 5]] +
     '-' +
-    kHexBytes[(buf[offset + 6] & 0x0f) | 0x40] +
+    kHexBytes[(buf[offset + 6] & 0x0f) | version] +
     kHexBytes[buf[offset + 7]] +
     '-' +
-    kHexBytes[(buf[offset + 8] & 0x3f) | 0x80] +
+    kHexBytes[(buf[offset + 8] & 0x3f) | variant] +
     kHexBytes[buf[offset + 9]] +
     '-' +
     kHexBytes[buf[offset + 10]] +
@@ -391,7 +453,7 @@ function getBufferedUUID() {
 
   if (uuidBatch === 0) randomFillSync(uuidData);
   uuidBatch = (uuidBatch + 1) % kBatchSize;
-  return serializeUUID(uuidData, uuidBatch * 16);
+  return serializeUUID(uuidData, 0x40, 0x80, uuidBatch * 16);
 }
 
 function getUnbufferedUUID() {
@@ -399,7 +461,7 @@ function getUnbufferedUUID() {
   if (uuidNotBuffered === undefined)
     throw new ERR_OPERATION_FAILED('Out of memory');
   randomFillSync(uuidNotBuffered);
-  return serializeUUID(uuidNotBuffered);
+  return serializeUUID(uuidNotBuffered, 0x40, 0x80);
 }
 
 function randomUUID(options) {
@@ -412,6 +474,50 @@ function randomUUID(options) {
   validateBoolean(disableEntropyCache, 'options.disableEntropyCache');
 
   return disableEntropyCache ? getUnbufferedUUID() : getBufferedUUID();
+}
+
+function writeTimestamp(buf, offset) {
+  const now = DateNow();
+  const msb = now / (2 ** 32);
+  buf[offset] = msb >>> 8;
+  buf[offset + 1] = msb;
+  buf[offset + 2] = now >>> 24;
+  buf[offset + 3] = now >>> 16;
+  buf[offset + 4] = now >>> 8;
+  buf[offset + 5] = now;
+}
+
+function getBufferedUUIDv7() {
+  uuidData ??= secureBuffer(16 * kBatchSize);
+  if (uuidData === undefined)
+    throw new ERR_OPERATION_FAILED('Out of memory');
+
+  if (uuidBatch === 0) randomFillSync(uuidData);
+  uuidBatch = (uuidBatch + 1) % kBatchSize;
+  const offset = uuidBatch * 16;
+  writeTimestamp(uuidData, offset);
+  return serializeUUID(uuidData, 0x70, 0x80, offset);
+}
+
+function getUnbufferedUUIDv7() {
+  uuidNotBuffered ??= secureBuffer(16);
+  if (uuidNotBuffered === undefined)
+    throw new ERR_OPERATION_FAILED('Out of memory');
+  randomFillSync(uuidNotBuffered, 6);
+  writeTimestamp(uuidNotBuffered, 0);
+  return serializeUUID(uuidNotBuffered, 0x70, 0x80);
+}
+
+function randomUUIDv7(options) {
+  if (options !== undefined)
+    validateObject(options, 'options');
+  const {
+    disableEntropyCache = false,
+  } = options || kEmptyObject;
+
+  validateBoolean(disableEntropyCache, 'options.disableEntropyCache');
+
+  return disableEntropyCache ? getUnbufferedUUIDv7() : getBufferedUUIDv7();
 }
 
 function createRandomPrimeJob(type, size, options) {
@@ -558,12 +664,14 @@ function checkPrime(candidate, options = kEmptyObject, callback) {
   }
   validateFunction(callback, 'callback');
   validateObject(options, 'options');
-  const {
+  let {
     checks = 0,
   } = options;
 
   // The checks option is unsigned but must fit into a signed C int for OpenSSL.
   validateInt32(checks, 'options.checks', 0);
+  // Coerce -0 to +0.
+  checks += 0;
 
   const job = new CheckPrimeJob(kCryptoJobAsync, candidate, checks);
   job.ondone = callback;
@@ -587,12 +695,14 @@ function checkPrimeSync(candidate, options = kEmptyObject) {
     );
   }
   validateObject(options, 'options');
-  const {
+  let {
     checks = 0,
   } = options;
 
   // The checks option is unsigned but must fit into a signed C int for OpenSSL.
   validateInt32(checks, 'options.checks', 0);
+  // Coerce -0 to +0.
+  checks += 0;
 
   const job = new CheckPrimeJob(kCryptoJobSync, candidate, checks);
   const { 0: err, 1: result } = job.run();
@@ -611,6 +721,7 @@ module.exports = {
   randomInt,
   getRandomValues,
   randomUUID,
+  randomUUIDv7,
   generatePrime,
   generatePrimeSync,
 };

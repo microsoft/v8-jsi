@@ -103,7 +103,8 @@ void ExternalPointerTableEntry::MakeFreelistEntry(uint32_t next_entry_index) {
   payload_.store(new_payload, std::memory_order_relaxed);
 }
 
-uint32_t ExternalPointerTableEntry::GetNextFreelistEntryIndex() const {
+std::optional<uint32_t> ExternalPointerTableEntry::GetNextFreelistEntryIndex()
+    const {
   auto payload = payload_.load(std::memory_order_relaxed);
   return payload.ExtractFreelistLink();
 }
@@ -162,6 +163,15 @@ void ExternalPointerTableEntry::Evacuate(ExternalPointerTableEntry& dest,
   MakeZappedEntry();
 }
 
+void ExternalPointerTableEntry::CopyFrom(const ExternalPointerTableEntry& src) {
+  auto payload = src.payload_.load(std::memory_order_relaxed);
+  DCHECK(payload.ContainsPointer());
+  payload_.store(payload, std::memory_order_relaxed);
+#if defined(LEAK_SANITIZER)
+  raw_pointer_for_lsan_ = src.raw_pointer_for_lsan_;
+#endif  // LEAK_SANITIZER
+}
+
 Address ExternalPointerTable::Get(ExternalPointerHandle handle,
                                   ExternalPointerTagRange tag_range) const {
   uint32_t index = HandleToIndex(handle);
@@ -215,6 +225,22 @@ ExternalPointerHandle ExternalPointerTable::AllocateAndInitializeEntry(
   ExternalPointerHandle handle = IndexToHandle(index);
   TakeOwnershipOfManagedResourceIfNecessary(initial_value, handle, tag);
   return handle;
+}
+
+ExternalPointerHandle ExternalPointerTable::DuplicateEntry(
+    Space* space, ExternalPointerHandle handle) {
+  DCHECK_NE(handle, kNullExternalPointerHandle);
+  uint32_t old_index = HandleToIndex(handle);
+  uint32_t new_index = AllocateEntry(space);
+  if (new_index == 0) return kNullExternalPointerHandle;
+
+  // We do not call `TakeOwnershipOfManagedResourceIfNecessary` here as that
+  // method only has to be called for pointers owned by a `Managed` object, and
+  // for `Managed` objects it should never be necessary to duplicate the entry.
+  CHECK(!IsManagedExternalPointerType(at(old_index).GetExternalPointerTag()));
+
+  at(new_index).CopyFrom(at(old_index));
+  return IndexToHandle(new_index);
 }
 
 void ExternalPointerTable::Mark(Space* space, ExternalPointerHandle handle,
@@ -366,7 +392,17 @@ void ExternalPointerTable::FreeManagedResourceIfPresent(uint32_t entry_index) {
   // does not attempt to zap its entry when it is eventually destroyed.
   if (Address addr = at(entry_index).ExtractManagedResourceOrNull()) {
     ManagedResource* resource = reinterpret_cast<ManagedResource*>(addr);
-    DCHECK_EQ(resource->ept_entry_, IndexToHandle(entry_index));
+
+    // This can currently only happen during snapshot stress mode as we cannot
+    // normally serialized managed resources. In snapshot stress mode, the new
+    // isolate will be destroyed and the old isolate (really, the old isolate's
+    // external pointer table) therefore effectively retains ownership of the
+    // resource. As such, we need to save and restore the relevant fields of
+    // the external resource. Once the external pointer table itself destroys
+    // the managed resource when freeing the corresponding table entry, this
+    // workaround can be removed again.
+    DCHECK_IMPLIES(!v8_flags.stress_snapshot,
+                   resource->ept_entry_ == IndexToHandle(entry_index));
     resource->ept_entry_ = kNullExternalPointerHandle;
   }
 }

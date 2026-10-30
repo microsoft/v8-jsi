@@ -4,6 +4,7 @@
 #include "v8-inspector.h"
 #include "v8-platform.h"
 #include "v8-message.h"
+#include "v8-version.h"
 
 #include "inspector_agent.h"
 #include "inspector_socket_server.h"
@@ -535,7 +536,11 @@ std::unique_ptr<v8_inspector::StringBuffer> ToProtocolString(
   v8::Local<v8::String> string_value = v8::Local<v8::String>::Cast(value);
   int len = string_value->Length();
   std::basic_string<uint16_t> buffer(len, '\0');
+#if V8_MAJOR_VERSION >= 14
+  string_value->WriteV2(v8::Isolate::GetCurrent(), 0, len, buffer.data());
+#else
   string_value->Write(v8::Isolate::GetCurrent(), &buffer[0], 0, len);
+#endif
   return v8_inspector::StringBuffer::create(
       v8_inspector::StringView(buffer.data(), len));
 }

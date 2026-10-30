@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "src/common/globals.h"
+#include "src/wasm/wasm-features.h"
 
 namespace v8 {
 class Value;
@@ -33,6 +34,7 @@ V8_EXPORT_PRIVATE std::unique_ptr<WasmStreaming> StartStreamingForTesting(
   V(WebAssemblyCompile)                    \
   V(WebAssemblyException)                  \
   V(WebAssemblyExceptionGetArg)            \
+  V(WebAssemblyExceptionGetStack)          \
   V(WebAssemblyExceptionIs)                \
   V(WebAssemblyGlobal)                     \
   V(WebAssemblyGlobalGetValue)             \
@@ -83,6 +85,11 @@ class WasmJs {
   // Extend the API based on late-enabled features, mostly from origin trial.
   V8_EXPORT_PRIVATE static void InstallConditionalFeatures(
       Isolate* isolate, DirectHandle<NativeContext> context);
+
+  // Parse compile time imports from a given argument.
+  V8_EXPORT_PRIVATE static wasm::CompileTimeImports
+  CompileTimeImportsFromArgument(DirectHandle<Object> arg, Isolate*,
+                                 wasm::WasmEnabledFeatures);
 
  private:
   V8_EXPORT_PRIVATE static void InstallModule(

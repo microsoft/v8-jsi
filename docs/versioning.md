@@ -7,12 +7,13 @@ releases).
 
 ## Format
 
-`MAJOR.MINOR.PATCH` — currently `24.x.y`.
+`MAJOR.MINOR.PATCH` — currently `26.x.y`. This follows the vendored Node.js
+sources, not the Node.js 24.x runtime used to run build tools.
 
 | Component | Meaning | Bump trigger |
 |---|---|---|
 | `MAJOR` | Node.js major LTS the build is on. | v8-jsi switches to a new Node.js major (e.g. v24 → v26). |
-| `MINOR` | API / Node-minor checkpoint. | (a) v8-jsi-side API change (JSI / JSI-ABI / public C surface), or (b) Node.js minor-version sync (v24.M → v24.M+1). |
+| `MINOR` | API / Node-minor checkpoint. | (a) v8-jsi-side API change (JSI / JSI-ABI / public C surface), or (b) Node.js minor-version sync (v26.M → v26.M+1). |
 | `PATCH` | Node.js patch sync or bug-fix-only release. | Node.js patch-version sync without API change, or a v8-jsi bug-fix release on the current Node.js minor. |
 
 ## Fields in `config.json`

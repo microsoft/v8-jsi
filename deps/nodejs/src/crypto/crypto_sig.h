@@ -104,7 +104,6 @@ struct SignConfiguration final : public MemoryRetainer {
     kHasContextString = 4
   };
 
-  CryptoJobMode job_mode;
   Mode mode;
   KeyObjectData key;
   ByteSource data;
@@ -143,7 +142,8 @@ struct SignTraits final {
   static bool DeriveBits(Environment* env,
                          const SignConfiguration& params,
                          ByteSource* out,
-                         CryptoJobMode mode);
+                         CryptoJobMode mode,
+                         CryptoErrorStore* errors);
 
   static v8::MaybeLocal<v8::Value> EncodeOutput(Environment* env,
                                                 const SignConfiguration& params,

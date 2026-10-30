@@ -12,10 +12,10 @@
 namespace node {
 namespace crypto {
 struct HKDFConfig final : public MemoryRetainer {
-  CryptoJobMode mode;
   size_t length;
   ncrypto::Digest digest;
   KeyObjectData key;
+  ByteSource key_data;
   ByteSource salt;
   ByteSource info;
 
@@ -45,7 +45,8 @@ struct HKDFTraits final {
   static bool DeriveBits(Environment* env,
                          const HKDFConfig& params,
                          ByteSource* out,
-                         CryptoJobMode mode);
+                         CryptoJobMode mode,
+                         CryptoErrorStore* errors);
 
   static v8::MaybeLocal<v8::Value> EncodeOutput(Environment* env,
                                                 const HKDFConfig& params,

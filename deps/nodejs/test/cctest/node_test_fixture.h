@@ -57,7 +57,8 @@ struct Argv {
 
 using ArrayBufferUniquePtr = std::unique_ptr<node::ArrayBufferAllocator,
       decltype(&node::FreeArrayBufferAllocator)>;
-using TracingAgentUniquePtr = std::unique_ptr<node::tracing::Agent>;
+using TracingAgentUniquePtr =
+    std::unique_ptr<node::tracing::Agent, node::tracing::Agent::Deleter>;
 using NodePlatformUniquePtr = std::unique_ptr<node::NodePlatform>;
 
 class NodeTestEnvironment final : public ::testing::Environment {
@@ -81,13 +82,15 @@ class NodeZeroIsolateTestFixture : public ::testing::Test {
     if (!node_initialized) {
       node_initialized = true;
       uv_os_unsetenv("NODE_OPTIONS");
-      std::vector<std::string> argv { "cctest" };
-      std::vector<std::string> exec_argv;
-      std::vector<std::string> errors;
+      std::vector<std::string> argv{"cctest"};
 
-      int exitcode = node::InitializeNodeWithArgs(&argv, &exec_argv, &errors);
-      CHECK_EQ(exitcode, 0);
-      CHECK(errors.empty());
+      std::shared_ptr<node::InitializationResult> result =
+          node::InitializeOncePerProcess(
+              argv,
+              node::ProcessInitializationFlags::
+                  kLegacyInitializeNodeWithArgsBehavior);
+      CHECK_EQ(result->exit_code(), 0);
+      CHECK(result->errors().empty());
     }
     CHECK_EQ(0, uv_loop_init(&current_loop));
   }

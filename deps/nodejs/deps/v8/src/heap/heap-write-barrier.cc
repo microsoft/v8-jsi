@@ -13,7 +13,9 @@
 #include "src/heap/remembered-set.h"
 #include "src/objects/code-inl.h"
 #include "src/objects/slots-inl.h"
+#include "src/sandbox/isolate.h"
 #include "src/sandbox/js-dispatch-table-inl.h"
+#include "src/sandbox/js-dispatch-table.h"
 
 namespace v8::internal {
 
@@ -28,14 +30,8 @@ MarkingBarrier* WriteBarrier::CurrentMarkingBarrier(
   MarkingBarrier* marking_barrier = current_marking_barrier;
   DCHECK_NOT_NULL(marking_barrier);
 #if DEBUG
-  if (!verification_candidate.is_null() &&
-      !HeapLayout::InAnySharedSpace(verification_candidate)) {
-    Heap* host_heap =
-        MutablePageMetadata::FromHeapObject(verification_candidate)->heap();
     LocalHeap* local_heap = LocalHeap::Current();
-    if (!local_heap) local_heap = host_heap->main_thread_local_heap();
     DCHECK_EQ(marking_barrier, local_heap->marking_barrier());
-  }
 #endif  // DEBUG
   return marking_barrier;
 }
@@ -46,13 +42,21 @@ MarkingBarrier* WriteBarrier::SetForThread(MarkingBarrier* marking_barrier) {
   return existing;
 }
 
+template V8_EXPORT_PRIVATE void WriteBarrier::MarkingSlow<RecordYoungSlot::kNo>(
+    Tagged<HeapObject> host, HeapObjectSlot slot, Tagged<HeapObject> value);
+template V8_EXPORT_PRIVATE void
+WriteBarrier::MarkingSlow<RecordYoungSlot::kYes>(Tagged<HeapObject> host,
+                                                 HeapObjectSlot slot,
+                                                 Tagged<HeapObject> value);
+
+template <RecordYoungSlot kRecordYoung>
 void WriteBarrier::MarkingSlow(Tagged<HeapObject> host, HeapObjectSlot slot,
                                Tagged<HeapObject> value) {
-  SLOW_DCHECK_IMPLIES(kUninterestingPagesCanBeSkipped,
-                      MemoryChunk::FromHeapObject(host)->GetFlags() &
-                          MemoryChunk::kPointersFromHereAreInterestingMask);
+  SLOW_DCHECK_IMPLIES(
+      kUninterestingPagesCanBeSkipped,
+      MemoryChunk::FromHeapObject(host)->PointersFromHereAreInteresting());
   MarkingBarrier* marking_barrier = CurrentMarkingBarrier(host);
-  marking_barrier->Write(host, slot, value);
+  marking_barrier->Write<HeapObjectSlot, kRecordYoung>(host, slot, value);
 }
 
 // static
@@ -62,10 +66,9 @@ void WriteBarrier::MarkingSlowFromTracedHandle(Tagged<HeapObject> value) {
 }
 
 // static
-void WriteBarrier::MarkingSlowFromCppHeapWrappable(Heap* heap,
-                                                   Tagged<JSObject> host,
-                                                   CppHeapPointerSlot slot,
-                                                   void* object) {
+void WriteBarrier::MarkingSlowFromCppHeapWrappable(
+    Heap* heap, Tagged<CppHeapPointerWrapperObjectT> host,
+    CppHeapPointerSlot slot, void* object) {
   // Note: this is currently a combined barrier for marking both the
   // CppHeapPointerTable entry and the referenced object (if any).
 
@@ -78,6 +81,10 @@ void WriteBarrier::MarkingSlowFromCppHeapWrappable(Heap* heap,
 
   ExternalPointerHandle handle = slot.Relaxed_LoadHandle();
   table.Mark(space, handle, slot.address());
+  // The check here ensures that a handle (slot) and its object marking state
+  // stay in sync to avoid a marked handle pointing to an unmarked object.
+  SBXCHECK_EQ(table.Get(handle, kAnyCppHeapPointer),
+              reinterpret_cast<Address>(object));
 #endif  // V8_COMPRESS_POINTERS
 
   if (heap->cpp_heap() && object) {
@@ -109,7 +116,7 @@ void WriteBarrier::SharedHeapBarrierSlow(Tagged<HeapObject> object,
   MemoryChunk* chunk = MemoryChunk::FromHeapObject(object);
   DCHECK(!chunk->InWritableSharedSpace());
   RememberedSet<OLD_TO_SHARED>::Insert<AccessMode::ATOMIC>(
-      MutablePageMetadata::cast(chunk->Metadata()), chunk->Offset(slot));
+      SbxCast<MutablePage>(chunk->Metadata()), chunk->Offset(slot));
 }
 
 // static
@@ -118,8 +125,8 @@ void WriteBarrier::SharedSlow(Tagged<TrustedObject> host,
                               Tagged<TrustedObject> value) {
   DCHECK(MemoryChunk::FromHeapObject(value)->InWritableSharedSpace());
   if (!MemoryChunk::FromHeapObject(host)->InWritableSharedSpace()) {
-    MutablePageMetadata* host_chunk_metadata =
-        MutablePageMetadata::FromHeapObject(host);
+    MutablePage* host_chunk_metadata =
+        MutablePage::FromHeapObject(Isolate::Current(), host);
     RememberedSet<TRUSTED_TO_SHARED_TRUSTED>::Insert<AccessMode::NON_ATOMIC>(
         host_chunk_metadata, host_chunk_metadata->Offset(slot.address()));
   }
@@ -149,6 +156,7 @@ void WriteBarrier::MarkingSlow(Tagged<HeapObject> host,
       isolate.GetExternalPointerTableFor(slot.tag_range());
   ExternalPointerTable::Space* space =
       isolate.GetExternalPointerTableSpaceFor(slot.tag_range(), host.address());
+  DCHECK(!space->is_internal_read_only_space());
 
   ExternalPointerHandle handle = slot.Relaxed_LoadHandle();
   table.Mark(space, handle, slot.address());
@@ -170,7 +178,6 @@ void WriteBarrier::MarkingSlow(Tagged<TrustedObject> host,
 
 void WriteBarrier::MarkingSlow(Tagged<HeapObject> host,
                                JSDispatchHandle handle) {
-#ifdef V8_ENABLE_LEAPTIERING
   MarkingBarrier* marking_barrier = CurrentMarkingBarrier(host);
 
   // The JSDispatchTable is only marked during major GC so we can skip the
@@ -181,18 +188,21 @@ void WriteBarrier::MarkingSlow(Tagged<HeapObject> host,
   if (marking_barrier->is_minor()) return;
 
   // Mark both the table entry and its content.
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
+  Isolate* isolate = Isolate::Current();
+  JSDispatchTable& jdt = isolate->js_dispatch_table();
   static_assert(JSDispatchTable::kWriteBarrierSetsEntryMarkBit);
-  jdt->Mark(handle);
-  marking_barrier->MarkValue(host, jdt->GetCode(handle));
+#ifdef DEBUG
+  Heap* heap = isolate->heap();
+  jdt.VerifyEntry(handle, heap->js_dispatch_table_space(),
+                  heap->read_only_js_dispatch_table_space());
+#endif  // DEBUG
+  jdt.Mark(handle);
+  marking_barrier->MarkValue(host, jdt.GetCode(handle));
 
   // We don't need to record a slot here because the entries in the
   // JSDispatchTable are not compacted and because the pointers stored in the
   // table entries are updated after compacting GC.
   static_assert(!JSDispatchTable::kSupportsCompaction);
-#else
-  UNREACHABLE();
-#endif
 }
 
 int WriteBarrier::MarkingFromCode(Address raw_host, Address raw_slot) {
@@ -210,7 +220,9 @@ int WriteBarrier::MarkingFromCode(Address raw_host, Address raw_slot) {
 #endif
 
 #if DEBUG
-  Heap* heap = MutablePageMetadata::FromHeapObject(host)->heap();
+  // TODO(leszeks): Decide whether we want to read metadata without the Isolate,
+  // or just use the TLS Isolate for the Heap.
+  Heap* heap = MutablePage::FromHeapObject(Isolate::Current(), host)->heap();
   DCHECK(heap->incremental_marking()->IsMarking());
 
   // We will only reach local objects here while incremental marking in the
@@ -257,7 +269,9 @@ int WriteBarrier::SharedMarkingFromCode(Address raw_host, Address raw_slot) {
   DCHECK(HeapLayout::InWritableSharedSpace(host));
 
 #if DEBUG
-  Heap* heap = MutablePageMetadata::FromHeapObject(host)->heap();
+  // TODO(leszeks): Decide whether we want to read metadata without the Isolate,
+  // or just use the TLS Isolate for the Heap.
+  Heap* heap = MutablePage::FromHeapObject(Isolate::Current(), host)->heap();
   DCHECK(heap->incremental_marking()->IsMajorMarking());
   Isolate* isolate = heap->isolate();
   DCHECK(isolate->is_shared_space_isolate());
@@ -288,12 +302,8 @@ int WriteBarrier::SharedFromCode(Address raw_host, Address raw_slot) {
 
 // static
 bool WriteBarrier::PageFlagsAreConsistent(Tagged<HeapObject> object) {
-  MemoryChunkMetadata* metadata = MemoryChunkMetadata::FromHeapObject(object);
+  BasePage* metadata = BasePage::FromHeapObject(Isolate::Current(), object);
   MemoryChunk* chunk = MemoryChunk::FromHeapObject(object);
-
-  // Slim chunk flags consistency.
-  CHECK_EQ(chunk->IsFlagSet(MemoryChunk::INCREMENTAL_MARKING),
-           chunk->IsMarking());
 
   if (!v8_flags.sticky_mark_bits) {
     AllocationSpace identity = metadata->owner()->identity();
@@ -340,12 +350,12 @@ void WriteBarrier::GenerationalBarrierForCodeSlow(
 // static
 void WriteBarrier::CombinedGenerationalAndSharedEphemeronBarrierSlow(
     Tagged<EphemeronHashTable> table, Address slot, Tagged<HeapObject> value) {
-  SLOW_DCHECK_IMPLIES(kUninterestingPagesCanBeSkipped,
-                      MemoryChunk::FromHeapObject(table)->GetFlags() &
-                          MemoryChunk::kPointersFromHereAreInterestingMask);
+  SLOW_DCHECK_IMPLIES(
+      kUninterestingPagesCanBeSkipped,
+      MemoryChunk::FromHeapObject(table)->PointersFromHereAreInteresting());
   if (HeapLayout::InYoungGeneration(value)) {
-    MutablePageMetadata* table_chunk =
-        MutablePageMetadata::FromHeapObject(table);
+    MutablePage* table_chunk =
+        MutablePage::FromHeapObject(Isolate::Current(), table);
     table_chunk->heap()->ephemeron_remembered_set()->RecordEphemeronKeyWrite(
         table, slot);
   } else {
@@ -358,9 +368,8 @@ void WriteBarrier::CombinedGenerationalAndSharedEphemeronBarrierSlow(
 // static
 void WriteBarrier::CombinedGenerationalAndSharedBarrierSlow(
     Tagged<HeapObject> object, Address slot, Tagged<HeapObject> value) {
-  if (HeapLayout::InYoungGeneration(value)) {
+  if (V8_LIKELY(HeapLayout::InYoungGeneration(value))) {
     GenerationalBarrierSlow(object, slot, value);
-
   } else {
     DCHECK(MemoryChunk::FromHeapObject(value)->InWritableSharedSpace());
     DCHECK(!HeapLayout::InWritableSharedSpace(object));
@@ -368,18 +377,43 @@ void WriteBarrier::CombinedGenerationalAndSharedBarrierSlow(
   }
 }
 
+// static
+void WriteBarrier::CombinedWriteBarrierInternalSlow(Tagged<HeapObject> host,
+                                                    MemoryChunk* host_chunk,
+                                                    HeapObjectSlot slot,
+                                                    Tagged<HeapObject> value,
+                                                    MemoryChunk* value_chunk) {
+  DCHECK(host_chunk->PointersFromHereAreInteresting() ||
+         value_chunk->PointersFromHereAreInteresting());
+  // Generational or shared heap write barrier (old-to-new or
+  // old-to-shared).
+  const bool pointers_from_here_are_interesting =
+      !host_chunk->IsYoungOrSharedChunk();
+  if (V8_LIKELY(pointers_from_here_are_interesting &&
+                value_chunk->IsYoungOrSharedChunk())) {
+    CombinedGenerationalAndSharedBarrierSlow(host, slot.address(), value);
+  }
+
+  // Marking barrier: mark value & record slots when marking is on.
+  if (V8_UNLIKELY(host_chunk->IsMarking())) {
+    MarkingSlow(host, HeapObjectSlot(slot), value);
+  }
+}
+
 //  static
-void WriteBarrier::GenerationalBarrierSlow(Tagged<HeapObject> object,
+void WriteBarrier::GenerationalBarrierSlow(Tagged<HeapObject> host,
                                            Address slot,
                                            Tagged<HeapObject> value) {
-  MemoryChunk* chunk = MemoryChunk::FromHeapObject(object);
-  MutablePageMetadata* metadata = MutablePageMetadata::cast(chunk->Metadata());
-  if (LocalHeap::Current() == nullptr) {
+  const LocalHeap* local_heap = LocalHeap::Current();
+  MemoryChunk* host_chunk = MemoryChunk::FromHeapObject(host);
+  MutablePage* host_page =
+      SbxCast<MutablePage>(host_chunk->Metadata(local_heap->heap()->isolate()));
+  if (local_heap->is_main_thread()) {
     RememberedSet<OLD_TO_NEW>::Insert<AccessMode::NON_ATOMIC>(
-        metadata, chunk->Offset(slot));
+        host_page, host_chunk->Offset(slot));
   } else {
     RememberedSet<OLD_TO_NEW_BACKGROUND>::Insert<AccessMode::ATOMIC>(
-        metadata, chunk->Offset(slot));
+        host_page, host_chunk->Offset(slot));
   }
 }
 
@@ -412,7 +446,7 @@ void ForRangeImpl(Heap* heap, MemoryChunk* source_chunk,
 
   MarkingBarrier* marking_barrier = nullptr;
   static constexpr Tagged_t kPageMask =
-      ~static_cast<Tagged_t>(PageMetadata::kPageSize - 1);
+      ~static_cast<Tagged_t>(NormalPage::kPageSize - 1);
   Tagged_t cached_uninteresting_page =
       static_cast<Tagged_t>(heap->read_only_space()->FirstPageAddress()) &
       kPageMask;
@@ -422,8 +456,8 @@ void ForRangeImpl(Heap* heap, MemoryChunk* source_chunk,
   }
 
   MarkCompactCollector* collector = heap->mark_compact_collector();
-  MutablePageMetadata* source_page_metadata =
-      MutablePageMetadata::cast(source_chunk->Metadata());
+  MutablePage* source_page_metadata =
+      SbxCast<MutablePage>(source_chunk->Metadata());
 
   for (TSlot slot = start_slot; slot < end_slot; ++slot) {
     // If we *only* need the generational or shared WB, we can skip objects
@@ -489,10 +523,12 @@ template <typename TSlot>
 // static
 void WriteBarrier::ForRange(Heap* heap, Tagged<HeapObject> object,
                             TSlot start_slot, TSlot end_slot) {
-  if (v8_flags.disable_write_barriers) return;
+  if (v8_flags.disable_write_barriers) {
+    return;
+  }
   MemoryChunk* source_chunk = MemoryChunk::FromHeapObject(object);
-  base::Flags<RangeWriteBarrierMode> mode;
 
+  base::Flags<RangeWriteBarrierMode> mode;
   if (!HeapLayout::InYoungGeneration(object) &&
       !source_chunk->InWritableSharedSpace()) {
     mode |= kDoGenerationalOrShared;
@@ -535,17 +571,26 @@ void WriteBarrier::ForRange(Heap* heap, Tagged<HeapObject> object,
   }
 }
 
-#ifdef ENABLE_SLOW_DCHECKS
+#if V8_VERIFY_WRITE_BARRIERS
 
 // static
 bool WriteBarrier::VerifyDispatchHandleMarkingState(Tagged<HeapObject> host,
                                                     JSDispatchHandle handle,
                                                     WriteBarrierMode mode) {
-#ifdef V8_ENABLE_LEAPTIERING
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
-  if (mode == SKIP_WRITE_BARRIER &&
-      WriteBarrier::IsRequired(host, jdt->GetCode(handle))) {
-    return false;
+  JSDispatchTable& jdt = Isolate::Current()->js_dispatch_table();
+  Tagged<Code> value = jdt.GetCode(handle);
+
+  if (mode == SKIP_WRITE_BARRIER) {
+    if (value->is_builtin()) {
+      // Builtins are immortal and immovable, so no write barrier needed.
+      BasePage* page = BasePage::FromHeapObject(value);
+      DCHECK(page->never_evacuate());
+      return true;
+    }
+
+    if (WriteBarrier::IsRequired(host, value)) {
+      return false;
+    }
   }
 
   if (CurrentMarkingBarrier(host)->is_not_major()) return true;
@@ -558,19 +603,63 @@ bool WriteBarrier::VerifyDispatchHandleMarkingState(Tagged<HeapObject> host,
       !CurrentMarkingBarrier(host)->IsMarked(host)) {
     return true;
   }
-  if (jdt->IsMarked(handle)) {
+  if (jdt.IsMarked(handle)) {
     return true;
   }
-  Tagged<Code> value = jdt->GetCode(handle);
   if (ReadOnlyHeap::Contains(value)) {
     return true;
   }
   return !CurrentMarkingBarrier(host)->IsMarked(value);
-#else
-  return true;
-#endif  // V8_ENABLE_LEAPTIERING
 }
 
-#endif  // ENABLE_SLOW_DCHECKS
+#endif  // V8_VERIFY_WRITE_BARRIERS
+
+WriteBarrierModeScope::WriteBarrierModeScope(WriteBarrierMode mode)
+    : mode_(mode) {
+  DCHECK_NE(SKIP_WRITE_BARRIER_SCOPE, mode_);
+#if V8_VERIFY_WRITE_BARRIERS
+  if (v8_flags.verify_write_barriers) {
+    CHECK_EQ(LocalHeap::Current()->write_barrier_mode_for_object_,
+             kNullAddress);
+  }
+#endif  // V8_VERIFY_WRITE_BARRIERS
+}
+
+WriteBarrierModeScope::WriteBarrierModeScope(Tagged<HeapObject> object,
+                                             WriteBarrierMode mode)
+    : object_(object), mode_(mode) {
+#if V8_VERIFY_WRITE_BARRIERS
+  if (v8_flags.verify_write_barriers) {
+    LocalHeap* local_heap = LocalHeap::Current();
+    CHECK_EQ(local_heap->write_barrier_mode_for_object_, kNullAddress);
+    CHECK(!object_.is_null());
+    local_heap->write_barrier_mode_for_object_ = object_.address();
+  }
+#endif  // V8_VERIFY_WRITE_BARRIERS
+}
+
+WriteBarrierModeScope::~WriteBarrierModeScope() {
+#if V8_VERIFY_WRITE_BARRIERS
+  if (v8_flags.verify_write_barriers && mode_.has_value()) {
+    LocalHeap* local_heap = LocalHeap::Current();
+    if (object_.is_null()) {
+      CHECK_EQ(local_heap->write_barrier_mode_for_object_, kNullAddress);
+    } else {
+      CHECK_EQ(local_heap->write_barrier_mode_for_object_, object_.address());
+    }
+    LocalHeap::Current()->write_barrier_mode_for_object_ = kNullAddress;
+  }
+#endif  // V8_VERIFY_WRITE_BARRIERS
+}
+
+#if V8_VERIFY_WRITE_BARRIERS
+
+// static
+bool WriteBarrier::IsMostRecentYoungAllocation(Address object) {
+  LocalHeap* local_heap = LocalHeap::Current();
+  return local_heap->allocator()->IsMostRecentYoungAllocation(object);
+}
+
+#endif  // V8_VERIFY_WRITE_BARRIERS
 
 }  // namespace v8::internal

@@ -107,6 +107,7 @@ inline Local<ArrayBuffer> get_fields_array_buffer(
   CHECK(args[index]->IsFloat64Array());
   Local<Float64Array> arr = args[index].As<Float64Array>();
   CHECK_EQ(arr->Length(), array_length);
+  CHECK_EQ(arr->ByteOffset(), 0);
   return arr->Buffer();
 }
 
@@ -510,6 +511,10 @@ static void ReallyExit(const FunctionCallbackInfo<Value>& args) {
 }
 
 #if defined __POSIX__ && !defined(__PASE__)
+// Clears FD_CLOEXEC on `fd` so the descriptor is inherited across execve(2).
+// On success returns the previous F_GETFD flags (>= 0) so callers can
+// restore them if execve(2) subsequently fails. On failure returns -1 with
+// errno set.
 inline int persist_standard_stream(int fd) {
   int flags = fcntl(fd, F_GETFD, 0);
 
@@ -517,8 +522,11 @@ inline int persist_standard_stream(int fd) {
     return flags;
   }
 
-  flags &= ~FD_CLOEXEC;
-  return fcntl(fd, F_SETFD, flags);
+  if (fcntl(fd, F_SETFD, flags & ~FD_CLOEXEC) < 0) {
+    return -1;
+  }
+
+  return flags;
 }
 
 static void Execve(const FunctionCallbackInfo<Value>& args) {
@@ -571,32 +579,41 @@ static void Execve(const FunctionCallbackInfo<Value>& args) {
 
   envp[envp_array->Length()] = nullptr;
 
-  // Set stdin, stdout and stderr to be non-close-on-exec
-  // so that the new process will inherit it.
-  if (persist_standard_stream(0) < 0 || persist_standard_stream(1) < 0 ||
-      persist_standard_stream(2) < 0) {
-    env->ThrowErrnoException(errno, "fcntl");
-    return;
+  // Set stdin, stdout and stderr to be non-close-on-exec so that the new
+  // process will inherit them. Save the previous flags on each fd so we can
+  // restore them if execve(2) fails and we throw back to JS.
+  int saved_stdio_flags[3] = {-1, -1, -1};
+  for (int fd = 0; fd < 3; fd++) {
+    int prev = persist_standard_stream(fd);
+    if (prev < 0) {
+      int fcntl_errno = errno;
+      // Undo changes already applied to earlier fds before throwing.
+      for (int j = 0; j < fd; j++) {
+        fcntl(j, F_SETFD, saved_stdio_flags[j]);
+      }
+      env->ThrowErrnoException(fcntl_errno, "fcntl");
+      return;
+    }
+    saved_stdio_flags[fd] = prev;
   }
 
   // Perform the execve operation.
-  RunAtExit(env);
+  //
+  // Note: we intentionally do not invoke RunAtExit(env) here. On success the
+  // kernel discards the current address space when loading the new image, so
+  // any in-memory side effects of AtExit callbacks are lost anyway. On
+  // failure we want to leave the environment intact so the thrown exception
+  // can be observed and handled by JS code.
   execve(*executable, argv.data(), envp.data());
 
-  // If it returns, it means that the execve operation failed.
-  // In that case we abort the process.
-  auto error_message = std::string("process.execve failed with error code ") +
-                       errors::errno_string(errno);
-
-  // Abort the process
-  Local<v8::Value> exception =
-      ErrnoException(isolate, errno, "execve", *executable);
-  Local<v8::Message> message = v8::Exception::CreateMessage(isolate, exception);
-
-  std::string info = FormatErrorMessage(
-      isolate, context, error_message.c_str(), message, true);
-  FPrintF(stderr, "%s\n", info);
-  ABORT();
+  // If execve returned, it failed. Restore the FD_CLOEXEC flags we cleared
+  // above so that a failed call leaves no observable side effects, then
+  // throw an ErrnoException so JS can catch it.
+  int execve_errno = errno;
+  for (int fd = 0; fd < 3; fd++) {
+    fcntl(fd, F_SETFD, saved_stdio_flags[fd]);
+  }
+  env->ThrowErrnoException(execve_errno, "execve", nullptr, *executable);
 }
 #endif
 
@@ -681,7 +698,8 @@ void BindingData::RegisterExternalReferences(
 BindingData* BindingData::FromV8Value(Local<Value> value) {
   Local<Object> v8_object = value.As<Object>();
   return static_cast<BindingData*>(
-      v8_object->GetAlignedPointerFromInternalField(BaseObject::kSlot));
+      v8_object->GetAlignedPointerFromInternalField(BaseObject::kSlot,
+                                                    EmbedderDataTag::kDefault));
 }
 
 void BindingData::MemoryInfo(MemoryTracker* tracker) const {
@@ -745,7 +763,7 @@ void BindingData::Deserialize(Local<Context> context,
                               int index,
                               InternalFieldInfoBase* info) {
   DCHECK_IS_SNAPSHOT_SLOT(index);
-  v8::HandleScope scope(context->GetIsolate());
+  v8::HandleScope scope(Isolate::GetCurrent());
   Realm* realm = Realm::GetCurrent(context);
   // Recreate the buffer in the constructor.
   InternalFieldInfo* casted_info = static_cast<InternalFieldInfo*>(info);
@@ -789,6 +807,7 @@ static void CreatePerIsolateProperties(IsolateData* isolate_data,
 
   SetMethodNoSideEffect(isolate, target, "cwd", Cwd);
   SetMethod(isolate, target, "dlopen", binding::DLOpen);
+  SetMethod(isolate, target, "dlopenBinary", binding::DLOpenBinary);
   SetMethod(isolate, target, "reallyExit", ReallyExit);
 
 #if defined __POSIX__ && !defined(__PASE__)
@@ -836,6 +855,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
 
   registry->Register(Cwd);
   registry->Register(binding::DLOpen);
+  registry->Register(binding::DLOpenBinary);
   registry->Register(ReallyExit);
 
 #if defined __POSIX__ && !defined(__PASE__)

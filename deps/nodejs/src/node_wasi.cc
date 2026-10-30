@@ -50,7 +50,7 @@ using v8::WasmMemoryObject;
 static MaybeLocal<Value> WASIException(Local<Context> context,
                                        int errorno,
                                        const char* syscall) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   Environment* env = Environment::GetCurrent(context);
   CHECK_NOT_NULL(env);
   const char* err_name = uvwasi_embedder_err_code_to_string(errorno);
@@ -275,7 +275,7 @@ R WASI::WasiFunction<FT, F, R, Args...>::FastCallback(
     return EinvalError<R>();
   }
 
-  Isolate* isolate = receiver->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   HandleScope scope(isolate);
   if (wasi->memory_.IsEmpty()) {
     THROW_ERR_WASI_NOT_STARTED(isolate);
@@ -358,8 +358,8 @@ template <typename FT,
           FT F,
           typename R,
           typename... Args,
-          std::size_t... Indices,
-          typename std::enable_if_t<!std::is_void<R>::value, bool> = true>
+          std::size_t... Indices>
+  requires(!std::is_void_v<R>)
 inline void CallAndSetReturn(std::index_sequence<Indices...>,
                              const FunctionCallbackInfo<Value>& args,
                              WASI* wasi,
@@ -372,8 +372,8 @@ template <typename FT,
           FT F,
           typename R,
           typename... Args,
-          std::size_t... Indices,
-          typename std::enable_if_t<std::is_void<R>::value, bool> = true>
+          std::size_t... Indices>
+  requires std::is_void_v<R>
 inline void CallAndSetReturn(std::index_sequence<Indices...>,
                              const FunctionCallbackInfo<Value>& args,
                              WASI* wasi,

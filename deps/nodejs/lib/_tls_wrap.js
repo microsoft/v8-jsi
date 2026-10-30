@@ -7,3 +7,5 @@ module.exports = {
   createServer,
   connect,
 };
+process.emitWarning('The _tls_wrap module is deprecated. Use `node:tls` instead.',
+                    'DeprecationWarning', 'DEP0192');

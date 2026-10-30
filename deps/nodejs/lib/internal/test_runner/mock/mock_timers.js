@@ -5,7 +5,6 @@ const {
   ArrayPrototypeIncludes,
   DatePrototypeGetTime,
   DatePrototypeToString,
-  FunctionPrototypeApply,
   FunctionPrototypeBind,
   FunctionPrototypeToString,
   NumberIsNaN,
@@ -13,7 +12,9 @@ const {
   ObjectDefineProperty,
   ObjectGetOwnPropertyDescriptor,
   ObjectGetOwnPropertyDescriptors,
+  ObjectSetPrototypeOf,
   PromiseWithResolvers,
+  ReflectApply,
   Symbol,
   SymbolDispose,
   globalThis,
@@ -23,6 +24,7 @@ const {
   validateAbortSignal,
   validateNumber,
   validateStringArray,
+  validateUint32,
 } = require('internal/validators');
 
 const {
@@ -34,6 +36,7 @@ const {
 } = require('internal/errors');
 
 const { addAbortListener } = require('internal/events/abort_listener');
+const { AbortController, AbortSignal } = require('internal/abort_controller');
 
 const { TIMEOUT_MAX } = require('internal/timers');
 
@@ -60,21 +63,32 @@ function abortIt(signal) {
 }
 
 /**
- * @enum {('setTimeout'|'setInterval'|'setImmediate'|'Date'|'scheduler.wait')[]} Supported timers
+ * @typedef {('setTimeout'|'setInterval'|'setImmediate'|'Date'|'scheduler.wait'|'AbortSignal.timeout')[]} SupportedApis
+ * Supported timers that can be enabled via MockTimers.enable({ apis: [...] })
  */
-const SUPPORTED_APIS = ['setTimeout', 'setInterval', 'setImmediate', 'Date', 'scheduler.wait'];
+const SUPPORTED_APIS = [
+  'setTimeout',
+  'setInterval',
+  'setImmediate',
+  'Date',
+  'scheduler.wait',
+  'AbortSignal.timeout',
+];
 const TIMERS_DEFAULT_INTERVAL = {
   __proto__: null,
   setImmediate: -1,
 };
 
 class Timeout {
+  #clear;
+
   constructor(opts) {
     this.id = opts.id;
     this.callback = opts.callback;
     this.runAt = opts.runAt;
     this.interval = opts.interval;
     this.args = opts.args;
+    this.#clear = opts.clear;
   }
 
   hasRef() {
@@ -91,6 +105,15 @@ class Timeout {
 
   refresh() {
     return this;
+  }
+
+  close() {
+    this.#clear(this);
+    return this;
+  }
+
+  [SymbolDispose]() {
+    this.#clear(this);
   }
 }
 
@@ -115,6 +138,7 @@ class MockTimers {
   #realPromisifiedSetImmediate;
 
   #nativeDateDescriptor;
+  #realAbortSignalTimeout;
 
   #timersInContext = [];
   #isEnabled = false;
@@ -297,6 +321,14 @@ class MockTimers {
     );
   }
 
+  #storeOriginalAbortSignalTimeout() {
+    this.#realAbortSignalTimeout = ObjectGetOwnPropertyDescriptor(AbortSignal, 'timeout');
+  }
+
+  #restoreOriginalAbortSignalTimeout() {
+    ObjectDefineProperty(AbortSignal, 'timeout', ObjectSetPrototypeOf(this.#realAbortSignalTimeout, null));
+  }
+
   #createTimer(isInterval, callback, delay, ...args) {
     if (delay > TIMEOUT_MAX) {
       delay = 1;
@@ -310,6 +342,7 @@ class MockTimers {
       runAt: this.#now + delay,
       interval: isInterval ? delay : undefined,
       args,
+      clear: this.#clearTimeout,
     };
 
     const timer = new Timeout(opts);
@@ -601,8 +634,29 @@ class MockTimers {
           );
         },
         'Date': () => {
-          this.#nativeDateDescriptor = ObjectGetOwnPropertyDescriptor(globalThis, 'Date');
+          this.#nativeDateDescriptor = ObjectSetPrototypeOf(ObjectGetOwnPropertyDescriptor(globalThis, 'Date'), null);
           globalThis.Date = this.#createDate();
+        },
+        'AbortSignal.timeout': () => {
+          this.#storeOriginalAbortSignalTimeout();
+          const mock = this;
+          ObjectDefineProperty(AbortSignal, 'timeout', {
+            __proto__: null,
+            configurable: true,
+            writable: true,
+            value: function timeout(delay) {
+              validateUint32(delay, 'delay', false);
+              const controller = new AbortController();
+              // Don't keep an unused binding to the timer; mock tick controls it
+              mock.#setTimeout(
+                () => {
+                  controller.abort();
+                },
+                delay,
+              );
+              return controller.signal;
+            },
+          });
         },
       },
       toReal: {
@@ -621,6 +675,9 @@ class MockTimers {
         },
         'Date': () => {
           ObjectDefineProperty(globalThis, 'Date', this.#nativeDateDescriptor);
+        },
+        'AbortSignal.timeout': () => {
+          this.#restoreOriginalAbortSignalTimeout();
         },
       },
     };
@@ -645,7 +702,7 @@ class MockTimers {
     let timer = this.#executionQueue.peek();
     while (timer) {
       if (timer.runAt > this.#now) break;
-      FunctionPrototypeApply(timer.callback, undefined, timer.args);
+      ReflectApply(timer.callback, undefined, timer.args);
 
       // Check if the timeout was cleared by calling clearTimeout inside its own callback
       const afterCallback = this.#executionQueue.peek();
@@ -664,10 +721,11 @@ class MockTimers {
   }
 
   /**
-   * @typedef {{apis: SUPPORTED_APIS;now: number | Date;}} EnableOptions Options to enable the timers
-   * @property {SUPPORTED_APIS} apis List of timers to enable, defaults to all
+   * @typedef {{apis: SupportedApis;now: number | Date;}} EnableOptions Options to enable the timers
+   * @property {SupportedApis} apis List of timers to enable, defaults to all
    * @property {number | Date} now The epoch to which the timers should be set to, defaults to 0
    */
+
   /**
    * Enables the MockTimers replacing the native timers with the fake ones.
    * @param {EnableOptions} [options]
@@ -686,8 +744,8 @@ class MockTimers {
 
     internalOptions.apis ||= SUPPORTED_APIS;
 
-    validateStringArray(internalOptions.apis, 'options.apis');
     // Check that the timers passed are supported
+    validateStringArray(internalOptions.apis, 'options.apis');
     ArrayPrototypeForEach(internalOptions.apis, (timer) => {
       if (!ArrayPrototypeIncludes(SUPPORTED_APIS, timer)) {
         throw new ERR_INVALID_ARG_VALUE(

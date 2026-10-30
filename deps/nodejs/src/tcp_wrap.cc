@@ -33,6 +33,7 @@
 #include "node_buffer.h"
 #include "node_external_reference.h"
 #include "node_internals.h"
+#include "permission/permission.h"
 #include "stream_base-inl.h"
 #include "stream_wrap.h"
 #include "util-inl.h"
@@ -42,6 +43,7 @@
 #include <netinet/ip.h>
 #include <netinet/ip6.h>
 #include <sys/socket.h>
+#include <unistd.h>  // dup(), close()
 #endif
 
 namespace node {
@@ -86,43 +88,49 @@ void TCPWrap::Initialize(Local<Object> target,
   Environment* env = Environment::GetCurrent(context);
   Isolate* isolate = env->isolate();
 
-  Local<FunctionTemplate> t = NewFunctionTemplate(isolate, New);
-  t->InstanceTemplate()->SetInternalFieldCount(TCPWrap::kInternalFieldCount);
+  Local<FunctionTemplate> t = env->tcp_constructor_template();
+  if (t.IsEmpty()) {
+    t = NewFunctionTemplate(isolate, New);
+    t->InstanceTemplate()->SetInternalFieldCount(TCPWrap::kInternalFieldCount);
 
-  // Init properties
-  t->InstanceTemplate()->Set(FIXED_ONE_BYTE_STRING(env->isolate(), "reading"),
-                             Boolean::New(env->isolate(), false));
-  t->InstanceTemplate()->Set(env->owner_symbol(), Null(env->isolate()));
-  t->InstanceTemplate()->Set(env->onconnection_string(), Null(env->isolate()));
+    // Init properties
+    t->InstanceTemplate()->Set(FIXED_ONE_BYTE_STRING(isolate, "reading"),
+                               Boolean::New(isolate, false));
+    t->InstanceTemplate()->Set(env->owner_symbol(), Null(isolate));
+    t->InstanceTemplate()->Set(env->onconnection_string(), Null(isolate));
 
-  t->Inherit(LibuvStreamWrap::GetConstructorTemplate(env));
+    t->Inherit(LibuvStreamWrap::GetConstructorTemplate(env));
 
-  SetProtoMethod(isolate, t, "open", Open);
-  SetProtoMethod(isolate, t, "bind", Bind);
-  SetProtoMethod(isolate, t, "listen", Listen);
-  SetProtoMethod(isolate, t, "connect", Connect);
-  SetProtoMethod(isolate, t, "bind6", Bind6);
-  SetProtoMethod(isolate, t, "connect6", Connect6);
-  SetProtoMethod(isolate,
-                 t,
-                 "getsockname",
-                 GetSockOrPeerName<TCPWrap, uv_tcp_getsockname>);
-  SetProtoMethod(isolate,
-                 t,
-                 "getpeername",
-                 GetSockOrPeerName<TCPWrap, uv_tcp_getpeername>);
-  SetProtoMethod(isolate, t, "setNoDelay", SetNoDelay);
-  SetProtoMethod(isolate, t, "setKeepAlive", SetKeepAlive);
-  SetProtoMethod(isolate, t, "setTypeOfService", SetTypeOfService);
-  SetProtoMethod(isolate, t, "getTypeOfService", GetTypeOfService);
-  SetProtoMethod(isolate, t, "reset", Reset);
+    SetProtoMethod(isolate, t, "open", Open);
+    SetProtoMethod(isolate, t, "bind", Bind);
+    SetProtoMethod(isolate, t, "listen", Listen);
+    SetProtoMethod(isolate, t, "connect", Connect);
+    SetProtoMethod(isolate, t, "bind6", Bind6);
+    SetProtoMethod(isolate, t, "connect6", Connect6);
+    SetProtoMethod(isolate,
+                   t,
+                   "getsockname",
+                   GetSockOrPeerName<TCPWrap, uv_tcp_getsockname>);
+    SetProtoMethod(isolate,
+                   t,
+                   "getpeername",
+                   GetSockOrPeerName<TCPWrap, uv_tcp_getpeername>);
+    SetProtoMethod(isolate, t, "setNoDelay", SetNoDelay);
+    SetProtoMethod(isolate, t, "setKeepAlive", SetKeepAlive);
+    SetProtoMethod(isolate, t, "setTypeOfService", SetTypeOfService);
+    SetProtoMethod(isolate, t, "getTypeOfService", GetTypeOfService);
+    SetProtoMethod(isolate, t, "reset", Reset);
 
 #ifdef _WIN32
-  SetProtoMethod(isolate, t, "setSimultaneousAccepts", SetSimultaneousAccepts);
+    SetProtoMethod(
+        isolate, t, "setSimultaneousAccepts", SetSimultaneousAccepts);
 #endif
 
-  SetConstructorFunction(context, target, "TCP", t);
-  env->set_tcp_constructor_template(t);
+    t->SetClassName(FIXED_ONE_BYTE_STRING(isolate, "TCP"));
+    env->set_tcp_constructor_template(t);
+  }
+  SetConstructorFunction(
+      context, target, "TCP", t, SetConstructorFunctionFlag::NONE);
 
   // Create FunctionTemplate for TCPConnectWrap.
   Local<FunctionTemplate> cwt = AsyncWrap::MakeLazilyInitializedJSTemplate(env);
@@ -208,7 +216,14 @@ void TCPWrap::SetKeepAlive(const FunctionCallbackInfo<Value>& args) {
   int enable;
   if (!args[0]->Int32Value(env->context()).To(&enable)) return;
   unsigned int delay = static_cast<unsigned int>(args[1].As<Uint32>()->Value());
-  int err = uv_tcp_keepalive(&wrap->handle_, enable, delay);
+  // interval and count are optional. Fall back to the libuv defaults
+  // (1 second, 10 probes) when they are not provided so that callers using
+  // the legacy two-argument form of this handle method keep working.
+  unsigned int interval = 1;
+  unsigned int count = 10;
+  if (args[2]->IsUint32()) interval = args[2].As<Uint32>()->Value();
+  if (args[3]->IsUint32()) count = args[3].As<Uint32>()->Value();
+  int err = uv_tcp_keepalive_ex(&wrap->handle_, enable, delay, interval, count);
   args.GetReturnValue().Set(err);
 }
 
@@ -360,10 +375,20 @@ void TCPWrap::Open(const FunctionCallbackInfo<Value>& args) {
   TCPWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(
       &wrap, args.This(), args.GetReturnValue().Set(UV_EBADF));
+  Environment* env = wrap->env();
   int64_t val;
   if (!args[0]->IntegerValue(args.GetIsolate()->GetCurrentContext()).To(&val))
     return;
   int fd = static_cast<int>(val);
+
+  // Adopting an existing descriptor gives access to whatever it is connected
+  // to, so, like bind(), listen() and connect(), it requires the net
+  // permission.
+  if (!IsProcessStdioOrIPCChannel(env, fd)) {
+    THROW_IF_INSUFFICIENT_PERMISSIONS(
+        env, permission::PermissionScope::kNet, "");
+  }
+
   int err = uv_tcp_open(&wrap->handle_, fd);
 
   if (err == 0) wrap->set_fd(fd);
@@ -371,15 +396,113 @@ void TCPWrap::Open(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(err);
 }
 
+BaseObject::TransferMode TCPWrap::GetTransferMode() const {
+  // Only a live handle that is not already being torn down can be transferred.
+  // Higher-level guards (no buffered reads, no pending writes) are enforced by
+  // the JS net.Socket/net.Server layer before a handle reaches here.
+  if (!HandleWrap::IsAlive(this) || IsHandleClosing())
+    return TransferMode::kDisallowCloneAndTransfer;
+  return TransferMode::kTransferable;
+}
+
+std::unique_ptr<worker::TransferData> TCPWrap::TransferForMessaging() {
+  CHECK_NE(GetTransferMode(), TransferMode::kDisallowCloneAndTransfer);
+
+  uv_os_fd_t fd;
+  if (uv_fileno(reinterpret_cast<uv_handle_t*>(&handle_), &fd) != 0) return {};
+
+#ifdef _WIN32
+  // A socket that is already associated with an IOCP cannot be associated with
+  // another one. Create a same-process duplicate that is not associated with
+  // any IOCP yet; uv_tcp_open() will associate it with the receiving loop.
+  WSAPROTOCOL_INFOW protocol_info;
+  uv_os_sock_t source_socket = reinterpret_cast<uv_os_sock_t>(fd);
+  if (WSADuplicateSocketW(
+          source_socket, GetCurrentProcessId(), &protocol_info) != 0) {
+    return {};
+  }
+  uv_os_sock_t duplicate = WSASocketW(FROM_PROTOCOL_INFO,
+                                      FROM_PROTOCOL_INFO,
+                                      FROM_PROTOCOL_INFO,
+                                      &protocol_info,
+                                      0,
+                                      WSA_FLAG_OVERLAPPED);
+  if (duplicate == static_cast<uv_os_sock_t>(-1)) return {};
+#else
+  // Unix threads share the descriptor table, so dup() creates an independent
+  // reference to the same socket for the receiving event loop.
+  uv_os_sock_t duplicate = dup(fd);
+  if (duplicate < 0) return {};
+#endif
+
+  SocketType type =
+      provider_type() == ProviderType::PROVIDER_TCPSERVERWRAP ? SERVER : SOCKET;
+
+  // Stop watching the original socket and tear down the source handle. The
+  // duplicate keeps the underlying socket alive until the destination adopts
+  // it, or until TransferData is destroyed if the message is not delivered.
+  Close();
+
+  return std::make_unique<TransferData>(duplicate, type);
+}
+
+TCPWrap::TransferData::~TransferData() {
+#ifdef _WIN32
+  if (socket_ != static_cast<uv_os_sock_t>(-1))
+    CHECK_EQ(0, closesocket(socket_));
+#else
+  if (socket_ >= 0) {
+    uv_fs_t req;
+    CHECK_EQ(0, uv_fs_close(nullptr, &req, socket_, nullptr));
+    uv_fs_req_cleanup(&req);
+  }
+#endif
+}
+
+BaseObjectPtr<BaseObject> TCPWrap::TransferData::Deserialize(
+    Environment* env,
+    Local<Context> context,
+    std::unique_ptr<worker::TransferData> self) {
+  // Construct a fresh TCPWrap in the receiving Environment. We cannot use
+  // TCPWrap::Instantiate() here because it requires a parent AsyncWrap to
+  // establish the async_hooks trigger id, and a deserialized handle has none.
+  if (env->tcp_constructor_template().IsEmpty()) return {};
+  Local<Function> constructor;
+  if (!env->tcp_constructor_template()->GetFunction(context).ToLocal(
+          &constructor)) {
+    return {};
+  }
+  Local<Value> type_arg = Int32::New(env->isolate(), type_);
+  Local<Object> obj;
+  if (!constructor->NewInstance(context, 1, &type_arg).ToLocal(&obj)) return {};
+
+  TCPWrap* wrap = BaseObject::Unwrap<TCPWrap>(obj);
+  if (wrap == nullptr) return {};
+
+  if (uv_tcp_open(&wrap->handle_, socket_) != 0) return {};
+
+#ifdef _WIN32
+  socket_ = static_cast<uv_os_sock_t>(-1);
+#else
+  wrap->set_fd(socket_);
+  socket_ = -1;
+#endif
+  return BaseObjectPtr<BaseObject>(wrap);
+}
+
 template <typename T>
-void TCPWrap::Bind(
-    const FunctionCallbackInfo<Value>& args,
-    int family,
-    std::function<int(const char* ip_address, int port, T* addr)> uv_ip_addr) {
+void TCPWrap::Bind(const FunctionCallbackInfo<Value>& args,
+                   int family,
+                   int (*uv_ip_addr)(const char* ip_address,
+                                     int port,
+                                     T* addr)) {
   TCPWrap* wrap;
   ASSIGN_OR_RETURN_UNWRAP(
       &wrap, args.This(), args.GetReturnValue().Set(UV_EBADF));
   Environment* env = wrap->env();
+
+  THROW_IF_INSUFFICIENT_PERMISSIONS(env, permission::PermissionScope::kNet, "");
+
   node::Utf8Value ip_address(env->isolate(), args[0]);
   int port;
   unsigned int flags = 0;
@@ -418,35 +541,26 @@ void TCPWrap::Listen(const FunctionCallbackInfo<Value>& args) {
   int backlog;
   if (!args[0]->Int32Value(env->context()).To(&backlog)) return;
 
+  THROW_IF_INSUFFICIENT_PERMISSIONS(env, permission::PermissionScope::kNet, "");
+
   int err = uv_listen(
       reinterpret_cast<uv_stream_t*>(&wrap->handle_), backlog, OnConnection);
   args.GetReturnValue().Set(err);
 }
 
 void TCPWrap::Connect(const FunctionCallbackInfo<Value>& args) {
-  CHECK(args[2]->IsUint32());
-  // explicit cast to fit to libuv's type expectation
-  int port = static_cast<int>(args[2].As<Uint32>()->Value());
-  Connect<sockaddr_in>(args, [port](const char* ip_address, sockaddr_in* addr) {
-    return uv_ip4_addr(ip_address, port, addr);
-  });
+  Connect<sockaddr_in>(args, uv_ip4_addr);
 }
 
 void TCPWrap::Connect6(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-  CHECK(args[2]->IsUint32());
-  int port;
-  if (!args[2]->Int32Value(env->context()).To(&port)) return;
-  Connect<sockaddr_in6>(args,
-                        [port](const char* ip_address, sockaddr_in6* addr) {
-                          return uv_ip6_addr(ip_address, port, addr);
-                        });
+  Connect<sockaddr_in6>(args, uv_ip6_addr);
 }
 
 template <typename T>
-void TCPWrap::Connect(
-    const FunctionCallbackInfo<Value>& args,
-    std::function<int(const char* ip_address, T* addr)> uv_ip_addr) {
+void TCPWrap::Connect(const FunctionCallbackInfo<Value>& args,
+                      int (*uv_ip_addr)(const char* ip_address,
+                                        int port,
+                                        T* addr)) {
   Environment* env = Environment::GetCurrent(args);
 
   TCPWrap* wrap;
@@ -456,11 +570,17 @@ void TCPWrap::Connect(
   CHECK(args[0]->IsObject());
   CHECK(args[1]->IsString());
 
+  int port;
+  if (!args[2]->Int32Value(env->context()).To(&port)) return;
+
   Local<Object> req_wrap_obj = args[0].As<Object>();
   node::Utf8Value ip_address(env->isolate(), args[1]);
 
+  ERR_ACCESS_DENIED_IF_INSUFFICIENT_PERMISSIONS(
+      env, permission::PermissionScope::kNet, ip_address.ToStringView(), args);
+
   T addr;
-  int err = uv_ip_addr(*ip_address, &addr);
+  int err = uv_ip_addr(*ip_address, port, &addr);
 
   if (err == 0) {
     AsyncHooks::DefaultTriggerAsyncIdScope trigger_scope(wrap);

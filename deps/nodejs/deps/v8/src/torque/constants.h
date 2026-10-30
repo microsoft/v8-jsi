@@ -95,6 +95,8 @@ static const char* const ANNOTATION_HAS_SAME_INSTANCE_TYPE_AS_PARENT =
     "@hasSameInstanceTypeAsParent";
 static const char* const ANNOTATION_DO_NOT_GENERATE_CPP_CLASS =
     "@doNotGenerateCppClass";
+static const char* const ANNOTATION_DO_NOT_GENERATE_INSTANCE_TYPE_CHECK =
+    "@doNotGenerateInstanceTypeCheck";
 static const char* const ANNOTATION_CUSTOM_MAP = "@customMap";
 static const char* const ANNOTATION_CUSTOM_CPP_CLASS = "@customCppClass";
 static const char* const ANNOTATION_HIGHEST_INSTANCE_TYPE_WITHIN_PARENT =
@@ -139,8 +141,9 @@ static const char* const ANNOTATION_CUSTOM_INTERFACE_DESCRIPTOR =
 // builtin.
 static const char* const ANNOTATION_INCREMENT_USE_COUNTER =
     "@incrementUseCounter";
+static const char* const ANNOTATION_SUPPORTS_TSA = "@supportsTSA";
 
-inline bool IsConstexprName(const std::string& name) {
+inline bool IsConstexprName(std::string_view name) {
   return name.substr(0, std::strlen(CONSTEXPR_TYPE_PREFIX)) ==
          CONSTEXPR_TYPE_PREFIX;
 }
@@ -181,6 +184,7 @@ enum class ClassFlag {
   kGenerateFactoryFunction = 1 << 13,
   kCppObjectDefinition = 1 << 14,
   kCppObjectLayoutDefinition = 1 << 15,
+  kDoNotGenerateInstanceTypeCheck = 1 << 16,
 };
 using ClassFlags = base::Flags<ClassFlag>;
 

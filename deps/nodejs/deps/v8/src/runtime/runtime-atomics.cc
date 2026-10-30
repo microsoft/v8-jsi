@@ -396,9 +396,10 @@ struct Xor {
     auto length = sta->GetLengthOrOutOfBounds(out_of_bounds);                  \
     if (V8_UNLIKELY(sta->WasDetached() || out_of_bounds || index >= length)) { \
       THROW_NEW_ERROR_RETURN_FAILURE(                                          \
-          isolate, NewTypeError(MessageTemplate::kDetachedOperation,           \
-                                isolate->factory()->NewStringFromAsciiChecked( \
-                                    method_name)));                            \
+          isolate,                                                             \
+          NewTypeError(                                                        \
+              MessageTemplate::kTypedArrayValidateWriteErrorOperation,         \
+              isolate->factory()->NewStringFromAsciiChecked(method_name)));    \
     }                                                                          \
   } while (false)
 
@@ -415,8 +416,9 @@ Tagged<Object> GetModifySetValueInBuffer(RuntimeArguments args,
   size_t index = NumberToSize(args[1]);
   Handle<Object> value_obj = args.at(2);
 
-  uint8_t* source = static_cast<uint8_t*>(sta->GetBuffer()->backing_store()) +
-                    sta->byte_offset();
+  uint8_t* source =
+      static_cast<uint8_t*>(sta->GetBuffer(isolate)->backing_store()) +
+      sta->byte_offset();
 
   if (sta->type() >= kExternalBigInt64Array) {
     Handle<BigInt> bigint;
@@ -464,8 +466,9 @@ RUNTIME_FUNCTION(Runtime_AtomicsLoad64) {
   Handle<JSTypedArray> sta = args.at<JSTypedArray>(0);
   size_t index = NumberToSize(args[1]);
 
-  uint8_t* source = static_cast<uint8_t*>(sta->GetBuffer()->backing_store()) +
-                    sta->byte_offset();
+  uint8_t* source =
+      static_cast<uint8_t*>(sta->GetBuffer(isolate)->backing_store()) +
+      sta->byte_offset();
 
   DCHECK(sta->type() == kExternalBigInt64Array ||
          sta->type() == kExternalBigUint64Array);
@@ -485,8 +488,9 @@ RUNTIME_FUNCTION(Runtime_AtomicsStore64) {
   size_t index = NumberToSize(args[1]);
   Handle<Object> value_obj = args.at(2);
 
-  uint8_t* source = static_cast<uint8_t*>(sta->GetBuffer()->backing_store()) +
-                    sta->byte_offset();
+  uint8_t* source =
+      static_cast<uint8_t*>(sta->GetBuffer(isolate)->backing_store()) +
+      sta->byte_offset();
 
   Handle<BigInt> bigint;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, bigint,
@@ -519,8 +523,9 @@ RUNTIME_FUNCTION(Runtime_AtomicsCompareExchange) {
   Handle<Object> old_value_obj = args.at(2);
   Handle<Object> new_value_obj = args.at(3);
 
-  uint8_t* source = static_cast<uint8_t*>(sta->GetBuffer()->backing_store()) +
-                    sta->byte_offset();
+  uint8_t* source =
+      static_cast<uint8_t*>(sta->GetBuffer(isolate)->backing_store()) +
+      sta->byte_offset();
 
   if (sta->type() >= kExternalBigInt64Array) {
     Handle<BigInt> old_bigint;

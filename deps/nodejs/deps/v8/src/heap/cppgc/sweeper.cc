@@ -39,6 +39,13 @@ constexpr TaskPriority kBackgroundRegularPriority = TaskPriority::kUserVisible;
 constexpr TaskPriority kForegroundRegularPriority = TaskPriority::kUserBlocking;
 constexpr TaskPriority kForegroundLowPriority = TaskPriority::kUserVisible;
 
+// Returns true if memory discarding is requested and build config allows it.
+constexpr bool ShouldDiscardMemory(
+    SweepingConfig::FreeMemoryHandling free_memory_handling) {
+  return Sweeper::CanDiscardMemory() &&
+         free_memory_handling == FreeMemoryHandling::kReleaseMemory;
+}
+
 class DeadlineChecker final {
  public:
   explicit DeadlineChecker(v8::base::TimeTicks end) : end_(end) {}
@@ -572,7 +579,7 @@ class SweepFinalizer final {
     // Merge freelist with finalizers.
     if (!page_state->unfinalized_free_list.empty()) {
       std::unique_ptr<FreeHandlerBase> handler =
-          free_memory_handling_ == FreeMemoryHandling::kDiscardWherePossible
+          ShouldDiscardMemory(free_memory_handling_)
               ? std::unique_ptr<FreeHandlerBase>(new DiscardingFreeHandler(
                     *platform_->GetPageAllocator(), space_freelist, *page))
               : std::unique_ptr<FreeHandlerBase>(new RegularFreeHandler(
@@ -703,11 +710,11 @@ class MutatorThreadSweeper final : private HeapVisitor<MutatorThreadSweeper> {
   }
 
   bool VisitNormalPage(NormalPage& page) {
-    if (free_memory_handling_ == FreeMemoryHandling::kDiscardWherePossible) {
+    if (ShouldDiscardMemory(free_memory_handling_)) {
       page.ResetDiscardedMemory();
     }
     const auto result =
-        free_memory_handling_ == FreeMemoryHandling::kDiscardWherePossible
+        ShouldDiscardMemory(free_memory_handling_)
             ? SweepNormalPage<
                   InlinedFinalizationBuilder<DiscardingFreeHandler>>(
                   &page, *platform_->GetPageAllocator(), sticky_bits_)
@@ -810,19 +817,21 @@ class ConcurrentSweepTask final : public cppgc::JobTask,
     while (auto page = state.unswept_pages.Pop()) {
       Traverse(**page);
       if (delegate->ShouldYield()) {
+        StatsCollector::Note("Sweeping preempted");
         return false;
       }
     }
     current_sweeping_state_ = nullptr;
+    StatsCollector::Note("Sweeping finished");
     return true;
   }
 
   bool VisitNormalPage(NormalPage& page) {
-    if (free_memory_handling_ == FreeMemoryHandling::kDiscardWherePossible) {
+    if (ShouldDiscardMemory(free_memory_handling_)) {
       page.ResetDiscardedMemory();
     }
     SweepingState::SweptPageState sweep_result =
-        (free_memory_handling_ == FreeMemoryHandling::kDiscardWherePossible)
+        ShouldDiscardMemory(free_memory_handling_)
             ? SweepNormalPage<
                   DeferredFinalizationBuilder<DiscardingFreeHandler>>(
                   &page, page_allocator_, sticky_bits_)
@@ -989,18 +998,22 @@ class Sweeper::SweeperImpl final {
       // Having a low priority runner implies having a regular runner as well.
       CHECK_IMPLIES(low_priority_foreground_task_runner_.get(),
                     foreground_task_runner_.get());
+      const auto supports_non_nestable_tasks =
+          [](const std::shared_ptr<TaskRunner>& runner) {
+            return runner && runner->NonNestableTasksEnabled() &&
+                   runner->NonNestableDelayedTasksEnabled();
+          };
+      if (!supports_non_nestable_tasks(foreground_task_runner_) ||
+          !supports_non_nestable_tasks(low_priority_foreground_task_runner_)) {
+        foreground_task_runner_.reset();
+        low_priority_foreground_task_runner_.reset();
+      }
     }
 
     // Verify bitmap for all spaces regardless of |compactable_space_handling|.
     ObjectStartBitmapVerifier().Verify(heap_);
 
-    // If inaccessible memory is touched to check whether it is set up
-    // correctly it cannot be discarded.
-    if (!CanDiscardMemory()) {
-      config_.free_memory_handling = FreeMemoryHandling::kDoNotDiscard;
-    }
-    if (config_.free_memory_handling ==
-        FreeMemoryHandling::kDiscardWherePossible) {
+    if (ShouldDiscardMemory(config_.free_memory_handling)) {
       // The discarded counter will be recomputed.
       heap_.heap()->stats_collector()->ResetDiscardedMemory();
     }
@@ -1262,7 +1275,7 @@ class Sweeper::SweeperImpl final {
         !empty_large_pages_.swept_unfinalized_pages.IsEmpty()) {
       return;
     }
-    // All pages have also been finalized. Finalizing pages likely occured on
+    // All pages have also been finalized. Finalizing pages likely occurred on
     // allocation, in which sweeping is not finalized even though all work is
     // done.
     {
@@ -1321,8 +1334,7 @@ class Sweeper::SweeperImpl final {
     DCHECK(notify_done_pending_);
     notify_done_pending_ = false;
     stats_collector_->NotifySweepingCompleted(config_.sweeping_type);
-    if (config_.free_memory_handling ==
-        FreeMemoryHandling::kDiscardWherePossible) {
+    if (config_.free_memory_handling == FreeMemoryHandling::kReleaseMemory) {
       heap_.heap()->page_backend()->ReleasePooledPages();
     }
   }
@@ -1447,9 +1459,10 @@ class Sweeper::SweeperImpl final {
       auto task = std::make_unique<IncrementalSweepTask>(sweeper, priority);
       auto handle = task->handle_;
       if (delay.has_value()) {
-        runner->PostDelayedTask(std::move(task), delay->InSecondsF());
+        runner->PostNonNestableDelayedTask(std::move(task),
+                                           delay->InSecondsF());
       } else {
-        runner->PostTask(std::move(task));
+        runner->PostNonNestableTask(std::move(task));
       }
       return handle;
     }

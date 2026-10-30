@@ -71,12 +71,15 @@ class V8_EXPORT_PRIVATE Sandbox {
    * */
   static constexpr bool kFallbackToPartiallyReservedSandboxAllowed = true;
 
+  // The name for the virtual address space reservation backing the sandbox.
+  static constexpr const char* kSandboxAddressSpaceName = "v8-sandbox";
+
   /**
    * Initializes this sandbox.
    *
    * This will allocate the virtual address subspace for the sandbox inside the
    * provided virtual address space. If a subspace of the required size cannot
-   * be allocated, this method will insted initialize this sandbox as a
+   * be allocated, this method will instead initialize this sandbox as a
    * partially-reserved sandbox. In that case, a smaller virtual address space
    * reservation will be used and an EmulatedVirtualAddressSubspace instance
    * will be created on top of it to back the sandbox. If not enough virtual
@@ -165,6 +168,14 @@ class V8_EXPORT_PRIVATE Sandbox {
    */
   v8::PageAllocator* page_allocator() const {
     return sandbox_page_allocator_.get();
+  }
+
+  /**
+   * Returns a PageAllocator weak pointer instance that allocates pages inside
+   * the sandbox. This version is for BackingStores that can outlive sandbox.
+   */
+  std::weak_ptr<v8::PageAllocator> page_allocator_weak() const {
+    return sandbox_page_allocator_;
   }
 
   /**
@@ -310,7 +321,7 @@ class V8_EXPORT_PRIVATE Sandbox {
   std::unique_ptr<v8::VirtualAddressSpace> address_space_;
 
   // The page allocator instance for this sandbox.
-  std::unique_ptr<v8::PageAllocator> sandbox_page_allocator_;
+  std::shared_ptr<v8::PageAllocator> sandbox_page_allocator_;
 
   // Constant objects inside this sandbox.
   SandboxedPointerConstants constants_;
@@ -330,15 +341,25 @@ class V8_EXPORT_PRIVATE Sandbox {
 
 // Helper function that can be used to ensure that certain objects are not
 // located inside the sandbox. Typically used for trusted objects.
-// Will always return false when the sandbox is disabled or partially reserved.
-V8_INLINE bool InsideSandbox(uintptr_t address) {
+// Returns true when the sandbox is disabled, or when the sandbox is partially
+// reserved and the address is outside the reservation.
+V8_INLINE bool OutsideSandbox(uintptr_t address) {
 #ifdef V8_ENABLE_SANDBOX
   Sandbox* sandbox = Sandbox::current();
   // Use ReservationContains (instead of just Contains) to correctly handle the
   // case of partially-reserved sandboxes.
-  return sandbox->ReservationContains(address);
+  return !sandbox->ReservationContains(address);
 #else
-  return false;
+  return true;
+#endif
+}
+
+V8_INLINE bool InsideSandbox(uintptr_t address) {
+#ifdef V8_ENABLE_SANDBOX
+  Sandbox* sandbox = Sandbox::current();
+  return sandbox->Contains(address);
+#else
+  return true;
 #endif
 }
 

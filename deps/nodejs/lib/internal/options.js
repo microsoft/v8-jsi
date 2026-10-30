@@ -3,6 +3,7 @@
 const {
   ArrayPrototypeMap,
   ArrayPrototypeSort,
+  ObjectEntries,
   ObjectFromEntries,
   ObjectKeys,
   StringPrototypeReplace,
@@ -15,6 +16,7 @@ const {
   getEmbedderOptions: getEmbedderOptionsFromBinding,
   getEnvOptionsInputType,
   getNamespaceOptionsInputType,
+  parseNodeOptionsEnvVar,
 } = internalBinding('options');
 
 let warnOnAllowUnauthorized = true;
@@ -48,24 +50,26 @@ function generateConfigJsonSchema() {
   const envOptionsMap = getEnvOptionsInputType();
   const namespaceOptionsMap = getNamespaceOptionsInputType();
 
-  function createPropertyForType(type) {
+  function createPropertyForOptionDetail(detail) {
+    const { type, description } = detail;
     if (type === 'array') {
       return {
         __proto__: null,
         oneOf: [
           { __proto__: null, type: 'string' },
-          { __proto__: null, items: { __proto__: null, type: 'string', minItems: 1 }, type: 'array' },
+          { __proto__: null, type: 'array', minItems: 1, items: { __proto__: null, type: 'string' } },
         ],
+        description,
       };
     }
 
-    return { __proto__: null, type };
+    return { __proto__: null, type, description };
   }
 
-  const schema = {
+  const configSchema = {
     __proto__: null,
-    $schema: 'https://json-schema.org/draft/2020-12/schema',
     additionalProperties: false,
+    required: [],
     properties: {
       $schema: {
         __proto__: null,
@@ -74,8 +78,13 @@ function generateConfigJsonSchema() {
       nodeOptions: {
         __proto__: null,
         additionalProperties: false,
+        required: [],
         properties: { __proto__: null },
         type: 'object',
+      },
+      nodeVersion: {
+        __proto__: null,
+        type: 'integer',
       },
       __proto__: null,
     },
@@ -83,13 +92,13 @@ function generateConfigJsonSchema() {
   };
 
   // Get the root properties object for adding namespaces
-  const rootProperties = schema.properties;
+  const rootProperties = configSchema.properties;
   const nodeOptions = rootProperties.nodeOptions.properties;
 
   // Add env options to nodeOptions (backward compatibility)
-  for (const { 0: key, 1: type } of envOptionsMap) {
+  for (const { 0: key, 1: type } of ObjectEntries(envOptionsMap)) {
     const keyWithoutPrefix = StringPrototypeReplace(key, '--', '');
-    nodeOptions[keyWithoutPrefix] = createPropertyForType(type);
+    nodeOptions[keyWithoutPrefix] = createPropertyForOptionDetail(type);
   }
 
   // Add namespace properties at the root level
@@ -99,15 +108,16 @@ function generateConfigJsonSchema() {
       __proto__: null,
       type: 'object',
       additionalProperties: false,
+      required: [],
       properties: { __proto__: null },
     };
 
     const namespaceProperties = rootProperties[namespace].properties;
 
     // Add all options for this namespace
-    for (const { 0: optionName, 1: optionType } of optionsMap) {
+    for (const { 0: optionName, 1: optionType } of ObjectEntries(optionsMap)) {
       const keyWithoutPrefix = StringPrototypeReplace(optionName, '--', '');
-      namespaceProperties[keyWithoutPrefix] = createPropertyForType(optionType);
+      namespaceProperties[keyWithoutPrefix] = createPropertyForOptionDetail(optionType);
     }
 
     // Sort the namespace properties alphabetically
@@ -124,7 +134,7 @@ function generateConfigJsonSchema() {
     ArrayPrototypeMap(sortedKeys, (key) => [key, nodeOptions[key]]),
   );
 
-  schema.properties.nodeOptions.properties = sortedProperties;
+  configSchema.properties.nodeOptions.properties = sortedProperties;
 
   // Also sort the root level properties
   const sortedRootKeys = ArrayPrototypeSort(ObjectKeys(rootProperties));
@@ -132,7 +142,54 @@ function generateConfigJsonSchema() {
     ArrayPrototypeMap(sortedRootKeys, (key) => [key, rootProperties[key]]),
   );
 
-  schema.properties = sortedRootProperties;
+  configSchema.properties = sortedRootProperties;
+
+  const schema = {
+    __proto__: null,
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    oneOf: [
+      { __proto__: null, $ref: '#/$defs/config' },
+      {
+        __proto__: null,
+        type: 'object',
+        additionalProperties: false,
+        required: ['configs'],
+        properties: {
+          __proto__: null,
+          $schema: {
+            __proto__: null,
+            type: 'string',
+          },
+          configs: {
+            __proto__: null,
+            type: 'array',
+            minItems: 1,
+            items: {
+              __proto__: null,
+              type: 'object',
+              additionalProperties: false,
+              required: ['nodeVersion', 'config'],
+              properties: {
+                __proto__: null,
+                nodeVersion: {
+                  __proto__: null,
+                  type: 'integer',
+                },
+                config: {
+                  __proto__: null,
+                  $ref: '#/$defs/config',
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+    $defs: {
+      __proto__: null,
+      config: configSchema,
+    },
+  };
 
   return schema;
 }
@@ -166,5 +223,6 @@ module.exports = {
   getAllowUnauthorized,
   getEmbedderOptions,
   generateConfigJsonSchema,
+  parseNodeOptionsEnvVar,
   refreshOptions,
 };

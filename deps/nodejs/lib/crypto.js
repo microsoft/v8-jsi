@@ -56,6 +56,7 @@ const {
   randomFillSync,
   randomInt,
   randomUUID,
+  randomUUIDv7,
 } = require('internal/crypto/random');
 const {
   argon2,
@@ -83,6 +84,7 @@ const {
   createSecretKey,
   createPublicKey,
   createPrivateKey,
+  parsePKCS12,
   KeyObject,
 } = require('internal/crypto/keys');
 const {
@@ -112,12 +114,16 @@ const {
   hash,
 } = require('internal/crypto/hash');
 const {
+  Mac,
+} = require('internal/crypto/provider_mac');
+const {
   X509Certificate,
 } = require('internal/crypto/x509');
 const {
   getCiphers,
   getCurves,
   getHashes,
+  getMacs,
   setEngine,
   secureHeapUsed,
 } = require('internal/crypto/util');
@@ -169,6 +175,10 @@ function createHmac(hmac, key, options) {
   return new Hmac(hmac, key, options);
 }
 
+function createMac(algorithm, key, options) {
+  return new Mac(algorithm, key, options);
+}
+
 function createSign(algorithm, options) {
   return new Sign(algorithm, options);
 }
@@ -190,6 +200,7 @@ module.exports = {
   createECDH,
   createHash,
   createHmac,
+  createMac,
   createPrivateKey,
   createPublicKey,
   createSecretKey,
@@ -203,8 +214,10 @@ module.exports = {
   getCurves,
   getDiffieHellman: createDiffieHellmanGroup,
   getHashes,
+  getMacs,
   hkdf,
   hkdfSync,
+  parsePKCS12,
   pbkdf2,
   pbkdf2Sync,
   generateKeyPair,
@@ -220,6 +233,7 @@ module.exports = {
   randomFillSync,
   randomInt,
   randomUUID,
+  randomUUIDv7,
   scrypt,
   scryptSync,
   sign: signOneShot,

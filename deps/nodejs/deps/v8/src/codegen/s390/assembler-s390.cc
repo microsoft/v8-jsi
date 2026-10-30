@@ -55,8 +55,8 @@ namespace v8 {
 namespace internal {
 
 // Get the CPU features enabled by the build.
-static unsigned CpuFeaturesImpliedByCompiler() {
-  unsigned answer = 0;
+static CpuFeatureSet CpuFeaturesImpliedByCompiler() {
+  CpuFeatureSet answer;
   return answer;
 }
 
@@ -133,7 +133,7 @@ static bool supportsSTFLE() {
         bytes_read = read(fd, buffer, sizeof(buffer));
         // Locate and read the platform field of AUXV if it is in the chunk
         for (auxv_element = buffer;
-             auxv_element + sizeof(auxv_element) <= buffer + bytes_read &&
+             auxv_element < buffer + (bytes_read / sizeof(Elf64_auxv_t)) &&
              auxv_element->a_type != AT_NULL;
              auxv_element++) {
           // We are looking for HWCAP entry in AUXV to search for STFLE support
@@ -196,9 +196,9 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
     // The facilities we are checking for are:
     //   Bit 45 - Distinct Operands for instructions like ARK, SRK, etc.
     // As such, we require only 1 double word
-    int64_t facilities[3] = {0L};
+    int64_t facilities[4] = {0L};
 #if V8_OS_ZOS
-    int64_t reg0 = 2;
+    int64_t reg0 = 3;
     asm volatile(" stfle %0" : "=m"(facilities), __ZL_NR("+", r0)(reg0)::"cc");
 #else
     int16_t reg0;
@@ -206,7 +206,7 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
     // STFLE is specified as .insn, as opcode is not recognized.
     // We register the instructions kill r0 (LHI) and the CC (STFLE).
     asm volatile(
-        "lhi   %%r0,2\n"
+        "lhi   %%r0,3\n"
         ".insn s,0xb2b00000,%0\n"
         : "=Q"(facilities), "=r"(reg0)
         :
@@ -216,50 +216,61 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
     uint64_t one = static_cast<uint64_t>(1);
     // Test for Distinct Operands Facility - Bit 45
     if (facilities[0] & (one << (63 - 45))) {
-      supported_ |= (1u << DISTINCT_OPS);
+      supported_.Add(DISTINCT_OPS);
     }
     // Test for General Instruction Extension Facility - Bit 34
     if (facilities[0] & (one << (63 - 34))) {
-      supported_ |= (1u << GENERAL_INSTR_EXT);
+      supported_.Add(GENERAL_INSTR_EXT);
     }
     // Test for Floating Point Extension Facility - Bit 37
     if (facilities[0] & (one << (63 - 37))) {
-      supported_ |= (1u << FLOATING_POINT_EXT);
+      supported_.Add(FLOATING_POINT_EXT);
     }
     // Test for Vector Facility - Bit 129
     if (facilities[2] & (one << (63 - (129 - 128))) &&
         supportsCPUFeature("vx")) {
-      supported_ |= (1u << VECTOR_FACILITY);
+      supported_.Add(VECTOR_FACILITY);
     }
     // Test for Vector Enhancement Facility 1 - Bit 135
     if (facilities[2] & (one << (63 - (135 - 128))) &&
         supportsCPUFeature("vx")) {
-      supported_ |= (1u << VECTOR_ENHANCE_FACILITY_1);
+      supported_.Add(VECTOR_ENHANCE_FACILITY_1);
     }
     // Test for Vector Enhancement Facility 2 - Bit 148
     if (facilities[2] & (one << (63 - (148 - 128))) &&
         supportsCPUFeature("vx")) {
-      supported_ |= (1u << VECTOR_ENHANCE_FACILITY_2);
+      supported_.Add(VECTOR_ENHANCE_FACILITY_2);
     }
-    // Test for Miscellaneous Instruction Extension Facility - Bit 58
+    // Test for Vector Enhancement Facility 3 - Bit 198
+    if (facilities[3] & (one << (63 - (198 - 192))) &&
+        supportsCPUFeature("vx")) {
+      supported_.Add(VECTOR_ENHANCE_FACILITY_3);
+    }
+    // Test for Miscellaneous Instruction Extension Facility 2 - Bit 58
     if (facilities[0] & (1lu << (63 - 58))) {
-      supported_ |= (1u << MISC_INSTR_EXT2);
+      supported_.Add(MISC_INSTR_EXT2);
+    }
+    // Test for Miscellaneous Instruction Extension Facility 4 - Bit 84
+    if (facilities[1] & (one << (63 - (84 - 64)))) {
+      supported_.Add(MISC_INSTR_EXT4);
     }
   }
 #else
   // All distinct ops instructions can be simulated
-  supported_ |= (1u << DISTINCT_OPS);
+  supported_.Add(DISTINCT_OPS);
   // RISBG can be simulated
-  supported_ |= (1u << GENERAL_INSTR_EXT);
-  supported_ |= (1u << FLOATING_POINT_EXT);
-  supported_ |= (1u << MISC_INSTR_EXT2);
+  supported_.Add(GENERAL_INSTR_EXT);
+  supported_.Add(FLOATING_POINT_EXT);
+  supported_.Add(MISC_INSTR_EXT2);
+  supported_.Add(MISC_INSTR_EXT4);
   USE(performSTFLE);  // To avoid assert
   USE(supportsCPUFeature);
-  supported_ |= (1u << VECTOR_FACILITY);
-  supported_ |= (1u << VECTOR_ENHANCE_FACILITY_1);
-  supported_ |= (1u << VECTOR_ENHANCE_FACILITY_2);
+  supported_.Add(VECTOR_FACILITY);
+  supported_.Add(VECTOR_ENHANCE_FACILITY_1);
+  supported_.Add(VECTOR_ENHANCE_FACILITY_2);
+  supported_.Add(VECTOR_ENHANCE_FACILITY_3);
 #endif
-  supported_ |= (1u << FPU);
+  supported_.Add(FPU);
 
   // Set a static value on whether Simd is supported.
   // This variable is only used for certain archs to query SupportWasmSimd128()
@@ -283,7 +294,10 @@ void CpuFeatures::PrintFeatures() {
          CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1));
   PrintF("VECTOR_ENHANCE_FACILITY_2=%d\n",
          CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_2));
+  PrintF("VECTOR_ENHANCE_FACILITY_3=%d\n",
+         CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_3));
   PrintF("MISC_INSTR_EXT2=%d\n", CpuFeatures::IsSupported(MISC_INSTR_EXT2));
+  PrintF("MISC_INSTR_EXT4=%d\n", CpuFeatures::IsSupported(MISC_INSTR_EXT4));
 }
 
 Register ToRegister(int num) {
@@ -342,16 +356,10 @@ MemOperand::MemOperand(Register rn, int32_t offset)
 MemOperand::MemOperand(Register rx, Register rb, int32_t offset)
     : baseRegister(rb), indexRegister(rx), offset_(offset) {}
 
-void Assembler::AllocateAndInstallRequestedHeapNumbers(LocalIsolate* isolate) {
-  DCHECK_IMPLIES(isolate == nullptr, heap_number_requests_.empty());
-  for (auto& request : heap_number_requests_) {
-    Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
-    Handle<HeapObject> object =
-        isolate->factory()->NewHeapNumber<AllocationType::kOld>(
-            request.heap_number());
-    set_target_address_at(pc, kNullAddress, object.address(), nullptr,
-                          SKIP_ICACHE_FLUSH);
-  }
+void Assembler::PatchInHeapNumberRequest(Address pc,
+                                         Handle<HeapNumber> object) {
+  set_target_address_at(pc, kNullAddress, object.address(), nullptr,
+                        SKIP_ICACHE_FLUSH);
 }
 
 // -----------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 
 const {
   FunctionPrototypeCall,
+  NumberIsInteger,
   ObjectSetPrototypeOf,
-  StringPrototypeToLowerCase,
 } = primordials;
 
 const {
@@ -33,7 +33,8 @@ const {
 
 const {
   validateEncoding,
-  validateInt32,
+  validateOneOf,
+  validateUint32,
   validateObject,
   validateString,
 } = require('internal/validators');
@@ -54,30 +55,34 @@ const {
   isArrayBufferView,
 } = require('internal/util/types');
 
-const assert = require('internal/assert');
-
 const LazyTransform = require('internal/streams/lazy_transform');
 
-const { normalizeEncoding } = require('internal/util');
+const { normalizeEncoding, kEmptyObject } = require('internal/util');
 
 const { StringDecoder } = require('string_decoder');
 
+const kCtsModes = ['CS1', 'CS2', 'CS3'];
+const kXtsStandards = ['GB', 'IEEE'];
+
 function rsaFunctionFor(method, defaultPadding, keyType) {
-  return (options, buffer) => {
-    const { format, type, data, passphrase } =
+  const keyName = keyType === 'private' ? 'privateKey' : undefined;
+  return (key, buffer) => {
+    const { format, type, data, passphrase, namedCurve } =
       keyType === 'private' ?
-        preparePrivateKey(options) :
-        preparePublicOrPrivateKey(options);
-    const padding = options.padding || defaultPadding;
-    const { oaepHash, encoding } = options;
-    let { oaepLabel } = options;
+        preparePrivateKey(key, keyName) :
+        preparePublicOrPrivateKey(key, keyName);
+    const padding = key.padding || defaultPadding;
+    const { oaepHash, mgf1Hash, encoding } = key;
+    let { oaepLabel } = key;
     if (oaepHash !== undefined)
       validateString(oaepHash, 'key.oaepHash');
+    if (mgf1Hash !== undefined)
+      validateString(mgf1Hash, 'key.mgf1Hash');
     if (oaepLabel !== undefined)
       oaepLabel = getArrayBufferOrView(oaepLabel, 'key.oaepLabel', encoding);
     buffer = getArrayBufferOrView(buffer, 'buffer', encoding);
-    return method(data, format, type, passphrase, buffer, padding, oaepHash,
-                  oaepLabel);
+    return method(data, format, type, passphrase, namedCurve, buffer,
+                  padding, oaepHash, oaepLabel, mgf1Hash);
   };
 }
 
@@ -97,7 +102,11 @@ function getDecoder(decoder, encoding) {
     if (normalizedEncoding === undefined) {
       throw new ERR_UNKNOWN_ENCODING(encoding);
     }
-    assert.fail('Cannot change encoding');
+    throw new ERR_INVALID_ARG_VALUE(
+      'outputEncoding',
+      encoding,
+      `cannot be changed from '${decoder.encoding}'`,
+    );
   }
   return decoder;
 }
@@ -107,14 +116,39 @@ function getUIntOption(options, key) {
   if (options && (value = options[key]) != null) {
     if (value >>> 0 !== value)
       throw new ERR_INVALID_ARG_VALUE(`options.${key}`, value);
-    return value;
+    // Coerce -0 to +0.
+    return value + 0;
   }
   return -1;
 }
 
 function createCipherBase(cipher, credential, options, isEncrypt, iv) {
-  const authTagLength = getUIntOption(options, 'authTagLength');
-  this[kHandle] = new CipherBase(isEncrypt, cipher, credential, iv, authTagLength);
+  let authTagLength = -1;
+  let ctsMode;
+  let xtsStandard;
+  if (options != null) {
+    authTagLength = getUIntOption(options, 'authTagLength');
+    ctsMode = getStringOption(options, 'ctsMode') ?? undefined;
+    xtsStandard = getStringOption(options, 'xtsStandard') ?? undefined;
+    if (ctsMode !== undefined)
+      validateOneOf(ctsMode, 'options.ctsMode', kCtsModes);
+    if (xtsStandard !== undefined)
+      validateOneOf(xtsStandard, 'options.xtsStandard', kXtsStandards);
+  }
+
+  if (ctsMode === undefined && xtsStandard === undefined) {
+    this[kHandle] = new CipherBase(
+      isEncrypt, cipher, credential, iv, authTagLength);
+  } else {
+    this[kHandle] = new CipherBase(
+      isEncrypt,
+      cipher,
+      credential,
+      iv,
+      authTagLength,
+      ctsMode,
+      xtsStandard);
+  }
   this._decoder = null;
 
   FunctionPrototypeCall(LazyTransform, this, options);
@@ -251,31 +285,38 @@ ObjectSetPrototypeOf(Decipheriv.prototype, LazyTransform.prototype);
 ObjectSetPrototypeOf(Decipheriv, LazyTransform);
 addCipherPrototypeFunctions(Decipheriv);
 
-function getCipherInfo(nameOrNid, options) {
-  if (typeof nameOrNid !== 'string' && typeof nameOrNid !== 'number') {
-    throw new ERR_INVALID_ARG_TYPE(
-      'nameOrNid',
-      ['string', 'number'],
-      nameOrNid);
+const kMinNid = 1;
+const kMaxNid = 2_147_483_647;
+function getCipherInfo(nameOrNid, options = kEmptyObject) {
+  validateObject(options, 'options');
+  let { keyLength, ivLength } = options;
+  if (keyLength !== undefined) {
+    validateUint32(keyLength, 'options.keyLength');
+    // Coerce -0 to +0.
+    keyLength += 0;
   }
-  if (typeof nameOrNid === 'number')
-    validateInt32(nameOrNid, 'nameOrNid');
-  let keyLength, ivLength;
-  if (options !== undefined) {
-    validateObject(options, 'options');
-    ({ keyLength, ivLength } = options);
-    if (keyLength !== undefined)
-      validateInt32(keyLength, 'options.keyLength');
-    if (ivLength !== undefined)
-      validateInt32(ivLength, 'options.ivLength');
+  if (ivLength !== undefined) {
+    validateUint32(ivLength, 'options.ivLength');
+    // Coerce -0 to +0.
+    ivLength += 0;
   }
 
-  const ret = _getCipherInfo({}, nameOrNid, keyLength, ivLength);
-  if (ret !== undefined) {
-    ret.name &&= StringPrototypeToLowerCase(ret.name);
-    ret.type &&= StringPrototypeToLowerCase(ret.type);
+  const type = typeof nameOrNid;
+
+  if (type === 'string') {
+    if (nameOrNid.length === 0) return undefined;
+    return _getCipherInfo(nameOrNid, keyLength, ivLength);
+  } else if (type === 'number') {
+    if (!NumberIsInteger(nameOrNid) || nameOrNid < kMinNid || nameOrNid > kMaxNid) {
+      return undefined;
+    }
+    return _getCipherInfo(nameOrNid, keyLength, ivLength);
   }
-  return ret;
+
+  throw new ERR_INVALID_ARG_TYPE(
+    'nameOrNid',
+    ['string', 'number'],
+    nameOrNid);
 }
 
 module.exports = {

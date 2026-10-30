@@ -14,10 +14,10 @@
 #include "src/base/hashing.h"
 #include "src/base/vector.h"
 #include "src/codegen/linkage-location.h"
-#include "src/codegen/register.h"
 #include "src/codegen/signature.h"
 #include "src/wasm/signature-hashing.h"
 #include "src/wasm/value-type.h"
+#include "src/wasm/wasm-subtyping.h"
 #include "src/zone/zone.h"
 
 namespace v8 {
@@ -32,23 +32,45 @@ struct ModuleWireBytes;
 namespace compiler {
 class CallDescriptor;
 
+enum SubtypeCheckExactness : uint8_t {
+  kMayBeSubtype,
+  kExactMatchOnly,
+  kExactMatchLastSupertype,
+};
+V8_INLINE std::ostream& operator<<(std::ostream& os,
+                                   SubtypeCheckExactness const& exactness) {
+  switch (exactness) {
+    case kMayBeSubtype:
+      return os << "kMayBeSubtype";
+    case kExactMatchOnly:
+      return os << "kExactMatchOnly";
+    case kExactMatchLastSupertype:
+      return os << "kExactMatchLastSupertype";
+  }
+}
+
+SubtypeCheckExactness GetExactness(const wasm::WasmModule* module,
+                                   wasm::HeapType target);
+
 // If {to} is nullable, it means that null passes the check.
 // {from} may change in compiler optimization passes as the object's type gets
 // narrowed.
 // TODO(12166): Add modules if we have cross-module inlining.
-enum ExactOrSubtype : bool {
-  kMayBeSubtype = false,
-  kExactMatchOnly = true,
-};
 struct WasmTypeCheckConfig {
   wasm::ValueType from;
   const wasm::ValueType to;
-  ExactOrSubtype exactness{kMayBeSubtype};
+  SubtypeCheckExactness exactness{kMayBeSubtype};
+
+  bool is_valid() const {
+    return from != wasm::ValueType() && from != wasm::kWasmBottom &&
+           from.is_ref() && to.is_ref() &&
+           wasm::IsSameTypeHierarchy(from.heap_type(), to.heap_type());
+  }
 };
 
 V8_INLINE std::ostream& operator<<(std::ostream& os,
                                    WasmTypeCheckConfig const& p) {
-  return os << p.from.name() << " -> " << p.to.name();
+  return os << p.from.name() << " -> " << p.to.name() << " @" << p.exactness;
 }
 
 V8_INLINE size_t hash_value(WasmTypeCheckConfig const& p) {
@@ -96,7 +118,8 @@ enum WasmCallKind {
   kWasmFunction,
   kWasmIndirectFunction,
   kWasmImportWrapper,
-  kWasmCapiFunction
+  kWasmCapiFunction,
+  kWasmContinuation
 };
 
 template <typename T>

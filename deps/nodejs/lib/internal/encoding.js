@@ -28,7 +28,6 @@ const kHandle = Symbol('handle');
 const kFlags = Symbol('flags');
 const kEncoding = Symbol('encoding');
 const kDecoder = Symbol('decoder');
-const kEncoder = Symbol('encoder');
 const kChunk = Symbol('chunk');
 const kFatal = Symbol('kFatal');
 const kUTF8FastPath = Symbol('kUTF8FastPath');
@@ -64,11 +63,6 @@ const {
   encodeUtf8String,
   decodeUTF8,
 } = binding;
-
-function validateEncoder(obj) {
-  if (obj == null || obj[kEncoder] !== true)
-    throw new ERR_INVALID_THIS('TextEncoder');
-}
 
 function validateDecoder(obj) {
   if (obj == null || obj[kDecoder] !== true)
@@ -342,45 +336,50 @@ function getEncodingFromLabel(label) {
   return encodings.get(trimAsciiWhitespace(label.toLowerCase()));
 }
 
+let lazyInspect;
+
 class TextEncoder {
-  constructor() {
-    this[kEncoder] = true;
-  }
+  #encoding = 'utf-8';
 
-  get encoding() {
-    validateEncoder(this);
-    return 'utf-8';
-  }
-
-  encode(input = '') {
-    validateEncoder(this);
+  #encode(input) {
     return encodeUtf8String(`${input}`);
   }
 
-  encodeInto(src, dest) {
-    validateEncoder(this);
-    validateString(src, 'src');
-    if (!dest || !isUint8Array(dest))
-      throw new ERR_INVALID_ARG_TYPE('dest', 'Uint8Array', dest);
-
-    encodeInto(src, dest);
+  #encodeInto(input, dest) {
+    encodeInto(input, dest);
     // We need to read from the binding here since the buffer gets refreshed
     // from the snapshot.
     const { 0: read, 1: written } = encodeIntoResults;
     return { read, written };
   }
 
+  get encoding() {
+    return this.#encoding;
+  }
+
+  encode(input = '') {
+    return this.#encode(input);
+  }
+
+  encodeInto(src, dest) {
+    validateString(src, 'src');
+    if (!dest || !isUint8Array(dest))
+      throw new ERR_INVALID_ARG_TYPE('dest', 'Uint8Array', dest);
+
+    return this.#encodeInto(src, dest);
+  }
+
   [inspect](depth, opts) {
-    validateEncoder(this);
     if (typeof depth === 'number' && depth < 0)
       return this;
     const ctor = getConstructorOf(this);
     const obj = { __proto__: {
       constructor: ctor === null ? TextEncoder : ctor,
     } };
-    obj.encoding = this.encoding;
+    obj.encoding = this.#encoding;
     // Lazy to avoid circular dependency
-    return require('internal/util/inspect').inspect(obj, opts);
+    lazyInspect ??= require('internal/util/inspect').inspect;
+    return lazyInspect(obj, opts);
   }
 }
 
@@ -615,8 +614,17 @@ ObjectDefineProperties(TextDecoder.prototype, {
   },
 });
 
+// A lazily created TextDecoder for the common case of decoding UTF-8 with
+// the default options, shared between internal modules.
+let utf8Decoder;
+function getUtf8Decoder() {
+  utf8Decoder ??= new TextDecoder();
+  return utf8Decoder;
+}
+
 module.exports = {
   getEncodingFromLabel,
+  getUtf8Decoder,
   TextDecoder,
   TextEncoder,
 };

@@ -48,6 +48,7 @@ const {
   StringPrototypeEndsWith,
   StringPrototypeIncludes,
   StringPrototypeIndexOf,
+  StringPrototypeRepeat,
   StringPrototypeSlice,
   StringPrototypeSplit,
   StringPrototypeStartsWith,
@@ -112,6 +113,10 @@ function defaultPrepareStackTrace(error, trace) {
 
 function setInternalPrepareStackTrace(callback) {
   internalPrepareStackTrace = callback;
+}
+
+function isPermissionModelError(err) {
+  return typeof err !== 'number' && err.code && err.code === 'ERR_ACCESS_DENIED';
 }
 
 /**
@@ -764,17 +769,23 @@ class ExceptionWithHostPort extends Error {
     // This can be replaced with [ code ] = errmap.get(err) when this method
     // is no longer exposed to user land.
     util ??= require('util');
-    const code = util.getSystemErrorName(err);
+    let code;
     let details = '';
-    if (port && port > 0) {
-      details = ` ${address}:${port}`;
-    } else if (address) {
-      details = ` ${address}`;
+    // True when permission model is enabled
+    if (isPermissionModelError(err)) {
+      code = err.code;
+      details = ` ${err.message}`;
+    } else {
+      code = util.getSystemErrorName(err);
+      if (port && port > 0) {
+        details = ` ${address}:${port}`;
+      } else if (address) {
+        details = ` ${address}`;
+      }
+      if (additional) {
+        details += ` - Local (${additional})`;
+      }
     }
-    if (additional) {
-      details += ` - Local (${additional})`;
-    }
-
     super(`${syscall} ${code}${details}`);
 
     this.errno = err;
@@ -800,7 +811,7 @@ class DNSException extends Error {
   constructor(code, syscall, hostname) {
     let errno;
     // If `code` is of type number, it is a libuv error number, else it is a
-    // c-ares error code.
+    // c-ares/permission model error code.
     // TODO(joyeecheung): translate c-ares error codes into numeric ones and
     // make them available in a property that's not error.errno (since they
     // can be in conflict with libuv error codes). Also make sure
@@ -815,6 +826,9 @@ class DNSException extends Error {
       } else {
         code = lazyInternalUtil().getSystemErrorName(code);
       }
+    } else if (isPermissionModelError(code)) {
+      // Expects a ERR_ACCESS_DENIED object
+      code = code.code;
     }
     super(`${syscall} ${code}${hostname ? ` ${hostname}` : ''}`);
     this.errno = errno;
@@ -831,8 +845,8 @@ class DNSException extends Error {
 }
 
 class ConnResetException extends Error {
-  constructor(msg) {
-    super(msg);
+  constructor(msg, options) {
+    super(msg, options);
     this.code = 'ECONNRESET';
   }
 
@@ -1021,11 +1035,16 @@ function determineSpecificType(value) {
       return `type symbol (${String(value)})`;
     case 'function':
       return `function ${value.name}`;
-    case 'object':
-      if (value.constructor && 'name' in value.constructor) {
-        return `an instance of ${value.constructor.name}`;
+    case 'object': {
+      // `constructor` may be user-controlled: it need not be an object, and
+      // its `name` need not be a non-empty string. Reading either can invoke
+      // an accessor, so read each one once.
+      const name = value.constructor?.name;
+      if (typeof name === 'string' && name !== '') {
+        return `an instance of ${name}`;
       }
       return `${lazyInternalUtilInspect().inspect(value, { depth: -1 })}`;
+    }
     case 'string':
       value.length > 28 && (value = `${StringPrototypeSlice(value, 0, 25)}...`);
       if (StringPrototypeIndexOf(value, "'") === -1) {
@@ -1172,14 +1191,23 @@ E('ERR_CRYPTO_INVALID_DIGEST', 'Invalid digest: %s', TypeError);
 E('ERR_CRYPTO_INVALID_JWK', 'Invalid JWK data', TypeError);
 E('ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE',
   'Invalid key object type %s, expected %s.', TypeError);
+E('ERR_CRYPTO_INVALID_MAC', 'Invalid MAC: %s', TypeError);
 E('ERR_CRYPTO_INVALID_STATE', 'Invalid state for operation %s', Error);
 E('ERR_CRYPTO_KEM_NOT_SUPPORTED', 'KEM is not supported', Error);
+E('ERR_CRYPTO_MAC_FINALIZED', 'MAC already finalized', Error);
+E('ERR_CRYPTO_MAC_NOT_SUPPORTED', 'MAC is not supported', Error);
+E('ERR_CRYPTO_MAC_UPDATE_FAILED', 'MAC update failed', Error);
 E('ERR_CRYPTO_PBKDF2_ERROR', 'PBKDF2 error', Error);
 E('ERR_CRYPTO_SCRYPT_NOT_SUPPORTED', 'Scrypt algorithm not supported', Error);
 // Switch to TypeError. The current implementation does not seem right.
 E('ERR_CRYPTO_SIGN_KEY_REQUIRED', 'No key provided to sign', Error);
 E('ERR_DEBUGGER_ERROR', '%s', Error);
-E('ERR_DEBUGGER_STARTUP_ERROR', '%s', Error);
+E('ERR_DEBUGGER_STARTUP_ERROR', function(message, details = undefined) {
+  if (details !== undefined) {
+    ObjectAssign(this, details);
+  }
+  return message;
+}, Error);
 E('ERR_DIR_CLOSED', 'Directory handle was closed', Error);
 E('ERR_DIR_CONCURRENT_OPERATION',
   'Cannot do synchronous work on directory handle with concurrent ' +
@@ -1213,6 +1241,7 @@ E('ERR_FEATURE_UNAVAILABLE_ON_PLATFORM',
   'The feature %s is unavailable on the current platform' +
   ', which is being used to run Node.js',
   TypeError);
+E('ERR_FFI_LIBRARY_CLOSED', 'Library is closed', Error);
 E('ERR_FS_CP_DIR_TO_NON_DIR',
   'Cannot overwrite non-directory with directory', SystemError);
 E('ERR_FS_CP_EEXIST', 'Target already exists', SystemError);
@@ -1318,6 +1347,8 @@ E('ERR_HTTP2_STREAM_SELF_DEPENDENCY',
 E('ERR_HTTP2_TOO_MANY_CUSTOM_SETTINGS',
   'Number of custom settings exceeds MAX_ADDITIONAL_SETTINGS', Error);
 E('ERR_HTTP2_TOO_MANY_INVALID_FRAMES', 'Too many invalid HTTP/2 frames', Error);
+E('ERR_HTTP2_TOO_MANY_ORIGINS',
+  'The server sent more ORIGIN frames than the allowed number of %s', Error);
 E('ERR_HTTP2_TRAILERS_ALREADY_SENT',
   'Trailing headers have already been sent', Error);
 E('ERR_HTTP2_TRAILERS_NOT_READY',
@@ -1621,6 +1652,8 @@ E('ERR_NO_CRYPTO',
   'Node.js is not compiled with OpenSSL crypto support', Error);
 E('ERR_NO_ICU',
   '%s is not supported on Node.js compiled without ICU', TypeError);
+E('ERR_NO_TEMPORAL',
+  'Temporal is not supported in this environment', Error);
 E('ERR_NO_TYPESCRIPT',
   'Node.js is not compiled with TypeScript support', Error);
 E('ERR_OPERATION_FAILED', 'Operation failed: %s', Error, TypeError);
@@ -1648,6 +1681,15 @@ E('ERR_PACKAGE_IMPORT_NOT_DEFINED', (specifier, packagePath, base) => {
   return `Package import specifier "${specifier}" is not defined${packagePath ?
     ` in package ${packagePath}package.json` : ''} imported from ${base}`;
 }, TypeError);
+E('ERR_PACKAGE_MAP_EXTERNAL_FILE', (specifier, parentPath, configPath) => {
+  return `Cannot resolve "${specifier}" from "${parentPath}": file is not within any package defined in ${configPath}`;
+}, Error);
+E('ERR_PACKAGE_MAP_INVALID', (configPath, reason) => {
+  return `Invalid package-map.json at "${configPath}": ${reason}`;
+}, SyntaxError);
+E('ERR_PACKAGE_MAP_KEY_NOT_FOUND', (key, configPath) => {
+  return `Package key "${key}" referenced in dependencies but not defined in ${configPath}`;
+}, Error);
 E('ERR_PACKAGE_PATH_NOT_EXPORTED', (pkgPath, subpath, base = undefined) => {
   if (subpath === '.')
     return `No "exports" main defined in ${pkgPath}package.json${base ?
@@ -1669,21 +1711,47 @@ E('ERR_PERFORMANCE_INVALID_TIMESTAMP',
 E('ERR_PERFORMANCE_MEASURE_INVALID_OPTIONS', '%s', TypeError);
 E('ERR_PROXY_INVALID_CONFIG', '%s', Error);
 E('ERR_PROXY_TUNNEL', '%s', Error);
-E('ERR_QUIC_APPLICATION_ERROR', 'A QUIC application error occurred. %d [%s]', Error);
 E('ERR_QUIC_CONNECTION_FAILED', 'QUIC connection failed', Error);
 E('ERR_QUIC_ENDPOINT_CLOSED', 'QUIC endpoint closed: %s (%d)', Error);
 E('ERR_QUIC_OPEN_STREAM_FAILED', 'Failed to open QUIC stream', Error);
-E('ERR_QUIC_TRANSPORT_ERROR', 'A QUIC transport error occurred. %d [%s]', Error);
+E('ERR_QUIC_STREAM_ABORTED', '%s', Error);
 E('ERR_QUIC_VERSION_NEGOTIATION_ERROR', 'The QUIC session requires version negotiation', Error);
-E('ERR_REQUIRE_ASYNC_MODULE', function(filename, parentFilename) {
-  let message = 'require() cannot be used on an ESM ' +
-  'graph with top-level await. Use import() instead. To see where the' +
-  ' top-level await comes from, use --experimental-print-required-tla.';
-  if (parentFilename) {
-    message += `\n  From ${parentFilename} `;
+E('ERR_REQUIRE_ASYNC_MODULE', function(filename, parent, locations) {
+  let message = 'require() cannot be used on an ESM graph with top-level await. Use import() instead.';
+  const { getOptionValue } = require('internal/options');
+  if (!getOptionValue('--experimental-print-required-tla')) {
+    message += ' To see where the top-level await comes from, use --experimental-print-required-tla.';
   }
   if (filename) {
-    message += `\n  Requiring ${filename} `;
+    message += `\nRequired module: ${filename}`;
+  }
+  if (parent) {
+    const { getRequireStack } = require('internal/modules/helpers');
+    const requireStack = getRequireStack(parent);
+    if (requireStack.length > 0) {
+      message += '\nRequire stack:\n- ' +
+                ArrayPrototypeJoin(requireStack, '\n- ');
+    }
+    ObjectDefineProperty(this, 'requireStack', {
+      __proto__: null,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: requireStack,
+    });
+  }
+  if (locations && locations.length > 0) {
+    const { urlToFilename } = require('internal/modules/helpers');
+    const frames = ArrayPrototypeMap(locations, ({ url, line, column, sourceLine }) =>
+      `${urlToFilename(url)}:${line}\n\n${sourceLine}\n${StringPrototypeRepeat(' ', column - 1)}^\n`);
+    setArrowMessage(this, ArrayPrototypeJoin(frames, '\n'));
+    ObjectDefineProperty(this, 'topLevelAwaitLocations', {
+      __proto__: null,
+      enumerable: false,
+      configurable: true,
+      writable: true,
+      value: locations,
+    });
   }
   return message;
 }, Error);
@@ -1717,6 +1785,15 @@ E('ERR_REQUIRE_ESM',
       'all ES modules instead).\n';
     return msg;
   }, Error);
+E('ERR_REQUIRE_ESM_RACE_CONDITION', (filename, parentFilename, isForAsyncLoaderHookWorker) => {
+  let raceMessage = `Cannot require() ES Module ${filename} because it is not yet fully loaded.\n`;
+  raceMessage += 'This may be caused by a race condition if the module is simultaneously dynamically ';
+  raceMessage += 'import()-ed via Promise.all().\n';
+  raceMessage += 'Try await-ing the import() sequentially in a loop instead.\n';
+  raceMessage += ` (From ${parentFilename ? `${parentFilename} in ` : ' '}`;
+  raceMessage += `${isForAsyncLoaderHookWorker ? 'loader hook worker thread' : 'non-loader-hook thread'})`;
+  return raceMessage;
+}, Error);
 E('ERR_SCRIPT_EXECUTION_INTERRUPTED',
   'Script execution was interrupted by `SIGINT`', Error);
 E('ERR_SERVER_ALREADY_LISTEN',
@@ -1747,6 +1824,8 @@ E('ERR_SOCKET_CONNECTION_TIMEOUT',
 E('ERR_SOCKET_DGRAM_IS_CONNECTED', 'Already connected', Error);
 E('ERR_SOCKET_DGRAM_NOT_CONNECTED', 'Not connected', Error);
 E('ERR_SOCKET_DGRAM_NOT_RUNNING', 'Not running', Error);
+E('ERR_SOCKET_HANDLE_ADOPTED',
+  'The bound socket has already been adopted by a server or socket', Error);
 E('ERR_SOURCE_MAP_CORRUPT', `The source map for '%s' does not exist or is corrupt.`, Error);
 E('ERR_SOURCE_MAP_MISSING_SOURCE', `Cannot find '%s' imported from the source map for '%s'`, Error);
 E('ERR_SRI_PARSE',
@@ -1757,6 +1836,8 @@ E('ERR_STREAM_ALREADY_FINISHED',
   Error);
 E('ERR_STREAM_CANNOT_PIPE', 'Cannot pipe, not readable', Error);
 E('ERR_STREAM_DESTROYED', 'Cannot call %s after a stream was destroyed', Error);
+E('ERR_STREAM_ITER_MISSING_FLAG',
+  'The stream/iter API requires the --experimental-stream-iter flag', TypeError);
 E('ERR_STREAM_NULL_VALUES', 'May not write null values to stream', TypeError);
 E('ERR_STREAM_PREMATURE_CLOSE', 'Premature close', Error);
 E('ERR_STREAM_PUSH_AFTER_EOF', 'stream.push() after EOF', Error);
@@ -1764,7 +1845,7 @@ E('ERR_STREAM_UNABLE_TO_PIPE', 'Cannot pipe to a closed or destroyed stream', Er
 E('ERR_STREAM_UNSHIFT_AFTER_END_EVENT',
   'stream.unshift() after end event', Error);
 E('ERR_STREAM_WRAP', 'Stream has StringDecoder set or is in objectMode', Error);
-E('ERR_STREAM_WRITE_AFTER_END', 'write after end', Error);
+E('ERR_STREAM_WRITE_AFTER_END', 'write after end', Error, TypeError);
 E('ERR_SYNTHETIC', 'JavaScript Callstack', Error);
 E('ERR_SYSTEM_ERROR', 'A system error occurred', SystemError, HideStackFramesError);
 E('ERR_TEST_FAILURE', function(error, failureType) {
@@ -1782,6 +1863,7 @@ E('ERR_TEST_FAILURE', function(error, failureType) {
   this.cause = error;
   return msg;
 }, Error);
+E('ERR_THROTTLED', 'The call was dropped by the throttled function', Error);
 E('ERR_TLS_ALPN_CALLBACK_INVALID_RESULT', (value, protocols) => {
   return `ALPN callback returned a value (${
     value
@@ -1811,6 +1893,8 @@ E('ERR_TLS_PROTOCOL_VERSION_CONFLICT',
   'TLS protocol version %j conflicts with secureProtocol %j', TypeError);
 E('ERR_TLS_RENEGOTIATION_DISABLED',
   'TLS session renegotiation disabled for this socket', Error);
+E('ERR_TLS_RENEGOTIATION_UNSUPPORTED',
+  'TLS session renegotiation is unsupported by this TLS implementation', Error);
 
 // This should probably be a `TypeError`.
 E('ERR_TLS_REQUIRED_SERVER_NAME',
@@ -1874,6 +1958,8 @@ E('ERR_USE_AFTER_CLOSE', '%s was closed', Error);
 // This should probably be a `TypeError`.
 E('ERR_VALID_PERFORMANCE_ENTRY_TYPE',
   'At least one valid performance entry type is required', Error);
+E('ERR_VFS_INVALID_TARGET',
+  '%s is not a valid --vfs-load source: must be an existing file or directory', Error);
 E('ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING',
   'A dynamic import callback was not specified.', TypeError);
 E('ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG',
@@ -1896,6 +1982,10 @@ E('ERR_WEBASSEMBLY_NOT_SUPPORTED',
   'WebAssembly is not supported in this environment, but is required for %s',
   Error);
 E('ERR_WEBASSEMBLY_RESPONSE', 'WebAssembly response %s', TypeError);
+E('ERR_WORKER_HANDLE_NOT_TRANSFERABLE',
+  '%s cannot be transferred in its current state; it must be a freshly ' +
+  'created or accepted handle that has not started reading and has no ' +
+  'pending writes', Error);
 E('ERR_WORKER_INIT_FAILED', 'Worker initialization failure: %s', Error);
 E('ERR_WORKER_INVALID_EXEC_ARGV', (errors, msg = 'invalid execArgv flags') =>
   `Initiated Worker with ${msg}: ${ArrayPrototypeJoin(errors, ', ')}`,
@@ -1922,4 +2012,11 @@ E('ERR_WORKER_UNSERIALIZABLE_ERROR',
   'Serializing an uncaught exception failed', Error);
 E('ERR_WORKER_UNSUPPORTED_OPERATION',
   '%s is not supported in workers', TypeError);
+E('ERR_ZIP_ARCHIVE_TOO_LARGE', 'ZIP archive structure exceeds the allowed size: %s', RangeError);
+E('ERR_ZIP_ENTRY_CORRUPT', 'ZIP entry is corrupt: %s', Error);
+E('ERR_ZIP_ENTRY_NOT_FOUND', 'no such entry %j in the archive', Error);
+E('ERR_ZIP_ENTRY_TOO_LARGE', 'ZIP entry exceeds the allowed size: %s', RangeError);
+E('ERR_ZIP_INVALID_ARCHIVE', 'invalid ZIP archive: %s', Error);
+E('ERR_ZIP_NOT_WRITABLE', 'this archive was not opened for writing', TypeError);
+E('ERR_ZIP_UNSUPPORTED_FEATURE', 'unsupported ZIP feature: %s', Error);
 E('ERR_ZSTD_INVALID_PARAM', '%s is not a valid zstd parameter', RangeError);

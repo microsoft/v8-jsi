@@ -53,7 +53,7 @@ powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release
 ##### Building v8jsi.dll from Node.js sources (new build, in development)
 
 A second build path is being developed that compiles v8jsi.dll from a
-vendored copy of Node.js (under [`deps/nodejs/`](deps/nodejs/)) without
+vendored copy of Node.js 26.x (under [`deps/nodejs/`](deps/nodejs/)) without
 `depot_tools` / `gclient`. It produces its own `v8jsi.dll`,
 `v8jsi_test.exe`, and `node_api_tests.exe` into
 `deps/nodejs/out/{Release,Debug}/` — the legacy build's outputs in
@@ -70,7 +70,8 @@ In addition to the prerequisites listed under *Initial Windows Build
 Setup*, the new build also needs:
 
 1. **Python 3.x** on PATH (required by the Node.js `configure` step).
-1. **Node.js v24+** on PATH (required by [`scripts/build.ts`](scripts/build.ts)).
+1. **Node.js 24.x** on PATH for tooling (required by [`scripts/build.ts`](scripts/build.ts));
+   the vendored Node.js 26.x sources do not require a Node 26 tooling runtime.
 1. The Visual Studio **C++ Clang Compiler for Windows** component
    (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`). The build uses its
    libclang to embed the API manifest in `v8jsi.dll` (see
@@ -104,6 +105,15 @@ the new build. Run `.\dev` with no arguments to see available commands.
 .\dev fork-sync --dep nodejs --status
 ```
 
+Node.js syncs use snapshot mode with `keepLocalDeletions` to preserve the
+pruned build closure. For a branch change, set the tracking branch in
+`deps/nodejs/sync-config.json` before starting, but retain its old base commit.
+Pass both the release tag and its peeled commit SHA to pin an annotated tag:
+`.\dev fork-sync --dep nodejs --tag <tag> --commit <sha>`.
+Without `--mergetool`, unresolved conflicts pause for manual resolution.
+A dedicated sync worktree and its `.sync` cache can be reused on fresh branches
+once the previous changes are committed and the worktree is clean.
+
 See `.\dev build --help` and `.\dev fork-sync --help` for the full
 option set. The `build` command forwards to
 [`scripts/build.ts`](scripts/build.ts), which drives
@@ -114,7 +124,7 @@ flags (skips `node.exe`, `cctest`, `embedtest`, etc.). See
 `.\dev build` also runs a version-sync check that compares
 `config.json.nodejs_version` against the vendored Node.js version in
 `deps/nodejs/src/node_version.h`, and fails fast on mismatch. See
-[`docs/versioning.md`](docs/versioning.md) for the `24.x.y` policy.
+[`docs/versioning.md`](docs/versioning.md) for the `26.x.y` policy.
 
 ##### [EXPERIMENTAL!] Building with WSL2 on Windows 10/11
 * [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux

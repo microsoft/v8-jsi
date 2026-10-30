@@ -36,6 +36,9 @@ struct BranchInfo {
   FlagsCondition condition;
   Label* true_label;
   Label* false_label;
+  // Whether there a hint that this branch is unlikely to change direction,
+  // such as a WebAssembly hinted branch or a trap.
+  bool hinted;
   bool fallthru;
 };
 
@@ -92,6 +95,7 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
 
 #if V8_ENABLE_WEBASSEMBLY
   base::OwnedVector<uint8_t> GenerateWasmDeoptimizationData();
+  base::OwnedVector<wasm::WasmCode::EffectHandler> GenerateWasmEffectHandler();
 #endif
 
   base::OwnedVector<uint8_t> GetSourcePositionTable();
@@ -217,10 +221,11 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
   void AssembleArchDeoptBranch(Instruction* instr, BranchInfo* branch);
 
   void AssembleArchBoolean(Instruction* instr, FlagsCondition condition);
-  void AssembleArchConditionalBoolean(Instruction* instr);
   void AssembleArchSelect(Instruction* instr, FlagsCondition condition);
 #if V8_ENABLE_WEBASSEMBLY
   void AssembleArchTrap(Instruction* instr, FlagsCondition condition);
+  void AssembleArchConditionalTrap(Instruction* instr,
+                                   FlagsCondition condition);
 #endif  // V8_ENABLE_WEBASSEMBLY
 #if V8_TARGET_ARCH_X64
   void AssembleArchBinarySearchSwitchRange(
@@ -238,19 +243,11 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
   // contains the expected pointer to the start of the instruction stream.
   void AssembleCodeStartRegisterCheck();
 
-#ifdef V8_ENABLE_LEAPTIERING
   // Generates code to check whether the {kJavaScriptCallDispatchHandleRegister}
   // references a valid entry compatible with this code.
   void AssembleDispatchHandleRegisterCheck();
-#endif  // V8_ENABLE_LEAPTIERING
 
-  // When entering a code that is marked for deoptimization, rather continuing
-  // with its execution, we jump to a lazy compiled code. We need to do this
-  // because this code has already been deoptimized and needs to be unlinked
-  // from the JS functions referring it.
-  // TODO(olivf, 42204201) Rename this to AssertNotDeoptimized once
-  // non-leaptiering is removed from the codebase.
-  void BailoutIfDeoptimized();
+  void AssertNotDeoptimized();
 
   // Assemble NOP instruction for lazy deoptimization. This place will be
   // patched later as a jump instruction to deoptimization trampoline.
@@ -265,6 +262,10 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
   void AssembleReturn(InstructionOperand* pop);
 
   void AssembleDeconstructFrame();
+
+#ifdef V8_DUMPLING
+  void AssembleDumpFrame();
+#endif  // V8_DUMPLING
 
   // Generates code to manipulate the stack in preparation for a tail call.
   void AssemblePrepareTailCall();
@@ -397,6 +398,12 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
     int pc_offset;
   };
 
+  struct EffectHandlerInfo {
+    int tag_index;
+    Label* handler;
+    int pc_offset;
+  };
+
   friend class OutOfLineCode;
   friend class CodeGeneratorTester;
 
@@ -416,6 +423,7 @@ class V8_EXPORT_PRIVATE CodeGenerator final : public GapResolver::Assembler {
   GapResolver resolver_;
   SafepointTableBuilder safepoints_;
   ZoneVector<HandlerInfo> handlers_;
+  ZoneVector<EffectHandlerInfo> effect_handlers_;
   int next_deoptimization_id_ = 0;
   int deopt_exit_start_offset_ = 0;
   int eager_deopt_count_ = 0;

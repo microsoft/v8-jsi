@@ -11,10 +11,12 @@
 #include "src/execution/arguments-inl.h"
 #include "src/execution/isolate-inl.h"
 #include "src/execution/messages.h"
+#include "src/execution/protectors-inl.h"
 #include "src/execution/tiering-manager.h"
 #include "src/handles/maybe-handles.h"
 #include "src/logging/counters.h"
 #include "src/numbers/conversions.h"
+#include "src/objects/contexts.h"
 #include "src/objects/template-objects-inl.h"
 #include "src/runtime/runtime-utils.h"
 #include "src/utils/ostreams.h"
@@ -297,15 +299,20 @@ RUNTIME_FUNCTION(Runtime_ThrowNotConstructor) {
       isolate, NewTypeError(MessageTemplate::kNotConstructor, object));
 }
 
-RUNTIME_FUNCTION(Runtime_ThrowApplyNonFunction) {
+RUNTIME_FUNCTION(Runtime_ThrowTargetNonFunction) {
   HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
+  DCHECK_EQ(2, args.length());
   Handle<Object> object = args.at(0);
+
+  Handle<String> target = args.at<String>(1);
   Handle<String> type = Object::TypeOf(isolate, object);
   Handle<String> msg;
   if (IsNull(*object)) {
     // "which is null"
-    msg = isolate->factory()->NewStringFromAsciiChecked("null");
+    msg = isolate->factory()->null_string();
+  } else if (IsUndefined(*object)) {
+    // "which is undefined"
+    msg = isolate->factory()->undefined_string();
   } else if (isolate->factory()->object_string()->Equals(*type)) {
     // "which is an object"
     msg = isolate->factory()->NewStringFromAsciiChecked("an object");
@@ -317,7 +324,8 @@ RUNTIME_FUNCTION(Runtime_ThrowApplyNonFunction) {
               .ToHandleChecked();
   }
   THROW_NEW_ERROR_RETURN_FAILURE(
-      isolate, NewTypeError(MessageTemplate::kApplyNonFunction, object, msg));
+      isolate,
+      NewTypeError(MessageTemplate::kTargetNonFunction, target, object, msg));
 }
 
 RUNTIME_FUNCTION(Runtime_StackGuard) {
@@ -438,20 +446,13 @@ RUNTIME_FUNCTION(Runtime_BytecodeBudgetInterruptWithStackCheck_Maglev) {
 
 RUNTIME_FUNCTION(Runtime_AllocateInYoungGeneration) {
   HandleScope scope(isolate);
-  DCHECK(isolate->IsOnCentralStack());
   DCHECK_EQ(2, args.length());
   // TODO(v8:13070): Align allocations in the builtins that call this.
   int size = ALIGN_TO_ALLOCATION_ALIGNMENT(args.smi_value_at(0));
   int flags = args.smi_value_at(1);
-  AllocationAlignment alignment =
-      AllocateDoubleAlignFlag::decode(flags) ? kDoubleAligned : kTaggedAligned;
+  AllocationAlignment alignment = static_cast<AllocationAlignment>(flags);
   CHECK(IsAligned(size, kTaggedSize));
   CHECK_GT(size, 0);
-
-  // When this is called from WasmGC code, clear the "thread in wasm" flag,
-  // which is important in case any GC needs to happen.
-  // TODO(40192807): Find a better fix, likely by replacing the global flag.
-  SaveAndClearThreadInWasmFlag clear_wasm_flag(isolate);
 
   // TODO(v8:9472): Until double-aligned allocation is fixed for new-space
   // allocations, don't request it.
@@ -469,17 +470,29 @@ RUNTIME_FUNCTION(Runtime_AllocateInOldGeneration) {
   int size = ALIGN_TO_ALLOCATION_ALIGNMENT(args.smi_value_at(0));
   int flags = args.smi_value_at(1);
 
-  // When this is called from WasmGC code, clear the "thread in wasm" flag,
-  // which is important in case any GC needs to happen.
-  // TODO(40192807): Find a better fix, likely by replacing the global flag.
-  SaveAndClearThreadInWasmFlag clear_wasm_flag(isolate);
-
-  AllocationAlignment alignment =
-      AllocateDoubleAlignFlag::decode(flags) ? kDoubleAligned : kTaggedAligned;
+  AllocationAlignment alignment = static_cast<AllocationAlignment>(flags);
   CHECK(IsAligned(size, kTaggedSize));
   CHECK_GT(size, 0);
   return *isolate->factory()->NewFillerObject(
       size, alignment, AllocationType::kOld, AllocationOrigin::kGeneratedCode);
+}
+
+RUNTIME_FUNCTION(Runtime_AllocateInSharedHeap) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(2, args.length());
+  // TODO(v8:13070): Align allocations in the builtins that call this.
+  int size = ALIGN_TO_ALLOCATION_ALIGNMENT(args.smi_value_at(0));
+  int flags = args.smi_value_at(1);
+  AllocationAlignment alignment = static_cast<AllocationAlignment>(flags);
+  CHECK(IsAligned(size, kTaggedSize));
+  CHECK_GT(size, 0);
+
+  Tagged<HeapObject> result = *isolate->factory()->NewFillerObject(
+      size, alignment, AllocationType::kSharedOld,
+      AllocationOrigin::kGeneratedCode);
+  DCHECK(IsAligned(result->address(),
+                   alignment == kDoubleAligned ? kDoubleSize : kTaggedSize));
+  return result;
 }
 
 RUNTIME_FUNCTION(Runtime_AllocateByteArray) {
@@ -633,12 +646,13 @@ RUNTIME_FUNCTION(Runtime_GetAndResetRuntimeCallStats) {
   }
   return ReadOnlyRoots(isolate).undefined_value();
 #else   // V8_RUNTIME_CALL_STATS
+  // RCS has to be enabled with v8_enable_runtime_call_stats = true.
   THROW_NEW_ERROR_RETURN_FAILURE(
       isolate, NewTypeError(MessageTemplate::kInvalid,
                             isolate->factory()->NewStringFromAsciiChecked(
                                 "Runtime Call"),
                             isolate->factory()->NewStringFromAsciiChecked(
-                                "RCS was disabled at compile-time")));
+                                "RCS was disabled at compile-time.")));
 #endif  // V8_RUNTIME_CALL_STATS
 }
 
@@ -708,6 +722,10 @@ RUNTIME_FUNCTION(Runtime_ReportMessageFromMicrotask) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
 
+  // Valid context is required for calling Object::ToString as a part of
+  // rendering of an unhandled exception report.
+  DCHECK(!isolate->context().is_null());
+
   DirectHandle<Object> exception = args.at(0);
 
   DCHECK(!isolate->has_exception());
@@ -756,15 +774,27 @@ RUNTIME_FUNCTION(Runtime_SharedValueBarrierSlow) {
   return *shared_value;
 }
 
-RUNTIME_FUNCTION(Runtime_InvalidateDependentCodeForScriptContextSlot) {
+RUNTIME_FUNCTION(Runtime_NotifyContextCellStateWillChange) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
-  auto const_tracking_let_cell =
-      Cast<ContextSidePropertyCell>(args.at<HeapObject>(0));
+  auto cell = Cast<ContextCell>(args.at<HeapObject>(0));
   DependentCode::DeoptimizeDependencyGroups(
-      isolate, *const_tracking_let_cell,
-      DependentCode::kScriptContextSlotPropertyChangedGroup);
+      isolate, *cell, DependentCode::kContextCellChangedGroup);
   return ReadOnlyRoots(isolate).undefined_value();
+}
+
+RUNTIME_FUNCTION(Runtime_InvalidateStringWrapperToPrimitiveProtector) {
+  DCHECK_EQ(0, args.length());
+  Protectors::InvalidateStringWrapperToPrimitive(isolate);
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
+RUNTIME_FUNCTION(Runtime_AddLhsIsStringConstantInternalize) {
+  UNREACHABLE();  // Lowered to a builtin call instead.
+}
+
+RUNTIME_FUNCTION(Runtime_AddRhsIsStringConstantInternalize) {
+  UNREACHABLE();  // Lowered to a builtin call instead.
 }
 
 }  // namespace internal

@@ -10,6 +10,7 @@
 #include <cctype>
 #include <memory>
 
+#include "cppgc/garbage-collected.h"  // NOLINT(build/include_directory)
 #include "v8-isolate.h"       // NOLINT(build/include_directory)
 #include "v8-local-handle.h"  // NOLINT(build/include_directory)
 
@@ -288,11 +289,21 @@ class V8_EXPORT V8InspectorClient {
 
   virtual void installAdditionalCommandLineAPI(v8::Local<v8::Context>,
                                                v8::Local<v8::Object>) {}
+  // Deprecated. Use version with contextId.
   virtual void consoleAPIMessage(int contextGroupId,
                                  v8::Isolate::MessageErrorLevel level,
                                  const StringView& message,
                                  const StringView& url, unsigned lineNumber,
                                  unsigned columnNumber, V8StackTrace*) {}
+  virtual void consoleAPIMessage(int contextGroupId, int contextId,
+                                 v8::Isolate::MessageErrorLevel level,
+                                 const StringView& message,
+                                 const StringView& url, unsigned lineNumber,
+                                 unsigned columnNumber,
+                                 V8StackTrace* stackTrace) {
+    consoleAPIMessage(contextGroupId, level, message, url, lineNumber,
+                      columnNumber, stackTrace);
+  }
   virtual v8::MaybeLocal<v8::Value> memoryInfo(v8::Isolate*,
                                                v8::Local<v8::Context>) {
     return v8::MaybeLocal<v8::Value>();
@@ -405,15 +416,36 @@ class V8_EXPORT V8Inspector {
     virtual void sendNotification(std::unique_ptr<StringBuffer> message) = 0;
     virtual void flushProtocolNotifications() = 0;
   };
+
+  class V8_EXPORT ManagedChannel
+      : public cppgc::GarbageCollected<ManagedChannel>,
+        public Channel {
+   public:
+    virtual ~ManagedChannel() = default;
+    virtual void Trace(cppgc::Visitor* visitor) const {}
+  };
+
   enum ClientTrustLevel { kUntrusted, kFullyTrusted };
   enum SessionPauseState { kWaitingForDebugger, kNotWaitingForDebugger };
   // TODO(chromium:1352175): remove default value once downstream change lands.
+  // Deprecated: Use `connectShared` instead.
   virtual std::unique_ptr<V8InspectorSession> connect(
       int contextGroupId, Channel*, StringView state,
       ClientTrustLevel client_trust_level,
-      SessionPauseState = kNotWaitingForDebugger) {
-    return nullptr;
-  }
+      SessionPauseState = kNotWaitingForDebugger) = 0;
+
+  // Same as `connect` but returns a std::shared_ptr instead.
+  // Embedders should not deconstruct V8 sessions while the nested run loop
+  // (V8InspectorClient::runMessageLoopOnPause) is running. To partially ensure
+  // this, we defer session deconstruction until no "dispatchProtocolMessages"
+  // remains on the stack.
+  virtual std::shared_ptr<V8InspectorSession> connectShared(
+      int contextGroupId, Channel* channel, StringView state,
+      ClientTrustLevel clientTrustLevel, SessionPauseState pauseState) = 0;
+
+  virtual std::shared_ptr<V8InspectorSession> connectShared(
+      int contextGroupId, ManagedChannel* channel, StringView state,
+      ClientTrustLevel clientTrustLevel, SessionPauseState pauseState) = 0;
 
   // API methods.
   virtual std::unique_ptr<V8StackTrace> createStackTrace(

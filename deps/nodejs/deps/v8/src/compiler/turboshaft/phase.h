@@ -24,6 +24,7 @@
 #include "src/compiler/turboshaft/graph.h"
 #include "src/compiler/turboshaft/sidetable.h"
 #include "src/compiler/turboshaft/zone-with-name.h"
+#include "src/interpreter/interpreter.h"
 #include "src/logging/runtime-call-stats.h"
 #include "src/zone/accounting-allocator.h"
 #include "src/zone/zone.h"
@@ -118,10 +119,11 @@ struct ComponentWithZone {
 
 struct BuiltinComponent {
   const CallDescriptor* call_descriptor;
-  std::optional<BytecodeHandlerData> bytecode_handler_data;
+  std::optional<interpreter::BytecodeHandlerData> bytecode_handler_data;
 
-  BuiltinComponent(const CallDescriptor* call_descriptor,
-                   std::optional<BytecodeHandlerData> bytecode_handler_data)
+  BuiltinComponent(
+      const CallDescriptor* call_descriptor,
+      std::optional<interpreter::BytecodeHandlerData> bytecode_handler_data)
       : call_descriptor(call_descriptor),
         bytecode_handler_data(std::move(bytecode_handler_data)) {}
 };
@@ -215,17 +217,19 @@ class V8_EXPORT_PRIVATE PipelineData {
 
   void InitializeBuiltinComponent(
       const CallDescriptor* call_descriptor,
-      std::optional<BytecodeHandlerData> bytecode_handler_data = {}) {
+      std::optional<interpreter::BytecodeHandlerData> bytecode_handler_data =
+          {}) {
     DCHECK(!builtin_component_.has_value());
     builtin_component_.emplace(call_descriptor,
                                std::move(bytecode_handler_data));
   }
 
-  void InitializeGraphComponent(SourcePositionTable* source_positions) {
+  void InitializeGraphComponent(SourcePositionTable* source_positions,
+                                Graph::Origin origin) {
     DCHECK(!graph_component_.has_value());
     graph_component_.emplace(zone_stats_);
     auto& zone = graph_component_->zone;
-    graph_component_->graph = zone.New<Graph>(zone);
+    graph_component_->graph = zone.New<Graph>(zone, origin);
     graph_component_->source_positions =
         GraphComponent::Pointer<SourcePositionTable>(source_positions);
     if (info_ && info_->trace_turbo_json()) {
@@ -236,11 +240,12 @@ class V8_EXPORT_PRIVATE PipelineData {
   void InitializeGraphComponentWithGraphZone(
       ZoneWithName<kGraphZoneName> graph_zone,
       ZoneWithNamePointer<SourcePositionTable, kGraphZoneName> source_positions,
-      ZoneWithNamePointer<NodeOriginTable, kGraphZoneName> node_origins) {
+      ZoneWithNamePointer<NodeOriginTable, kGraphZoneName> node_origins,
+      Graph::Origin origin) {
     DCHECK(!graph_component_.has_value());
     graph_component_.emplace(std::move(graph_zone));
     auto& zone = graph_component_->zone;
-    graph_component_->graph = zone.New<Graph>(zone);
+    graph_component_->graph = zone.New<Graph>(zone, origin);
     graph_component_->source_positions = source_positions;
     graph_component_->node_origins = node_origins;
     if (!graph_component_->node_origins && info_ && info_->trace_turbo_json()) {
@@ -341,7 +346,7 @@ class V8_EXPORT_PRIVATE PipelineData {
     DCHECK(builtin_component_.has_value());
     return builtin_component_->call_descriptor;
   }
-  std::optional<BytecodeHandlerData>& bytecode_handler_data() {
+  std::optional<interpreter::BytecodeHandlerData>& bytecode_handler_data() {
     DCHECK(builtin_component_.has_value());
     return builtin_component_->bytecode_handler_data;
   }
@@ -404,6 +409,9 @@ class V8_EXPORT_PRIVATE PipelineData {
       TurbofanPipelineStatistics* pipeline_statistics) {
     pipeline_statistics_ = pipeline_statistics;
   }
+
+  const Linkage* linkage() const { return linkage_; }
+  void set_linkage(const Linkage* linkage) { linkage_ = linkage; }
 
 #if V8_ENABLE_WEBASSEMBLY
   // Module-specific signature: type indices are only valid in the WasmModule*
@@ -521,6 +529,7 @@ class V8_EXPORT_PRIVATE PipelineData {
   MaybeIndirectHandle<Code> code_;
   std::string source_position_output_;
   RuntimeCallStats* runtime_call_stats_ = nullptr;
+  const Linkage* linkage_ = nullptr;
   // Components
   std::optional<BuiltinComponent> builtin_component_;
   std::optional<GraphComponent> graph_component_;
@@ -543,8 +552,8 @@ class V8_EXPORT_PRIVATE PipelineData {
 #endif  // V8_ENABLE_WEBASSEMBLY
 };
 
-void PrintTurboshaftGraph(PipelineData* data, Zone* temp_zone,
-                          CodeTracer* code_tracer, const char* phase_name);
+void PrintTurboshaftGraph(PipelineData* data, CodeTracer* code_tracer,
+                          const char* phase_name);
 void PrintTurboshaftGraphForTurbolizer(std::ofstream& stream,
                                        const Graph& graph,
                                        const char* phase_name,

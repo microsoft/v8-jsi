@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  ArrayFrom,
+  ArrayPrototypePush,
   MathMax,
   MathMin,
   ObjectDefineProperties,
@@ -15,7 +15,6 @@ const {
   StringPrototypeSplit,
   StringPrototypeToLowerCase,
   Symbol,
-  SymbolIterator,
   SymbolToStringTag,
   Uint8Array,
 } = primordials;
@@ -31,7 +30,7 @@ const {
 } = internalBinding('buffer');
 
 const {
-  TextDecoder,
+  getUtf8Decoder,
   TextEncoder,
 } = require('internal/encoding');
 const { URL } = require('internal/url');
@@ -54,12 +53,14 @@ const {
   lazyDOMException,
 } = require('internal/util');
 const { inspect } = require('internal/util/inspect');
-const { convertToInt } = require('internal/webidl');
+const {
+  converters,
+  createSequenceConverter,
+} = require('internal/webidl');
 
 const {
   codes: {
     ERR_BUFFER_TOO_LARGE,
-    ERR_INVALID_ARG_TYPE,
     ERR_INVALID_ARG_VALUE,
     ERR_INVALID_STATE,
     ERR_INVALID_THIS,
@@ -84,9 +85,9 @@ const kNotCloneable = Symbol('kNotCloneable');
 const disallowedTypeCharacters = /[^\u{0020}-\u{007E}]/u;
 
 let ReadableStream;
+let TextDecoderStream;
 
 const enc = new TextEncoder();
-let dec;
 
 // Yes, lazy loading is annoying but because of circular
 // references between the url, internal/blob, and buffer
@@ -97,6 +98,13 @@ function lazyReadableStream(options) {
   ReadableStream ??=
     require('internal/webstreams/readablestream').ReadableStream;
   return new ReadableStream(options);
+}
+
+function lazyTextDecoderStream() {
+  // eslint-disable-next-line no-global-assign
+  TextDecoderStream ??=
+    require('internal/webstreams/encoding').TextDecoderStream;
+  return new TextDecoderStream();
 }
 
 const { EOL } = require('internal/constants');
@@ -112,9 +120,8 @@ function getSource(source, endings) {
   if (isAnyArrayBuffer(source)) {
     source = new Uint8Array(source);
   } else if (!isArrayBufferView(source)) {
-    source = `${source}`;
     if (endings === 'native')
-      source = RegExpPrototypeSymbolReplace(/\n|\r\n/g, source, EOL);
+      source = RegExpPrototypeSymbolReplace(/\r\n|\r|\n/g, source, EOL);
     source = enc.encode(source);
   }
 
@@ -125,6 +132,13 @@ function getSource(source, endings) {
   const slice = buffer.slice(byteOffset, byteOffset + byteLength);
   return [byteLength, new Uint8Array(slice)];
 }
+
+const sourcesConverter = createSequenceConverter((source, opts = kEmptyObject) => {
+  if (isBlob(source) || isAnyArrayBuffer(source) || isArrayBufferView(source)) {
+    return source;
+  }
+  return converters.DOMString(source, opts);
+});
 
 class Blob {
   /**
@@ -142,11 +156,8 @@ class Blob {
   constructor(sources = [], options) {
     markTransferMode(this, true, false);
 
-    if (sources === null ||
-        typeof sources[SymbolIterator] !== 'function' ||
-        typeof sources === 'string') {
-      throw new ERR_INVALID_ARG_TYPE('sources', 'a sequence', sources);
-    }
+    const sources_ = sourcesConverter(sources);
+
     validateDictionary(options, 'options');
     let {
       endings = 'transparent',
@@ -158,11 +169,11 @@ class Blob {
       throw new ERR_INVALID_ARG_VALUE('options.endings', endings);
 
     let length = 0;
-    const sources_ = ArrayFrom(sources, (source) => {
-      const { 0: len, 1: src } = getSource(source, endings);
+    for (let i = 0; i < sources_.length; ++i) {
+      const { 0: len, 1: src } = getSource(sources_[i], endings);
       length += len;
-      return src;
-    });
+      sources_[i] = src;
+    }
 
     if (length > kMaxLength)
       throw new ERR_BUFFER_TOO_LARGE(kMaxLength);
@@ -241,10 +252,14 @@ class Blob {
     if (!isBlob(this))
       throw new ERR_INVALID_THIS('Blob');
 
-    // Coerce values to int
-    const opts = { __proto__: null, signed: true };
-    start = convertToInt('start', start, 64, opts);
-    end = convertToInt('end', end, 64, opts);
+    start = converters['long long'](
+      start,
+      { __proto__: null, context: 'start', clamp: true },
+    );
+    end = converters['long long'](
+      end,
+      { __proto__: null, context: 'end', clamp: true },
+    );
 
     if (start < 0) {
       start = MathMax(this[kLength] + start, 0);
@@ -290,7 +305,7 @@ class Blob {
     if (!isBlob(this))
       return PromiseReject(new ERR_INVALID_THIS('Blob'));
 
-    dec ??= new TextDecoder();
+    const dec = getUtf8Decoder();
 
     return PromisePrototypeThen(
       arrayBuffer(this),
@@ -316,6 +331,17 @@ class Blob {
     if (!isBlob(this))
       throw new ERR_INVALID_THIS('Blob');
     return createBlobReaderStream(this[kHandle].getReader());
+  }
+
+  /**
+   * @returns {ReadableStream}
+   */
+  textStream() {
+    if (!isBlob(this))
+      throw new ERR_INVALID_THIS('Blob');
+    const stream = createBlobReaderStream(this[kHandle].getReader());
+    const decoder = lazyTextDecoderStream();
+    return stream.pipeThrough(decoder);
   }
 }
 
@@ -350,6 +376,7 @@ ObjectDefineProperties(Blob.prototype, {
   type: kEnumerableProperty,
   slice: kEnumerableProperty,
   stream: kEnumerableProperty,
+  textStream: kEnumerableProperty,
   text: kEnumerableProperty,
   arrayBuffer: kEnumerableProperty,
   bytes: kEnumerableProperty,
@@ -432,6 +459,43 @@ function arrayBuffer(blob) {
   return promise;
 }
 
+/**
+ * Read a blob's data synchronously. This is only possible when every part
+ * of the blob is memory-resident, in which case the reader's pull callbacks
+ * are invoked synchronously; otherwise (e.g. for file-backed blobs)
+ * undefined is returned.
+ * @param {Blob} blob
+ * @returns {ArrayBuffer|undefined}
+ */
+function getBlobDataSync(blob) {
+  const reader = blob[kHandle].getReader();
+  const buffers = [];
+  let result;
+  let ended = false;
+  while (!ended) {
+    let sync = false;
+    reader.pull((status, buffer) => {
+      sync = true;
+      if (status === 0) {
+        // EOS; buffer should be undefined here.
+        result = concat(buffers);
+        ended = true;
+        return;
+      } else if (status < 0) {
+        ended = true;
+        return;
+      }
+      if (buffer !== undefined)
+        ArrayPrototypePush(buffers, buffer);
+    });
+    if (!sync) {
+      // The data is not available synchronously.
+      break;
+    }
+  }
+  return result;
+}
+
 function createBlobReaderStream(reader) {
   return new lazyReadableStream({
     type: 'bytes',
@@ -439,65 +503,95 @@ function createBlobReaderStream(reader) {
       // There really should only be one read at a time so using an
       // array here is purely defensive.
       this.pendingPulls = [];
+      // Lazily register a wakeup callback that the C++ side can invoke
+      // when new data is available after a STATUS_BLOCK.
+      let immediate;
+      this.wakeup = () => {
+        if (this.pendingPulls.length > 0) {
+          immediate ??= setImmediate(() => {
+            immediate = undefined;
+            this.readNext(c);
+          });
+        }
+      };
     },
     pull(c) {
       const { promise, resolve, reject } = PromiseWithResolvers();
+      if (this.pendingPulls.length === 0) {
+        reader.setWakeup(this.wakeup);
+      }
       this.pendingPulls.push({ resolve, reject });
-      const readNext = () => {
-        reader.pull((status, buffer) => {
-          // If pendingPulls is empty here, the stream had to have
-          // been canceled, and we don't really care about the result.
-          // We can simply exit.
-          if (this.pendingPulls.length === 0) {
-            return;
-          }
-          if (status === 0) {
-            // EOS
-            c.close();
-            // This is to signal the end for byob readers
-            // see https://streams.spec.whatwg.org/#example-rbs-pull
-            c.byobRequest?.respond(0);
-            const pending = this.pendingPulls.shift();
-            pending.resolve();
-            return;
-          } else if (status < 0) {
-            // The read could fail for many different reasons when reading
-            // from a non-memory resident blob part (e.g. file-backed blob).
-            // The error details the system error code.
-            const error = lazyDOMException('The blob could not be read', 'NotReadableError');
-            const pending = this.pendingPulls.shift();
-            c.error(error);
-            pending.reject(error);
-            return;
-          }
-          // ReadableByteStreamController.enqueue errors if we submit a 0-length
-          // buffer. We need to check for that here.
-          if (buffer !== undefined && buffer.byteLength !== 0) {
-            c.enqueue(new Uint8Array(buffer));
-          }
-          // We keep reading until we either reach EOS, some error, or we
-          // hit the flow rate of the stream (c.desiredSize).
-          // We use set immediate here because we have to allow the event
-          // loop to turn in order to process any pending i/o. Using
-          // queueMicrotask won't allow the event loop to turn.
-          setImmediate(() => {
-            if (c.desiredSize < 0) {
-              // A manual backpressure check.
-              if (this.pendingPulls.length !== 0) {
-                // A case of waiting pull finished (= not yet canceled)
-                const pending = this.pendingPulls.shift();
-                pending.resolve();
-              }
-              return;
-            }
-            readNext();
-          });
-        });
-      };
-      readNext();
+      this.readNext(c);
       return promise;
     },
+    clearWakeupIfIdle() {
+      if (this.pendingPulls.length === 0) {
+        reader.setWakeup(undefined);
+      }
+    },
+    readNext(c) {
+      reader.pull((status, buffer) => {
+        // If pendingPulls is empty here, the stream had to have
+        // been canceled, and we don't really care about the result.
+        // We can simply exit.
+        if (this.pendingPulls.length === 0) {
+          reader.setWakeup(undefined);
+          return;
+        }
+        if (status === 0) {
+          // EOS
+          reader.setWakeup(undefined);
+          c.close();
+          // This is to signal the end for byob readers
+          // see https://streams.spec.whatwg.org/#example-rbs-pull
+          c.byobRequest?.respond(0);
+          const pending = this.pendingPulls.shift();
+          pending.resolve();
+          return;
+        } else if (status < 0) {
+          // The read could fail for many different reasons when reading
+          // from a non-memory resident blob part (e.g. file-backed blob).
+          // The error details the system error code.
+          reader.setWakeup(undefined);
+          const error =
+            lazyDOMException('The blob could not be read',
+                             'NotReadableError');
+          const pending = this.pendingPulls.shift();
+          c.error(error);
+          pending.reject(error);
+          return;
+        } else if (status === 2) {
+          // STATUS_BLOCK: No data available yet. The wakeup callback
+          // registered in pull() will re-invoke readNext when data
+          // arrives.
+          return;
+        }
+        // ReadableByteStreamController.enqueue errors if we submit a
+        // 0-length buffer. We need to check for that here.
+        if (buffer !== undefined && buffer.byteLength !== 0) {
+          c.enqueue(new Uint8Array(buffer));
+        }
+        // We keep reading until we either reach EOS, some error, or
+        // we hit the flow rate of the stream (c.desiredSize).
+        // We use setImmediate here because we have to allow the event
+        // loop to turn in order to process any pending i/o. Using
+        // queueMicrotask won't allow the event loop to turn.
+        setImmediate(() => {
+          if (c.desiredSize < 0) {
+            // A manual backpressure check.
+            if (this.pendingPulls.length !== 0) {
+              const pending = this.pendingPulls.shift();
+              pending.resolve();
+              this.clearWakeupIfIdle();
+            }
+            return;
+          }
+          this.readNext(c);
+        });
+      });
+    },
     cancel(reason) {
+      reader.setWakeup(undefined);
       // Reject any currently pending pulls here.
       for (const pending of this.pendingPulls) {
         pending.reject(reason);
@@ -510,13 +604,105 @@ function createBlobReaderStream(reader) {
   }, { highWaterMark: 0 });
 }
 
+// Upper bound on the number of chunks collected in a single batch. This is
+// only a cap on the length of the yielded array -- the primary limit is the
+// byte budget below, since under a byte-budget backpressure model the size of
+// a batch is what matters, not how many pieces it arrives in.
+const kMaxBatchChunks = 16;
+
+// Default number of bytes to collect in a single batch. Entries in the
+// DataQueue can each be as large as the peer's flow control window, so a
+// purely count-based limit could produce enormous batches (16 entries of
+// 1 MB each).
+//
+// This matters for more than just the size of the yielded array. Consumers
+// like QUIC return flow control credit from the reader's pull path -- once
+// per pull, not once per batch -- so every pull this loop performs invites
+// the peer to send that many more bytes. Pulling greedily therefore grants
+// credit for data the consumer has not looked at yet. Bounding the loop by
+// bytes limits how far ahead of actual consumption that credit can run,
+// which is what keeps the amount of data buffered in JS bounded.
+const kDefaultMaxBatchBytes = 65536;
+
+async function* createBlobReaderIterable(reader, options = kEmptyObject) {
+  const { maxBatchBytes = kDefaultMaxBatchBytes } = options;
+  let wakeup = PromiseWithResolvers();
+  let immediate;
+  reader.setWakeup(() => {
+    immediate ??= setImmediate(() => {
+      immediate = undefined;
+      wakeup.resolve?.();
+    });
+  });
+
+  try {
+    while (true) {
+      const batch = [];
+      let batchBytes = 0;
+      let blocked = false;
+      let eos = false;
+      let error = null;
+
+      // Pull as many chunks as available synchronously.
+      // reader.pull(callback) calls the callback synchronously via
+      // MakeCallback, so we can collect multiple chunks per iteration
+      // step without any async overhead.
+      while (true) {
+        let pullResult;
+        reader.pull((status, buffer) => {
+          pullResult = { status, buffer };
+        });
+
+        if (pullResult.status === 0) {
+          eos = true;
+          break;
+        }
+        if (pullResult.status < 0) {
+          error = new ERR_INVALID_STATE('The reader is not readable');
+          break;
+        }
+        if (pullResult.status === 2) {
+          blocked = true;
+          break;
+        }
+        const chunk = new Uint8Array(pullResult.buffer);
+        ArrayPrototypePush(batch, chunk);
+        // Stop collecting once the batch is large enough. The byte budget is
+        // the primary limit; the chunk count is a secondary bound so that a
+        // long run of tiny chunks cannot produce an unwieldy array.
+        batchBytes += chunk.byteLength;
+        if (batchBytes >= maxBatchBytes || batch.length >= kMaxBatchChunks) {
+          break;
+        }
+      }
+
+      if (batch.length > 0) {
+        yield batch;
+      }
+
+      if (eos) return;
+      if (error) throw error;
+
+      if (blocked) {
+        await wakeup.promise;
+        wakeup = PromiseWithResolvers();
+      }
+    }
+  } finally {
+    reader.setWakeup(undefined);
+  }
+}
+
 module.exports = {
   Blob,
   createBlob,
   createBlobFromFilePath,
+  createBlobReaderIterable,
+  createBlobReaderStream,
+  getBlobDataSync,
   isBlob,
   kHandle,
+  kType,
   resolveObjectURL,
   TransferableBlob,
-  createBlobReaderStream,
 };

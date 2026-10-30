@@ -12,6 +12,7 @@
 #include "src/handles/handles-inl.h"
 #include "src/heap/heap-layout-inl.h"
 #include "src/objects/allocation-site-inl.h"
+#include "src/objects/contexts.h"
 #include "src/objects/internal-index.h"
 #include "src/objects/js-array-inl.h"
 #include "src/objects/js-function-inl.h"
@@ -41,7 +42,7 @@ namespace compiler {
   V(PretenureMode)                      \
   V(Protector)                          \
   V(PrototypeProperty)                  \
-  V(ScriptContextSlotProperty)          \
+  V(ContextCell)                        \
   V(StableMap)                          \
   V(Transition)                         \
   V(ObjectSlotValue)
@@ -124,7 +125,7 @@ class PendingDependencies final {
   explicit PendingDependencies(Zone* zone)
       : deps_(8, {}, ZoneAllocationPolicy(zone)) {}
 
-  void Register(Handle<HeapObject> object,
+  void Register(Handle<DependableObject> object,
                 DependentCode::DependencyGroup group) {
     // InstructionStream, which are per-local Isolate, cannot depend on objects
     // in the shared or RO heaps. Shared and RO heap dependencies are designed
@@ -132,8 +133,9 @@ class PendingDependencies final {
     // have transitions or change the shape of their fields. See
     // DependentCode::DeoptimizeDependencyGroups for corresponding DCHECK.
     if (HeapLayout::InWritableSharedSpace(*object) ||
-        HeapLayout::InReadOnlySpace(*object))
+        HeapLayout::InReadOnlySpace(*object)) {
       return;
+    }
     deps_.LookupOrInsert(object, HandleValueHash(object))->value |= group;
   }
 
@@ -179,19 +181,20 @@ class PendingDependencies final {
   }
 
  private:
-  uint32_t HandleValueHash(DirectHandle<HeapObject> handle) {
+  uint32_t HandleValueHash(DirectHandle<DependableObject> handle) {
     return static_cast<uint32_t>(base::hash_value(handle->ptr()));
   }
   struct HandleValueEqual {
     bool operator()(uint32_t hash1, uint32_t hash2,
-                    DirectHandle<HeapObject> lhs,
-                    Handle<HeapObject> rhs) const {
+                    DirectHandle<DependableObject> lhs,
+                    Handle<DependableObject> rhs) const {
       return hash1 == hash2 && lhs.is_identical_to(rhs);
     }
   };
 
-  base::TemplateHashMapImpl<Handle<HeapObject>, DependentCode::DependencyGroups,
-                            HandleValueEqual, ZoneAllocationPolicy>
+  base::TemplateHashMapImpl<Handle<DependableObject>,
+                            DependentCode::DependencyGroups, HandleValueEqual,
+                            ZoneAllocationPolicy>
       deps_;
 };
 
@@ -254,7 +257,9 @@ class PrototypePropertyDependency final : public CompilationDependency {
   void PrepareInstall(JSHeapBroker* broker) const override {
     SLOW_DCHECK(IsValid(broker));
     DirectHandle<JSFunction> function = function_.object();
-    if (!function->has_initial_map()) JSFunction::EnsureHasInitialMap(function);
+    if (!function->has_initial_map()) {
+      JSFunction::EnsureHasInitialMap(broker->isolate(), function);
+    }
   }
 
   void Install(JSHeapBroker* broker, PendingDependencies* deps) const override {
@@ -399,6 +404,8 @@ class ConstantInDictionaryPrototypeChainDependency final
                                           : ValidationResult::kFoundIncorrect;
     };
 
+    // TODO(jkummerow): Consider supporting Wasm structs in this loop (by
+    // skipping over them) if that becomes a relevant use case.
     while (IsJSObject(prototype)) {
       // We only care about JSObjects because that's the only type of holder
       // (and types of prototypes on the chain to the holder) that
@@ -906,50 +913,35 @@ class GlobalPropertyDependency final : public CompilationDependency {
   const bool read_only_;
 };
 
-class ScriptContextSlotPropertyDependency final : public CompilationDependency {
+class ContextCellDependency final : public CompilationDependency {
  public:
-  ScriptContextSlotPropertyDependency(
-      ContextRef script_context, size_t index,
-      ContextSidePropertyCell::Property property)
-      : CompilationDependency(kScriptContextSlotProperty),
-        script_context_(script_context),
-        index_(index),
-        property_(property) {
-    DCHECK(v8_flags.script_context_mutable_heap_number ||
-           v8_flags.const_tracking_let);
+  ContextCellDependency(ContextCellRef slot, ContextCell::State state)
+      : CompilationDependency(kContextCell), slot_(slot), state_(state) {
+    DCHECK(v8_flags.script_context_cells || v8_flags.function_context_cells);
   }
 
   bool IsValid(JSHeapBroker* broker) const override {
-    return script_context_.object()->GetScriptContextSideProperty(index_) ==
-           property_;
+    return slot_.state() == state_;
   }
 
   void Install(JSHeapBroker* broker, PendingDependencies* deps) const override {
     SLOW_DCHECK(IsValid(broker));
-    Isolate* isolate = broker->isolate();
-    deps->Register(
-        handle(Context::GetOrCreateContextSidePropertyCell(
-                   script_context_.object(), index_, property_, isolate),
-               isolate),
-        DependentCode::kScriptContextSlotPropertyChangedGroup);
+    deps->Register(slot_.object(), DependentCode::kContextCellChangedGroup);
   }
 
  private:
   size_t Hash() const override {
     ObjectRef::Hash h;
-    return base::hash_combine(h(script_context_), index_);
+    return base::hash_combine(h(slot_), state_);
   }
 
   bool Equals(const CompilationDependency* that) const override {
-    const ScriptContextSlotPropertyDependency* const zat =
-        that->AsScriptContextSlotProperty();
-    return script_context_.equals(zat->script_context_) &&
-           index_ == zat->index_ && property_ == zat->property_;
+    const ContextCellDependency* const zat = that->AsContextCell();
+    return slot_.equals(zat->slot_) && state_ == zat->state_;
   }
 
-  const ContextRef script_context_;
-  size_t index_;
-  ContextSidePropertyCell::Property property_;
+  const ContextCellRef slot_;
+  const ContextCell::State state_;
 };
 
 class EmptyContextExtensionDependency final : public CompilationDependency {
@@ -1184,7 +1176,8 @@ class InitialMapInstanceSizePredictionDependency final
 
   void PrepareInstall(JSHeapBroker* broker) const override {
     SLOW_DCHECK(IsValid(broker));
-    function_.object()->CompleteInobjectSlackTrackingIfActive();
+    function_.object()->CompleteInobjectSlackTrackingIfActive(
+        broker->isolate());
   }
 
   void Install(JSHeapBroker* broker, PendingDependencies* deps) const override {
@@ -1276,7 +1269,7 @@ PropertyConstness CompilationDependencies::DependOnFieldConstness(
   return PropertyConstness::kConst;
 }
 
-CompilationDependency const*
+std::optional<CompilationDependency const*>
 CompilationDependencies::FieldConstnessDependencyOffTheRecord(
     MapRef map, MapRef owner, InternalIndex descriptor) {
   DCHECK_EQ(map.GetPropertyDetails(broker_, descriptor).constness(),
@@ -1302,19 +1295,25 @@ void CompilationDependencies::DependOnGlobalProperty(PropertyCellRef cell) {
   RecordDependency(zone_->New<GlobalPropertyDependency>(cell, type, read_only));
 }
 
-bool CompilationDependencies::DependOnScriptContextSlotProperty(
-    ContextRef script_context, size_t index,
-    ContextSidePropertyCell::Property property, JSHeapBroker* broker) {
-  if ((v8_flags.const_tracking_let ||
-       v8_flags.script_context_mutable_heap_number) &&
-      script_context.object()->IsScriptContext() &&
-      script_context.object()->GetScriptContextSideProperty(index) ==
-          property) {
-    RecordDependency(zone_->New<ScriptContextSlotPropertyDependency>(
-        script_context, index, property));
-    return true;
+bool CompilationDependencies::DependOnContextCell(ContextRef script_context,
+                                                  size_t index,
+                                                  ContextCell::State state,
+                                                  JSHeapBroker* broker) {
+  if (!script_context.object()->HasContextCells()) return false;
+  auto value = script_context.get(broker, static_cast<int>(index));
+  if (!value || !value->IsContextCell()) {
+    return false;
   }
-  return false;
+  auto slot = value->AsContextCell();
+  RecordDependency(zone_->New<ContextCellDependency>(slot, state));
+  return true;
+}
+
+bool CompilationDependencies::DependOnContextCell(ContextCellRef slot,
+                                                  ContextCell::State state) {
+  DCHECK(v8_flags.script_context_cells);
+  RecordDependency(zone_->New<ContextCellDependency>(slot, state));
+  return true;
 }
 
 bool CompilationDependencies::DependOnEmptyContextExtension(
@@ -1381,6 +1380,13 @@ bool CompilationDependencies::DependOnNoElementsProtector() {
       MakeRef(broker_, broker_->isolate()->factory()->no_elements_protector()));
 }
 
+bool CompilationDependencies::DependOnNoDateTimeConfigurationChangeProtector() {
+  return DependOnProtector(
+      MakeRef(broker_, broker_->isolate()
+                           ->factory()
+                           ->no_date_time_configuration_change_protector()));
+}
+
 bool CompilationDependencies::DependOnPromiseHookProtector() {
   return DependOnProtector(MakeRef(
       broker_, broker_->isolate()->factory()->promise_hook_protector()));
@@ -1400,11 +1406,6 @@ bool CompilationDependencies::DependOnStringWrapperToPrimitiveProtector() {
   return DependOnProtector(MakeRef(
       broker_,
       broker_->isolate()->factory()->string_wrapper_to_primitive_protector()));
-}
-
-bool CompilationDependencies::DependOnTypedArrayLengthProtector() {
-  return DependOnProtector(MakeRef(
-      broker_, broker_->isolate()->factory()->typed_array_length_protector()));
 }
 
 void CompilationDependencies::DependOnElementsKind(AllocationSiteRef site) {
@@ -1653,6 +1654,13 @@ CompilationDependency const*
 CompilationDependencies::FieldTypeDependencyOffTheRecord(
     MapRef map, MapRef owner, InternalIndex descriptor, ObjectRef type) const {
   return zone_->New<FieldTypeDependency>(map, owner, descriptor, type);
+}
+
+void CompilationDependencies::DependOnFieldRepresentation(
+    MapRef map, MapRef owner, InternalIndex descriptor,
+    Representation representation) {
+  RecordDependency(zone_->New<FieldRepresentationDependency>(
+      map, owner, descriptor, representation));
 }
 
 #ifdef DEBUG

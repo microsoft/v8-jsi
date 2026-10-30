@@ -10,6 +10,7 @@
 #include <sstream>
 #include <string>
 
+#include "src/base/logging.h"
 #include "src/compiler/all-nodes.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/js-operator.h"
@@ -781,6 +782,9 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kJSCreateLiteralRegExp:
       CheckTypeIs(node, Type::OtherObject());
       break;
+    case IrOpcode::kJSSetPrototypeProperties:
+      CheckNotTyped(node);
+      break;
     case IrOpcode::kJSGetTemplateObject:
       CheckTypeIs(node, Type::Array());
       break;
@@ -850,12 +854,12 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kJSHasContextExtension:
       CheckTypeIs(node, Type::Boolean());
       break;
+    case IrOpcode::kJSLoadContextNoCell:
     case IrOpcode::kJSLoadContext:
-    case IrOpcode::kJSLoadScriptContext:
       CheckTypeIs(node, Type::Any());
       break;
+    case IrOpcode::kJSStoreContextNoCell:
     case IrOpcode::kJSStoreContext:
-    case IrOpcode::kJSStoreScriptContext:
       CheckNotTyped(node);
       break;
     case IrOpcode::kJSCreateFunctionContext:
@@ -881,6 +885,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::Any());
       break;
 
+    case IrOpcode::kJSDetachContextCell:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckValueInputIs(node, 1, Type::Any());
+      CheckNotTyped(node);
+      break;
     case IrOpcode::kJSForInEnumerate:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::OtherInternal());
@@ -890,6 +899,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kJSForInNext:
       CheckTypeIs(node, Type::Union(Type::Name(), Type::Undefined(), zone));
+      break;
+
+    case IrOpcode::kJSForOfNext:
+      CheckTypeIs(node, Type::Tuple(Type::Any(), Type::Any(), zone));
       break;
 
     case IrOpcode::kJSLoadMessage:
@@ -919,7 +932,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::SignedSmall());
       break;
 
-    case IrOpcode::kJSGeneratorRestoreContext:
+    case IrOpcode::kJSGeneratorRestoreContextNoCell:
       CheckTypeIs(node, Type::Any());
       break;
 
@@ -987,6 +1000,9 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kComment:
     case IrOpcode::kAbortCSADcheck:
     case IrOpcode::kDebugBreak:
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+    case IrOpcode::kSwitchSandboxMode:
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
     case IrOpcode::kRetain:
     case IrOpcode::kRuntimeAbort:
       CheckNotTyped(node);
@@ -1211,6 +1227,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 1, Type::String());
       CheckTypeIs(node, Type::Boolean());
       break;
+    case IrOpcode::kStringOrOddballStrictEqual:
+      CheckValueInputIs(node, 0, Type::StringOrOddball());
+      CheckValueInputIs(node, 1, Type::StringOrOddball());
+      CheckTypeIs(node, Type::Boolean());
+      break;
     case IrOpcode::kStringToNumber:
       CheckValueInputIs(node, 0, Type::String());
       CheckTypeIs(node, Type::Number());
@@ -1299,7 +1320,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::Boolean());
       break;
     case IrOpcode::kNumberIsFloat64Hole:
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+      CheckValueInputIs(node, 0, Type::NumberOrUndefinedOrHole());
+#else
       CheckValueInputIs(node, 0, Type::NumberOrHole());
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
       CheckTypeIs(node, Type::Boolean());
       break;
     case IrOpcode::kNumberIsFinite:
@@ -1429,8 +1454,18 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
+    case IrOpcode::kChangeNumberOrHoleToFloat64: {
+      // NumberOrHole /\ Tagged -> Number /\ UntaggedFloat64
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type from = Type::Intersect(Type::NumberOrHole(), Type::Tagged());
+      // Type to = Type::Intersect(Type::Number(), Type::UntaggedFloat64());
+      // CheckValueInputIs(node, 0, from));
+      // CheckTypeIs(node, to));
+      break;
+    }
     case IrOpcode::kChangeTaggedToTaggedSigned:      // Fall through.
       break;
+    case IrOpcode::kTruncateTaggedToFloat64PreserveUndefined:
     case IrOpcode::kTruncateTaggedToFloat64: {
       // NumberOrUndefined /\ Tagged -> Number /\ UntaggedFloat64
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1483,6 +1518,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     }
     case IrOpcode::kChangeFloat64ToTaggedPointer:
       break;
+    case IrOpcode::kChangeFloat64OrUndefinedToTagged:
+      break;
     case IrOpcode::kChangeTaggedToBit: {
       // Boolean /\ TaggedPtr -> Boolean /\ UntaggedInt1
       // TODO(neis): Activate once ChangeRepresentation works in typer.
@@ -1501,7 +1538,16 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       // CheckTypeIs(node, to));
       break;
     }
-    case IrOpcode::kTruncateTaggedToWord32: {
+    case IrOpcode::kTruncateNumberOrOddballToWord32: {
+      // Number /\ Tagged -> Signed32 /\ UntaggedInt32
+      // TODO(neis): Activate once ChangeRepresentation works in typer.
+      // Type from = Type::Intersect(Type::Number(), Type::Tagged());
+      // Type to = Type::Intersect(Type::Number(), Type::UntaggedInt32());
+      // CheckValueInputIs(node, 0, from));
+      // CheckTypeIs(node, to));
+      break;
+    }
+    case IrOpcode::kTruncateNumberOrOddballOrHoleToWord32: {
       // Number /\ Tagged -> Signed32 /\ UntaggedInt32
       // TODO(neis): Activate once ChangeRepresentation works in typer.
       // Type from = Type::Intersect(Type::Number(), Type::Tagged());
@@ -1559,6 +1605,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Number());
       break;
+    case IrOpcode::kCheckNumberOrUndefined:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckTypeIs(node, Type::NumberOrUndefined());
+      break;
     case IrOpcode::kCheckNumberFitsInt32:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Signed32());
@@ -1582,6 +1632,10 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::StringOrStringWrapper());
       break;
+    case IrOpcode::kCheckStringOrOddball:
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckTypeIs(node, Type::StringOrOddball());
+      break;
     case IrOpcode::kCheckSymbol:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::Symbol());
@@ -1602,6 +1656,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kCheckedInt32Mul:
     case IrOpcode::kCheckedInt32ToTaggedSigned:
     case IrOpcode::kCheckedInt64ToInt32:
+    case IrOpcode::kCheckedInt64ToAdditiveSafeInteger:
     case IrOpcode::kCheckedInt64ToTaggedSigned:
     case IrOpcode::kCheckedUint32Bounds:
     case IrOpcode::kCheckedUint32ToInt32:
@@ -1639,13 +1694,25 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::Number());
       break;
     case IrOpcode::kCheckFloat64Hole:
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+      CheckValueInputIs(node, 0, Type::NumberOrUndefinedOrHole());
+#else
       CheckValueInputIs(node, 0, Type::NumberOrHole());
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
       CheckTypeIs(node, Type::NumberOrUndefined());
       break;
     case IrOpcode::kChangeFloat64HoleToTagged:
       CheckValueInputIs(node, 0, Type::NumberOrHole());
       CheckTypeIs(node, Type::NumberOrUndefined());
       break;
+    case IrOpcode::kChangeFloat64OrUndefinedOrHoleToTagged:
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+      CheckValueInputIs(node, 0, Type::NumberOrUndefinedOrHole());
+      CheckTypeIs(node, Type::NumberOrUndefinedOrHole());
+      break;
+#else
+      UNREACHABLE();
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
     case IrOpcode::kCheckNotTaggedHole:
       CheckValueInputIs(node, 0, Type::Any());
       CheckTypeIs(node, Type::NonInternal());
@@ -1731,8 +1798,13 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckNotTyped(node);
       break;
     case IrOpcode::kNumberSilenceNaN:
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+      CheckValueInputIs(node, 0, Type::NumberOrUndefined());
+      CheckTypeIs(node, Type::NumberOrUndefined());
+#else
       CheckValueInputIs(node, 0, Type::Number());
       CheckTypeIs(node, Type::Number());
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
       break;
     case IrOpcode::kMapGuard:
       CheckNotTyped(node);
@@ -2033,6 +2105,7 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
     case IrOpcode::kSignExtendWord8ToInt64:
     case IrOpcode::kSignExtendWord16ToInt64:
     case IrOpcode::kSignExtendWord32ToInt64:
+    case IrOpcode::kMajorGCForCompilerTesting:
     case IrOpcode::kStaticAssert:
     case IrOpcode::kStackPointerGreaterThan:
     case IrOpcode::kTraceInstruction:

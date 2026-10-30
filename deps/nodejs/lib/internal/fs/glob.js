@@ -5,6 +5,7 @@ const {
   ArrayIsArray,
   ArrayPrototypeAt,
   ArrayPrototypeFlatMap,
+  ArrayPrototypeJoin,
   ArrayPrototypeMap,
   ArrayPrototypePop,
   ArrayPrototypePush,
@@ -14,11 +15,26 @@ const {
   SafeMap,
   SafeSet,
   StringPrototypeEndsWith,
+  StringPrototypeSlice,
+  StringPrototypeSplit,
+  StringPrototypeStartsWith,
+  StringPrototypeToLowerCase,
 } = primordials;
 
-const { lstatSync, readdirSync } = require('fs');
-const { lstat, readdir } = require('fs/promises');
-const { join, resolve, basename, isAbsolute, dirname } = require('path');
+const {
+  lstatSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+} = require('fs');
+const realpathSyncNative = realpathSync.native;
+const {
+  lstat,
+  readdir,
+  realpath,
+  stat,
+} = require('fs/promises');
+const { join, resolve, relative, basename, isAbsolute, dirname, parse, sep } = require('path');
 
 const {
   kEmptyObject,
@@ -26,6 +42,8 @@ const {
   isMacOS,
 } = require('internal/util');
 const {
+  validateBoolean,
+  validateInteger,
   validateObject,
   validateString,
   validateStringArray,
@@ -113,10 +131,81 @@ function createMatcher(pattern, options = kEmptyObject) {
   return new (lazyMinimatch().Minimatch)(pattern, opts);
 }
 
+function cloneSet(values) {
+  const cloned = new SafeSet();
+  for (const value of values) {
+    cloned.add(value);
+  }
+  return cloned;
+}
+
+function isOutsidePath(path) {
+  return isAbsolute(path) ||
+    path === '..' ||
+    StringPrototypeStartsWith(path, `..${sep}`);
+}
+
+function isStrictDescendant(path) {
+  return path !== '' && !isOutsidePath(path);
+}
+
+function pathDepth(path) {
+  if (path === '') {
+    return 0;
+  }
+  if (isAbsolute(path)) {
+    return Infinity;
+  }
+  return StringPrototypeSplit(path, sep).length;
+}
+
+function ancestorAtDepth(path, relativePath) {
+  let ancestor = path;
+  if (relativePath !== '') {
+    const depth = pathDepth(relativePath);
+    for (let i = 0; i < depth; i++) {
+      ancestor = dirname(ancestor);
+    }
+  }
+  return ancestor;
+}
+
+function caseSensitiveRelative(path, otherPath) {
+  const pathRoot = parse(path).root;
+  const otherPathRoot = parse(otherPath).root;
+  if (StringPrototypeToLowerCase(pathRoot) !==
+      StringPrototypeToLowerCase(otherPathRoot)) {
+    return otherPath;
+  }
+  const pathTail = StringPrototypeSlice(path, pathRoot.length);
+  const otherPathTail = StringPrototypeSlice(otherPath, otherPathRoot.length);
+  const pathParts = pathTail === '' ? [] : StringPrototypeSplit(pathTail, sep);
+  const otherPathParts = otherPathTail === '' ?
+    [] : StringPrototypeSplit(otherPathTail, sep);
+  let common = 0;
+  while (common < pathParts.length &&
+         common < otherPathParts.length &&
+         pathParts[common] === otherPathParts[common]) {
+    common++;
+  }
+  const parts = [];
+  for (let i = common; i < pathParts.length; i++) {
+    ArrayPrototypePush(parts, '..');
+  }
+  for (let i = common; i < otherPathParts.length; i++) {
+    ArrayPrototypePush(parts, otherPathParts[i]);
+  }
+  return ArrayPrototypeJoin(parts, sep);
+}
+
 class Cache {
   #cache = new SafeMap();
   #statsCache = new SafeMap();
+  #followStatsCache = new SafeMap();
+  #identityCache = new SafeMap();
+  #identityRealpathCache = new SafeMap();
   #readdirCache = new SafeMap();
+  #realpathCache = new SafeMap();
 
   stat(path) {
     const cached = this.#statsCache.get(path);
@@ -135,6 +224,103 @@ class Cache {
     }
     const val = getDirentSync(path);
     this.#statsCache.set(path, val);
+    return val;
+  }
+  followStat(path) {
+    const cached = this.#followStatsCache.get(path);
+    if (cached) {
+      return cached;
+    }
+    const promise = PromisePrototypeThen(stat(path), null, () => null);
+    this.#followStatsCache.set(path, promise);
+    return promise;
+  }
+  followStatSync(path) {
+    const cached = this.#followStatsCache.get(path);
+    if (cached && !(cached instanceof Promise)) {
+      return cached;
+    }
+    let val;
+    try {
+      val = statSync(path);
+    } catch {
+      val = null;
+    }
+    this.#followStatsCache.set(path, val);
+    return val;
+  }
+  identity(path) {
+    const cached = this.#identityCache.get(path);
+    if (cached) {
+      return cached;
+    }
+    const promise = PromisePrototypeThen(
+      lstat(path),
+      ({ dev, ino }) => `${dev}:${ino}`,
+      () => null,
+    );
+    this.#identityCache.set(path, promise);
+    return promise;
+  }
+  identitySync(path) {
+    const cached = this.#identityCache.get(path);
+    if (cached && !(cached instanceof Promise)) {
+      return cached;
+    }
+    let val;
+    try {
+      const { dev, ino } = lstatSync(path);
+      val = `${dev}:${ino}`;
+    } catch {
+      val = null;
+    }
+    this.#identityCache.set(path, val);
+    return val;
+  }
+  identityRealpath(path) {
+    const cached = this.#identityRealpathCache.get(path);
+    if (cached) {
+      return cached;
+    }
+    const promise = PromisePrototypeThen(realpath(path), null, () => null);
+    this.#identityRealpathCache.set(path, promise);
+    return promise;
+  }
+  identityRealpathSync(path) {
+    const cached = this.#identityRealpathCache.get(path);
+    if (cached && !(cached instanceof Promise)) {
+      return cached;
+    }
+    let val;
+    try {
+      val = realpathSyncNative(path);
+    } catch {
+      val = null;
+    }
+    this.#identityRealpathCache.set(path, val);
+    return val;
+  }
+  realpath(path) {
+    const cached = this.#realpathCache.get(path);
+    if (cached) {
+      return cached;
+    }
+    const promise = PromisePrototypeThen(realpath(path), null, () => null);
+    this.#realpathCache.set(path, promise);
+    return promise;
+  }
+  realpathSync(path) {
+    const cached = this.#realpathCache.get(path);
+    if (cached && !(cached instanceof Promise)) {
+      return cached;
+    }
+    let val;
+    try {
+      val = realpathSync(path);
+    } catch {
+      val = null;
+    }
+    this.#realpathCache.set(path, val);
     return val;
   }
   addToStatCache(path, val) {
@@ -178,18 +364,208 @@ class Cache {
   }
 }
 
+class DepthLimiter {
+  #root;
+  #maxDepth;
+  #cache;
+  #relativeCache = new SafeMap();
+
+  constructor(root, maxDepth, cache) {
+    this.#root = resolve(root);
+    this.#maxDepth = maxDepth;
+    this.#cache = cache;
+  }
+
+  #relativeCandidate(path) {
+    const fullpath = resolve(this.#root, path);
+    const pathFromRoot = relative(this.#root, fullpath);
+    if (isWindows && !isOutsidePath(pathFromRoot)) {
+      return {
+        __proto__: null,
+        pathFromRoot,
+        caseVariantRoot: ancestorAtDepth(fullpath, pathFromRoot),
+        differentPath: caseSensitiveRelative(this.#root, fullpath),
+      };
+    }
+    if (isMacOS && !isAbsolute(pathFromRoot) && isOutsidePath(pathFromRoot)) {
+      const foldedPathFromRoot = relative(
+        StringPrototypeToLowerCase(this.#root),
+        StringPrototypeToLowerCase(fullpath),
+      );
+      if (!isOutsidePath(foldedPathFromRoot)) {
+        return {
+          __proto__: null,
+          pathFromRoot: foldedPathFromRoot,
+          caseVariantRoot: ancestorAtDepth(fullpath, foldedPathFromRoot),
+          differentPath: pathFromRoot,
+        };
+      }
+    }
+    return { __proto__: null, pathFromRoot };
+  }
+
+  #isSamePath(path, otherPath) {
+    if (path === otherPath) {
+      return true;
+    }
+    if (isWindows) {
+      const realPath = this.#cache.identityRealpathSync(path);
+      return realPath !== null &&
+        realPath === this.#cache.identityRealpathSync(otherPath);
+    }
+    const identity = this.#cache.identitySync(path);
+    return identity !== null &&
+      identity === this.#cache.identitySync(otherPath);
+  }
+
+  async #isSamePathAsync(path, otherPath) {
+    if (path === otherPath) {
+      return true;
+    }
+    if (isWindows) {
+      const realPath = await this.#cache.identityRealpath(path);
+      return realPath !== null &&
+        realPath === await this.#cache.identityRealpath(otherPath);
+    }
+    const identity = await this.#cache.identity(path);
+    return identity !== null &&
+      identity === await this.#cache.identity(otherPath);
+  }
+
+  #relativeFromRoot(path) {
+    const cached = this.#relativeCache.get(path);
+    if (cached !== undefined && !(cached instanceof Promise)) {
+      return cached;
+    }
+    const candidate = this.#relativeCandidate(path);
+    const relativePath = candidate.caseVariantRoot === undefined ||
+        this.#isSamePath(this.#root, candidate.caseVariantRoot) ?
+      candidate.pathFromRoot :
+      candidate.differentPath;
+    this.#relativeCache.set(path, relativePath);
+    return relativePath;
+  }
+
+  #relativeFromRootAsync(path) {
+    const cached = this.#relativeCache.get(path);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const candidate = this.#relativeCandidate(path);
+    if (candidate.caseVariantRoot === undefined) {
+      this.#relativeCache.set(path, candidate.pathFromRoot);
+      return candidate.pathFromRoot;
+    }
+    const promise = PromisePrototypeThen(
+      this.#isSamePathAsync(this.#root, candidate.caseVariantRoot),
+      (isSamePath) => (isSamePath ?
+        candidate.pathFromRoot :
+        candidate.differentPath),
+    );
+    this.#relativeCache.set(path, promise);
+    return promise;
+  }
+
+  #ancestorCandidate(path) {
+    const fullpath = resolve(this.#root, path);
+    const rootFromPath = relative(fullpath, this.#root);
+    if (isStrictDescendant(rootFromPath)) {
+      return { __proto__: null, fullpath, needsIdentity: isWindows };
+    }
+    if (isMacOS) {
+      const foldedRootFromPath = relative(
+        StringPrototypeToLowerCase(fullpath),
+        StringPrototypeToLowerCase(this.#root),
+      );
+      if (isStrictDescendant(foldedRootFromPath)) {
+        return { __proto__: null, fullpath, needsIdentity: true };
+      }
+    }
+    return null;
+  }
+
+  #isAncestorOfRoot(path) {
+    const candidate = this.#ancestorCandidate(path);
+    if (candidate === null) {
+      return false;
+    }
+    if (!candidate.needsIdentity) {
+      return true;
+    }
+    const realRoot = this.#cache.identityRealpathSync(this.#root);
+    const realFullpath = this.#cache.identityRealpathSync(candidate.fullpath);
+    if (realRoot === null || realFullpath === null) {
+      return false;
+    }
+    const realRootFromPath = isWindows ?
+      caseSensitiveRelative(realFullpath, realRoot) :
+      relative(realFullpath, realRoot);
+    return isStrictDescendant(realRootFromPath);
+  }
+
+  async #isAncestorOfRootAsync(path) {
+    const candidate = this.#ancestorCandidate(path);
+    if (candidate === null) {
+      return false;
+    }
+    if (!candidate.needsIdentity) {
+      return true;
+    }
+    const realRoot = await this.#cache.identityRealpath(this.#root);
+    const realFullpath =
+      await this.#cache.identityRealpath(candidate.fullpath);
+    if (realRoot === null || realFullpath === null) {
+      return false;
+    }
+    const realRootFromPath = isWindows ?
+      caseSensitiveRelative(realFullpath, realRoot) :
+      relative(realFullpath, realRoot);
+    return isStrictDescendant(realRootFromPath);
+  }
+
+  includes(path) {
+    return pathDepth(this.#relativeFromRoot(path)) <= this.#maxDepth;
+  }
+
+  async includesAsync(path) {
+    return pathDepth(await this.#relativeFromRootAsync(path)) <= this.#maxDepth;
+  }
+
+  canTraverse(path, isAbsolutePattern) {
+    return (isAbsolutePattern && this.#isAncestorOfRoot(path)) ||
+      pathDepth(this.#relativeFromRoot(path)) < this.#maxDepth;
+  }
+
+  async canTraverseAsync(path, isAbsolutePattern) {
+    return (isAbsolutePattern && await this.#isAncestorOfRootAsync(path)) ||
+      pathDepth(await this.#relativeFromRootAsync(path)) < this.#maxDepth;
+  }
+}
+
+function createDepthLimiter(root, maxDepth, cache) {
+  if (maxDepth == null || maxDepth === Infinity) {
+    return null;
+  }
+  validateInteger(maxDepth, 'options.maxDepth', 0);
+  return new DepthLimiter(root, maxDepth, cache);
+}
+
 class Pattern {
   #pattern;
   #globStrings;
   indexes;
   symlinks;
+  realpaths;
   last;
+  isAbsolute;
 
-  constructor(pattern, globStrings, indexes, symlinks) {
+  constructor(pattern, globStrings, indexes, symlinks, isAbsolute, realpaths = new SafeSet()) {
     this.#pattern = pattern;
     this.#globStrings = globStrings;
     this.indexes = indexes;
     this.symlinks = symlinks;
+    this.isAbsolute = isAbsolute;
+    this.realpaths = realpaths;
     this.last = pattern.length - 1;
   }
 
@@ -207,8 +583,8 @@ class Pattern {
   at(index) {
     return ArrayPrototypeAt(this.#pattern, index);
   }
-  child(indexes, symlinks = new SafeSet()) {
-    return new Pattern(this.#pattern, this.#globStrings, indexes, symlinks);
+  child(indexes, symlinks = new SafeSet(), realpaths = this.realpaths) {
+    return new Pattern(this.#pattern, this.#globStrings, indexes, symlinks, this.isAbsolute, realpaths);
   }
   test(index, path) {
     if (index > this.#pattern.length) {
@@ -266,11 +642,19 @@ class Glob {
   #subpatterns = new SafeMap();
   #patterns;
   #withFileTypes;
+  #followSymlinks = false;
+  #depthLimiter;
   #isExcluded = () => false;
   constructor(pattern, options = kEmptyObject) {
     validateObject(options, 'options');
-    const { exclude, cwd, withFileTypes } = options;
+    const { exclude, cwd, followSymlinks, maxDepth, withFileTypes } = options;
     this.#root = toPathIfFileURL(cwd) ?? '.';
+    if (followSymlinks != null) {
+      validateBoolean(followSymlinks, 'options.followSymlinks');
+      this.#followSymlinks = followSymlinks;
+    }
+    this.#depthLimiter =
+      createDepthLimiter(this.#root, maxDepth, this.#cache);
     this.#withFileTypes = !!withFileTypes;
     if (exclude != null) {
       validateStringArrayOrFunction(exclude, 'options.exclude');
@@ -280,7 +664,10 @@ class Glob {
         // consistent comparison before instantiating matchers.
         const matchers = exclude
           .map((pattern) => resolve(this.#root, pattern))
-          .map((pattern) => createMatcher(pattern));
+          // Exclude matching is a pure string comparison with no filesystem
+          // lookups, so unlike include patterns, literal patterns must also
+          // match case-insensitively on case-insensitive platforms.
+          .map((pattern) => createMatcher(pattern, { nocaseMagicOnly: false }));
         this.#isExcluded = (value) =>
           matchers.some((matcher) => matcher.match(value));
         this.#results.setup(this.#root, this.#isExcluded);
@@ -297,13 +684,34 @@ class Glob {
       patterns = [pattern];
     }
     this.matchers = ArrayPrototypeMap(patterns, (pattern) => createMatcher(pattern));
-    this.#patterns = ArrayPrototypeFlatMap(this.matchers, (matcher) => ArrayPrototypeMap(matcher.set,
-                                                                                         (pattern, i) => new Pattern(
-                                                                                           pattern,
-                                                                                           matcher.globParts[i],
-                                                                                           new SafeSet().add(0),
-                                                                                           new SafeSet(),
-                                                                                         )));
+    this.#patterns = ArrayPrototypeFlatMap(this.matchers, (matcher) =>
+      ArrayPrototypeMap(matcher.set, (pattern, i) => new Pattern(
+        pattern,
+        matcher.globParts[i],
+        new SafeSet().add(0),
+        new SafeSet(),
+        isAbsolute(ArrayPrototypeJoin(matcher.globParts[i], sep)),
+      )));
+  }
+
+  #addResult(path) {
+    return (this.#depthLimiter === null ||
+      this.#depthLimiter.includes(path)) &&
+      this.#results.add(path);
+  }
+
+  async #addResultAsync(path) {
+    return await this.#depthLimiter.includesAsync(path) &&
+      this.#results.add(path);
+  }
+
+  #canTraverse(path, pattern) {
+    return this.#depthLimiter === null ||
+      this.#depthLimiter.canTraverse(path, pattern.isAbsolute);
+  }
+
+  async #canTraverseAsync(path, pattern) {
+    return this.#depthLimiter.canTraverseAsync(path, pattern.isAbsolute);
   }
 
   globSync() {
@@ -325,6 +733,68 @@ class Glob {
           join(this.#root, path),
       ) : undefined,
     );
+  }
+  #isDirectorySync(path, stat, pattern) {
+    if (stat?.isDirectory()) {
+      return true;
+    }
+    if (!stat?.isSymbolicLink()) {
+      return false;
+    }
+    if (this.#followSymlinks) {
+      return !!this.#cache.followStatSync(path)?.isDirectory();
+    }
+    return pattern.hasSeenSymlinks;
+  }
+  async #isDirectory(path, stat, pattern) {
+    if (stat?.isDirectory()) {
+      return true;
+    }
+    if (!stat?.isSymbolicLink()) {
+      return false;
+    }
+    if (this.#followSymlinks) {
+      return !!(await this.#cache.followStat(path))?.isDirectory();
+    }
+    return pattern.hasSeenSymlinks;
+  }
+  #nextRealpathsSync(path, isDirectory, pattern) {
+    if (!this.#followSymlinks || !isDirectory) {
+      return pattern.realpaths;
+    }
+    const real = this.#cache.realpathSync(path);
+    if (real === null) {
+      return pattern.realpaths;
+    }
+    const realpaths = cloneSet(pattern.realpaths);
+    realpaths.add(real);
+    return realpaths;
+  }
+  async #nextRealpaths(path, isDirectory, pattern) {
+    if (!this.#followSymlinks || !isDirectory) {
+      return pattern.realpaths;
+    }
+    const real = await this.#cache.realpath(path);
+    if (real === null) {
+      return pattern.realpaths;
+    }
+    const realpaths = cloneSet(pattern.realpaths);
+    realpaths.add(real);
+    return realpaths;
+  }
+  async #isCyclic(path, isDirectory, pattern) {
+    if (!this.#followSymlinks || !isDirectory) {
+      return false;
+    }
+    const real = await this.#cache.realpath(path);
+    return real !== null && pattern.realpaths.has(real);
+  }
+  #isCyclicSync(path, isDirectory, pattern) {
+    if (!this.#followSymlinks || !isDirectory) {
+      return false;
+    }
+    const real = this.#cache.realpathSync(path);
+    return real !== null && pattern.realpaths.has(real);
   }
   #addSubpattern(path, pattern) {
     if (this.#isExcluded(path)) {
@@ -363,7 +833,7 @@ class Glob {
     const fullpath = resolve(this.#root, path);
     const stat = this.#cache.statSync(fullpath);
     const last = pattern.last;
-    const isDirectory = stat?.isDirectory() || (stat?.isSymbolicLink() && pattern.hasSeenSymlinks);
+    const isDirectory = this.#isDirectorySync(fullpath, stat, pattern);
     const isLast = pattern.isLast(isDirectory);
     const isFirst = pattern.isFirst();
 
@@ -396,7 +866,7 @@ class Glob {
       const p = pattern.at(-1);
       const stat = this.#cache.statSync(join(fullpath, p));
       if (stat && (p || isDirectory)) {
-        this.#results.add(join(path, p));
+        this.#addResult(join(path, p));
       }
       if (pattern.indexes.size === 1 && pattern.indexes.has(last)) {
         return;
@@ -405,12 +875,16 @@ class Glob {
      (path !== '.' || pattern.at(0) === '.' || (last === 0 && stat))) {
       // If pattern ends with **, add to results
       // if path is ".", add it only if pattern starts with "." or pattern is exactly "**"
-      this.#results.add(path);
+      this.#addResult(path);
     }
 
-    if (!isDirectory) {
+    if (!isDirectory ||
+        !this.#canTraverse(path, pattern) ||
+        this.#isCyclicSync(fullpath, isDirectory, pattern)) {
       return;
     }
+
+    const nextRealpaths = this.#nextRealpathsSync(fullpath, isDirectory, pattern);
 
     let children;
     const firstPattern = pattern.indexes.size === 1 && pattern.at(pattern.indexes.values().next().value);
@@ -429,19 +903,19 @@ class Glob {
     for (let i = 0; i < children.length; i++) {
       const entry = children[i];
       const entryPath = join(path, entry.name);
-      this.#cache.addToStatCache(join(fullpath, entry.name), entry);
+      const entryFullpath = join(fullpath, entry.name);
+      this.#cache.addToStatCache(entryFullpath, entry);
+      const entryIsDirectory = entry.isDirectory() ||
+        (this.#followSymlinks && entry.isSymbolicLink() && !!this.#cache.followStatSync(entryFullpath)?.isDirectory());
 
       const subPatterns = new SafeSet();
       const nSymlinks = new SafeSet();
       for (const index of pattern.indexes) {
         // For each child, check potential patterns
-        if (this.#cache.seen(entryPath, pattern, index) || this.#cache.seen(entryPath, pattern, index + 1)) {
-          return;
-        }
         const current = pattern.at(index);
         const nextIndex = index + 1;
         const next = pattern.at(nextIndex);
-        const fromSymlink = pattern.symlinks.has(index);
+        const fromSymlink = !this.#followSymlinks && pattern.symlinks.has(index);
 
         if (current === lazyMinimatch().GLOBSTAR) {
           const isDot = entry.name[0] === '.';
@@ -458,37 +932,37 @@ class Glob {
               (this.#exclude && this.#exclude(this.#withFileTypes ? entry : entry.name))) {
             continue;
           }
-          if (!fromSymlink && entry.isDirectory()) {
+          if (!fromSymlink && entryIsDirectory) {
             // If directory, add ** to its potential patterns
             subPatterns.add(index);
           } else if (!fromSymlink && index === last) {
             // If ** is last, add to results
-            this.#results.add(entryPath);
+            this.#addResult(entryPath);
           }
 
           // Any pattern after ** is also a potential pattern
           // so we can already test it here
           if (nextMatches && nextIndex === last && !isLast) {
             // If next pattern is the last one, add to results
-            this.#results.add(entryPath);
-          } else if (nextMatches && entry.isDirectory()) {
+            this.#addResult(entryPath);
+          } else if (nextMatches && entryIsDirectory) {
             // Pattern matched, meaning two patterns forward
             // are also potential patterns
             // e.g **/b/c when entry is a/b - add c to potential patterns
             subPatterns.add(index + 2);
           }
           if ((nextMatches || pattern.at(0) === '.') &&
-           (entry.isDirectory() || entry.isSymbolicLink()) && !fromSymlink) {
+           entryIsDirectory && !fromSymlink) {
             // If pattern after ** matches, or pattern starts with "."
-            // and entry is a directory or symlink, add to potential patterns
+            // and entry is a directory, add to potential patterns
             subPatterns.add(nextIndex);
           }
 
-          if (entry.isSymbolicLink()) {
+          if (!this.#followSymlinks && entry.isSymbolicLink()) {
             nSymlinks.add(index);
           }
 
-          if (next === '..' && entry.isDirectory()) {
+          if (next === '..' && entryIsDirectory) {
             // In case pattern is "**/..",
             // both parent and current directory should be added to the queue
             // if this is the last pattern, add to results instead
@@ -503,11 +977,11 @@ class Glob {
             } else {
               if (!this.#cache.seen(path, pattern, nextIndex)) {
                 this.#cache.add(path, pattern.child(new SafeSet().add(nextIndex)));
-                this.#results.add(path);
+                this.#addResult(path);
               }
               if (!this.#cache.seen(path, pattern, nextIndex) || !this.#cache.seen(parent, pattern, nextIndex)) {
                 this.#cache.add(parent, pattern.child(new SafeSet().add(nextIndex)));
-                this.#results.add(parent);
+                this.#addResult(parent);
               }
             }
           }
@@ -520,7 +994,7 @@ class Glob {
           } else if (current === '.' && pattern.test(nextIndex, entry.name)) {
             // If current pattern is ".", proceed to test next pattern
             if (nextIndex === last) {
-              this.#results.add(entryPath);
+              this.#addResult(entryPath);
             } else {
               subPatterns.add(nextIndex + 1);
             }
@@ -530,15 +1004,15 @@ class Glob {
           // If current pattern is a regex that matches entry name (e.g *.js)
           // add next pattern to potential patterns, or to results if it's the last pattern
           if (index === last) {
-            this.#results.add(entryPath);
-          } else if (entry.isDirectory()) {
+            this.#addResult(entryPath);
+          } else if (entryIsDirectory) {
             subPatterns.add(nextIndex);
           }
         }
       }
       if (subPatterns.size > 0) {
         // If there are potential patterns, add to queue
-        this.#addSubpattern(entryPath, pattern.child(subPatterns, nSymlinks));
+        this.#addSubpattern(entryPath, pattern.child(subPatterns, nSymlinks, nextRealpaths));
       }
     }
   }
@@ -564,9 +1038,10 @@ class Glob {
     const fullpath = resolve(this.#root, path);
     const stat = await this.#cache.stat(fullpath);
     const last = pattern.last;
-    const isDirectory = stat?.isDirectory() || (stat?.isSymbolicLink() && pattern.hasSeenSymlinks);
+    const isDirectory = await this.#isDirectory(fullpath, stat, pattern);
     const isLast = pattern.isLast(isDirectory);
     const isFirst = pattern.isFirst();
+    const finiteDepth = this.#depthLimiter !== null;
 
     if (this.#isExcluded(fullpath)) {
       return;
@@ -599,7 +1074,9 @@ class Glob {
       if (stat && (p || isDirectory)) {
         const result = join(path, p);
         if (!this.#results.has(result)) {
-          if (this.#results.add(result)) {
+          if (!finiteDepth ?
+            this.#results.add(result) :
+            await this.#addResultAsync(result)) {
             yield this.#withFileTypes ? stat : result;
           }
         }
@@ -612,15 +1089,25 @@ class Glob {
       // If pattern ends with **, add to results
       // if path is ".", add it only if pattern starts with "." or pattern is exactly "**"
       if (!this.#results.has(path)) {
-        if (this.#results.add(path)) {
+        if (!finiteDepth ?
+          this.#results.add(path) :
+          await this.#addResultAsync(path)) {
           yield this.#withFileTypes ? stat : path;
         }
       }
     }
 
-    if (!isDirectory) {
+    let canTraverse = true;
+    if (isDirectory && finiteDepth) {
+      canTraverse = await this.#canTraverseAsync(path, pattern);
+    }
+    if (!isDirectory ||
+        !canTraverse ||
+        await this.#isCyclic(fullpath, isDirectory, pattern)) {
       return;
     }
+
+    const nextRealpaths = await this.#nextRealpaths(fullpath, isDirectory, pattern);
 
     let children;
     const firstPattern = pattern.indexes.size === 1 && pattern.at(pattern.indexes.values().next().value);
@@ -639,19 +1126,21 @@ class Glob {
     for (let i = 0; i < children.length; i++) {
       const entry = children[i];
       const entryPath = join(path, entry.name);
-      this.#cache.addToStatCache(join(fullpath, entry.name), entry);
+      const entryFullpath = join(fullpath, entry.name);
+      this.#cache.addToStatCache(entryFullpath, entry);
+      const entryIsDirectory = entry.isDirectory() ||
+        (this.#followSymlinks &&
+         entry.isSymbolicLink() &&
+         !!(await this.#cache.followStat(entryFullpath))?.isDirectory());
 
       const subPatterns = new SafeSet();
       const nSymlinks = new SafeSet();
       for (const index of pattern.indexes) {
         // For each child, check potential patterns
-        if (this.#cache.seen(entryPath, pattern, index) || this.#cache.seen(entryPath, pattern, index + 1)) {
-          return;
-        }
         const current = pattern.at(index);
         const nextIndex = index + 1;
         const next = pattern.at(nextIndex);
-        const fromSymlink = pattern.symlinks.has(index);
+        const fromSymlink = !this.#followSymlinks && pattern.symlinks.has(index);
 
         if (current === lazyMinimatch().GLOBSTAR) {
           const isDot = entry.name[0] === '.';
@@ -668,12 +1157,15 @@ class Glob {
               (this.#exclude && this.#exclude(this.#withFileTypes ? entry : entry.name))) {
             continue;
           }
-          if (!fromSymlink && entry.isDirectory()) {
+          if (!fromSymlink && entryIsDirectory) {
             // If directory, add ** to its potential patterns
             subPatterns.add(index);
           } else if (!fromSymlink && index === last) {
             // If ** is last, add to results
-            if (!this.#results.has(entryPath) && this.#results.add(entryPath)) {
+            if (!this.#results.has(entryPath) &&
+                (!finiteDepth ?
+                  this.#results.add(entryPath) :
+                  await this.#addResultAsync(entryPath))) {
               yield this.#withFileTypes ? entry : entryPath;
             }
           }
@@ -682,27 +1174,30 @@ class Glob {
           // so we can already test it here
           if (nextMatches && nextIndex === last && !isLast) {
             // If next pattern is the last one, add to results
-            if (!this.#results.has(entryPath) && this.#results.add(entryPath)) {
+            if (!this.#results.has(entryPath) &&
+                (!finiteDepth ?
+                  this.#results.add(entryPath) :
+                  await this.#addResultAsync(entryPath))) {
               yield this.#withFileTypes ? entry : entryPath;
             }
-          } else if (nextMatches && entry.isDirectory()) {
+          } else if (nextMatches && entryIsDirectory) {
             // Pattern matched, meaning two patterns forward
             // are also potential patterns
             // e.g **/b/c when entry is a/b - add c to potential patterns
             subPatterns.add(index + 2);
           }
           if ((nextMatches || pattern.at(0) === '.') &&
-           (entry.isDirectory() || entry.isSymbolicLink()) && !fromSymlink) {
+           entryIsDirectory && !fromSymlink) {
             // If pattern after ** matches, or pattern starts with "."
-            // and entry is a directory or symlink, add to potential patterns
+            // and entry is a directory, add to potential patterns
             subPatterns.add(nextIndex);
           }
 
-          if (entry.isSymbolicLink()) {
+          if (!this.#followSymlinks && entry.isSymbolicLink()) {
             nSymlinks.add(index);
           }
 
-          if (next === '..' && entry.isDirectory()) {
+          if (next === '..' && entryIsDirectory) {
             // In case pattern is "**/..",
             // both parent and current directory should be added to the queue
             // if this is the last pattern, add to results instead
@@ -718,7 +1213,9 @@ class Glob {
               if (!this.#cache.seen(path, pattern, nextIndex)) {
                 this.#cache.add(path, pattern.child(new SafeSet().add(nextIndex)));
                 if (!this.#results.has(path)) {
-                  if (this.#results.add(path)) {
+                  if (!finiteDepth ?
+                    this.#results.add(path) :
+                    await this.#addResultAsync(path)) {
                     yield this.#withFileTypes ? this.#cache.statSync(fullpath) : path;
                   }
                 }
@@ -726,7 +1223,9 @@ class Glob {
               if (!this.#cache.seen(path, pattern, nextIndex) || !this.#cache.seen(parent, pattern, nextIndex)) {
                 this.#cache.add(parent, pattern.child(new SafeSet().add(nextIndex)));
                 if (!this.#results.has(parent)) {
-                  if (this.#results.add(parent)) {
+                  if (!finiteDepth ?
+                    this.#results.add(parent) :
+                    await this.#addResultAsync(parent)) {
                     yield this.#withFileTypes ? this.#cache.statSync(join(this.#root, parent)) : parent;
                   }
                 }
@@ -743,7 +1242,9 @@ class Glob {
             // If current pattern is ".", proceed to test next pattern
             if (nextIndex === last) {
               if (!this.#results.has(entryPath)) {
-                if (this.#results.add(entryPath)) {
+                if (!finiteDepth ?
+                  this.#results.add(entryPath) :
+                  await this.#addResultAsync(entryPath)) {
                   yield this.#withFileTypes ? entry : entryPath;
                 }
               }
@@ -757,22 +1258,27 @@ class Glob {
           // add next pattern to potential patterns, or to results if it's the last pattern
           if (index === last) {
             if (!this.#results.has(entryPath)) {
-              if (this.#results.add(entryPath)) {
+              if (!finiteDepth ?
+                this.#results.add(entryPath) :
+                await this.#addResultAsync(entryPath)) {
                 yield this.#withFileTypes ? entry : entryPath;
               }
             }
-          } else if (entry.isDirectory()) {
+          } else if (entryIsDirectory) {
             subPatterns.add(nextIndex);
           }
         }
       }
       if (subPatterns.size > 0) {
         // If there are potential patterns, add to queue
-        this.#addSubpattern(entryPath, pattern.child(subPatterns, nSymlinks));
+        this.#addSubpattern(entryPath, pattern.child(subPatterns, nSymlinks, nextRealpaths));
       }
     }
   }
 }
+
+const kGlobPatternCacheLimit = 250;
+const patternFnCache = new SafeMap();
 
 /**
  * Check if a path matches a glob pattern
@@ -784,20 +1290,29 @@ class Glob {
 function matchGlobPattern(path, pattern, windows = isWindows) {
   validateString(path, 'path');
   validateString(pattern, 'pattern');
-  return lazyMinimatch().minimatch(path, pattern, {
-    kEmptyObject,
-    nocase: isMacOS || isWindows,
-    windowsPathsNoEscape: true,
-    nonegate: true,
-    nocomment: true,
-    optimizationLevel: 2,
-    platform: windows ? 'win32' : 'posix',
-    nocaseMagicOnly: true,
-  });
+
+  const cacheKey = `${windows ? 'win32' : 'posix'}:${pattern}`;
+  let matcher;
+  if (patternFnCache.has(cacheKey)) {
+    matcher = patternFnCache.get(cacheKey);
+  } else {
+    matcher = createMatcher(pattern, {
+      kEmptyObject,
+      platform: windows ? 'win32' : 'posix',
+    });
+    patternFnCache.set(cacheKey, matcher);
+
+    if (patternFnCache.size >= kGlobPatternCacheLimit) {
+      patternFnCache.delete(patternFnCache.keys().next().value);
+    }
+  }
+
+  return matcher.match(path);
 }
 
 module.exports = {
   __proto__: null,
   Glob,
+  createMatcher,
   matchGlobPattern,
 };

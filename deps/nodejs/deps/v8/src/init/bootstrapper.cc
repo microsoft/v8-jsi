@@ -26,6 +26,7 @@
 #include "src/objects/instance-type.h"
 #include "src/objects/js-array.h"
 #include "src/objects/js-function.h"
+#include "src/objects/module.h"
 #include "src/objects/objects.h"
 #include "src/sandbox/testing.h"
 #ifdef ENABLE_VTUNE_TRACEMARK
@@ -71,7 +72,9 @@
 #include "src/objects/js-raw-json.h"
 #include "src/objects/js-shared-array.h"
 #include "src/objects/js-struct.h"
+#ifdef V8_TEMPORAL_SUPPORT
 #include "src/objects/js-temporal-objects-inl.h"
+#endif  // V8_TEMPORAL_SUPPORT
 #include "src/objects/js-weak-refs.h"
 #include "src/objects/ordered-hash-table.h"
 #include "src/objects/property-cell.h"
@@ -395,11 +398,11 @@ namespace {
 bool IsFunctionMapOrSpecialBuiltin(DirectHandle<Map> map, Builtin builtin,
                                    DirectHandle<Context> context) {
   // During bootstrapping some of these maps could be not created yet.
-  return ((*map == context->get(Context::STRICT_FUNCTION_MAP_INDEX)) ||
-          (*map == context->get(
+  return ((*map == context->GetNoCell(Context::STRICT_FUNCTION_MAP_INDEX)) ||
+          (*map == context->GetNoCell(
                        Context::STRICT_FUNCTION_WITHOUT_PROTOTYPE_MAP_INDEX)) ||
           (*map ==
-           context->get(
+           context->GetNoCell(
                Context::STRICT_FUNCTION_WITH_READONLY_PROTOTYPE_MAP_INDEX)) ||
           // Check if it's a creation of an empty or Proxy function during
           // bootstrapping.
@@ -899,9 +902,11 @@ void Genesis::CreateStrictModeFunctionMaps(DirectHandle<JSFunction> empty) {
   map = factory->CreateClassFunctionMap(empty);
   native_context()->set_class_function_map(*map);
 
+#ifdef V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
   // Now that the strict mode function map is available, set up the
   // restricted "arguments" and "caller" getters.
   AddRestrictedFunctionProperties(empty);
+#endif  // V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
 }
 
 void Genesis::CreateObjectFunction(DirectHandle<JSFunction> empty_function) {
@@ -944,7 +949,7 @@ void Genesis::CreateObjectFunction(DirectHandle<JSFunction> empty_function) {
   }
 
   native_context()->set_initial_object_prototype(*object_function_prototype);
-  JSFunction::SetPrototype(object_fun, object_function_prototype);
+  JSFunction::SetPrototype(isolate_, object_fun, object_function_prototype);
   object_function_prototype->map()->set_instance_type(JS_OBJECT_PROTOTYPE_TYPE);
   {
     // Set up slow map for Object.create(null) instances without in-object
@@ -1287,8 +1292,8 @@ void InitializeJSArrayMaps(Isolate* isolate,
   DCHECK_EQ(PACKED_SMI_ELEMENTS, kind);
   DCHECK_EQ(Context::ArrayMapIndex(kind),
             Context::JS_ARRAY_PACKED_SMI_ELEMENTS_MAP_INDEX);
-  native_context->set(Context::ArrayMapIndex(kind), *current_map,
-                      UPDATE_WRITE_BARRIER, kReleaseStore);
+  native_context->SetNoCell(Context::ArrayMapIndex(kind), *current_map,
+                            kReleaseStore);
   for (int i = GetSequenceIndexFromFastElementsKind(kind) + 1;
        i < kFastElementsKindCount; ++i) {
     DirectHandle<Map> new_map;
@@ -1302,8 +1307,8 @@ void InitializeJSArrayMaps(Isolate* isolate,
                                         INSERT_TRANSITION);
     }
     DCHECK_EQ(next_kind, new_map->elements_kind());
-    native_context->set(Context::ArrayMapIndex(next_kind), *new_map,
-                        UPDATE_WRITE_BARRIER, kReleaseStore);
+    native_context->SetNoCell(Context::ArrayMapIndex(next_kind), *new_map,
+                              kReleaseStore);
     current_map = new_map;
   }
 }
@@ -1323,26 +1328,6 @@ void Genesis::AddRestrictedFunctionProperties(DirectHandle<JSFunction> empty) {
                    accessors);
 }
 
-static void AddToWeakNativeContextList(Isolate* isolate,
-                                       Tagged<Context> context) {
-  DCHECK(IsNativeContext(context));
-  Heap* heap = isolate->heap();
-#ifdef DEBUG
-  {
-    DCHECK(IsUndefined(context->next_context_link(), isolate));
-    // Check that context is not in the list yet.
-    for (Tagged<Object> current = heap->native_contexts_list();
-         !IsUndefined(current, isolate);
-         current = Cast<Context>(current)->next_context_link()) {
-      DCHECK(current != context);
-    }
-  }
-#endif
-  context->set(Context::NEXT_CONTEXT_LINK, heap->native_contexts_list(),
-               UPDATE_WRITE_BARRIER);
-  heap->set_native_contexts_list(context);
-}
-
 void Genesis::CreateRoots() {
   // Allocate the native context FixedArray first and then patch the
   // closure and extension object later (we need the empty function
@@ -1350,7 +1335,7 @@ void Genesis::CreateRoots() {
   // native context).
   native_context_ = factory()->NewNativeContext();
 
-  AddToWeakNativeContextList(isolate(), *native_context());
+  isolate()->heap()->AddToWeakNativeContextList(*native_context());
   isolate()->set_context(*native_context());
 }
 
@@ -1362,8 +1347,7 @@ void Genesis::InstallGlobalThisBinding() {
 
   // Go ahead and hook it up while we're at it.
   int slot = scope_info->ReceiverContextSlotIndex();
-  DCHECK_EQ(slot, Context::MIN_CONTEXT_EXTENDED_SLOTS);
-  context->set(slot, native_context()->global_proxy());
+  context->SetNoCell(slot, native_context()->global_proxy());
 
   Handle<ScriptContextTable> script_contexts(
       native_context()->script_context_table(), isolate());
@@ -1462,12 +1446,13 @@ DirectHandle<JSGlobalObject> Genesis::CreateNewGlobals(
 
   // Set up the pointer back from the global object to the global proxy.
   global_object->set_global_proxy(*global_proxy);
+  global_object->set_global_proxy_for_api(*global_proxy);
   // Set the native context of the global proxy.
   global_proxy->map()->set_map(isolate(), native_context()->meta_map());
   // Set the global proxy of the native context. If the native context has been
   // deserialized, the global proxy is already correctly set up by the
   // deserializer. Otherwise it's undefined.
-  DCHECK(IsUndefined(native_context()->get(Context::GLOBAL_PROXY_INDEX),
+  DCHECK(IsUndefined(native_context()->GetNoCell(Context::GLOBAL_PROXY_INDEX),
                      isolate()) ||
          native_context()->global_proxy_object() == *global_proxy);
   native_context()->set_global_proxy_object(*global_proxy);
@@ -1496,7 +1481,7 @@ void Genesis::HookUpGlobalObject(DirectHandle<JSGlobalObject> global_object) {
 
   TransferNamedProperties(global_object_from_snapshot, global_object);
   if (global_object_from_snapshot->HasDictionaryElements()) {
-    JSObject::NormalizeElements(global_object);
+    JSObject::NormalizeElements(isolate(), global_object);
   }
   DCHECK_EQ(global_object_from_snapshot->GetElementsKind(),
             global_object->GetElementsKind());
@@ -1598,6 +1583,8 @@ void InstallError(Isolate* isolate, DirectHandle<JSObject> global,
   }
 }
 
+#ifdef V8_TEMPORAL_SUPPORT
+
 namespace {
 
 Handle<JSObject> InitializeTemporal(Isolate* isolate) {
@@ -1631,13 +1618,10 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     // Note: There are NO Temporal.Now.plainTime
     // See https://github.com/tc39/proposal-temporal/issues/1540
 #define NOW_LIST(V)                        \
-  V(timeZone, TimeZone, 0)                 \
   V(instant, Instant, 0)                   \
-  V(plainDateTime, PlainDateTime, 1)       \
+  V(timeZoneId, TimeZoneId, 0)             \
   V(plainDateTimeISO, PlainDateTimeISO, 0) \
-  V(zonedDateTime, ZonedDateTime, 1)       \
   V(zonedDateTimeISO, ZonedDateTimeISO, 0) \
-  V(plainDate, PlainDate, 1)               \
   V(plainDateISO, PlainDateISO, 0)         \
   V(plainTimeISO, PlainTimeISO, 0)
 
@@ -1671,17 +1655,10 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     INSTALL_TEMPORAL_FUNC(PlainDate, from, From, 1)
     INSTALL_TEMPORAL_FUNC(PlainDate, compare, Compare, 2)
 
-#ifdef V8_INTL_SUPPORT
-#define PLAIN_DATE_GETTER_LIST_INTL(V) \
-  V(era, Era)                          \
-  V(eraYear, EraYear)
-#else
-#define PLAIN_DATE_GETTER_LIST_INTL(V)
-#endif  // V8_INTL_SUPPORT
-
 #define PLAIN_DATE_GETTER_LIST(V) \
-  PLAIN_DATE_GETTER_LIST_INTL(V)  \
-  V(calendar, Calendar)           \
+  V(era, Era)                     \
+  V(eraYear, EraYear)             \
+  V(calendarId, CalendarId)       \
   V(year, Year)                   \
   V(month, Month)                 \
   V(monthCode, MonthCode)         \
@@ -1689,6 +1666,7 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(dayOfWeek, DayOfWeek)         \
   V(dayOfYear, DayOfYear)         \
   V(weekOfYear, WeekOfYear)       \
+  V(yearOfWeek, YearOfWeek)       \
   V(daysInWeek, DaysInWeek)       \
   V(daysInMonth, DaysInMonth)     \
   V(daysInYear, DaysInYear)       \
@@ -1701,13 +1679,11 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
 
     PLAIN_DATE_GETTER_LIST(INSTALL_PLAIN_DATE_GETTER_FUNC)
 #undef PLAIN_DATE_GETTER_LIST
-#undef PLAIN_DATE_GETTER_LIST_INTL
 #undef INSTALL_PLAIN_DATE_GETTER_FUNC
 
 #define PLAIN_DATE_FUNC_LIST(V)            \
   V(toPlainYearMonth, ToPlainYearMonth, 0) \
   V(toPlainMonthDay, ToPlainMonthDay, 0)   \
-  V(getISOFiels, GetISOFields, 0)          \
   V(add, Add, 1)                           \
   V(subtract, Subtract, 1)                 \
   V(with, With, 1)                         \
@@ -1715,11 +1691,10 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(until, Until, 1)                       \
   V(since, Since, 1)                       \
   V(equals, Equals, 1)                     \
-  V(getISOFields, GetISOFields, 0)         \
-  V(toLocaleString, ToLocaleString, 0)     \
   V(toPlainDateTime, ToPlainDateTime, 0)   \
   V(toZonedDateTime, ToZonedDateTime, 1)   \
   V(toString, ToString, 0)                 \
+  V(toLocaleString, ToLocaleString, 0)     \
   V(toJSON, ToJSON, 0)                     \
   V(valueOf, ValueOf, 0)
 
@@ -1739,7 +1714,6 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     INSTALL_TEMPORAL_FUNC(PlainTime, compare, Compare, 2)
 
 #define PLAIN_TIME_GETTER_LIST(V) \
-  V(calendar, Calendar)           \
   V(hour, Hour)                   \
   V(minute, Minute)               \
   V(second, Second)               \
@@ -1763,9 +1737,6 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(since, Since, 1)                     \
   V(round, Round, 1)                     \
   V(equals, Equals, 1)                   \
-  V(toPlainDateTime, ToPlainDateTime, 1) \
-  V(toZonedDateTime, ToZonedDateTime, 1) \
-  V(getISOFields, GetISOFields, 0)       \
   V(toLocaleString, ToLocaleString, 0)   \
   V(toString, ToString, 0)               \
   V(toJSON, ToJSON, 0)                   \
@@ -1786,17 +1757,10 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     INSTALL_TEMPORAL_FUNC(PlainDateTime, from, From, 1)
     INSTALL_TEMPORAL_FUNC(PlainDateTime, compare, Compare, 2)
 
-#ifdef V8_INTL_SUPPORT
-#define PLAIN_DATE_TIME_GETTER_LIST_INTL(V) \
-  V(era, Era)                               \
-  V(eraYear, EraYear)
-#else
-#define PLAIN_DATE_TIME_GETTER_LIST_INTL(V)
-#endif  // V8_INTL_SUPPORT
-
 #define PLAIN_DATE_TIME_GETTER_LIST(V) \
-  PLAIN_DATE_TIME_GETTER_LIST_INTL(V)  \
-  V(calendar, Calendar)                \
+  V(calendarId, CalendarId)            \
+  V(era, Era)                          \
+  V(eraYear, EraYear)                  \
   V(year, Year)                        \
   V(month, Month)                      \
   V(monthCode, MonthCode)              \
@@ -1810,6 +1774,7 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(dayOfWeek, DayOfWeek)              \
   V(dayOfYear, DayOfYear)              \
   V(weekOfYear, WeekOfYear)            \
+  V(yearOfWeek, YearOfWeek)            \
   V(daysInWeek, DaysInWeek)            \
   V(daysInMonth, DaysInMonth)          \
   V(daysInYear, DaysInYear)            \
@@ -1822,30 +1787,25 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
 
     PLAIN_DATE_TIME_GETTER_LIST(INSTALL_PLAIN_DATE_TIME_GETTER_FUNC)
 #undef PLAIN_DATE_TIME_GETTER_LIST
-#undef PLAIN_DATE_TIME_GETTER_LIST_INTL
 #undef INSTALL_PLAIN_DATE_TIME_GETTER_FUNC
 
-#define PLAIN_DATE_TIME_FUNC_LIST(V)       \
-  V(with, With, 1)                         \
-  V(withPlainTime, WithPlainTime, 0)       \
-  V(withPlainDate, WithPlainDate, 1)       \
-  V(withCalendar, WithCalendar, 1)         \
-  V(add, Add, 1)                           \
-  V(subtract, Subtract, 1)                 \
-  V(until, Until, 1)                       \
-  V(since, Since, 1)                       \
-  V(round, Round, 1)                       \
-  V(equals, Equals, 1)                     \
-  V(toLocaleString, ToLocaleString, 0)     \
-  V(toJSON, ToJSON, 0)                     \
-  V(toString, ToString, 0)                 \
-  V(valueOf, ValueOf, 0)                   \
-  V(toZonedDateTime, ToZonedDateTime, 1)   \
-  V(toPlainDate, ToPlainDate, 0)           \
-  V(toPlainYearMonth, ToPlainYearMonth, 0) \
-  V(toPlainMonthDay, ToPlainMonthDay, 0)   \
-  V(toPlainTime, ToPlainTime, 0)           \
-  V(getISOFields, GetISOFields, 0)
+#define PLAIN_DATE_TIME_FUNC_LIST(V)     \
+  V(with, With, 1)                       \
+  V(withCalendar, WithCalendar, 1)       \
+  V(withPlainTime, WithPlainTime, 0)     \
+  V(add, Add, 1)                         \
+  V(subtract, Subtract, 1)               \
+  V(until, Until, 1)                     \
+  V(since, Since, 1)                     \
+  V(round, Round, 1)                     \
+  V(equals, Equals, 1)                   \
+  V(toLocaleString, ToLocaleString, 0)   \
+  V(toJSON, ToJSON, 0)                   \
+  V(toString, ToString, 0)               \
+  V(valueOf, ValueOf, 0)                 \
+  V(toZonedDateTime, ToZonedDateTime, 1) \
+  V(toPlainDate, ToPlainDate, 0)         \
+  V(toPlainTime, ToPlainTime, 0)
 
 #define INSTALL_PLAIN_DATE_TIME_FUNC(p, N, min)                           \
   SimpleInstallFunction(isolate, prototype, #p,                           \
@@ -1862,18 +1822,11 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     INSTALL_TEMPORAL_FUNC(ZonedDateTime, from, From, 1)
     INSTALL_TEMPORAL_FUNC(ZonedDateTime, compare, Compare, 2)
 
-#ifdef V8_INTL_SUPPORT
-#define ZONED_DATE_TIME_GETTER_LIST_INTL(V) \
-  V(era, Era)                               \
-  V(eraYear, EraYear)
-#else
-#define ZONED_DATE_TIME_GETTER_LIST_INTL(V)
-#endif  // V8_INTL_SUPPORT
-
 #define ZONED_DATE_TIME_GETTER_LIST(V)    \
-  ZONED_DATE_TIME_GETTER_LIST_INTL(V)     \
-  V(calendar, Calendar)                   \
-  V(timeZone, TimeZone)                   \
+  V(timeZoneId, TimeZoneId)               \
+  V(calendarId, CalendarId)               \
+  V(era, Era)                             \
+  V(eraYear, EraYear)                     \
   V(year, Year)                           \
   V(month, Month)                         \
   V(monthCode, MonthCode)                 \
@@ -1884,13 +1837,12 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(millisecond, Millisecond)             \
   V(microsecond, Microsecond)             \
   V(nanosecond, Nanosecond)               \
-  V(epochSeconds, EpochSeconds)           \
   V(epochMilliseconds, EpochMilliseconds) \
-  V(epochMicroseconds, EpochMicroseconds) \
   V(epochNanoseconds, EpochNanoseconds)   \
   V(dayOfWeek, DayOfWeek)                 \
   V(dayOfYear, DayOfYear)                 \
   V(weekOfYear, WeekOfYear)               \
+  V(yearOfWeek, YearOfWeek)               \
   V(hoursInDay, HoursInDay)               \
   V(daysInWeek, DaysInWeek)               \
   V(daysInMonth, DaysInMonth)             \
@@ -1906,33 +1858,29 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
 
     ZONED_DATE_TIME_GETTER_LIST(INSTALL_ZONED_DATE_TIME_GETTER_FUNC)
 #undef ZONED_DATE_TIME_GETTER_LIST
-#undef ZONED_DATE_TIME_GETTER_LIST_INTL
 #undef INSTALL_ZONED_DATE_TIME_GETTER_FUNC
 
-#define ZONED_DATE_TIME_FUNC_LIST(V)       \
-  V(with, With, 1)                         \
-  V(withPlainTime, WithPlainTime, 0)       \
-  V(withPlainDate, WithPlainDate, 1)       \
-  V(withTimeZone, WithTimeZone, 1)         \
-  V(withCalendar, WithCalendar, 1)         \
-  V(add, Add, 1)                           \
-  V(subtract, Subtract, 1)                 \
-  V(until, Until, 1)                       \
-  V(since, Since, 1)                       \
-  V(round, Round, 1)                       \
-  V(equals, Equals, 1)                     \
-  V(toLocaleString, ToLocaleString, 0)     \
-  V(toString, ToString, 0)                 \
-  V(toJSON, ToJSON, 0)                     \
-  V(valueOf, ValueOf, 0)                   \
-  V(startOfDay, StartOfDay, 0)             \
-  V(toInstant, ToInstant, 0)               \
-  V(toPlainDate, ToPlainDate, 0)           \
-  V(toPlainTime, ToPlainTime, 0)           \
-  V(toPlainDateTime, ToPlainDateTime, 0)   \
-  V(toPlainYearMonth, ToPlainYearMonth, 0) \
-  V(toPlainMonthDay, ToPlainMonthDay, 0)   \
-  V(getISOFields, GetISOFields, 0)
+#define ZONED_DATE_TIME_FUNC_LIST(V)                 \
+  V(with, With, 1)                                   \
+  V(withCalendar, WithCalendar, 1)                   \
+  V(withPlainTime, WithPlainTime, 0)                 \
+  V(withTimeZone, WithTimeZone, 1)                   \
+  V(add, Add, 1)                                     \
+  V(subtract, Subtract, 1)                           \
+  V(until, Until, 1)                                 \
+  V(since, Since, 1)                                 \
+  V(round, Round, 1)                                 \
+  V(equals, Equals, 1)                               \
+  V(toLocaleString, ToLocaleString, 0)               \
+  V(toString, ToString, 0)                           \
+  V(toJSON, ToJSON, 0)                               \
+  V(valueOf, ValueOf, 0)                             \
+  V(startOfDay, StartOfDay, 0)                       \
+  V(getTimeZoneTransition, GetTimeZoneTransition, 1) \
+  V(toInstant, ToInstant, 0)                         \
+  V(toPlainDate, ToPlainDate, 0)                     \
+  V(toPlainTime, ToPlainTime, 0)                     \
+  V(toPlainDateTime, ToPlainDateTime, 0)
 
 #define INSTALL_ZONED_DATE_TIME_FUNC(p, N, min)                           \
   SimpleInstallFunction(isolate, prototype, #p,                           \
@@ -1997,19 +1945,14 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     // #sec-temporal.instant
     INSTALL_TEMPORAL_CTOR_AND_PROTOTYPE(Instant, INSTANT, 1)
     INSTALL_TEMPORAL_FUNC(Instant, from, From, 1)
-    INSTALL_TEMPORAL_FUNC(Instant, compare, Compare, 2)
-    INSTALL_TEMPORAL_FUNC(Instant, fromEpochSeconds, FromEpochSeconds, 1)
     INSTALL_TEMPORAL_FUNC(Instant, fromEpochMilliseconds, FromEpochMilliseconds,
-                          1)
-    INSTALL_TEMPORAL_FUNC(Instant, fromEpochMicroseconds, FromEpochMicroseconds,
                           1)
     INSTALL_TEMPORAL_FUNC(Instant, fromEpochNanoseconds, FromEpochNanoseconds,
                           1)
+    INSTALL_TEMPORAL_FUNC(Instant, compare, Compare, 2)
 
 #define INSTANT_GETTER_LIST(V)            \
-  V(epochSeconds, EpochSeconds)           \
   V(epochMilliseconds, EpochMilliseconds) \
-  V(epochMicroseconds, EpochMicroseconds) \
   V(epochNanoseconds, EpochNanoseconds)
 
 #define INSTALL_INSTANT_GETTER_FUNC(p, N)                                   \
@@ -2020,18 +1963,17 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
 #undef INSTANT_GETTER_LIST
 #undef INSTALL_INSTANT_GETTER_FUNC
 
-#define INSTANT_FUNC_LIST(V)             \
-  V(add, Add, 1)                         \
-  V(subtract, Subtract, 1)               \
-  V(until, Until, 1)                     \
-  V(since, Since, 1)                     \
-  V(round, Round, 1)                     \
-  V(equals, Equals, 1)                   \
-  V(toLocaleString, ToLocaleString, 0)   \
-  V(toString, ToString, 0)               \
-  V(toJSON, ToJSON, 0)                   \
-  V(valueOf, ValueOf, 0)                 \
-  V(toZonedDateTime, ToZonedDateTime, 1) \
+#define INSTANT_FUNC_LIST(V)           \
+  V(add, Add, 1)                       \
+  V(subtract, Subtract, 1)             \
+  V(until, Until, 1)                   \
+  V(since, Since, 1)                   \
+  V(round, Round, 1)                   \
+  V(equals, Equals, 1)                 \
+  V(toLocaleString, ToLocaleString, 0) \
+  V(toString, ToString, 0)             \
+  V(toJSON, ToJSON, 0)                 \
+  V(valueOf, ValueOf, 0)               \
   V(toZonedDateTimeISO, ToZonedDateTimeISO, 1)
 
 #define INSTALL_INSTANT_FUNC(p, N, min)                             \
@@ -2049,17 +1991,10 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     INSTALL_TEMPORAL_FUNC(PlainYearMonth, from, From, 1)
     INSTALL_TEMPORAL_FUNC(PlainYearMonth, compare, Compare, 2)
 
-#ifdef V8_INTL_SUPPORT
-#define PLAIN_YEAR_MONTH_GETTER_LIST_INTL(V) \
-  V(era, Era)                                \
-  V(eraYear, EraYear)
-#else
-#define PLAIN_YEAR_MONTH_GETTER_LIST_INTL(V)
-#endif  // V8_INTL_SUPPORT
-
 #define PLAIN_YEAR_MONTH_GETTER_LIST(V) \
-  PLAIN_YEAR_MONTH_GETTER_LIST_INTL(V)  \
-  V(calendar, Calendar)                 \
+  V(calendarId, CalendarId)             \
+  V(era, Era)                           \
+  V(eraYear, EraYear)                   \
   V(year, Year)                         \
   V(month, Month)                       \
   V(monthCode, MonthCode)               \
@@ -2074,7 +2009,6 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
 
     PLAIN_YEAR_MONTH_GETTER_LIST(INSTALL_PLAIN_YEAR_MONTH_GETTER_FUNC)
 #undef PLAIN_YEAR_MONTH_GETTER_LIST
-#undef PLAIN_YEAR_MONTH_GETTER_LIST_INTL
 #undef INSTALL_PLAIN_YEAR_MONTH_GETTER_FUNC
 
 #define PLAIN_YEAR_MONTH_FUNC_LIST(V)  \
@@ -2088,8 +2022,7 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(toString, ToString, 0)             \
   V(toJSON, ToJSON, 0)                 \
   V(valueOf, ValueOf, 0)               \
-  V(toPlainDate, ToPlainDate, 1)       \
-  V(getISOFields, GetISOFields, 0)
+  V(toPlainDate, ToPlainDate, 1)
 
 #define INSTALL_PLAIN_YEAR_MONTH_FUNC(p, N, min)                           \
   SimpleInstallFunction(isolate, prototype, #p,                            \
@@ -2107,7 +2040,7 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     // Notice there are no Temporal.PlainMonthDay.compare in the spec.
 
 #define PLAIN_MONTH_DAY_GETTER_LIST(V) \
-  V(calendar, Calendar)                \
+  V(calendarId, CalendarId)            \
   V(monthCode, MonthCode)              \
   V(day, Day)
 
@@ -2126,8 +2059,7 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
   V(toString, ToString, 0)             \
   V(toJSON, ToJSON, 0)                 \
   V(valueOf, ValueOf, 0)               \
-  V(toPlainDate, ToPlainDate, 1)       \
-  V(getISOFields, GetISOFields, 0)
+  V(toPlainDate, ToPlainDate, 1)
 
 #define INSTALL_PLAIN_MONTH_DAY_FUNC(p, N, min)                           \
   SimpleInstallFunction(isolate, prototype, #p,                           \
@@ -2136,108 +2068,6 @@ Handle<JSObject> InitializeTemporal(Isolate* isolate) {
     PLAIN_MONTH_DAY_FUNC_LIST(INSTALL_PLAIN_MONTH_DAY_FUNC)
 #undef PLAIN_MONTH_DAY_FUNC_LIST
 #undef INSTALL_PLAIN_MONTH_DAY_FUNC
-  }
-  {  // -- T i m e Z o n e
-    // #sec-temporal-timezone-objects
-    // #sec-temporal.timezone
-    INSTALL_TEMPORAL_CTOR_AND_PROTOTYPE(TimeZone, TIME_ZONE, 1)
-    INSTALL_TEMPORAL_FUNC(TimeZone, from, From, 1)
-
-    // #sec-get-temporal.timezone.prototype.id
-    SimpleInstallGetter(isolate, prototype, isolate->factory()->id_string(),
-                        Builtin::kTemporalTimeZonePrototypeId, kAdapt);
-
-#define TIME_ZONE_FUNC_LIST(V)                           \
-  V(getOffsetNanosecondsFor, GetOffsetNanosecondsFor, 1) \
-  V(getOffsetStringFor, GetOffsetStringFor, 1)           \
-  V(getPlainDateTimeFor, GetPlainDateTimeFor, 1)         \
-  V(getInstantFor, GetInstantFor, 1)                     \
-  V(getPossibleInstantsFor, GetPossibleInstantsFor, 1)   \
-  V(getNextTransition, GetNextTransition, 1)             \
-  V(getPreviousTransition, GetPreviousTransition, 1)     \
-  V(toString, ToString, 0)                               \
-  V(toJSON, ToJSON, 0)
-
-#define INSTALL_TIME_ZONE_FUNC(p, N, min)                            \
-  SimpleInstallFunction(isolate, prototype, #p,                      \
-                        Builtin::kTemporalTimeZonePrototype##N, min, \
-                        kDontAdapt);
-    TIME_ZONE_FUNC_LIST(INSTALL_TIME_ZONE_FUNC)
-#undef TIME_ZONE_FUNC_LIST
-#undef INSTALL_TIME_ZONE_FUNC
-  }
-  {  // -- C a l e n d a r
-    // #sec-temporal-calendar-objects
-    // #sec-temporal.calendar
-    INSTALL_TEMPORAL_CTOR_AND_PROTOTYPE(Calendar, CALENDAR, 1)
-    INSTALL_TEMPORAL_FUNC(Calendar, from, From, 1)
-
-    // #sec-get-temporal.calendar.prototype.id
-    SimpleInstallGetter(isolate, prototype, isolate->factory()->id_string(),
-                        Builtin::kTemporalCalendarPrototypeId, kAdapt);
-
-#ifdef V8_INTL_SUPPORT
-#define CALENDAR_FUNC_LIST_INTL(V) \
-  V(era, Era, 1, kDontAdapt)       \
-  V(eraYear, EraYear, 1, kDontAdapt)
-#else
-#define CALENDAR_FUNC_LIST_INTL(V)
-#endif  // V8_INTL_SUPPORT
-
-#define CALENDAR_FUNC_LIST(V)                                \
-  CALENDAR_FUNC_LIST_INTL(V)                                 \
-  V(dateFromFields, DateFromFields, 1, kDontAdapt)           \
-  V(yearMonthFromFields, YearMonthFromFields, 1, kDontAdapt) \
-  V(monthDayFromFields, MonthDayFromFields, 1, kDontAdapt)   \
-  V(dateAdd, DateAdd, 2, kDontAdapt)                         \
-  V(dateUntil, DateUntil, 2, kDontAdapt)                     \
-  V(year, Year, 1, kDontAdapt)                               \
-  V(month, Month, 1, kDontAdapt)                             \
-  V(monthCode, MonthCode, 1, kDontAdapt)                     \
-  V(day, Day, 1, kDontAdapt)                                 \
-  V(dayOfWeek, DayOfWeek, 1, kDontAdapt)                     \
-  V(dayOfYear, DayOfYear, 1, kDontAdapt)                     \
-  V(weekOfYear, WeekOfYear, 1, kDontAdapt)                   \
-  V(daysInWeek, DaysInWeek, 1, kDontAdapt)                   \
-  V(daysInMonth, DaysInMonth, 1, kDontAdapt)                 \
-  V(daysInYear, DaysInYear, 1, kDontAdapt)                   \
-  V(monthsInYear, MonthsInYear, 1, kDontAdapt)               \
-  V(inLeapYear, InLeapYear, 1, kDontAdapt)                   \
-  V(fields, Fields, 1, kAdapt)                               \
-  V(mergeFields, MergeFields, 2, kDontAdapt)                 \
-  V(toString, ToString, 0, kDontAdapt)                       \
-  V(toJSON, ToJSON, 0, kDontAdapt)
-
-#define INSTALL_CALENDAR_FUNC(p, N, min, adapt) \
-  SimpleInstallFunction(isolate, prototype, #p, \
-                        Builtin::kTemporalCalendarPrototype##N, min, adapt);
-    CALENDAR_FUNC_LIST(INSTALL_CALENDAR_FUNC)
-#undef CALENDAR_FUNC_LIST
-#undef CALENDAR_FUNC_LIST_INTL
-#undef INSTALL_CALENDAE_FUNC
-  }
-#undef INSTALL_TEMPORAL_CTOR_AND_PROTOTYPE
-#undef INSTALL_TEMPORAL_FUNC
-
-  // The StringListFromIterable functions is created but not
-  // exposed, as it is used internally by CalendarFields.
-  {
-    DirectHandle<JSFunction> func =
-        SimpleCreateFunction(isolate,
-                             isolate->factory()->InternalizeUtf8String(
-                                 "StringFixedArrayFromIterable"),
-                             Builtin::kStringFixedArrayFromIterable, 1, kAdapt);
-    native_context->set_string_fixed_array_from_iterable(*func);
-  }
-  // The TemporalInsantFixedArrayFromIterable functions is created but not
-  // exposed, as it is used internally by GetPossibleInstantsFor.
-  {
-    DirectHandle<JSFunction> func = SimpleCreateFunction(
-        isolate,
-        isolate->factory()->InternalizeUtf8String(
-            "TemporalInstantFixedArrayFromIterable"),
-        Builtin::kTemporalInstantFixedArrayFromIterable, 1, kAdapt);
-    native_context->set_temporal_instant_fixed_array_from_iterable(*func);
   }
 
   native_context->set_temporal_object(*temporal);
@@ -2262,6 +2092,8 @@ void LazyInitializeGlobalThisTemporal(
 }
 
 }  // namespace
+
+#endif  // V8_TEMPORAL_SUPPORT
 
 // This is only called if we are not using snapshots.  The equivalent
 // work in the snapshot case is done in HookUpGlobalObject.
@@ -2473,6 +2305,16 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
         static_cast<PropertyAttributes>(DONT_ENUM | DONT_DELETE | READ_ONLY));
     native_context()->set_function_has_instance(*has_instance);
 
+#ifndef V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
+    // The .arguments and .caller getters are non-standard.
+    SimpleInstallGetterSetter(isolate_, prototype, factory->arguments_string(),
+                              Builtin::kFunctionPrototypeLegacyArgumentsGetter,
+                              Builtin::kFunctionPrototypeLegacyArgumentsSetter);
+    SimpleInstallGetterSetter(isolate_, prototype, factory->caller_string(),
+                              Builtin::kFunctionPrototypeLegacyCallerGetter,
+                              Builtin::kFunctionPrototypeLegacyCallerSetter);
+#endif  // !V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
+
     // Complete setting up function maps.
     {
       isolate_->sloppy_function_map()->SetConstructor(*function_fun);
@@ -2534,7 +2376,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     // mode and back.
     DirectHandle<JSArray> proto = factory->NewJSArray(
         0, TERMINAL_FAST_ELEMENTS_KIND, AllocationType::kOld);
-    JSFunction::SetPrototype(array_function, proto);
+    JSFunction::SetPrototype(isolate_, array_function, proto);
     native_context()->set_initial_array_prototype(*proto);
 
     InitializeJSArrayMaps(
@@ -2673,6 +2515,11 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
 
     DirectHandle<Map> map(proto->map(), isolate_);
     Map::SetShouldBeFastPrototypeMap(map, true, isolate_);
+
+    auto validity_cell =
+        Cast<Cell>(Map::GetOrCreatePrototypeChainValidityCell(map, isolate()));
+
+    native_context()->set_initial_array_prototype_validity_cell(*validity_cell);
   }
 
   {  // --- A r r a y I t e r a t o r ---
@@ -2720,7 +2567,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     DirectHandle<JSPrimitiveWrapper> prototype = Cast<JSPrimitiveWrapper>(
         factory->NewJSObject(number_fun, AllocationType::kOld));
     prototype->set_value(Smi::zero());
-    JSFunction::SetPrototype(number_fun, prototype);
+    JSFunction::SetPrototype(isolate_, number_fun, prototype);
 
     // Install the "constructor" property on the {prototype}.
     JSObject::AddProperty(isolate_, prototype, factory->constructor_string(),
@@ -2806,7 +2653,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     DirectHandle<JSPrimitiveWrapper> prototype = Cast<JSPrimitiveWrapper>(
         factory->NewJSObject(boolean_fun, AllocationType::kOld));
     prototype->set_value(ReadOnlyRoots(isolate_).false_value());
-    JSFunction::SetPrototype(boolean_fun, prototype);
+    JSFunction::SetPrototype(isolate_, boolean_fun, prototype);
 
     // Install the "constructor" property on the {prototype}.
     JSObject::AddProperty(isolate_, prototype, factory->constructor_string(),
@@ -2858,7 +2705,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     DirectHandle<JSPrimitiveWrapper> prototype = Cast<JSPrimitiveWrapper>(
         factory->NewJSObject(string_fun, AllocationType::kOld));
     prototype->set_value(ReadOnlyRoots(isolate_).empty_string());
-    JSFunction::SetPrototype(string_fun, prototype);
+    JSFunction::SetPrototype(isolate_, string_fun, prototype);
     native_context()->set_initial_string_prototype(*prototype);
 
     // Install the "constructor" property on the {prototype}.
@@ -3288,7 +3135,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
 
     DirectHandle<JSFunction> perform_promise_then =
         SimpleCreateFunction(isolate_, factory->empty_string(),
-                             Builtin::kPerformPromiseThenFunction, 2, kAdapt);
+                             Builtin::kPerformPromiseThenFunction, 3, kAdapt);
     native_context()->set_perform_promise_then(*perform_promise_then);
 
     InstallFunctionWithBuiltinId(isolate_, prototype, "catch",
@@ -3497,10 +3344,6 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
         RegExpMatchInfo::New(isolate(), RegExpMatchInfo::kMinCapacity);
     native_context()->set_regexp_last_match_info(*last_match_info);
 
-    // Install the species protector cell.
-    DirectHandle<PropertyCell> cell = factory->NewProtector();
-    native_context()->set_regexp_species_protector(*cell);
-
     DCHECK(regexp_fun->HasFastProperties());
   }
 
@@ -3639,6 +3482,8 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
                           kAdapt);
     SimpleInstallFunction(isolate_, math, "exp", Builtin::kMathExp, 1, kAdapt);
     SimpleInstallFunction(isolate_, math, "floor", Builtin::kMathFloor, 1,
+                          kAdapt);
+    SimpleInstallFunction(isolate_, math, "f16round", Builtin::kMathF16round, 1,
                           kAdapt);
     SimpleInstallFunction(isolate_, math, "fround", Builtin::kMathFround, 1,
                           kAdapt);
@@ -3985,25 +3830,6 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
       SimpleInstallGetter(isolate(), prototype,
                           factory->numberingSystem_string(),
                           Builtin::kLocalePrototypeNumberingSystem, kAdapt);
-
-      if (!v8_flags.harmony_remove_intl_locale_info_getters) {
-        // Intl Locale Info functions
-        SimpleInstallGetter(isolate(), prototype, factory->calendars_string(),
-                            Builtin::kLocalePrototypeCalendars, kAdapt);
-        SimpleInstallGetter(isolate(), prototype, factory->collations_string(),
-                            Builtin::kLocalePrototypeCollations, kAdapt);
-        SimpleInstallGetter(isolate(), prototype, factory->hourCycles_string(),
-                            Builtin::kLocalePrototypeHourCycles, kAdapt);
-        SimpleInstallGetter(isolate(), prototype,
-                            factory->numberingSystems_string(),
-                            Builtin::kLocalePrototypeNumberingSystems, kAdapt);
-        SimpleInstallGetter(isolate(), prototype, factory->textInfo_string(),
-                            Builtin::kLocalePrototypeTextInfo, kAdapt);
-        SimpleInstallGetter(isolate(), prototype, factory->timeZones_string(),
-                            Builtin::kLocalePrototypeTimeZones, kAdapt);
-        SimpleInstallGetter(isolate(), prototype, factory->weekInfo_string(),
-                            Builtin::kLocalePrototypeWeekInfo, kAdapt);
-      }
 
       SimpleInstallFunction(isolate(), prototype, "getCalendars",
                             Builtin::kLocalePrototypeGetCalendars, 0,
@@ -4506,6 +4332,10 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
                           Builtin::kDataViewPrototypeGetUint32, 1, kDontAdapt);
     SimpleInstallFunction(isolate_, prototype, "setUint32",
                           Builtin::kDataViewPrototypeSetUint32, 2, kDontAdapt);
+    SimpleInstallFunction(isolate_, prototype, "getFloat16",
+                          Builtin::kDataViewPrototypeGetFloat16, 1, kDontAdapt);
+    SimpleInstallFunction(isolate_, prototype, "setFloat16",
+                          Builtin::kDataViewPrototypeSetFloat16, 2, kDontAdapt);
     SimpleInstallFunction(isolate_, prototype, "getFloat32",
                           Builtin::kDataViewPrototypeGetFloat32, 1, kDontAdapt);
     SimpleInstallFunction(isolate_, prototype, "setFloat32",
@@ -4580,6 +4410,10 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     SimpleInstallFunction(isolate_, prototype, "values",
                           Builtin::kMapPrototypeValues, 0, kAdapt);
 
+    // TODO(olivf, 434977728): Remove initial_map_prototype once --js-upsert
+    // flag is removed.
+    USE(v8_flags.js_upsert);
+    native_context()->set_initial_map_prototype(*prototype);
     native_context()->set_initial_map_prototype_map(prototype->map());
 
     InstallSpeciesGetter(isolate_, js_map_fun);
@@ -4608,7 +4442,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     // Set up the %BigIntPrototype%.
     DirectHandle<JSObject> prototype(
         Cast<JSObject>(bigint_fun->instance_prototype()), isolate_);
-    JSFunction::SetPrototype(bigint_fun, prototype);
+    JSFunction::SetPrototype(isolate_, bigint_fun, prototype);
 
     // Install the properties of the BigInt.prototype.
     // "constructor" is created implicitly by InstallFunction() above.
@@ -4718,6 +4552,27 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     }
   }
 
+  {  // -- J S D e f e r r e d M o d u l e N a m e s p a c e
+    DirectHandle<Map> map = factory->NewContextfulMapForCurrentContext(
+        JS_DEFERRED_MODULE_NAMESPACE_TYPE, JSDeferredModuleNamespace::kSize,
+        TERMINAL_FAST_ELEMENTS_KIND,
+        JSDeferredModuleNamespace::kInObjectFieldCount);
+    map->SetConstructor(native_context()->object_function());
+    Map::SetPrototype(isolate(), map, isolate_->factory()->null_value());
+    Map::EnsureDescriptorSlack(isolate(), map, 1);
+    native_context()->set_js_deferred_module_namespace_map(*map);
+
+    {  // Install @@toStringTag.
+      PropertyAttributes attribs =
+          static_cast<PropertyAttributes>(DONT_DELETE | DONT_ENUM | READ_ONLY);
+      Descriptor d =
+          Descriptor::DataField(isolate(), factory->to_string_tag_symbol(),
+                                JSModuleNamespace::kToStringTagFieldIndex,
+                                attribs, Representation::Tagged());
+      map->AppendDescriptor(isolate(), &d);
+    }
+  }
+
   {  // -- I t e r a t o r and helpers
     DirectHandle<JSObject> iterator_prototype(
         native_context()->initial_iterator_prototype(), isolate());
@@ -4788,32 +4643,52 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
                               Builtin::kIteratorPrototypeSetConstructor);
 
     // --- Helper maps
-#define INSTALL_ITERATOR_HELPER(lowercase_name, Capitalized_name,              \
-                                ALL_CAPS_NAME, argc)                           \
-  {                                                                            \
-    DirectHandle<Map> map = factory->NewContextfulMapForCurrentContext(        \
-        JS_ITERATOR_##ALL_CAPS_NAME##_HELPER_TYPE,                             \
-        JSIterator##Capitalized_name##Helper::kHeaderSize,                     \
-        TERMINAL_FAST_ELEMENTS_KIND, 0);                                       \
-    Map::SetPrototype(isolate(), map, iterator_helper_prototype);              \
-    map->SetConstructor(*iterator_function);                                   \
-    native_context()->set_iterator_##lowercase_name##_helper_map(*map);        \
-    SimpleInstallFunction(isolate(), iterator_prototype, #lowercase_name,      \
-                          Builtin::kIteratorPrototype##Capitalized_name, argc, \
-                          kAdapt);                                             \
+#define INSTALL_ITERATOR_HELPER(BASE_AND_BUILTIN, lowercase_name,             \
+                                Capitalized_name, ALL_CAPS_NAME, argc, adapt) \
+  {                                                                           \
+    DirectHandle<Map> map = factory->NewContextfulMapForCurrentContext(       \
+        JS_ITERATOR_##ALL_CAPS_NAME##_HELPER_TYPE,                            \
+        JSIterator##Capitalized_name##Helper::kHeaderSize,                    \
+        TERMINAL_FAST_ELEMENTS_KIND, 0);                                      \
+    Map::SetPrototype(isolate(), map, iterator_helper_prototype);             \
+    map->SetConstructor(*iterator_function);                                  \
+    native_context()->set_iterator_##lowercase_name##_helper_map(*map);       \
+    auto [base, builtin] = BASE_AND_BUILTIN(Capitalized_name);                \
+    SimpleInstallFunction(isolate(), base, #lowercase_name, builtin, argc,    \
+                          adapt);                                             \
   }
 
-#define ITERATOR_HELPERS(V)    \
-  V(map, Map, MAP, 1)          \
-  V(filter, Filter, FILTER, 1) \
-  V(take, Take, TAKE, 1)       \
-  V(drop, Drop, DROP, 1)       \
-  V(flatMap, FlatMap, FLAT_MAP, 1)
+#define ITERATOR_PROTOTYPE(Capitalized_name)  \
+  std::pair<DirectHandle<JSObject>, Builtin>{ \
+      iterator_prototype, Builtin::kIteratorPrototype##Capitalized_name}
+#define ITERATOR_FUNCTION(Capitalized_name)   \
+  std::pair<DirectHandle<JSObject>, Builtin>{ \
+      iterator_function, Builtin::kIterator##Capitalized_name}
+
+#define ITERATOR_HELPERS(V)                                \
+  V(ITERATOR_PROTOTYPE, map, Map, MAP, 1, kAdapt)          \
+  V(ITERATOR_PROTOTYPE, filter, Filter, FILTER, 1, kAdapt) \
+  V(ITERATOR_PROTOTYPE, take, Take, TAKE, 1, kAdapt)       \
+  V(ITERATOR_PROTOTYPE, drop, Drop, DROP, 1, kAdapt)       \
+  V(ITERATOR_PROTOTYPE, flatMap, FlatMap, FLAT_MAP, 1, kAdapt)
+
+    // TODO(nikolaos, 434977727): Once the --js-iterator-sequencing flag is
+    // removed, add the following line to the above macro:
+    // V(ITERATOR_FUNCTION, concat, Concat, CONCAT, 0, kDontAdapt)
 
     ITERATOR_HELPERS(INSTALL_ITERATOR_HELPER)
 
 #undef INSTALL_ITERATOR_HELPER
+#undef ITERATOR_PROTOTYPE
+#undef ITERATOR_FUNCTION
 #undef ITERATOR_HELPERS
+
+    // TODO(nikolaos, 434977727): Once the --js-iterator-sequencing flag is
+    // removed, remove the three lines below.
+    USE(v8_flags.js_iterator_sequencing);
+    native_context()->set_initial_iterator_helper_prototype(
+        *iterator_helper_prototype);
+    native_context()->set_initial_iterator_function(*iterator_function);
   }
 
   {  // -- I t e r a t o r R e s u l t
@@ -4841,7 +4716,7 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     native_context()->set_weakmap_delete(*weakmap_delete);
 
     DirectHandle<JSFunction> weakmap_get = SimpleInstallFunction(
-        isolate_, prototype, "get", Builtin::kWeakMapGet, 1, kAdapt);
+        isolate_, prototype, "get", Builtin::kWeakMapPrototypeGet, 1, kAdapt);
     native_context()->set_weakmap_get(*weakmap_get);
 
     DirectHandle<JSFunction> weakmap_set = SimpleInstallFunction(
@@ -4849,13 +4724,17 @@ void Genesis::InitializeGlobal(DirectHandle<JSGlobalObject> global_object,
     // Check that index of "set" function in JSWeakCollection is correct.
     DCHECK_EQ(JSWeakCollection::kAddFunctionDescriptorIndex,
               prototype->map()->LastAdded().as_int());
-
     native_context()->set_weakmap_set(*weakmap_set);
+
     SimpleInstallFunction(isolate_, prototype, "has",
                           Builtin::kWeakMapPrototypeHas, 1, kAdapt);
 
     InstallToStringTag(isolate_, prototype, "WeakMap");
 
+    // TODO(olivf, 434977728): Remove initial_weakmap_prototype once --js-upsert
+    // flag is removed.
+    USE(v8_flags.js_upsert);
+    native_context()->set_initial_weakmap_prototype(*prototype);
     native_context()->set_initial_weakmap_prototype_map(prototype->map());
   }
 
@@ -5211,11 +5090,6 @@ DirectHandle<JSFunction> Genesis::InstallTypedArray(
           GetCorrespondingRabGsabElementsKind(elements_kind), 0);
   rab_gsab_initial_map->SetConstructor(*result);
 
-  if (rab_gsab_initial_map_index == Context::RAB_GSAB_FLOAT16_ARRAY_MAP_INDEX &&
-      v8_flags.js_float16array) {
-    LOG(isolate(), MapDetails(*rab_gsab_initial_map));
-  }
-
   native_context()->set(rab_gsab_initial_map_index, *rab_gsab_initial_map,
                         UPDATE_WRITE_BARRIER, kReleaseStore);
   Map::SetPrototype(isolate(), rab_gsab_initial_map, prototype);
@@ -5562,7 +5436,7 @@ void Genesis::InitializeConsole(DirectHandle<JSObject> extras_binding) {
       Factory::JSFunctionBuilder{isolate(), info, context}.Build();
   DirectHandle<JSObject> empty =
       factory->NewJSObject(isolate_->object_function());
-  JSFunction::SetPrototype(cons, empty);
+  JSFunction::SetPrototype(isolate_, cons, empty);
 
   DirectHandle<JSObject> console =
       factory->NewJSObject(cons, AllocationType::kOld);
@@ -5631,10 +5505,11 @@ EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(js_decorators)
 
 #ifdef V8_INTL_SUPPORT
 EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_intl_best_fit_matcher)
-EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE(harmony_remove_intl_locale_info_getters)
 #endif  // V8_INTL_SUPPORT
 
 #undef EMPTY_INITIALIZE_GLOBAL_FOR_FEATURE
+
+void Genesis::InitializeGlobal_js_esm_ns_reexport() {}
 
 void Genesis::InitializeGlobal_js_atomics_pause() {
   if (!v8_flags.js_atomics_pause) return;
@@ -5660,6 +5535,67 @@ void Genesis::InitializeGlobal_js_error_iserror() {
                                      isolate());
   InstallFunctionWithBuiltinId(isolate(), error_fun, "isError",
                                Builtin::kErrorIsError, 1, kAdapt);
+}
+
+void Genesis::InitializeGlobal_js_immutable_arraybuffer() {
+  if (!v8_flags.js_immutable_arraybuffer) return;
+
+  DirectHandle<JSFunction> array_buffer_fun(
+      native_context()->array_buffer_fun(), isolate());
+  DirectHandle<JSObject> prototype(
+      Cast<JSObject>(array_buffer_fun->instance_prototype()), isolate());
+
+  SimpleInstallGetter(isolate(), prototype,
+                      isolate()->factory()->immutable_string(),
+                      Builtin::kArrayBufferPrototypeGetImmutable, kAdapt);
+  SimpleInstallFunction(isolate(), prototype, "transferToImmutable",
+                        Builtin::kArrayBufferPrototypeTransferToImmutable, 0,
+                        kDontAdapt);
+  SimpleInstallFunction(isolate(), prototype, "sliceToImmutable",
+                        Builtin::kArrayBufferPrototypeSliceToImmutable, 2,
+                        kAdapt);
+}
+
+void Genesis::InitializeGlobal_js_iterator_sequencing() {
+  if (!v8_flags.js_iterator_sequencing) return;
+  auto iterator_helper_prototype = direct_handle(
+      native_context()->initial_iterator_helper_prototype(), isolate_);
+  auto iterator_function =
+      direct_handle(native_context()->initial_iterator_function(), isolate_);
+  DirectHandle<Map> map =
+      isolate_->factory()->NewContextfulMapForCurrentContext(
+          JS_ITERATOR_CONCAT_HELPER_TYPE, JSIteratorConcatHelper::kHeaderSize,
+          TERMINAL_FAST_ELEMENTS_KIND, 0);
+  Map::SetPrototype(isolate(), map, iterator_helper_prototype);
+  map->SetConstructor(*iterator_function);
+  native_context()->set_iterator_concat_helper_map(*map);
+  LOG(isolate_, MapDetails(*map));
+  SimpleInstallFunction(isolate_, iterator_function, "concat",
+                        Builtin::kIteratorConcat, 0, kDontAdapt);
+}
+
+void Genesis::InitializeGlobal_js_upsert() {
+  if (!v8_flags.js_upsert) return;
+
+  {
+    auto prototype =
+        handle(native_context()->initial_map_prototype(), isolate_);
+    SimpleInstallFunction(isolate_, prototype, "getOrInsert",
+                          Builtin::kMapPrototypeGetOrInsert, 2, kAdapt);
+    SimpleInstallFunction(isolate_, prototype, "getOrInsertComputed",
+                          Builtin::kMapPrototypeGetOrInsertComputed, 2, kAdapt);
+    native_context()->set_initial_map_prototype_map(prototype->map());
+  }
+  {
+    auto prototype =
+        handle(native_context()->initial_weakmap_prototype(), isolate_);
+    SimpleInstallFunction(isolate_, prototype, "getOrInsert",
+                          Builtin::kWeakMapPrototypeGetOrInsert, 2, kAdapt);
+    SimpleInstallFunction(isolate_, prototype, "getOrInsertComputed",
+                          Builtin::kWeakMapPrototypeGetOrInsertComputed, 2,
+                          kAdapt);
+    native_context()->set_initial_weakmap_prototype_map(prototype->map());
+  }
 }
 
 void Genesis::InitializeGlobal_harmony_shadow_realm() {
@@ -5800,8 +5736,6 @@ void Genesis::InitializeGlobal_harmony_struct() {
                           Builtin::kAtomicsMutexTryLock, 2, kAdapt);
     SimpleInstallFunction(isolate(), mutex_fun, "isMutex",
                           Builtin::kAtomicsMutexIsMutex, 1, kAdapt);
-    SimpleInstallFunction(isolate(), mutex_fun, "lockAsync",
-                          Builtin::kAtomicsMutexLockAsync, 2, kAdapt);
   }
 
   {  // Atomics.Condition
@@ -5820,8 +5754,6 @@ void Genesis::InitializeGlobal_harmony_struct() {
                           Builtin::kAtomicsConditionNotify, 2, kDontAdapt);
     SimpleInstallFunction(isolate(), condition_fun, "isCondition",
                           Builtin::kAtomicsConditionIsCondition, 1, kAdapt);
-    SimpleInstallFunction(isolate(), condition_fun, "waitAsync",
-                          Builtin::kAtomicsConditionWaitAsync, 2, kDontAdapt);
   }
 }
 
@@ -5938,34 +5870,6 @@ void Genesis::InitializeGlobal_js_explicit_resource_management() {
       kAdapt);
 }
 
-void Genesis::InitializeGlobal_js_float16array() {
-  if (!v8_flags.js_float16array) return;
-
-  DirectHandle<JSGlobalObject> global(native_context()->global_object(),
-                                      isolate());
-  DirectHandle<JSObject> math = Cast<JSObject>(
-      JSReceiver::GetProperty(isolate(), global, "Math").ToHandleChecked());
-
-  SimpleInstallFunction(isolate_, math, "f16round", Builtin::kMathF16round, 1,
-                        kAdapt);
-
-  DirectHandle<JSObject> dataview_prototype(
-      Cast<JSObject>(native_context()->data_view_fun()->instance_prototype()),
-      isolate());
-
-  SimpleInstallFunction(isolate_, dataview_prototype, "getFloat16",
-                        Builtin::kDataViewPrototypeGetFloat16, 1, kDontAdapt);
-  SimpleInstallFunction(isolate_, dataview_prototype, "setFloat16",
-                        Builtin::kDataViewPrototypeSetFloat16, 2, kDontAdapt);
-
-  DirectHandle<JSFunction> fun = InstallTypedArray(
-      "Float16Array", FLOAT16_ELEMENTS, FLOAT16_TYPED_ARRAY_CONSTRUCTOR_TYPE,
-      Context::RAB_GSAB_FLOAT16_ARRAY_MAP_INDEX);
-
-  InstallWithIntrinsicDefaultProto(isolate_, fun,
-                                   Context::FLOAT16_ARRAY_FUN_INDEX);
-}
-
 void Genesis::InitializeGlobal_js_regexp_escape() {
   if (!v8_flags.js_regexp_escape) return;
 
@@ -5974,6 +5878,8 @@ void Genesis::InitializeGlobal_js_regexp_escape() {
   SimpleInstallFunction(isolate(), regexp_fun, "escape", Builtin::kRegExpEscape,
                         1, kAdapt);
 }
+
+void Genesis::InitializeGlobal_js_defer_import_eval() {}
 
 void Genesis::InitializeGlobal_js_source_phase_imports() {
   if (!v8_flags.js_source_phase_imports) return;
@@ -6004,6 +5910,12 @@ void Genesis::InitializeGlobal_js_source_phase_imports() {
 void Genesis::InitializeGlobal_js_base_64() {
   if (!v8_flags.js_base_64) return;
 
+  std::array<DirectHandle<Name>, 2> fields{
+      isolate()->factory()->read_string(),
+      isolate()->factory()->written_string()};
+  DirectHandle<Map> map = CreateLiteralObjectMapFromCache(isolate(), fields);
+  native_context()->set_set_unit8_array_result_map(*map);
+
   DirectHandle<JSGlobalObject> global(native_context()->global_object(),
                                       isolate());
   DirectHandle<JSObject> uint8_array_function =
@@ -6020,8 +5932,13 @@ void Genesis::InitializeGlobal_js_base_64() {
       isolate());
   SimpleInstallFunction(isolate(), uint8_array_prototype, "toBase64",
                         Builtin::kUint8ArrayPrototypeToBase64, 0, kDontAdapt);
+  SimpleInstallFunction(isolate(), uint8_array_prototype, "setFromBase64",
+                        Builtin::kUint8ArrayPrototypeSetFromBase64, 1,
+                        kDontAdapt);
   SimpleInstallFunction(isolate(), uint8_array_prototype, "toHex",
                         Builtin::kUint8ArrayPrototypeToHex, 0, kDontAdapt);
+  SimpleInstallFunction(isolate(), uint8_array_prototype, "setFromHex",
+                        Builtin::kUint8ArrayPrototypeSetFromHex, 1, kDontAdapt);
 }
 
 void Genesis::InitializeGlobal_regexp_linear_flag() {
@@ -6039,7 +5956,19 @@ void Genesis::InitializeGlobal_regexp_linear_flag() {
   native_context()->set_regexp_prototype_map(regexp_prototype->map());
 }
 
+#ifdef V8_INTL_SUPPORT
+void Genesis::InitializeGlobal_js_intl_locale_variants() {
+  if (!v8_flags.js_intl_locale_variants) return;
+  DirectHandle<JSObject> prototype(
+      Cast<JSObject>(isolate()->intl_locale_function()->prototype()),
+      isolate());
+  SimpleInstallGetter(isolate(), prototype, factory()->variants_string(),
+                      Builtin::kLocalePrototypeVariants, kAdapt);
+}
+#endif  // V8_INTL_SUPPORT
+
 void Genesis::InitializeGlobal_harmony_temporal() {
+#ifdef V8_TEMPORAL_SUPPORT
   if (!v8_flags.harmony_temporal) return;
 
   // The Temporal object is set up lazily upon first access.
@@ -6066,6 +5995,18 @@ void Genesis::InitializeGlobal_harmony_temporal() {
     accessor->set_replace_on_access(true);
     JSObject::SetAccessor(date_prototype, name, accessor, DONT_ENUM).Check();
   }
+#endif  // V8_TEMPORAL_SUPPORT
+}
+
+void Genesis::InitializeGlobal_js_sum_precise() {
+  if (!v8_flags.js_sum_precise) return;
+  DirectHandle<JSGlobalObject> global(native_context()->global_object(),
+                                      isolate());
+  DirectHandle<JSObject> math = Cast<JSObject>(
+      JSReceiver::GetProperty(isolate(), global, "Math").ToHandleChecked());
+
+  SimpleInstallFunction(isolate_, math, "sumPrecise", Builtin::kMathSumPrecise,
+                        1, kAdapt);
 }
 
 DirectHandle<JSFunction> Genesis::CreateArrayBuffer(
@@ -6599,7 +6540,7 @@ void Genesis::InitializeMapCaches() {
 
     DisallowGarbageCollection no_gc;
     for (int i = 0; i < JSObject::kMapCacheSize; i++) {
-      cache->set(i, ClearedValue(isolate()));
+      cache->set(i, kClearedWeakValue);
     }
     native_context()->set_map_cache(*cache);
     Tagged<Map> initial = native_context()->object_function()->initial_map();
@@ -6815,7 +6756,7 @@ bool Genesis::ConfigureApiObject(
              ->IsTemplateFor(object->map()));
 
   MaybeDirectHandle<JSObject> maybe_obj =
-      ApiNatives::InstantiateObject(object->GetIsolate(), object_template);
+      ApiNatives::InstantiateObject(isolate_, object_template);
   DirectHandle<JSObject> instantiated_template;
   if (!maybe_obj.ToHandle(&instantiated_template)) {
     DCHECK(isolate()->has_exception());
@@ -7081,7 +7022,6 @@ Genesis::Genesis(Isolate* isolate,
   }
 
   if (!native_context().is_null()) {
-    AddToWeakNativeContextList(isolate, *native_context());
     isolate->set_context(*native_context());
 
     // If no global proxy template was passed in, simply use the global in the

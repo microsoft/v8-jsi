@@ -32,13 +32,19 @@ namespace v8::internal {
 TQ_OBJECT_CONSTRUCTORS_IMPL(FeedbackVector)
 OBJECT_CONSTRUCTORS_IMPL(FeedbackMetadata, HeapObject)
 
-NEVER_READ_ONLY_SPACE_IMPL(FeedbackVector)
-NEVER_READ_ONLY_SPACE_IMPL(ClosureFeedbackCellArray)
-
 INT32_ACCESSORS(FeedbackMetadata, slot_count, kSlotCountOffset)
 
 INT32_ACCESSORS(FeedbackMetadata, create_closure_slot_count,
                 kCreateClosureSlotCountOffset)
+
+#define ASSERT_BUILTIN_ID_CONSECUTIVE(V, Location, Representation, Kind, \
+                                      Index)                             \
+  static_assert(                                                         \
+      static_cast<intptr_t>(                                             \
+          Builtin::kLoadIC##Location##Representation##Kind##Baseline) +  \
+          1 + Index ==                                                   \
+      static_cast<intptr_t>(                                             \
+          Builtin::kLoadIC##Location##Representation##Kind##Index##Baseline));
 
 int32_t FeedbackMetadata::slot_count(AcquireLoadTag) const {
   return ACQUIRE_READ_INT32_FIELD(*this, kSlotCountOffset);
@@ -59,21 +65,6 @@ void FeedbackMetadata::set(int index, int32_t value) {
   int offset = kHeaderSize + index * kInt32Size;
   WriteField<int32_t>(offset, value);
 }
-
-#ifndef V8_ENABLE_LEAPTIERING
-// static
-constexpr uint32_t FeedbackVector::FlagMaskForNeedsProcessingCheckFrom(
-    CodeKind code_kind) {
-  DCHECK(CodeKindCanTierUp(code_kind));
-  uint32_t flag_mask = FeedbackVector::kFlagsTieringStateIsAnyRequested |
-                       FeedbackVector::kFlagsLogNextExecution |
-                       FeedbackVector::kFlagsMaybeHasTurbofanCode;
-  if (code_kind != CodeKind::MAGLEV) {
-    flag_mask |= FeedbackVector::kFlagsMaybeHasMaglevCode;
-  }
-  return flag_mask;
-}
-#endif  // !V8_ENABLE_LEAPTIERING
 
 bool FeedbackMetadata::is_empty() const {
   DCHECK_IMPLIES(slot_count() == 0, create_closure_slot_count() == 0);
@@ -117,6 +108,7 @@ int FeedbackMetadata::GetSlotSize(FeedbackSlotKind kind) {
     case FeedbackSlotKind::kSetKeyedStrict:
     case FeedbackSlotKind::kStoreInArrayLiteral:
     case FeedbackSlotKind::kDefineKeyedOwnPropertyInLiteral:
+    case FeedbackSlotKind::kStringAddAndInternalize:
       return 2;
 
     case FeedbackSlotKind::kInvalid:
@@ -126,6 +118,10 @@ int FeedbackMetadata::GetSlotSize(FeedbackSlotKind kind) {
 }
 
 bool FeedbackVector::is_empty() const { return length() == 0; }
+
+DEF_GETTER(FeedbackVector, has_metadata, bool) {
+  return shared_function_info()->HasFeedbackMetadata();
+}
 
 DEF_GETTER(FeedbackVector, metadata, Tagged<FeedbackMetadata>) {
   return shared_function_info(cage_base)->feedback_metadata(cage_base);
@@ -205,77 +201,12 @@ void FeedbackVector::set_was_once_deoptimized() {
                                      kRelaxedStore);
 }
 
-#ifdef V8_ENABLE_LEAPTIERING
-
 bool FeedbackVector::tiering_in_progress() const {
   return TieringInProgressBit::decode(flags());
 }
 
-#else
-
-TieringState FeedbackVector::tiering_state() const {
-  return TieringStateBits::decode(flags());
-}
-
-void FeedbackVector::reset_tiering_state() {
-  set_tiering_state(TieringState::kNone);
-}
-
-bool FeedbackVector::log_next_execution() const {
-  return LogNextExecutionBit::decode(flags());
-}
-
-void FeedbackVector::set_log_next_execution(bool value) {
-  set_flags(LogNextExecutionBit::update(flags(), value));
-}
-
-Tagged<Code> FeedbackVector::optimized_code(IsolateForSandbox isolate) const {
-  Tagged<MaybeWeak<HeapObject>> slot = maybe_optimized_code();
-  DCHECK(slot.IsWeakOrCleared());
-  Tagged<HeapObject> heap_object;
-  Tagged<Code> code;
-  if (slot.GetHeapObject(&heap_object)) {
-    code = Cast<CodeWrapper>(heap_object)->code(isolate);
-  }
-  // It is possible that the maybe_optimized_code slot is cleared but the flags
-  // haven't been updated yet. We update them when we execute the function next
-  // time / when we create new closure.
-  DCHECK_IMPLIES(!code.is_null(),
-                 maybe_has_maglev_code() || maybe_has_turbofan_code());
-  DCHECK_IMPLIES(!code.is_null() && code->is_maglevved(),
-                 maybe_has_maglev_code());
-  DCHECK_IMPLIES(!code.is_null() && code->is_turbofanned(),
-                 maybe_has_turbofan_code());
-  return code;
-}
-
-bool FeedbackVector::has_optimized_code() const {
-  bool is_cleared = maybe_optimized_code().IsCleared();
-  DCHECK_IMPLIES(!is_cleared,
-                 maybe_has_maglev_code() || maybe_has_turbofan_code());
-  return !is_cleared;
-}
-
-bool FeedbackVector::maybe_has_maglev_code() const {
-  return MaybeHasMaglevCodeBit::decode(flags());
-}
-
-void FeedbackVector::set_maybe_has_maglev_code(bool value) {
-  set_flags(MaybeHasMaglevCodeBit::update(flags(), value));
-}
-
-bool FeedbackVector::maybe_has_turbofan_code() const {
-  return MaybeHasTurbofanCodeBit::decode(flags());
-}
-
-void FeedbackVector::set_maybe_has_turbofan_code(bool value) {
-  set_flags(MaybeHasTurbofanCodeBit::update(flags(), value));
-}
-
-#endif  // V8_ENABLE_LEAPTIERING
-
 std::optional<Tagged<Code>> FeedbackVector::GetOptimizedOsrCode(
-    Isolate* isolate, FeedbackSlot slot) {
+    Isolate* isolate, Handle<BytecodeArray> bytecode, FeedbackSlot slot) {
   Tagged<MaybeObject> maybe_code = Get(isolate, slot);
   if (maybe_code.IsCleared()) return {};
 
@@ -284,11 +215,35 @@ std::optional<Tagged<Code>> FeedbackVector::GetOptimizedOsrCode(
   if (code->marked_for_deoptimization()) {
     // Clear the cached Code object if deoptimized.
     // TODO(jgruber): Add tracing.
-    Set(slot, ClearedValue(isolate));
+    Set(slot, ClearedValue());
+    if (!bytecode.is_null()) {
+      RecomputeOptimizedOsrCodeFlags(isolate, bytecode);
+    }
     return {};
   }
 
   return code;
+}
+
+void FeedbackVector::RecomputeOptimizedOsrCodeFlags(
+    Isolate* isolate, Handle<BytecodeArray> bytecode_array) {
+  bool turbofan = false;
+  bool maglev = false;
+  interpreter::BytecodeArrayIterator it(bytecode_array);
+  for (; !it.done(); it.Advance()) {
+    if (it.current_bytecode() != interpreter::Bytecode::kJumpLoop) continue;
+    if (auto code = GetOptimizedOsrCode(isolate, {}, it.GetSlotOperand(2))) {
+      if ((*code)->marked_for_deoptimization()) continue;
+      turbofan |= (*code)->is_turbofanned();
+      maglev |= (*code)->is_maglevved();
+    }
+  }
+  if (!maglev && maybe_has_maglev_osr_code()) {
+    set_maybe_has_optimized_osr_code(false, CodeKind::MAGLEV);
+  }
+  if (!turbofan && maybe_has_turbofan_osr_code()) {
+    set_maybe_has_optimized_osr_code(false, CodeKind::TURBOFAN_JS);
+  }
 }
 
 // Conversion from an integer index to either a slot or an ic slot.
@@ -416,12 +371,19 @@ CompareOperationHint CompareOperationHintFromFeedback(int type_feedback) {
     return CompareOperationHint::kNumber;
   } else if (Is<CompareOperationFeedback::kNumberOrBoolean>(type_feedback)) {
     return CompareOperationHint::kNumberOrBoolean;
+  } else if (Is<CompareOperationFeedback::kNumberOrOddball>(type_feedback)) {
+    return CompareOperationHint::kNumberOrOddball;
   }
 
   if (Is<CompareOperationFeedback::kInternalizedString>(type_feedback)) {
     return CompareOperationHint::kInternalizedString;
   } else if (Is<CompareOperationFeedback::kString>(type_feedback)) {
     return CompareOperationHint::kString;
+  } else if (Is<CompareOperationFeedback::kStringOrOddball>(type_feedback) &&
+             !Is<CompareOperationFeedback::kOddball>(type_feedback)) {
+    // Don't return the StringOrOddball feedback for pure oddball comparisons,
+    // that would be too confusing.
+    return CompareOperationHint::kStringOrOddball;
   }
 
   if (Is<CompareOperationFeedback::kReceiver>(type_feedback)) {
@@ -527,7 +489,7 @@ Tagged<MaybeObject> FeedbackNexus::MegaDOMSentinel() const {
 
 Tagged<MaybeObject> FeedbackNexus::FromHandle(
     MaybeObjectDirectHandle slot) const {
-  return slot.is_null() ? ClearedValue(config()->isolate()) : *slot;
+  return slot.is_null() ? ClearedValue() : *slot;
 }
 
 MaybeObjectHandle FeedbackNexus::ToHandle(Tagged<MaybeObject> value) const {
@@ -594,6 +556,48 @@ void FeedbackNexus::IterateMapsWithUnclearedHandler(F function) const {
     }
   }
 }
+
+Builtin FeedbackNexus::GetLoadICHandlerForFieldIndex(int field_index,
+                                                     bool is_inobject,
+                                                     bool is_double) {
+  if (is_double) return Builtin::kLoadICDoubleFieldBaseline;
+
+  if (is_inobject) {
+    int in_object_index = field_index - JSObject::kHeaderSize / kTaggedSize;
+    DCHECK_GE(in_object_index, 0);
+    // Currently we have eight handlers that support loading in-object field
+    // with fixed index 0~7.
+    int kMaxIndex = 7;
+    if (in_object_index > kMaxIndex)
+      return Builtin::kLoadICInObjectNonDoubleFieldBaseline;
+
+    LOAD_IC_IN_OBJECT_FIELD_WITH_INDEX_HANDLER_LIST(
+        /*V*/, ASSERT_BUILTIN_ID_CONSECUTIVE)
+    int32_t builtin_id =
+        static_cast<int32_t>(Builtin::kLoadICInObjectNonDoubleFieldBaseline) +
+        in_object_index + 1;
+    return static_cast<Builtin>(builtin_id);
+  } else {
+    int out_of_object_index =
+        field_index - OFFSET_OF_DATA_START(FixedArray) / kTaggedSize;
+    DCHECK_GE(out_of_object_index, 0);
+    // Currently we have four handlers that support loading out-of-object
+    // field with fixed index 0~3.
+    int kMaxIndex = 3;
+    if (out_of_object_index > kMaxIndex)
+      return Builtin::kLoadICOutOfObjectNonDoubleFieldBaseline;
+
+    LOAD_IC_OUT_OF_OBJECT_FIELD_WITH_INDEX_HANDLER_LIST(
+        /*V*/, ASSERT_BUILTIN_ID_CONSECUTIVE)
+    int32_t builtin_id =
+        static_cast<int32_t>(
+            Builtin::kLoadICOutOfObjectNonDoubleFieldBaseline) +
+        out_of_object_index + 1;
+    return static_cast<Builtin>(builtin_id);
+  }
+}
+
+#undef ASSERT_BUILTIN_ID_CONSECUTIVE
 
 }  // namespace v8::internal
 

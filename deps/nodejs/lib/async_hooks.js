@@ -18,14 +18,13 @@ const {
   ERR_ASYNC_CALLBACK,
   ERR_ASYNC_TYPE,
   ERR_INVALID_ASYNC_ID,
-  ERR_INVALID_ARG_TYPE,
   ERR_INVALID_ARG_VALUE,
 } = require('internal/errors').codes;
 const {
-  deprecate,
   kEmptyObject,
 } = require('internal/util');
 const {
+  validateBoolean,
   validateFunction,
   validateString,
 } = require('internal/validators');
@@ -85,8 +84,8 @@ class AsyncHook {
       throw new ERR_ASYNC_CALLBACK('hook.destroy');
     if (promiseResolve !== undefined && typeof promiseResolve !== 'function')
       throw new ERR_ASYNC_CALLBACK('hook.promiseResolve');
-    if (trackPromises !== undefined && typeof trackPromises !== 'boolean') {
-      throw new ERR_INVALID_ARG_TYPE('trackPromises', 'boolean', trackPromises);
+    if (trackPromises !== undefined) {
+      validateBoolean(trackPromises, 'trackPromises');
     }
 
     this[init_symbol] = init;
@@ -260,7 +259,6 @@ class AsyncResource {
     } else {
       bound = FunctionPrototypeBind(this.runInAsyncScope, this, fn, thisArg);
     }
-    let self = this;
     ObjectDefineProperties(bound, {
       'length': {
         __proto__: null,
@@ -268,17 +266,6 @@ class AsyncResource {
         enumerable: false,
         value: fn.length,
         writable: false,
-      },
-      'asyncResource': {
-        __proto__: null,
-        configurable: true,
-        enumerable: true,
-        get: deprecate(function() {
-          return self;
-        }, 'The asyncResource property on bound functions is deprecated', 'DEP0172', false, false),
-        set: deprecate(function(val) {
-          self = val;
-        }, 'The asyncResource property on bound functions is deprecated', 'DEP0172', false, false),
       },
     });
     return bound;

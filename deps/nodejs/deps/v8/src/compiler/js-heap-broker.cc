@@ -47,7 +47,6 @@ JSHeapBroker::JSHeapBroker(Isolate* isolate, Zone* broker_zone,
       refs_(zone()->New<RefsMap>(kMinimalRefsBucketCount, AddressMatcher(),
                                  zone())),
       root_index_map_(isolate),
-      array_and_object_prototypes_(zone()),
       tracing_enabled_(tracing_enabled),
       code_kind_(code_kind),
       feedback_(zone()),
@@ -118,28 +117,6 @@ void JSHeapBroker::SetTargetNativeContextRef(
   target_native_context_ = MakeRef(this, *native_context);
 }
 
-void JSHeapBroker::CollectArrayAndObjectPrototypes() {
-  DisallowGarbageCollection no_gc;
-  CHECK_EQ(mode(), kSerializing);
-  CHECK(array_and_object_prototypes_.empty());
-
-  Tagged<Object> maybe_context = isolate()->heap()->native_contexts_list();
-  while (!IsUndefined(maybe_context, isolate())) {
-    Tagged<Context> context = Cast<Context>(maybe_context);
-    Tagged<Object> array_prot =
-        context->get(Context::INITIAL_ARRAY_PROTOTYPE_INDEX);
-    Tagged<Object> object_prot =
-        context->get(Context::INITIAL_OBJECT_PROTOTYPE_INDEX);
-    array_and_object_prototypes_.emplace(
-        CanonicalPersistentHandle(Cast<JSObject>(array_prot)));
-    array_and_object_prototypes_.emplace(
-        CanonicalPersistentHandle(Cast<JSObject>(object_prot)));
-    maybe_context = context->next_context_link();
-  }
-
-  CHECK(!array_and_object_prototypes_.empty());
-}
-
 StringRef JSHeapBroker::GetTypedArrayStringTag(ElementsKind kind) {
   DCHECK(IsTypedArrayOrRabGsabTypedArrayElementsKind(kind));
   switch (kind) {
@@ -154,36 +131,11 @@ StringRef JSHeapBroker::GetTypedArrayStringTag(ElementsKind kind) {
   }
 }
 
-bool JSHeapBroker::IsArrayOrObjectPrototype(JSObjectRef object) const {
-  return IsArrayOrObjectPrototype(object.object());
-}
-
-bool JSHeapBroker::IsArrayOrObjectPrototype(Handle<JSObject> object) const {
-  if (mode() == kDisabled) {
-    return isolate()->IsInCreationContext(
-               *object, Context::INITIAL_ARRAY_PROTOTYPE_INDEX) ||
-           object->map(isolate_)->instance_type() == JS_OBJECT_PROTOTYPE_TYPE;
-  }
-  CHECK(!array_and_object_prototypes_.empty());
-  return array_and_object_prototypes_.find(object) !=
-         array_and_object_prototypes_.end();
-}
-
-ObjectData* JSHeapBroker::TryGetOrCreateData(Tagged<Object> object,
-                                             GetOrCreateDataFlags flags) {
-  return TryGetOrCreateData(CanonicalPersistentHandle(object), flags);
-}
-
 ObjectData* JSHeapBroker::GetOrCreateData(Handle<Object> object,
                                           GetOrCreateDataFlags flags) {
   ObjectData* return_value = TryGetOrCreateData(object, flags | kCrashOnError);
   DCHECK_NOT_NULL(return_value);
   return return_value;
-}
-
-ObjectData* JSHeapBroker::GetOrCreateData(Tagged<Object> object,
-                                          GetOrCreateDataFlags flags) {
-  return GetOrCreateData(CanonicalPersistentHandle(object), flags);
 }
 
 bool JSHeapBroker::StackHasOverflowed() const {
@@ -245,7 +197,8 @@ NamedAccessFeedback const& ElementAccessFeedback::Refine(JSHeapBroker* broker,
   // key is know to be a known name.
   CHECK(transition_groups_.empty());
   ZoneVector<MapRef> maps(broker->zone());
-  return *broker->zone()->New<NamedAccessFeedback>(name, maps, slot_kind());
+  return *broker->zone()->New<NamedAccessFeedback>(broker, name, maps,
+                                                   slot_kind());
 }
 
 ElementAccessFeedback const& ElementAccessFeedback::Refine(
@@ -354,23 +307,30 @@ OptionalObjectRef GlobalAccessFeedback::GetConstantHint(
 
 KeyedAccessMode KeyedAccessMode::FromNexus(FeedbackNexus const& nexus) {
   FeedbackSlotKind kind = nexus.kind();
+  constexpr bool kStringKeysUnsupported = false;
   if (IsKeyedLoadICKind(kind)) {
-    return KeyedAccessMode(AccessMode::kLoad, nexus.GetKeyedAccessLoadMode());
+    bool string_keys = nexus.GetKeyType() == IcCheckType::kProperty;
+    return KeyedAccessMode(AccessMode::kLoad, nexus.GetKeyedAccessLoadMode(),
+                           string_keys);
   }
   if (IsKeyedHasICKind(kind)) {
-    return KeyedAccessMode(AccessMode::kHas, nexus.GetKeyedAccessLoadMode());
+    return KeyedAccessMode(AccessMode::kHas, nexus.GetKeyedAccessLoadMode(),
+                           kStringKeysUnsupported);
   }
   if (IsDefineKeyedOwnICKind(kind)) {
-    return KeyedAccessMode(AccessMode::kDefine,
-                           nexus.GetKeyedAccessStoreMode());
+    return KeyedAccessMode(AccessMode::kDefine, nexus.GetKeyedAccessStoreMode(),
+                           kStringKeysUnsupported);
   }
   if (IsKeyedStoreICKind(kind)) {
-    return KeyedAccessMode(AccessMode::kStore, nexus.GetKeyedAccessStoreMode());
+    bool string_keys = nexus.GetKeyType() == IcCheckType::kProperty;
+    return KeyedAccessMode(AccessMode::kStore, nexus.GetKeyedAccessStoreMode(),
+                           string_keys);
   }
   if (IsStoreInArrayLiteralICKind(kind) ||
       IsDefineKeyedOwnPropertyInLiteralKind(kind)) {
     return KeyedAccessMode(AccessMode::kStoreInLiteral,
-                           nexus.GetKeyedAccessStoreMode());
+                           nexus.GetKeyedAccessStoreMode(),
+                           kStringKeysUnsupported);
   }
   UNREACHABLE();
 }
@@ -388,28 +348,29 @@ bool KeyedAccessMode::IsStore() const {
 
 KeyedAccessLoadMode KeyedAccessMode::load_mode() const {
   CHECK(IsLoad());
-  return load_store_mode_.load_mode;
+  return load_mode_;
 }
 
 KeyedAccessStoreMode KeyedAccessMode::store_mode() const {
   CHECK(IsStore());
-  return load_store_mode_.store_mode;
+  return store_mode_;
 }
 
-KeyedAccessMode::LoadStoreMode::LoadStoreMode(KeyedAccessLoadMode load_mode)
-    : load_mode(load_mode) {}
-KeyedAccessMode::LoadStoreMode::LoadStoreMode(KeyedAccessStoreMode store_mode)
-    : store_mode(store_mode) {}
-
 KeyedAccessMode::KeyedAccessMode(AccessMode access_mode,
-                                 KeyedAccessLoadMode load_mode)
-    : access_mode_(access_mode), load_store_mode_(load_mode) {
+                                 KeyedAccessLoadMode load_mode,
+                                 bool string_keys)
+    : access_mode_(access_mode),
+      load_mode_(load_mode),
+      string_keys_(string_keys) {
   CHECK(!IsStore());
   CHECK(IsLoad());
 }
 KeyedAccessMode::KeyedAccessMode(AccessMode access_mode,
-                                 KeyedAccessStoreMode store_mode)
-    : access_mode_(access_mode), load_store_mode_(store_mode) {
+                                 KeyedAccessStoreMode store_mode,
+                                 bool string_keys)
+    : access_mode_(access_mode),
+      store_mode_(store_mode),
+      string_keys_(string_keys) {
   CHECK(!IsLoad());
   CHECK(IsStore());
 }
@@ -443,10 +404,12 @@ MegaDOMPropertyAccessFeedback::MegaDOMPropertyAccessFeedback(
 }
 
 NamedAccessFeedback::NamedAccessFeedback(
-    NameRef name, ZoneVector<MapRef> const& maps, FeedbackSlotKind slot_kind,
+    JSHeapBroker* broker, NameRef name, ZoneVector<MapRef> const& maps,
+    FeedbackSlotKind slot_kind,
     bool has_deprecated_map_without_migration_target)
     : ProcessedFeedback(kNamedAccess, slot_kind),
-      name_(name),
+      name_(name.UnpackIfThin(broker)),
+      original_name_maybe_thin_(name),
       maps_(maps),
       has_deprecated_map_without_migration_target_(
           has_deprecated_map_without_migration_target) {
@@ -561,9 +524,12 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForPropertyAccess(
     DCHECK_IMPLIES(maps.empty(),
                    nexus.ic_state() == InlineCacheState::MEGAMORPHIC);
     return *zone()->New<NamedAccessFeedback>(
-        *name, maps, kind, has_deprecated_map_without_migration_target);
+        this, *name, maps, kind, has_deprecated_map_without_migration_target);
   } else if (nexus.GetKeyType() == IcCheckType::kElement && !maps.empty()) {
     return ProcessFeedbackMapsForElementAccess(
+        maps, KeyedAccessMode::FromNexus(nexus), kind);
+  } else if (nexus.IsOneMapManyNames() && maps.size() == 1) {
+    return ProcessFeedbackMapsForKeyedPropertyAccess(
         maps, KeyedAccessMode::FromNexus(nexus), kind);
   } else {
     // No actionable feedback.
@@ -724,7 +690,14 @@ ProcessedFeedback const& JSHeapBroker::ReadFeedbackForCall(
   {
     Tagged<MaybeObject> maybe_target = nexus.GetFeedback();
     Tagged<HeapObject> target_object;
-    if (maybe_target.GetHeapObject(&target_object)) {
+    if (maybe_target.GetHeapObject(&target_object) &&
+        (!IsJSFunction(target_object) ||
+         // Eval mutates the context on the function, so block specializing for
+         // these functions to avoid accidentally inlining the context as a
+         // constant.
+         Cast<JSFunction>(target_object)
+                 ->shared()
+                 ->function_literal_id(kRelaxedLoad) != 0)) {
       target_ref = TryMakeRef(this, target_object);
     }
   }
@@ -855,10 +828,23 @@ ProcessedFeedback const& JSHeapBroker::GetFeedbackForGlobalAccess(
   return feedback;
 }
 
+ElementAccessFeedback const&
+JSHeapBroker::ProcessFeedbackMapsForKeyedPropertyAccess(
+    ZoneVector<MapRef>& maps, KeyedAccessMode const& keyed_mode,
+    FeedbackSlotKind slot_kind) {
+  DCHECK_EQ(maps.size(), 1);
+  DCHECK(keyed_mode.string_keys());
+  ElementAccessFeedback* result =
+      zone()->New<ElementAccessFeedback>(zone(), keyed_mode, slot_kind);
+  result->AddGroup(ElementAccessFeedback::TransitionGroup(1, maps[0], zone()));
+  return *result;
+}
+
 ElementAccessFeedback const& JSHeapBroker::ProcessFeedbackMapsForElementAccess(
     ZoneVector<MapRef>& maps, KeyedAccessMode const& keyed_mode,
     FeedbackSlotKind slot_kind) {
   DCHECK(!maps.empty());
+  DCHECK(!keyed_mode.string_keys());
 
   // Collect possible transition targets.
   MapHandles possible_transition_targets(isolate());
@@ -905,7 +891,7 @@ ElementAccessFeedback const& JSHeapBroker::ProcessFeedbackMapsForElementAccess(
 
   ElementAccessFeedback* result =
       zone()->New<ElementAccessFeedback>(zone(), keyed_mode, slot_kind);
-  for (auto entry : transition_groups) {
+  for (auto& entry : transition_groups) {
     result->AddGroup(std::move(entry.second));
   }
 

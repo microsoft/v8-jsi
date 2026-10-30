@@ -10,17 +10,17 @@ const {
   ObjectDefineProperty,
   ObjectGetPrototypeOf,
   ObjectSetPrototypeOf,
-  Promise,
+  PromisePrototype,
   PromisePrototypeThen,
-  PromiseReject,
-  PromiseResolve,
   ReflectApply,
   SafeFinalizationRegistry,
   SafeMap,
+  SymbolDispose,
   SymbolHasInstance,
 } = primordials;
 
 const {
+  aggregateTwoErrors,
   codes: {
     ERR_INVALID_ARG_TYPE,
   },
@@ -31,10 +31,12 @@ const {
 
 const { triggerUncaughtException } = internalBinding('errors');
 
+// The subscriber buffer is replaced when native channel storage grows, so it
+// must always be accessed through the binding instead of cached.
 const dc_binding = internalBinding('diagnostics_channel');
-const { subscribers: subscriberCounts } = dc_binding;
 
-const { WeakReference } = require('internal/util');
+const { WeakReference, kEmptyObject } = require('internal/util');
+const { isPromise } = require('internal/util/types');
 
 // Can't delete when weakref count reaches 0 as it could increment again.
 // Only GC can be used as a valid time to clean up the channels map.
@@ -72,11 +74,19 @@ function markActive(channel) {
   ObjectSetPrototypeOf(channel, ActiveChannel.prototype);
   channel._subscribers = [];
   channel._stores = new SafeMap();
+
+  // Notify native modules that this channel just got its first subscriber.
+  if (channel._index !== undefined)
+    dc_binding.notifyChannelActive(channel._index);
 }
 
 function maybeMarkInactive(channel) {
   // When there are no more active subscribers or bound, restore to fast prototype.
   if (!channel._subscribers.length && !channel._stores.size) {
+    // Notify native modules that this channel just lost its last subscriber.
+    if (channel._index !== undefined)
+      dc_binding.notifyChannelInactive(channel._index);
+
     // eslint-disable-next-line no-use-before-define
     ObjectSetPrototypeOf(channel, Channel.prototype);
     channel._subscribers = undefined;
@@ -84,24 +94,68 @@ function maybeMarkInactive(channel) {
   }
 }
 
-function defaultTransform(data) {
-  return data;
+function disposeStoreScopes(stack, error, hasError = false) {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    try {
+      stack[i][SymbolDispose]();
+    } catch (err) {
+      error = hasError ? aggregateTwoErrors(err, error) : err;
+      hasError = true;
+    }
+  }
+
+  if (hasError) throw error;
 }
 
-function wrapStoreRun(store, data, next, transform = defaultTransform) {
-  return () => {
-    let context;
-    try {
-      context = transform(data);
-    } catch (err) {
-      process.nextTick(() => {
-        triggerUncaughtException(err, false);
-      });
-      return next();
+class RunStoresScope {
+  #stack;
+
+  constructor(activeChannel, data) {
+    // TODO: use native DisposableStack once supported in core
+    const stack = [];
+
+    // Enter stores using withScope
+    if (activeChannel._stores) {
+      for (const entry of activeChannel._stores.entries()) {
+        const store = entry[0];
+        const transform = entry[1];
+
+        let newContext = data;
+        if (transform) {
+          try {
+            newContext = transform(data);
+          } catch (err) {
+            process.nextTick(() => {
+              triggerUncaughtException(err, false);
+            });
+            continue;
+          }
+        }
+
+        try {
+          ArrayPrototypePush(stack, store.withScope(newContext));
+        } catch (err) {
+          disposeStoreScopes(stack, err, true);
+        }
+      }
     }
 
-    return store.run(context, next);
-  };
+    // Publish data
+    activeChannel.publish(data);
+
+    // Transfer ownership of the stack
+    // TODO: Restore stack.move() when DisposableStack is restored in core to avoid broken behavior.
+    this.#stack = stack;
+  }
+
+  [SymbolDispose]() {
+    if (this.#stack !== undefined) {
+      const stack = this.#stack;
+      this.#stack = undefined;
+
+      disposeStoreScopes(stack);
+    }
+  }
 }
 
 // TODO(qard): should there be a C++ channel interface?
@@ -111,7 +165,7 @@ class ActiveChannel {
     this._subscribers = ArrayPrototypeSlice(this._subscribers);
     ArrayPrototypePush(this._subscribers, subscription);
     channels.incRef(this.name);
-    if (this._index !== undefined) subscriberCounts[this._index]++;
+    if (this._index !== undefined) dc_binding.subscribers[this._index]++;
   }
 
   unsubscribe(subscription) {
@@ -124,7 +178,7 @@ class ActiveChannel {
     ArrayPrototypePushApply(this._subscribers, after);
 
     channels.decRef(this.name);
-    if (this._index !== undefined) subscriberCounts[this._index]--;
+    if (this._index !== undefined) dc_binding.subscribers[this._index]--;
     maybeMarkInactive(this);
 
     return true;
@@ -134,7 +188,7 @@ class ActiveChannel {
     const replacing = this._stores.has(store);
     if (!replacing) {
       channels.incRef(this.name);
-      if (this._index !== undefined) subscriberCounts[this._index]++;
+      if (this._index !== undefined) dc_binding.subscribers[this._index]++;
     }
     this._stores.set(store, transform);
   }
@@ -147,7 +201,7 @@ class ActiveChannel {
     this._stores.delete(store);
 
     channels.decRef(this.name);
-    if (this._index !== undefined) subscriberCounts[this._index]--;
+    if (this._index !== undefined) dc_binding.subscribers[this._index]--;
     maybeMarkInactive(this);
 
     return true;
@@ -171,19 +225,17 @@ class ActiveChannel {
     }
   }
 
+  withStoreScope(data) {
+    return new RunStoresScope(this, data);
+  }
+
   runStores(data, fn, thisArg, ...args) {
-    let run = () => {
-      this.publish(data);
+    const scope = this.withStoreScope(data);
+    try {
       return ReflectApply(fn, thisArg, args);
-    };
-
-    for (const entry of this._stores.entries()) {
-      const store = entry[0];
-      const transform = entry[1];
-      run = wrapStoreRun(store, data, run, transform);
+    } finally {
+      scope[SymbolDispose]();
     }
-
-    return run();
   }
 }
 
@@ -192,9 +244,7 @@ class Channel {
     this._subscribers = undefined;
     this._stores = undefined;
     this.name = name;
-    if (typeof name === 'string') {
-      this._index = dc_binding.getOrCreateChannelIndex(name);
-    }
+    this._index = undefined;
 
     channels.set(name, this);
   }
@@ -206,6 +256,7 @@ class Channel {
   }
 
   subscribe(subscription) {
+    validateFunction(subscription, 'subscription');
     markActive(this);
     this.subscribe(subscription);
   }
@@ -231,6 +282,13 @@ class Channel {
 
   runStores(data, fn, thisArg, ...args) {
     return ReflectApply(fn, thisArg, args);
+  }
+
+  withStoreScope() {
+    // Return no-op disposable for inactive channels
+    return {
+      [SymbolDispose]() {},
+    };
   }
 }
 
@@ -262,12 +320,9 @@ function hasSubscribers(name) {
   return channel.hasSubscribers;
 }
 
-const traceEvents = [
+const boundedEvents = [
   'start',
   'end',
-  'asyncStart',
-  'asyncEnd',
-  'error',
 ];
 
 function assertChannel(value, name) {
@@ -276,7 +331,12 @@ function assertChannel(value, name) {
   }
 }
 
-function tracingChannelFrom(nameOrChannels, name) {
+function emitNonThenableWarning(fn) {
+  process.emitWarning(`tracePromise was called with the function '${fn.name || '<anonymous>'}', ` +
+                      'which returned a non-thenable.');
+}
+
+function channelFromMap(nameOrChannels, name, className) {
   if (typeof nameOrChannels === 'string') {
     return channel(`tracing:${nameOrChannels}:${name}`);
   }
@@ -288,32 +348,62 @@ function tracingChannelFrom(nameOrChannels, name) {
   }
 
   throw new ERR_INVALID_ARG_TYPE('nameOrChannels',
-                                 ['string', 'object', 'TracingChannel'],
+                                 ['string', 'object', className],
                                  nameOrChannels);
 }
 
-class TracingChannel {
+class BoundedChannelScope {
+  #context;
+  #end;
+  #scope;
+
+  constructor(boundedChannel, context) {
+    // Only proceed if there are subscribers
+    if (!boundedChannel.hasSubscribers) {
+      return;
+    }
+
+    const { start, end } = boundedChannel;
+    this.#context = context;
+    this.#end = end;
+
+    // Use RunStoresScope for the start channel
+    this.#scope = new RunStoresScope(start, context);
+  }
+
+  [SymbolDispose]() {
+    if (!this.#scope) {
+      return;
+    }
+
+    // Publish end event
+    this.#end.publish(this.#context);
+
+    // Dispose the start scope to restore stores
+    this.#scope[SymbolDispose]();
+    this.#scope = undefined;
+  }
+}
+
+class BoundedChannel {
   constructor(nameOrChannels) {
-    for (let i = 0; i < traceEvents.length; ++i) {
-      const eventName = traceEvents[i];
+    for (let i = 0; i < boundedEvents.length; ++i) {
+      const eventName = boundedEvents[i];
       ObjectDefineProperty(this, eventName, {
         __proto__: null,
-        value: tracingChannelFrom(nameOrChannels, eventName),
+        value: channelFromMap(nameOrChannels, eventName, 'BoundedChannel'),
       });
     }
   }
 
   get hasSubscribers() {
     return this.start?.hasSubscribers ||
-      this.end?.hasSubscribers ||
-      this.asyncStart?.hasSubscribers ||
-      this.asyncEnd?.hasSubscribers ||
-      this.error?.hasSubscribers;
+      this.end?.hasSubscribers;
   }
 
   subscribe(handlers) {
-    for (let i = 0; i < traceEvents.length; ++i) {
-      const name = traceEvents[i];
+    for (let i = 0; i < boundedEvents.length; ++i) {
+      const name = boundedEvents[i];
       if (!handlers[name]) continue;
 
       this[name]?.subscribe(handlers[name]);
@@ -323,8 +413,8 @@ class TracingChannel {
   unsubscribe(handlers) {
     let done = true;
 
-    for (let i = 0; i < traceEvents.length; ++i) {
-      const name = traceEvents[i];
+    for (let i = 0; i < boundedEvents.length; ++i) {
+      const name = boundedEvents[i];
       if (!handlers[name]) continue;
 
       if (!this[name]?.unsubscribe(handlers[name])) {
@@ -335,76 +425,239 @@ class TracingChannel {
     return done;
   }
 
-  traceSync(fn, context = {}, thisArg, ...args) {
-    if (!this.hasSubscribers) {
+  withScope(context = kEmptyObject) {
+    return new BoundedChannelScope(this, context);
+  }
+
+  run(context, fn, thisArg, ...args) {
+    context ??= {};
+    const scope = this.withScope(context);
+    try {
       return ReflectApply(fn, thisArg, args);
+    } finally {
+      scope[SymbolDispose]();
+    }
+  }
+}
+
+function boundedChannel(nameOrChannels) {
+  return new BoundedChannel(nameOrChannels);
+}
+
+class TracingChannel {
+  #callWindow;
+  #continuationWindow;
+
+  constructor(nameOrChannels) {
+    // Create a BoundedChannel for start/end (call window)
+    if (typeof nameOrChannels === 'string') {
+      this.#callWindow = new BoundedChannel(nameOrChannels);
+      this.#continuationWindow = new BoundedChannel({
+        start: channel(`tracing:${nameOrChannels}:asyncStart`),
+        end: channel(`tracing:${nameOrChannels}:asyncEnd`),
+      });
+    } else if (typeof nameOrChannels === 'object') {
+      this.#callWindow = new BoundedChannel({
+        start: nameOrChannels.start,
+        end: nameOrChannels.end,
+      });
+      this.#continuationWindow = new BoundedChannel({
+        start: nameOrChannels.asyncStart,
+        end: nameOrChannels.asyncEnd,
+      });
     }
 
-    const { start, end, error } = this;
-
-    return start.runStores(context, () => {
-      try {
-        const result = ReflectApply(fn, thisArg, args);
-        context.result = result;
-        return result;
-      } catch (err) {
-        context.error = err;
-        error.publish(context);
-        throw err;
-      } finally {
-        end.publish(context);
-      }
+    // Create individual channel for error
+    ObjectDefineProperty(this, 'error', {
+      __proto__: null,
+      value: channelFromMap(nameOrChannels, 'error', 'TracingChannel'),
     });
   }
 
-  tracePromise(fn, context = {}, thisArg, ...args) {
+  get start() {
+    return this.#callWindow.start;
+  }
+
+  get end() {
+    return this.#callWindow.end;
+  }
+
+  get asyncStart() {
+    return this.#continuationWindow.start;
+  }
+
+  get asyncEnd() {
+    return this.#continuationWindow.end;
+  }
+
+  get hasSubscribers() {
+    return this.#callWindow.hasSubscribers ||
+      this.#continuationWindow.hasSubscribers ||
+      this.error?.hasSubscribers;
+  }
+
+  subscribe(handlers) {
+    // Subscribe to call window (start/end)
+    if (handlers.start || handlers.end) {
+      this.#callWindow.subscribe({
+        start: handlers.start,
+        end: handlers.end,
+      });
+    }
+
+    // Subscribe to continuation window (asyncStart/asyncEnd)
+    if (handlers.asyncStart || handlers.asyncEnd) {
+      this.#continuationWindow.subscribe({
+        start: handlers.asyncStart,
+        end: handlers.asyncEnd,
+      });
+    }
+
+    // Subscribe to error channel
+    if (handlers.error) {
+      this.error.subscribe(handlers.error);
+    }
+  }
+
+  unsubscribe(handlers) {
+    let done = true;
+
+    // Unsubscribe from call window
+    if (handlers.start || handlers.end) {
+      if (!this.#callWindow.unsubscribe({
+        start: handlers.start,
+        end: handlers.end,
+      })) {
+        done = false;
+      }
+    }
+
+    // Unsubscribe from continuation window
+    if (handlers.asyncStart || handlers.asyncEnd) {
+      if (!this.#continuationWindow.unsubscribe({
+        start: handlers.asyncStart,
+        end: handlers.asyncEnd,
+      })) {
+        done = false;
+      }
+    }
+
+    // Unsubscribe from error channel
+    if (handlers.error) {
+      if (!this.error.unsubscribe(handlers.error)) {
+        done = false;
+      }
+    }
+
+    return done;
+  }
+
+  traceSync(fn, context = undefined, thisArg, ...args) {
     if (!this.hasSubscribers) {
       return ReflectApply(fn, thisArg, args);
     }
 
-    const { start, end, asyncStart, asyncEnd, error } = this;
-
-    function reject(err) {
-      context.error = err;
-      error.publish(context);
-      asyncStart.publish(context);
-      // TODO: Is there a way to have asyncEnd _after_ the continuation?
-      asyncEnd.publish(context);
-      return PromiseReject(err);
+    if (context === undefined) {
+      context = { __proto__: null };
     }
 
-    function resolve(result) {
+    const { error } = this;
+    const scope = this.#callWindow.withScope(context);
+
+    try {
+      const result = ReflectApply(fn, thisArg, args);
       context.result = result;
-      asyncStart.publish(context);
-      // TODO: Is there a way to have asyncEnd _after_ the continuation?
-      asyncEnd.publish(context);
+      return result;
+    } catch (err) {
+      context.error = err;
+      error.publish(context);
+      throw err;
+    } finally {
+      scope[SymbolDispose]();
+    }
+  }
+
+  tracePromise(fn, context = undefined, thisArg, ...args) {
+    if (!this.hasSubscribers) {
+      const result = ReflectApply(fn, thisArg, args);
+      if (typeof result?.then !== 'function') {
+        emitNonThenableWarning(fn);
+      }
       return result;
     }
 
-    return start.runStores(context, () => {
-      try {
-        let promise = ReflectApply(fn, thisArg, args);
-        // Convert thenables to native promises
-        if (!(promise instanceof Promise)) {
-          promise = PromiseResolve(promise);
-        }
-        return PromisePrototypeThen(promise, resolve, reject);
-      } catch (err) {
-        context.error = err;
-        error.publish(context);
-        throw err;
-      } finally {
-        end.publish(context);
+    if (context === undefined) {
+      context = { __proto__: null };
+    }
+
+    const { error } = this;
+    const continuationWindow = this.#continuationWindow;
+
+    function onReject(err) {
+      context.error = err;
+      error.publish(context);
+      // Use continuation window for asyncStart/asyncEnd
+      const scope = continuationWindow.withScope(context);
+      // TODO: Is there a way to have asyncEnd _after_ the continuation?
+      scope[SymbolDispose]();
+    }
+
+    function onRejectWithRethrow(err) {
+      onReject(err);
+      throw err;
+    }
+
+    function onResolve(result) {
+      context.result = result;
+      // Use continuation window for asyncStart/asyncEnd
+      const scope = continuationWindow.withScope(context);
+      // TODO: Is there a way to have asyncEnd _after_ the continuation?
+      scope[SymbolDispose]();
+      return result;
+    }
+
+    const scope = this.#callWindow.withScope(context);
+
+    try {
+      const result = ReflectApply(fn, thisArg, args);
+      // If the return value is not a thenable, return it directly with a warning.
+      // Do not publish to asyncStart/asyncEnd.
+      if (typeof result?.then !== 'function') {
+        emitNonThenableWarning(fn);
+        context.result = result;
+        return result;
       }
-    });
+      // isPromise() matches sub-classes, but we need to match only direct
+      // instances of the native Promise type to safely use PromisePrototypeThen.
+      if (isPromise(result) && ObjectGetPrototypeOf(result) === PromisePrototype) {
+        return PromisePrototypeThen(result, onResolve, onRejectWithRethrow);
+      }
+      // For non-native thenables, subscribe to the result but return the
+      // original thenable so the consumer can continue handling it directly.
+      // Non-native thenables don't have unhandledRejection tracking, so
+      // swallowing the rejection here doesn't change existing behaviour.
+      result.then(onResolve, onReject);
+      return result;
+    } catch (err) {
+      context.error = err;
+      error.publish(context);
+      throw err;
+    } finally {
+      scope[SymbolDispose]();
+    }
   }
 
-  traceCallback(fn, position = -1, context = {}, thisArg, ...args) {
+  traceCallback(fn, position = -1, context = undefined, thisArg, ...args) {
     if (!this.hasSubscribers) {
       return ReflectApply(fn, thisArg, args);
     }
 
-    const { start, end, asyncStart, asyncEnd, error } = this;
+    if (context === undefined) {
+      context = ObjectSetPrototypeOf({}, null);
+    }
+
+    const { error } = this;
+    const continuationWindow = this.#continuationWindow;
 
     function wrappedCallback(err, res) {
       if (err) {
@@ -414,31 +667,30 @@ class TracingChannel {
         context.result = res;
       }
 
-      // Using runStores here enables manual context failure recovery
-      asyncStart.runStores(context, () => {
-        try {
-          return ReflectApply(callback, this, arguments);
-        } finally {
-          asyncEnd.publish(context);
-        }
-      });
+      // Use continuation window for asyncStart/asyncEnd around callback
+      const scope = continuationWindow.withScope(context);
+      try {
+        return ReflectApply(callback, this, arguments);
+      } finally {
+        scope[SymbolDispose]();
+      }
     }
 
     const callback = ArrayPrototypeAt(args, position);
     validateFunction(callback, 'callback');
     ArrayPrototypeSplice(args, position, 1, wrappedCallback);
 
-    return start.runStores(context, () => {
-      try {
-        return ReflectApply(fn, thisArg, args);
-      } catch (err) {
-        context.error = err;
-        error.publish(context);
-        throw err;
-      } finally {
-        end.publish(context);
-      }
-    });
+    const scope = this.#callWindow.withScope(context);
+
+    try {
+      return ReflectApply(fn, thisArg, args);
+    } catch (err) {
+      context.error = err;
+      error.publish(context);
+      throw err;
+    } finally {
+      scope[SymbolDispose]();
+    }
   }
 }
 
@@ -446,7 +698,15 @@ function tracingChannel(nameOrChannels) {
   return new TracingChannel(nameOrChannels);
 }
 
-dc_binding.linkNativeChannel((name) => channel(name));
+// Keep in sync with setupDiagnosticsChannel() in pre_execution.js.
+dc_binding.linkNativeChannel((name, index) => {
+  const linkedChannel = channel(name);
+  linkedChannel._index = index;
+  dc_binding.subscribers[index] =
+    (linkedChannel._subscribers?.length || 0) +
+    (linkedChannel._stores?.size || 0);
+  return linkedChannel;
+});
 
 module.exports = {
   channel,
@@ -454,5 +714,7 @@ module.exports = {
   subscribe,
   tracingChannel,
   unsubscribe,
+  boundedChannel,
   Channel,
+  BoundedChannel,
 };

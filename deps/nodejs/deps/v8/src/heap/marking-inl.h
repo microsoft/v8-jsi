@@ -10,9 +10,9 @@
 
 #include "src/base/build_config.h"
 #include "src/base/macros.h"
+#include "src/heap/base-page.h"
 #include "src/heap/heap-inl.h"
-#include "src/heap/memory-chunk-layout.h"
-#include "src/heap/memory-chunk-metadata.h"
+#include "src/heap/heap-layout-inl.h"
 #include "src/heap/spaces.h"
 
 namespace v8::internal {
@@ -26,7 +26,7 @@ inline void MarkingBitmap::SetBitsInCell<AccessMode::NON_ATOMIC>(
 template <>
 inline void MarkingBitmap::SetBitsInCell<AccessMode::ATOMIC>(
     uint32_t cell_index, MarkBit::CellType mask) {
-  base::AsAtomicWord::Relaxed_SetBits(cells() + cell_index, mask, mask);
+  base::AsAtomicWord::Relaxed_SetBits(cells() + cell_index, mask);
 }
 
 template <>
@@ -149,21 +149,34 @@ inline void MarkingBitmap::ClearRange(MarkBitIndex start_index,
 }
 
 // static
-MarkingBitmap* MarkingBitmap::FromAddress(Address address) {
+MarkingBitmap* MarkingBitmap::FromAddress(const Isolate* isolate,
+                                          Address address) {
   Address metadata_address =
-      MutablePageMetadata::FromAddress(address)->MetadataAddress();
-  return Cast(metadata_address + MutablePageMetadata::MarkingBitmapOffset());
-}
-
-// static
-MarkBit MarkingBitmap::MarkBitFromAddress(Address address) {
-  return MarkBitFromAddress(FromAddress(address), address);
+      MutablePage::FromAddress(isolate, address)->MetadataAddress();
+  return Cast(metadata_address + MutablePage::MarkingBitmapOffset());
 }
 
 // static
 MarkBit MarkingBitmap::MarkBitFromAddress(MarkingBitmap* bitmap,
                                           Address address) {
-  DCHECK_EQ(bitmap, FromAddress(address));
+  DCHECK_EQ(bitmap, FromAddress(Isolate::Current(), address));
+  const auto index = AddressToIndex(address);
+  const auto mask = IndexInCellMask(index);
+  MarkBit::CellType* cell = bitmap->cells() + IndexToCell(index);
+  return MarkBit(cell, mask);
+}
+
+// static
+MarkBit MarkingBitmap::MarkBitFromAddress(const Isolate* isolate,
+                                          Address address) {
+  return MarkBitFromAddress(isolate, FromAddress(isolate, address), address);
+}
+
+// static
+MarkBit MarkingBitmap::MarkBitFromAddress(const Isolate* isolate,
+                                          MarkingBitmap* bitmap,
+                                          Address address) {
+  DCHECK_EQ(bitmap, FromAddress(isolate, address));
   const auto index = AddressToIndex(address);
   const auto mask = IndexInCellMask(index);
   MarkBit::CellType* cell = bitmap->cells() + IndexToCell(index);
@@ -184,7 +197,7 @@ constexpr MarkingBitmap::MarkBitIndex MarkingBitmap::LimitAddressToIndex(
 }
 
 // static
-inline Address MarkingBitmap::FindPreviousValidObject(const PageMetadata* page,
+inline Address MarkingBitmap::FindPreviousValidObject(const NormalPage* page,
                                                       Address maybe_inner_ptr) {
   DCHECK(page->Contains(maybe_inner_ptr));
   const auto* bitmap = page->marking_bitmap();
@@ -265,70 +278,59 @@ inline Address MarkingBitmap::FindPreviousValidObject(const PageMetadata* page,
 }
 
 // static
-MarkBit MarkBit::From(Address address) {
-  return MarkingBitmap::MarkBitFromAddress(address);
+MarkBit MarkBit::From(const Isolate* isolate, Address address) {
+  return MarkingBitmap::MarkBitFromAddress(isolate, address);
 }
 
 // static
-MarkBit MarkBit::From(Tagged<HeapObject> heap_object) {
-  return MarkingBitmap::MarkBitFromAddress(heap_object.ptr());
+MarkBit MarkBit::From(const Isolate* isolate, Tagged<HeapObject> heap_object) {
+  return MarkingBitmap::MarkBitFromAddress(isolate, heap_object.ptr());
 }
 
 // static
 std::optional<MarkingHelper::WorklistTarget> MarkingHelper::ShouldMarkObject(
     Heap* heap, Tagged<HeapObject> object) {
-  const auto* chunk = MemoryChunk::FromHeapObject(object);
-  const auto flags = chunk->GetFlags();
-  if (flags & MemoryChunk::READ_ONLY_HEAP) {
+  switch (GetLivenessMode(heap, object)) {
+    case LivenessMode::kAlwaysLive:
+      return {};
+    case LivenessMode::kMarkbit:
+      return {MarkingHelper::WorklistTarget::kRegular};
+  }
+
+  if (HeapLayout::InReadOnlySpace(object)) {
     return {};
   }
-  if (v8_flags.black_allocated_pages &&
-      V8_UNLIKELY(flags & MemoryChunk::BLACK_ALLOCATED)) {
-    DCHECK(!(flags & MemoryChunk::kIsInYoungGenerationMask));
-    return {};
-  }
-  if (V8_LIKELY(!(flags & MemoryChunk::IN_WRITABLE_SHARED_SPACE))) {
-    return {MarkingHelper::WorklistTarget::kRegular};
-  }
-  // Object in shared writable space. Only mark it if the Isolate is owning the
-  // shared space.
-  //
-  // TODO(340989496): Speed up check here by keeping the flag on Heap.
-  if (heap->isolate()->is_shared_space_isolate()) {
-    return {MarkingHelper::WorklistTarget::kRegular};
-  }
-  return {};
 }
 
 // static
 MarkingHelper::LivenessMode MarkingHelper::GetLivenessMode(
-    Heap* heap, Tagged<HeapObject> object) {
+    const Heap* heap, Tagged<HeapObject> object) {
+  if (HeapLayout::InReadOnlySpace(object)) {
+    return MarkingHelper::LivenessMode::kAlwaysLive;
+  }
   const auto* chunk = MemoryChunk::FromHeapObject(object);
-  const auto flags = chunk->GetFlags();
-  if (flags & MemoryChunk::READ_ONLY_HEAP) {
-    return MarkingHelper::LivenessMode::kAlwaysLive;
+  if (chunk->IsBlackAllocatedOrWritableShared()) [[unlikely]] {
+    if (chunk->IsBlackAllocated()) {
+      DCHECK(!chunk->InYoungGeneration());
+      DCHECK(v8_flags.black_allocated_pages);
+      return MarkingHelper::LivenessMode::kAlwaysLive;
+    }
+    DCHECK(chunk->InWritableSharedSpace());
+    // Object in shared writable space. Only mark it if the Isolate is owning
+    // the shared space.
+    //
+    // TODO(340989496): Speed up check here by keeping the flag on Heap.
+    if (!heap->isolate()->is_shared_space_isolate()) {
+      return MarkingHelper::LivenessMode::kAlwaysLive;
+    }
   }
-  if (v8_flags.black_allocated_pages &&
-      (flags & MemoryChunk::BLACK_ALLOCATED)) {
-    return MarkingHelper::LivenessMode::kAlwaysLive;
-  }
-  if (V8_LIKELY(!(flags & MemoryChunk::IN_WRITABLE_SHARED_SPACE))) {
-    return MarkingHelper::LivenessMode::kMarkbit;
-  }
-  // Object in shared writable space. Only mark it if the Isolate is owning the
-  // shared space.
-  //
-  // TODO(340989496): Speed up check here by keeping the flag on Heap.
-  if (heap->isolate()->is_shared_space_isolate()) {
-    return MarkingHelper::LivenessMode::kMarkbit;
-  }
-  return MarkingHelper::LivenessMode::kAlwaysLive;
+  return MarkingHelper::LivenessMode::kMarkbit;
 }
 
 // static
 template <typename MarkingStateT>
-bool MarkingHelper::IsMarkedOrAlwaysLive(Heap* heap,
-                                         MarkingStateT* marking_state,
+bool MarkingHelper::IsMarkedOrAlwaysLive(const Heap* heap,
+                                         const MarkingStateT* marking_state,
                                          Tagged<HeapObject> object) {
   return (MarkingHelper::GetLivenessMode(heap, object) ==
           MarkingHelper::LivenessMode::kAlwaysLive) ||
@@ -337,9 +339,9 @@ bool MarkingHelper::IsMarkedOrAlwaysLive(Heap* heap,
 
 // static
 template <typename MarkingStateT>
-bool MarkingHelper::IsUnmarkedAndNotAlwaysLive(Heap* heap,
-                                               MarkingStateT* marking_state,
-                                               Tagged<HeapObject> object) {
+bool MarkingHelper::IsUnmarkedAndNotAlwaysLive(
+    const Heap* heap, const MarkingStateT* marking_state,
+    Tagged<HeapObject> object) {
   return (MarkingHelper::GetLivenessMode(heap, object) !=
           MarkingHelper::LivenessMode::kAlwaysLive) &&
          marking_state->IsUnmarked(object);

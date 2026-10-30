@@ -17,6 +17,7 @@
 #include "src/flags/flags.h"
 #include "src/sandbox/hardware-support.h"
 #include "src/sandbox/sandboxed-pointer.h"
+#include "src/sandbox/testing.h"
 #include "src/utils/allocation.h"
 
 namespace v8 {
@@ -65,6 +66,13 @@ static Address DetermineAddressSpaceLimit() {
   // configuration and there seems to be no easy way to retrieve the actual
   // number of virtual address bits from the CPU in userspace.
   hardware_virtual_address_bits = 40;
+#elif defined(V8_TARGET_OS_IOS)
+  // On iOS, we only get 64 GB of userspace virtual address space even with the
+  // "jumbo" extended virtual addressing entitlement, so assume a 37-bit virtual
+  // address space (36 bits for userspace and kernel each). Ensure that this
+  // results in `hardware_virtual_address_bits` being at least the minimum (36)
+  // otherwise we will override it with the default value (48) incorrectly.
+  hardware_virtual_address_bits = 37;
 #endif
 
   // Assume virtual address space is split 50/50 between userspace and kernel.
@@ -120,6 +128,17 @@ void Sandbox::Initialize(v8::VirtualAddressSpace* vas) {
     max_reservation_size = kSandboxMinimumReservationSize;
   }
 
+#if defined(V8_TARGET_OS_IOS)
+  // If we don't override this, we will attempt to reserve 16 GB (sandbox size)
+  // + 72 GB (guard region size) + 260 GB (trailing guard region size) which
+  // will fail since iOS only provides ~63 GB of virtual address space of which
+  // only ~51 GB can be mapped in practice. Also, the code assumes that the
+  // partially reserved sandbox mode has a reservation size strictly less than
+  // the sandbox size which is 16 GB for iOS - using `address_space_limit / 4`
+  // gives us 16 GB which won't work so use the minimum size i.e. 8 GB instead.
+  max_reservation_size = kSandboxMinimumReservationSize;
+#endif
+
   // If the maximum reservation size is less than the size of the sandbox, we
   // can only create a partially-reserved sandbox.
   bool success;
@@ -159,7 +178,12 @@ void Sandbox::Initialize(v8::VirtualAddressSpace* vas) {
   }
 #endif  // V8_ENABLE_WEBASSEMBLY && V8_TRAP_HANDLER_SUPPORTED
 
-  SandboxHardwareSupport::TryEnable(base(), size());
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  if (SandboxHardwareSupport::IsActive()) {
+    CHECK_EQ(address_space_->ActiveMemoryProtectionKey(),
+             SandboxHardwareSupport::SandboxPkey());
+  }
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
 
   DCHECK(initialized_);
 }
@@ -200,11 +224,30 @@ bool Sandbox::Initialize(v8::VirtualAddressSpace* vas, size_t size,
   // (multiple seconds or even minutes for a 1TB sandbox on macOS 12.X), in
   // turn causing tests to time out. As such, the maximum page permission
   // inside the sandbox should be read + write.
+  const PagePermissions kSandboxMaxPermissions = PagePermissions::kReadWrite;
+
+  // When sandbox hardware support is available and active, the sandbox address
+  // space uses a dedicated memory protection key.
+  std::optional<VirtualAddressSpace::MemoryProtectionKeyId> sandbox_pkey =
+      std::nullopt;
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  if (SandboxHardwareSupport::IsActive()) {
+    CHECK_NE(SandboxHardwareSupport::SandboxPkey(),
+             base::MemoryProtectionKey::kNoMemoryProtectionKey);
+    sandbox_pkey = SandboxHardwareSupport::SandboxPkey();
+  }
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+
   address_space_ =
       vas->AllocateSubspace(hint, true_reservation_size, kSandboxAlignment,
-                            PagePermissions::kReadWrite);
-
+                            kSandboxMaxPermissions, sandbox_pkey);
   if (!address_space_) return false;
+  address_space_->SetName(kSandboxAddressSpaceName);
+#ifdef V8_ENABLE_MEMORY_CORRUPTION_API
+  SandboxTesting::RegisterSafeMemoryRegion(
+      address_space_->base(), address_space_->size(),
+      SandboxTesting::kReadAndWriteAccessIsSafe);
+#endif
 
   reservation_base_ = address_space_->base();
   base_ = reservation_base_ + (use_guard_regions ? kSandboxGuardRegionSize : 0);
@@ -228,7 +271,9 @@ bool Sandbox::Initialize(v8::VirtualAddressSpace* vas, size_t size,
   // mitigates Smi<->HeapObject confusion bugs in which we end up treating a
   // Smi value as a pointer.
   if (!first_four_gb_of_address_space_are_reserved_) {
-    Address end = 4UL * GB;
+    // Make the guard region extend a little past the first 4GB to also catch
+    // accesses with an offset into a negative Smi (e.g. [0xfffffffe + offset]).
+    Address end = 4UL * GB + 1 * MB;
     size_t step = address_space_->allocation_granularity();
     for (Address start = 0; start <= 1 * MB; start += step) {
       if (vas->AllocateGuardRegion(start, end - start)) {
@@ -342,6 +387,10 @@ void Sandbox::TearDown() {
       trap_handler_initialized_ = false;
     }
 #endif  // V8_ENABLE_WEBASSEMBLY && V8_TRAP_HANDLER_SUPPORTED
+
+#ifdef V8_ENABLE_MEMORY_CORRUPTION_API
+    SandboxTesting::UnregisterSafeMemoryRegion(address_space_->base());
+#endif
 
     // This destroys the sub space and frees the underlying reservation.
     address_space_.reset();

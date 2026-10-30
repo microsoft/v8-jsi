@@ -3,10 +3,9 @@
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
-#include <map>
+#include <span>
 #include <string>
 #include <string_view>
-#include "v8.h"
 
 namespace node {
 
@@ -30,8 +29,15 @@ namespace permission {
 #define INSPECTOR_PERMISSIONS(V)                                               \
   V(Inspector, "inspector", PermissionsRoot, "--allow-inspector")
 
+#define NET_PERMISSIONS(V) V(Net, "net", PermissionsRoot, "--allow-net")
+
 #define ADDON_PERMISSIONS(V)                                                   \
   V(Addon, "addon", PermissionsRoot, "--allow-addons")
+
+#define FFI_PERMISSIONS(V) V(FFI, "ffi", PermissionsRoot, "--allow-ffi")
+
+#define OPENSSL_STORE_PERMISSIONS(V)                                           \
+  V(OpenSSLStore, "openssl.store", PermissionsRoot, "--allow-openssl-store")
 
 #define PERMISSIONS(V)                                                         \
   FILESYSTEM_PERMISSIONS(V)                                                    \
@@ -39,7 +45,10 @@ namespace permission {
   WASI_PERMISSIONS(V)                                                          \
   WORKER_THREADS_PERMISSIONS(V)                                                \
   INSPECTOR_PERMISSIONS(V)                                                     \
-  ADDON_PERMISSIONS(V)
+  NET_PERMISSIONS(V)                                                           \
+  ADDON_PERMISSIONS(V)                                                         \
+  FFI_PERMISSIONS(V)                                                           \
+  OPENSSL_STORE_PERMISSIONS(V)
 
 #define V(name, _, __, ___) k##name,
 enum class PermissionScope {
@@ -50,12 +59,16 @@ enum class PermissionScope {
 
 class PermissionBase {
  public:
+  virtual ~PermissionBase() = default;
   virtual void Apply(Environment* env,
-                     const std::vector<std::string>& allow,
+                     std::span<const std::string> allow,
                      PermissionScope scope) = 0;
+  virtual void Drop(Environment* env,
+                    PermissionScope scope,
+                    std::string_view param) = 0;
   virtual bool is_granted(Environment* env,
                           PermissionScope perm,
-                          const std::string_view& param = "") const = 0;
+                          std::string_view param) const = 0;
 };
 
 }  // namespace permission

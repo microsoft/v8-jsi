@@ -61,8 +61,8 @@
 // (set up by createIsolate via v8_core). The legacy lookup through
 // V8Runtime::GetCurrent(context) is gone — the keys are per-isolate, not
 // per-context, so we read them from the shared struct directly.
-#define NAPI_PRIVATE_KEY(context, suffix)                                      \
-  (v8rt::IsolateData::fromIsolate((context)->GetIsolate())->napi_##suffix())
+#define NAPI_PRIVATE_KEY(env, suffix)                                          \
+  (v8rt::IsolateData::fromIsolate((env)->isolate)->napi_##suffix())
 
 namespace v8impl {
 

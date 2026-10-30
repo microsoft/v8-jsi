@@ -515,8 +515,18 @@ using SimulatorRuntimeFPTaggedCall = double (*)(int64_t arg0, int64_t arg1,
 // (refer to InvocationCallback in v8.h).
 using SimulatorRuntimeDirectApiCall = void (*)(int64_t arg0);
 
-// This signature supports direct call to accessor getter callback.
-using SimulatorRuntimeDirectGetterCall = void (*)(int64_t arg0, int64_t arg1);
+// This signature supports direct call to accessor/interceptor getter callback.
+// Using v8::Local<v8::Name> instead of int64_t as a first argument type fixes
+// MSAN false positive report when using the value in the callback.
+using SimulatorRuntimeDirectGetterCall = int64_t (*)(v8::Local<v8::Name> arg0,
+                                                     int64_t arg1);
+
+// This signature supports direct call to accessor/interceptor setter callback.
+// Using v8::Local<v8::Name/Value> instead of int64_t as first two argument
+// types fixes MSAN false positive report when using the value in the callback.
+using SimulatorRuntimeDirectSetterCall = int64_t (*)(v8::Local<v8::Name> arg0,
+                                                     v8::Local<v8::Value> arg1,
+                                                     int64_t arg2);
 
 // Separate for fine-grained UBSan blocklisting. Casting any given C++
 // function to {SimulatorRuntimeCall} is undefined behavior; but since
@@ -981,16 +991,38 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
     }
 
     case ExternalReference::DIRECT_GETTER_CALL: {
-      // void f(v8::Local<String> property, v8::PropertyCallbackInfo& info)
+      // void f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&);
+      // v8::Intercepted f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&);
       TraceSim("Type: DIRECT_GETTER_CALL\n");
       TraceSim("Arguments: 0x%016" PRIx64 ", 0x%016" PRIx64 "\n", arg0, arg1);
       SimulatorRuntimeDirectGetterCall target =
           reinterpret_cast<SimulatorRuntimeDirectGetterCall>(external);
-      target(arg0, arg1);
-      TraceSim("No return value.");
+      int64_t result = target(base::bit_cast<v8::Local<v8::Name>>(arg0), arg1);
+      TraceSim("Returned: %" PRId64 "\n", result);
 #ifdef DEBUG
       CorruptAllCallerSavedCPURegisters();
 #endif
+      set_xreg(0, result);
+      break;
+    }
+    case ExternalReference::DIRECT_SETTER_CALL: {
+      // void f(v8::Local<Name>, v8::Local<v8::Value>,
+      //        v8::PropertyCallbackInfo&);
+      // v8::Intercepted f(v8::Local<Name>, v8::Local<v8::Value>,
+      //                   v8::PropertyCallbackInfo&);
+      TraceSim("Type: DIRECT_SETTER_CALL\n");
+      TraceSim("Arguments: 0x%016" PRIx64 ", 0x%016" PRIx64 ", 0x%016" PRIx64
+               "\n",
+               arg0, arg1, arg2);
+      SimulatorRuntimeDirectSetterCall target =
+          reinterpret_cast<SimulatorRuntimeDirectSetterCall>(external);
+      int64_t result = target(base::bit_cast<v8::Local<v8::Name>>(arg0),
+                              base::bit_cast<v8::Local<v8::Value>>(arg1), arg2);
+      TraceSim("Returned: %" PRId64 "\n", result);
+#ifdef DEBUG
+      CorruptAllCallerSavedCPURegisters();
+#endif
+      set_xreg(0, result);
       break;
     }
   }
@@ -1214,6 +1246,114 @@ sim_uint128_t Simulator::Lsl128(sim_uint128_t x, unsigned shift) const {
 
 sim_uint128_t Simulator::Eor128(sim_uint128_t x, sim_uint128_t y) const {
   return std::make_pair(x.first ^ y.first, x.second ^ y.second);
+}
+
+void Simulator::SimulateSignedMinMax(const Instruction* instr) {
+  int32_t wn = wreg(instr->Rn());
+  int32_t wm = wreg(instr->Rm());
+  int64_t xn = xreg(instr->Rn());
+  int64_t xm = xreg(instr->Rm());
+  int32_t imm = instr->SignedBits(17, 10);
+  unsigned dst = instr->Rd();
+
+  if (instr->Mask(MinMaxImmediateFMask) == MinMaxImmediateFixed) {
+    DCHECK_EQ(instr->Bit(18), 0);
+    wm = imm;
+
+    if (instr->SixtyFourBits() == 1) {
+      xm = imm;
+    }
+
+    switch (instr->Mask(MinMaxImmediateMask)) {
+      case SMAX_w_imm:
+        set_wreg(dst, std::max(wn, wm));
+        break;
+      case SMAX_x_imm:
+        set_xreg(dst, std::max(xn, xm));
+        break;
+      case SMIN_w_imm:
+        set_wreg(dst, std::min(wn, wm));
+        break;
+      case SMIN_x_imm:
+        set_xreg(dst, std::min(xn, xm));
+        break;
+      default:
+        UNREACHABLE();
+    }
+  } else {
+    DCHECK_EQ(instr->Mask(DataProcessing2SourceFMask),
+              DataProcessing2SourceFixed);
+    DCHECK_EQ(instr->Bit(10), 0);
+
+    switch (instr->Mask(DataProcessing2SourceMask)) {
+      case SMAX_w:
+        set_wreg(dst, std::max(wn, wm));
+        break;
+      case SMAX_x:
+        set_xreg(dst, std::max(xn, xm));
+        break;
+      case SMIN_w:
+        set_wreg(dst, std::min(wn, wm));
+        break;
+      case SMIN_x:
+        set_xreg(dst, std::min(xn, xm));
+        break;
+      default:
+        UNREACHABLE();
+    }
+  }
+}
+
+void Simulator::SimulateUnsignedMinMax(const Instruction* instr) {
+  uint64_t xn = xreg(instr->Rn());
+  uint64_t xm = xreg(instr->Rm());
+  uint32_t imm = instr->Bits(17, 10);
+  unsigned dst = instr->Rd();
+
+  if (instr->Mask(MinMaxImmediateFMask) == MinMaxImmediateFixed) {
+    DCHECK_EQ(instr->Bit(18), 1);
+    xm = imm;
+
+    switch (instr->Mask(MinMaxImmediateMask)) {
+      case UMAX_w_imm:
+        xn = static_cast<uint32_t>(xn);
+        [[fallthrough]];
+      case UMAX_x_imm:
+        set_xreg(dst, std::max(xn, xm));
+        break;
+      case UMIN_w_imm:
+        xn = static_cast<uint32_t>(xn);
+        [[fallthrough]];
+      case UMIN_x_imm:
+        set_xreg(dst, std::min(xn, xm));
+        break;
+      default:
+        UNREACHABLE();
+    }
+  } else {
+    DCHECK_EQ(instr->Mask(DataProcessing2SourceFMask),
+              DataProcessing2SourceFixed);
+    DCHECK_EQ(instr->Bit(10), 1);
+
+    switch (instr->Mask(DataProcessing2SourceMask)) {
+      case UMAX_w:
+        xm = static_cast<uint32_t>(xm);
+        xn = static_cast<uint32_t>(xn);
+        [[fallthrough]];
+      case UMAX_x:
+        set_xreg(dst, std::max(xn, xm));
+        break;
+      case UMIN_w:
+        xm = static_cast<uint32_t>(xm);
+        xn = static_cast<uint32_t>(xn);
+        [[fallthrough]];
+      case UMIN_x:
+        set_xreg(dst, std::min(xn, xm));
+        break;
+      default:
+        UNREACHABLE();
+    }
+  }
 }
 
 template <typename T>
@@ -1833,7 +1973,8 @@ void Simulator::VisitUnconditionalBranch(Instruction* instr) {
 }
 
 void Simulator::VisitConditionalBranch(Instruction* instr) {
-  DCHECK(instr->Mask(ConditionalBranchMask) == B_cond);
+  DCHECK(instr->Mask(ConditionalBranchMask) == B_cond ||
+         instr->Mask(ConditionalBranchMask) == BC_cond);
   if (ConditionPassed(static_cast<Condition>(instr->ConditionBranch()))) {
     set_pc(instr->ImmPCOffsetTarget());
   }
@@ -2008,6 +2149,14 @@ void Simulator::VisitLogicalImmediate(Instruction* instr) {
     LogicalHelper(instr, static_cast<uint64_t>(instr->ImmLogical()));
   } else {
     LogicalHelper(instr, static_cast<uint32_t>(instr->ImmLogical()));
+  }
+}
+
+void Simulator::VisitMinMaxImmediate(Instruction* instr) {
+  if (instr->Bit(18) == 1) {
+    SimulateUnsignedMinMax(instr);
+  } else {
+    SimulateSignedMinMax(instr);
   }
 }
 
@@ -2285,6 +2434,10 @@ void Simulator::LoadStorePairHelper(Instruction* instr, AddrMode addrmode) {
   uintptr_t address = LoadStoreAddress(addr_reg, offset, addrmode);
   uintptr_t address2 = address + access_size;
   uintptr_t stack = 0;
+
+  // First, check whether the memory is accessible (for wasm trap handling).
+  if (!ProbeMemory(address, access_size)) return;
+  if (!ProbeMemory(address2, access_size)) return;
 
   {
     GlobalMonitor::SimulatorMutex lock_guard(global_monitor_);
@@ -3095,6 +3248,24 @@ void Simulator::VisitDataProcessing1Source(Instruction* instr) {
       set_xreg(dst, CountLeadingSignBits(xreg(src), kXRegSizeInBits));
       break;
     }
+    case CTZ_w:
+      set_wreg(dst, CountTrailingZeros(wreg(src), kWRegSizeInBits));
+      break;
+    case CTZ_x:
+      set_xreg(dst, CountTrailingZeros(xreg(src), kXRegSizeInBits));
+      break;
+    case CNT_w:
+      set_wreg(dst, CountSetBits(wreg(src), kWRegSizeInBits));
+      break;
+    case CNT_x:
+      set_xreg(dst, CountSetBits(xreg(src), kXRegSizeInBits));
+      break;
+    case ABS_w:
+      set_wreg(dst, Abs(wreg(src)));
+      break;
+    case ABS_x:
+      set_xreg(dst, Abs(xreg(src)));
+      break;
     default:
       UNIMPLEMENTED();
   }
@@ -3148,6 +3319,18 @@ void Simulator::DataProcessing2Source(Instruction* instr) {
     case RORV_x:
       shift_op = ROR;
       break;
+    case SMAX_w:
+    case SMAX_x:
+    case SMIN_w:
+    case SMIN_x:
+      SimulateSignedMinMax(instr);
+      return;
+    case UMAX_w:
+    case UMAX_x:
+    case UMIN_w:
+    case UMIN_x:
+      SimulateUnsignedMinMax(instr);
+      return;
     default:
       UNIMPLEMENTED();
   }
@@ -3946,9 +4129,9 @@ bool Simulator::PrintValue(const char* desc) {
 }
 
 void Simulator::Debug() {
-  if (v8_flags.correctness_fuzzer_suppressions) {
-    PrintF("Debugger disabled for differential fuzzing.\n");
-    return;
+  if (!v8_flags.simulator_debugger) {
+    // Debugger not enabled; crash instead.
+    UNREACHABLE();
   }
   bool done = false;
   while (!done) {
@@ -5400,72 +5583,86 @@ void Simulator::NEONLoadStoreMultiStructHelper(const Instruction* instr,
   switch (instr->Mask(NEONLoadStoreMultiStructPostIndexMask)) {
     case NEON_LD1_4v:
     case NEON_LD1_4v_post:
+      if (!ProbeMemory(addr[3], reg_size)) return;
       ld1(vf, vreg(reg[3]), addr[3]);
       count++;
       [[fallthrough]];
     case NEON_LD1_3v:
     case NEON_LD1_3v_post:
+      if (!ProbeMemory(addr[2], reg_size)) return;
       ld1(vf, vreg(reg[2]), addr[2]);
       count++;
       [[fallthrough]];
     case NEON_LD1_2v:
     case NEON_LD1_2v_post:
+      if (!ProbeMemory(addr[1], reg_size)) return;
       ld1(vf, vreg(reg[1]), addr[1]);
       count++;
       [[fallthrough]];
     case NEON_LD1_1v:
     case NEON_LD1_1v_post:
+      if (!ProbeMemory(addr[0], reg_size)) return;
       ld1(vf, vreg(reg[0]), addr[0]);
       break;
     case NEON_ST1_4v:
     case NEON_ST1_4v_post:
+      if (!ProbeMemory(addr[3], reg_size)) return;
       st1(vf, vreg(reg[3]), addr[3]);
       count++;
       [[fallthrough]];
     case NEON_ST1_3v:
     case NEON_ST1_3v_post:
+      if (!ProbeMemory(addr[2], reg_size)) return;
       st1(vf, vreg(reg[2]), addr[2]);
       count++;
       [[fallthrough]];
     case NEON_ST1_2v:
     case NEON_ST1_2v_post:
+      if (!ProbeMemory(addr[1], reg_size)) return;
       st1(vf, vreg(reg[1]), addr[1]);
       count++;
       [[fallthrough]];
     case NEON_ST1_1v:
     case NEON_ST1_1v_post:
+      if (!ProbeMemory(addr[0], reg_size)) return;
       st1(vf, vreg(reg[0]), addr[0]);
       log_read = false;
       break;
     case NEON_LD2_post:
     case NEON_LD2:
+      if (!ProbeMemory(addr[0], 2 * reg_size)) return;
       ld2(vf, vreg(reg[0]), vreg(reg[1]), addr[0]);
       count = 2;
       break;
     case NEON_ST2:
     case NEON_ST2_post:
+      if (!ProbeMemory(addr[0], 2 * reg_size)) return;
       st2(vf, vreg(reg[0]), vreg(reg[1]), addr[0]);
       count = 2;
       log_read = false;
       break;
     case NEON_LD3_post:
     case NEON_LD3:
+      if (!ProbeMemory(addr[0], 3 * reg_size)) return;
       ld3(vf, vreg(reg[0]), vreg(reg[1]), vreg(reg[2]), addr[0]);
       count = 3;
       break;
     case NEON_ST3:
     case NEON_ST3_post:
+      if (!ProbeMemory(addr[0], 3 * reg_size)) return;
       st3(vf, vreg(reg[0]), vreg(reg[1]), vreg(reg[2]), addr[0]);
       count = 3;
       log_read = false;
       break;
     case NEON_LD4_post:
     case NEON_LD4:
+      if (!ProbeMemory(addr[0], 4 * reg_size)) return;
       ld4(vf, vreg(reg[0]), vreg(reg[1]), vreg(reg[2]), vreg(reg[3]), addr[0]);
       count = 4;
       break;
     case NEON_ST4:
     case NEON_ST4_post:
+      if (!ProbeMemory(addr[0], 4 * reg_size)) return;
       st4(vf, vreg(reg[0]), vreg(reg[1]), vreg(reg[2]), vreg(reg[3]), addr[0]);
       count = 4;
       log_read = false;
@@ -5503,7 +5700,7 @@ void Simulator::NEONLoadStoreMultiStructHelper(const Instruction* instr,
     // The immediate is implied by the number of vector registers used.
     addr_base +=
         (rm == 31) ? RegisterSizeInBytesFromFormat(vf) * count : xreg(rm);
-    set_xreg(instr->Rn(), addr_base);
+    set_xreg(instr->Rn(), addr_base, Reg31IsStackPointer);
   } else {
     DCHECK_EQ(addr_mode, Offset);
   }
@@ -5741,7 +5938,8 @@ void Simulator::NEONLoadStoreSingleStructHelper(const Instruction* instr,
   if (addr_mode == PostIndex) {
     int rm = instr->Rm();
     int lane_size = LaneSizeInBytesFromFormat(vf);
-    set_xreg(instr->Rn(), addr + ((rm == 31) ? (scale * lane_size) : xreg(rm)));
+    set_xreg(instr->Rn(), addr + ((rm == 31) ? (scale * lane_size) : xreg(rm)),
+             Reg31IsStackPointer);
   }
 }
 
@@ -6542,6 +6740,29 @@ void Simulator::VisitNEONTable(Instruction* instr) {
   }
 }
 
+void Simulator::VisitNEONSHA3(Instruction* instr) {
+  NEONFormatDecoder nfd(instr);
+  VectorFormat vf = nfd.GetVectorFormat();
+
+  SimVRegister& rd = vreg(instr->Rd());
+  SimVRegister& rn = vreg(instr->Rn());
+  SimVRegister& rm = vreg(instr->Rm());
+  SimVRegister& ra = vreg(instr->Ra());
+  SimVRegister temp;
+
+  switch (instr->Mask(NEONSHA3Mask)) {
+    case NEON_BCAX:
+      bic(vf, temp, rm, ra);
+      eor(vf, rd, rn, temp);
+      break;
+    case NEON_EOR3:
+      eor(vf, temp, rm, ra);
+      eor(vf, rd, rn, temp);
+      break;
+    default:
+      UNIMPLEMENTED();
+  }
+}
 void Simulator::VisitNEONPerm(Instruction* instr) {
   NEONFormatDecoder nfd(instr);
   VectorFormat vf = nfd.GetVectorFormat();
@@ -6571,6 +6792,141 @@ void Simulator::VisitNEONPerm(Instruction* instr) {
       break;
     default:
       UNIMPLEMENTED();
+  }
+}
+
+void Simulator::VisitCpyP(Instruction* instr) {
+  MOPSPHelper<Instruction::MemOp::kCPY>(instr);
+
+  int d = instr->Rd();
+  int n = instr->Rn();
+  int s = instr->Rs();
+
+  // Determine copy direction. For cases in which direction is implementation
+  // defined, use forward.
+  bool is_backwards = false;
+  uint64_t xs = xreg(s);
+  uint64_t xd = xreg(d);
+  uint64_t xn = xreg(n);
+
+  // Ignore the top byte of addresses for comparisons. We can use xn as is,
+  // as it should have zero in bits 63:55.
+  uint64_t xs_tbi = unsigned_bitextract_64(55, 0, xs);
+  uint64_t xd_tbi = unsigned_bitextract_64(55, 0, xd);
+  DCHECK_EQ(unsigned_bitextract_64(63, 55, xn), 0);
+  if ((xs_tbi < xd_tbi) && ((xs_tbi + xn) > xd_tbi)) {
+    is_backwards = true;
+    set_xreg(s, xs + xn);
+    set_xreg(d, xd + xn);
+  }
+
+  // "option B" implementation.
+  nzcv().SetN(is_backwards ? 1 : 0);
+  LogSystemRegister(NZCV);
+}
+
+void Simulator::VisitCpyM(Instruction* instr) {
+  DCHECK(instr->IsConsistentMOPSTriplet<Instruction::MemOp::kCPY>());
+  DCHECK(instr->IsMOPSMainOf(last_instr(), Instruction::MemOp::kCPY));
+
+  int d = instr->Rd();
+  int n = instr->Rn();
+  int s = instr->Rs();
+
+  uint64_t xd = xreg(d);
+  uint64_t xn = xreg(n);
+  uint64_t xs = xreg(s);
+  bool is_backwards = nzcv().N();
+
+  int step = 1;
+  if (is_backwards) {
+    step = -1;
+    xs--;
+    xd--;
+  }
+
+  while (xn--) {
+    uint8_t temp = MemoryRead<uint8_t>(xs);
+    MemoryWrite<uint8_t>(xd, temp);
+    xs += step;
+    xd += step;
+  }
+
+  if (is_backwards) {
+    xs++;
+    xd++;
+  }
+
+  set_xreg(d, xd);
+  set_xreg(n, 0);
+  set_xreg(s, xs);
+}
+
+void Simulator::VisitCpyE(Instruction* instr) {
+  USE(instr);
+  DCHECK(instr->IsConsistentMOPSTriplet<Instruction::MemOp::kCPY>());
+  DCHECK(instr->IsMOPSEpilogueOf(last_instr(), Instruction::MemOp::kCPY));
+  // This implementation does nothing in the epilogue; all copying is completed
+  // in the "main" part.
+}
+
+void Simulator::VisitCpy(Instruction* instr) {
+  switch (instr->Mask(CpyMask)) {
+    default:
+      UNREACHABLE();
+    case CPYP:
+      VisitCpyP(instr);
+      break;
+    case CPYM:
+      VisitCpyM(instr);
+      break;
+    case CPYE:
+      VisitCpyE(instr);
+      break;
+  }
+}
+
+void Simulator::VisitSetP(Instruction* instr) {
+  MOPSPHelper<Instruction::MemOp::kSET>(instr);
+  LogSystemRegister(NZCV);
+}
+
+void Simulator::VisitSetM(Instruction* instr) {
+  DCHECK(instr->IsConsistentMOPSTriplet<Instruction::MemOp::kSET>());
+  DCHECK(instr->IsMOPSMainOf(last_instr(), Instruction::MemOp::kSET));
+
+  uint64_t xd = xreg(instr->Rd());
+  uint64_t xn = xreg(instr->Rn());
+  uint64_t xs = xreg(instr->Rs());
+
+  while (xn--) {
+    MemoryWrite<uint8_t>(xd++, static_cast<uint8_t>(xs));
+  }
+  set_xreg(instr->Rd(), xd);
+  set_xreg(instr->Rn(), 0);
+}
+
+void Simulator::VisitSetE(Instruction* instr) {
+  USE(instr);
+  DCHECK(instr->IsConsistentMOPSTriplet<Instruction::MemOp::kSET>());
+  DCHECK(instr->IsMOPSEpilogueOf(last_instr(), Instruction::MemOp::kSET));
+  // This implementation does nothing in the epilogue; all setting is completed
+  // in the "main" part.
+}
+
+void Simulator::VisitSet(Instruction* instr) {
+  switch (instr->Mask(SetMask)) {
+    default:
+      UNREACHABLE();
+    case SETP:
+      VisitSetP(instr);
+      break;
+    case SETM:
+      VisitSetM(instr);
+      break;
+    case SETE:
+      VisitSetE(instr);
+      break;
   }
 }
 

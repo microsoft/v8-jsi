@@ -1,91 +1,78 @@
 'use strict';
 
 const {
-  MathCeil,
-  SafeSet,
+  TypedArrayPrototypeGetBuffer,
+  TypedArrayPrototypeGetByteOffset,
+  TypedArrayPrototypeGetLength,
   Uint8Array,
 } = primordials;
 
 const {
-  KeyObjectHandle,
   RSACipherJob,
-  RSAKeyExportJob,
   SignJob,
-  kCryptoJobAsync,
+  kCryptoJobWebCrypto,
+  kKeyFormatDER,
+  kKeyTypePublic,
   kSignJobModeSign,
   kSignJobModeVerify,
-  kKeyVariantRSA_SSA_PKCS1_v1_5,
-  kKeyVariantRSA_PSS,
   kKeyVariantRSA_OAEP,
-  kKeyTypePrivate,
+  kKeyVariantRSA_SSA_PKCS1_v1_5,
   kWebCryptoCipherEncrypt,
+  kWebCryptoKeyFormatPKCS8,
+  kWebCryptoKeyFormatSPKI,
+  RsaKeyPairGenJob,
   RSA_PKCS1_PSS_PADDING,
 } = internalBinding('crypto');
 
 const {
-  validateInt32,
+  isInt32,
 } = require('internal/validators');
 
 const {
   bigIntArrayToUnsignedInt,
-  getDigestSizeInBytes,
-  getUsagesUnion,
-  hasAnyNotIn,
+  getUsagesMask,
   jobPromise,
+  jobPromiseThen,
   normalizeHashName,
-  validateKeyOps,
+  validateAlgorithm,
   validateMaxBufferLength,
-  kHandle,
-  kKeyObject,
+  toUsagesSet,
 } = require('internal/crypto/util');
 
 const {
   lazyDOMException,
-  promisify,
 } = require('internal/util');
 
 const {
   InternalCryptoKey,
-  PrivateKeyObject,
-  PublicKeyObject,
-  createPublicKey,
-  createPrivateKey,
-  kAlgorithm,
-  kKeyType,
+  getCryptoKeyAlgorithm,
+  getCryptoKeyHandle,
+  getCryptoKeyType,
 } = require('internal/crypto/keys');
 
 const {
-  generateKeyPair: _generateKeyPair,
-} = require('internal/crypto/keygen');
+  createKeyUsages,
+  getKeyPairUsages,
+  importDerKey,
+  importJwkKey,
+  validateJwk,
+  validateKeyUsages,
+  validateUsagesNotEmpty,
+  verifyAcceptableKeyUse,
+} = require('internal/crypto/webcrypto_util');
 
-const kRsaVariants = {
-  'RSASSA-PKCS1-v1_5': kKeyVariantRSA_SSA_PKCS1_v1_5,
-  'RSA-PSS': kKeyVariantRSA_PSS,
-  'RSA-OAEP': kKeyVariantRSA_OAEP,
+const kOaepUsages = createKeyUsages(
+  ['encrypt', 'wrapKey'],
+  ['decrypt', 'unwrapKey']);
+
+const kSignVerifyUsages = createKeyUsages(['verify'], ['sign']);
+
+const kUsages = {
+  '__proto__': null,
+  'RSA-OAEP': kOaepUsages,
+  'RSA-PSS': kSignVerifyUsages,
+  'RSASSA-PKCS1-v1_5': kSignVerifyUsages,
 };
-const generateKeyPair = promisify(_generateKeyPair);
-
-function verifyAcceptableRsaKeyUse(name, isPublic, usages) {
-  let checkSet;
-  switch (name) {
-    case 'RSA-OAEP':
-      checkSet = isPublic ? ['encrypt', 'wrapKey'] : ['decrypt', 'unwrapKey'];
-      break;
-    case 'RSA-PSS':
-      // Fall through
-    case 'RSASSA-PKCS1-v1_5':
-      checkSet = isPublic ? ['verify'] : ['sign'];
-      break;
-    default:
-      throw lazyDOMException(
-        'The algorithm is not supported', 'NotSupportedError');
-  }
-  if (hasAnyNotIn(usages, checkSet)) {
-    throw lazyDOMException(
-      `Unsupported key usage for an ${name} key`,
-      'SyntaxError');
-  }
-}
 
 function validateRsaOaepAlgorithm(algorithm) {
   if (algorithm.label !== undefined) {
@@ -93,37 +80,31 @@ function validateRsaOaepAlgorithm(algorithm) {
   }
 }
 
-async function rsaOaepCipher(mode, key, data, algorithm) {
+function rsaOaepCipher(mode, key, data, algorithm) {
   validateRsaOaepAlgorithm(algorithm);
 
   const type = mode === kWebCryptoCipherEncrypt ? 'public' : 'private';
-  if (key[kKeyType] !== type) {
+  if (getCryptoKeyType(key) !== type) {
     throw lazyDOMException(
       'The requested operation is not valid for the provided key',
       'InvalidAccessError');
   }
 
-  return await jobPromise(() => new RSACipherJob(
-    kCryptoJobAsync,
+  return jobPromise(() => new RSACipherJob(
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
     kKeyVariantRSA_OAEP,
-    normalizeHashName(key[kAlgorithm].hash.name),
+    normalizeHashName(getCryptoKeyAlgorithm(key).hash.name),
     algorithm.label));
 }
 
-async function rsaKeyGenerate(
+function rsaKeyGenerate(
   algorithm,
   extractable,
-  keyUsages,
+  usages,
 ) {
-  const publicExponentConverted = bigIntArrayToUnsignedInt(algorithm.publicExponent);
-  if (publicExponentConverted === undefined) {
-    throw lazyDOMException(
-      'The publicExponent must be equivalent to an unsigned 32-bit value',
-      'OperationError');
-  }
   const {
     name,
     modulusLength,
@@ -131,82 +112,63 @@ async function rsaKeyGenerate(
     hash,
   } = algorithm;
 
-  const usageSet = new SafeSet(keyUsages);
+  const allowedUsages = kUsages[name];
+  const usagesSet = validateKeyUsages(usages, allowedUsages.keygen, name);
+  validateAlgorithm(algorithm, 'generateKey');
+  const publicExponentConverted = bigIntArrayToUnsignedInt(publicExponent);
+  let firstNonzeroByte = 0;
+  while (publicExponent[firstNonzeroByte] === 0)
+    firstNonzeroByte++;
 
-  switch (name) {
-    case 'RSA-OAEP':
-      if (hasAnyNotIn(usageSet,
-                      ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'])) {
-        throw lazyDOMException(
-          'Unsupported key usage for a RSA key',
-          'SyntaxError');
-      }
-      break;
-    default:
-      if (hasAnyNotIn(usageSet, ['sign', 'verify'])) {
-        throw lazyDOMException(
-          'Unsupported key usage for a RSA key',
-          'SyntaxError');
-      }
-  }
+  const keyAlgorithm = {
+    name,
+    modulusLength,
+    publicExponent: new Uint8Array(
+      TypedArrayPrototypeGetBuffer(publicExponent),
+      TypedArrayPrototypeGetByteOffset(publicExponent) + firstNonzeroByte,
+      TypedArrayPrototypeGetLength(publicExponent) - firstNonzeroByte),
+    hash,
+  };
 
-  let keyPair;
+  const keyUsages = getKeyPairUsages(usagesSet, allowedUsages);
+  validateUsagesNotEmpty(keyUsages.private);
+
+  return jobPromiseThen(jobPromise(() => new RsaKeyPairGenJob(
+    kCryptoJobWebCrypto,
+    kKeyVariantRSA_SSA_PKCS1_v1_5,
+    modulusLength,
+    publicExponentConverted,
+    keyAlgorithm,
+    getUsagesMask(keyUsages.public),
+    getUsagesMask(keyUsages.private),
+    extractable)), (result) => {
+    const { modulusLength: actualModulusLength } =
+      getCryptoKeyHandle(result.publicKey).keyDetail({ __proto__: null });
+    getCryptoKeyAlgorithm(result.publicKey).modulusLength = actualModulusLength;
+    getCryptoKeyAlgorithm(result.privateKey).modulusLength = actualModulusLength;
+    return result;
+  });
+}
+
+function rsaExportKey(key, format) {
   try {
-    keyPair = await generateKeyPair('rsa', {
-      modulusLength,
-      publicExponent: publicExponentConverted,
-    });
+    switch (format) {
+      case kWebCryptoKeyFormatSPKI: {
+        return TypedArrayPrototypeGetBuffer(
+          getCryptoKeyHandle(key).export(kKeyFormatDER, kWebCryptoKeyFormatSPKI));
+      }
+      case kWebCryptoKeyFormatPKCS8: {
+        return TypedArrayPrototypeGetBuffer(
+          getCryptoKeyHandle(key).export(kKeyFormatDER, kWebCryptoKeyFormatPKCS8, null, null));
+      }
+      default:
+        return undefined;
+    }
   } catch (err) {
     throw lazyDOMException(
       'The operation failed for an operation-specific reason',
       { name: 'OperationError', cause: err });
   }
-
-  const keyAlgorithm = {
-    name,
-    modulusLength,
-    publicExponent,
-    hash,
-  };
-
-  let publicUsages;
-  let privateUsages;
-  switch (name) {
-    case 'RSA-OAEP': {
-      publicUsages = getUsagesUnion(usageSet, 'encrypt', 'wrapKey');
-      privateUsages = getUsagesUnion(usageSet, 'decrypt', 'unwrapKey');
-      break;
-    }
-    default: {
-      publicUsages = getUsagesUnion(usageSet, 'verify');
-      privateUsages = getUsagesUnion(usageSet, 'sign');
-      break;
-    }
-  }
-
-  const publicKey =
-    new InternalCryptoKey(
-      keyPair.publicKey,
-      keyAlgorithm,
-      publicUsages,
-      true);
-
-  const privateKey =
-    new InternalCryptoKey(
-      keyPair.privateKey,
-      keyAlgorithm,
-      privateUsages,
-      extractable);
-
-  return { __proto__: null, publicKey, privateKey };
-}
-
-function rsaExportKey(key, format) {
-  return jobPromise(() => new RSAKeyExportJob(
-    kCryptoJobAsync,
-    format,
-    key[kKeyObject][kHandle],
-    kRsaVariants[key[kAlgorithm].name]));
 }
 
 function rsaImportKey(
@@ -214,70 +176,41 @@ function rsaImportKey(
   keyData,
   algorithm,
   extractable,
-  keyUsages) {
-  const usagesSet = new SafeSet(keyUsages);
-  let keyObject;
+  usages) {
+  const allowedUsages = kUsages[algorithm.name];
+  const usagesSet = toUsagesSet(usages);
+  let handle;
   switch (format) {
-    case 'KeyObject': {
-      verifyAcceptableRsaKeyUse(algorithm.name, keyData.type === 'public', usagesSet);
-      keyObject = keyData;
+    case 'KeyObjectHandle':
+      verifyAcceptableKeyUse(
+        algorithm.name,
+        usagesSet,
+        keyData.getKeyType() === kKeyTypePublic ?
+          allowedUsages.public :
+          allowedUsages.private);
+      handle = keyData;
       break;
-    }
     case 'spki': {
-      verifyAcceptableRsaKeyUse(algorithm.name, true, usagesSet);
-      try {
-        keyObject = createPublicKey({
-          key: keyData,
-          format: 'der',
-          type: 'spki',
-        });
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
+      verifyAcceptableKeyUse(
+        algorithm.name, usagesSet, allowedUsages.public);
+      handle = importDerKey(keyData, true);
       break;
     }
     case 'pkcs8': {
-      verifyAcceptableRsaKeyUse(algorithm.name, false, usagesSet);
-      try {
-        keyObject = createPrivateKey({
-          key: keyData,
-          format: 'der',
-          type: 'pkcs8',
-        });
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
+      verifyAcceptableKeyUse(
+        algorithm.name, usagesSet, allowedUsages.private);
+      handle = importDerKey(keyData, false);
       break;
     }
     case 'jwk': {
-      if (!keyData.kty)
-        throw lazyDOMException('Invalid keyData', 'DataError');
-
-      if (keyData.kty !== 'RSA')
-        throw lazyDOMException('Invalid JWK "kty" Parameter', 'DataError');
-
-      verifyAcceptableRsaKeyUse(
+      const isPublic = keyData.d === undefined;
+      verifyAcceptableKeyUse(
         algorithm.name,
-        keyData.d === undefined,
-        usagesSet);
+        usagesSet,
+        isPublic ? allowedUsages.public : allowedUsages.private);
 
-      if (usagesSet.size > 0 && keyData.use !== undefined) {
-        const checkUse = algorithm.name === 'RSA-OAEP' ? 'enc' : 'sig';
-        if (keyData.use !== checkUse)
-          throw lazyDOMException('Invalid JWK "use" Parameter', 'DataError');
-      }
-
-      validateKeyOps(keyData.key_ops, usagesSet);
-
-      if (keyData.ext !== undefined &&
-          keyData.ext === false &&
-          extractable === true) {
-        throw lazyDOMException(
-          'JWK "ext" Parameter and extractable mismatch',
-          'DataError');
-      }
+      const expectedUse = algorithm.name === 'RSA-OAEP' ? 'enc' : 'sig';
+      validateJwk(keyData, 'RSA', extractable, usagesSet, expectedUse);
 
       if (keyData.alg !== undefined) {
         const expected =
@@ -286,81 +219,71 @@ function rsaImportKey(
                               algorithm.name === 'RSA-PSS' ? normalizeHashName.kContextJwkRsaPss :
                                 normalizeHashName.kContextJwkRsaOaep);
 
-        if (expected && keyData.alg !== expected)
+        if (keyData.alg !== expected)
           throw lazyDOMException(
             'JWK "alg" does not match the requested algorithm',
             'DataError');
       }
 
-      const handle = new KeyObjectHandle();
-      let type;
-      try {
-        type = handle.initJwk(keyData);
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
-      if (type === undefined)
-        throw lazyDOMException('Invalid keyData', 'DataError');
-
-      keyObject = type === kKeyTypePrivate ?
-        new PrivateKeyObject(handle) :
-        new PublicKeyObject(handle);
-
+      handle = importJwkKey(isPublic, keyData);
       break;
     }
     default:
       return undefined;
   }
 
-  if (keyObject.asymmetricKeyType !== 'rsa') {
+  if (handle.getAsymmetricKeyType() !== 'rsa') {
     throw lazyDOMException('Invalid key type', 'DataError');
   }
 
   const {
     modulusLength,
     publicExponent,
-  } = keyObject[kHandle].keyDetail({});
+  } = handle.keyDetail({ __proto__: null });
 
-  return new InternalCryptoKey(keyObject, {
+  return new InternalCryptoKey(handle, {
     name: algorithm.name,
     modulusLength,
     publicExponent: new Uint8Array(publicExponent),
     hash: algorithm.hash,
-  }, keyUsages, extractable);
+  }, getUsagesMask(usagesSet), extractable);
 }
 
-async function rsaSignVerify(key, data, { saltLength }, signature) {
+function rsaSignVerify(key, data, { saltLength }, signature) {
   const mode = signature === undefined ? kSignJobModeSign : kSignJobModeVerify;
   const type = mode === kSignJobModeSign ? 'private' : 'public';
 
-  if (key[kKeyType] !== type)
+  if (getCryptoKeyType(key) !== type)
     throw lazyDOMException(`Key must be a ${type} key`, 'InvalidAccessError');
 
-  return await jobPromise(() => {
-    if (key[kAlgorithm].name === 'RSA-PSS') {
-      validateInt32(
-        saltLength,
-        'algorithm.saltLength',
-        0,
-        MathCeil((key[kAlgorithm].modulusLength - 1) / 8) - getDigestSizeInBytes(key[kAlgorithm].hash.name) - 2);
-    }
+  const algorithm = getCryptoKeyAlgorithm(key);
+  // RsaPssParams converts saltLength to an unsigned long, but SignJob only
+  // accepts int32 values.
+  if (algorithm.name === 'RSA-PSS' && !isInt32(saltLength)) {
+    // EMSA-PSS-VERIFY treats an impossible salt length as inconsistent.
+    if (mode === kSignJobModeVerify)
+      return false;
 
-    return new SignJob(
-      kCryptoJobAsync,
-      signature === undefined ? kSignJobModeSign : kSignJobModeVerify,
-      key[kKeyObject][kHandle],
-      undefined,
-      undefined,
-      undefined,
-      data,
-      normalizeHashName(key[kAlgorithm].hash.name),
-      saltLength,
-      key[kAlgorithm].name === 'RSA-PSS' ? RSA_PKCS1_PSS_PADDING : undefined,
-      undefined,
-      undefined,
-      signature);
-  });
+    throw lazyDOMException(
+      'The operation failed for an operation-specific reason',
+      'OperationError');
+  }
+
+  return jobPromise(() => new SignJob(
+    kCryptoJobWebCrypto,
+    signature === undefined ? kSignJobModeSign : kSignJobModeVerify,
+    getCryptoKeyHandle(key),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    data,
+    normalizeHashName(algorithm.hash.name),
+    saltLength,
+    algorithm.name === 'RSA-PSS' ? RSA_PKCS1_PSS_PADDING : undefined,
+    undefined,
+    undefined,
+    signature));
 }
 
 

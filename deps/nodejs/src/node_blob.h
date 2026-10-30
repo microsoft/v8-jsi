@@ -23,8 +23,7 @@ namespace node {
 
 class Blob : public BaseObject {
  public:
-  static void RegisterExternalReferences(
-      ExternalReferenceRegistry* registry);
+  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
   static void CreatePerIsolateProperties(IsolateData* isolate_data,
                                          v8::Local<v8::ObjectTemplate> target);
@@ -82,6 +81,8 @@ class Blob : public BaseObject {
     static BaseObjectPtr<Reader> Create(Environment* env,
                                         BaseObjectPtr<Blob> blob);
     static void Pull(const v8::FunctionCallbackInfo<v8::Value>& args);
+    static void SetWakeup(const v8::FunctionCallbackInfo<v8::Value>& args);
+    void NotifyPull();
 
     explicit Reader(Environment* env,
                     v8::Local<v8::Object> obj,
@@ -95,6 +96,8 @@ class Blob : public BaseObject {
     std::shared_ptr<DataQueue::Reader> inner_;
     BaseObjectPtr<Blob> strong_ptr_;
     bool eos_ = false;
+    bool pull_pending_ = false;
+    v8::Global<v8::Function> wakeup_;
   };
 
   BaseObject::TransferMode GetTransferMode() const override;
@@ -131,19 +134,17 @@ class BlobBindingData : public SnapshotableObject {
 
     StoredDataObject() = default;
 
-    StoredDataObject(
-        const BaseObjectPtr<Blob>& blob_,
-        size_t length_,
-        const std::string& type_);
+    StoredDataObject(const BaseObjectPtr<Blob>& blob_,
+                     size_t length_,
+                     const std::string& type_);
 
     void MemoryInfo(MemoryTracker* tracker) const override;
     SET_SELF_SIZE(StoredDataObject)
     SET_MEMORY_INFO_NAME(StoredDataObject)
   };
 
-  void store_data_object(
-      const std::string& uuid,
-      const StoredDataObject& object);
+  void store_data_object(const std::string& uuid,
+                         const StoredDataObject& object);
 
   void revoke_data_object(const std::string& uuid);
 

@@ -22,9 +22,8 @@
 #ifndef SRC_NODE_OBJECT_WRAP_H_
 #define SRC_NODE_OBJECT_WRAP_H_
 
-#include "v8.h"
 #include <cassert>
-
+#include "node.h"
 
 namespace node {
 
@@ -32,10 +31,12 @@ class ObjectWrap {
  public:
   ObjectWrap() {
     refs_ = 0;
+    AddCleanupHook();
   }
 
 
   virtual ~ObjectWrap() {
+    RemoveCleanupHook();
     if (persistent().IsEmpty())
       return;
     persistent().ClearWeak();
@@ -49,7 +50,8 @@ class ObjectWrap {
     assert(handle->InternalFieldCount() > 0);
     // Cast to ObjectWrap before casting to T.  A direct cast from void
     // to T won't work right when T has more than one base class.
-    void* ptr = handle->GetAlignedPointerFromInternalField(0);
+    void* ptr = handle->GetAlignedPointerFromInternalField(
+        0, v8::kEmbedderDataTypeTagDefault);
     ObjectWrap* wrap = static_cast<ObjectWrap*>(ptr);
     return static_cast<T*>(wrap);
   }
@@ -75,7 +77,8 @@ class ObjectWrap {
   inline void Wrap(v8::Local<v8::Object> handle) {
     assert(persistent().IsEmpty());
     assert(handle->InternalFieldCount() > 0);
-    handle->SetAlignedPointerInInternalField(0, this);
+    handle->SetAlignedPointerInInternalField(
+        0, this, v8::kEmbedderDataTypeTagDefault);
     persistent().Reset(v8::Isolate::GetCurrent(), handle);
     MakeWeak();
   }
@@ -122,6 +125,16 @@ class ObjectWrap {
     wrap->handle_.Reset();
     delete wrap;
   }
+
+  void AddCleanupHook() {
+    AddEnvironmentCleanupHook(v8::Isolate::GetCurrent(), CleanupHook, this);
+  }
+
+  void RemoveCleanupHook() {
+    RemoveEnvironmentCleanupHook(v8::Isolate::GetCurrent(), CleanupHook, this);
+  }
+
+  static void CleanupHook(void* arg) { delete static_cast<ObjectWrap*>(arg); }
 
   // NOLINTNEXTLINE(runtime/v8_persistent)
   v8::Persistent<v8::Object> handle_;

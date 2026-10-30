@@ -37,15 +37,15 @@ void WriteReport(const FunctionCallbackInfo<Value>& info) {
   Utf8Value message(isolate, info[0].As<String>());
   Utf8Value trigger(isolate, info[1].As<String>());
 
-  if (info[2]->IsString())
-    filename = *Utf8Value(isolate, info[2]);
+  if (info[2]->IsString()) filename = Utf8Value(isolate, info[2]).ToString();
   if (!info[3].IsEmpty())
     error = info[3];
   else
     error = Local<Value>();
 
   // Return value is the report filename
-  filename = TriggerNodeReport(env, *message, *trigger, filename, error);
+  filename = TriggerNodeReport(
+      env, message.ToStringView(), trigger.ToStringView(), filename, error);
   Local<Value> ret;
   if (ToV8Value(env->context(), filename, env->isolate()).ToLocal(&ret)) {
     info.GetReturnValue().Set(ret);
