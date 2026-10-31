@@ -260,13 +260,14 @@ class DebugInfoImpl {
     }
     WasmCompilationResult result = ExecuteLiftoffCompilation(
         &env, body,
-        LiftoffOptions{}
-            .set_func_index(func_index)
-            .set_for_debugging(for_debugging)
-            .set_breakpoints(offsets)
-            .set_dead_breakpoint(dead_breakpoint)
-            .set_debug_sidetable(generate_debug_sidetable ? &debug_sidetable
-                                                          : nullptr));
+        LiftoffOptions{.func_index = func_index,
+                       .for_debugging = for_debugging,
+                       .counter_updates = native_module_->counter_updates(),
+                       .breakpoints = offsets,
+                       .debug_sidetable = generate_debug_sidetable
+                                              ? &debug_sidetable
+                                              : nullptr,
+                       .dead_breakpoint = dead_breakpoint});
     // Liftoff compilation failure is a FATAL error. We rely on complete Liftoff
     // support for debugging.
     if (!result.succeeded()) FATAL("Liftoff compilation failed");
@@ -651,7 +652,7 @@ class DebugInfoImpl {
           return WasmValue(ReadUnalignedValue<uint32_t>(gp_addr(reg.gp())));
         } else if (value->type == kWasmI64) {
           return WasmValue(ReadUnalignedValue<uint64_t>(gp_addr(reg.gp())));
-        } else if (value->type.is_reference()) {
+        } else if (value->type.is_ref()) {
           DirectHandle<Object> obj(
               Tagged<Object>(ReadUnalignedValue<Address>(gp_addr(reg.gp()))),
               isolate);
@@ -677,7 +678,8 @@ class DebugInfoImpl {
       } else if (value->type == kWasmF64) {
         return WasmValue(ReadUnalignedValue<double>(spilled_addr));
       } else if (value->type == kWasmS128) {
-        return WasmValue(Simd128(ReadUnalignedValue<int8x16>(spilled_addr)));
+        return WasmValue(
+            Simd128(ReadUnalignedValue<Simd128::int8x16>(spilled_addr)));
       } else {
         // All other cases should have been handled above.
         UNREACHABLE();
@@ -696,7 +698,8 @@ class DebugInfoImpl {
       case kF64:
         return WasmValue(ReadUnalignedValue<double>(stack_address));
       case kS128:
-        return WasmValue(Simd128(ReadUnalignedValue<int8x16>(stack_address)));
+        return WasmValue(
+            Simd128(ReadUnalignedValue<Simd128::int8x16>(stack_address)));
       case kRef:
       case kRefNull: {
         DirectHandle<Object> obj(
@@ -757,7 +760,8 @@ class DebugInfoImpl {
     }
 #else
     PointerAuthentication::ReplacePC(frame->pc_address(), new_pc,
-                                     kSystemPointerSize);
+                                     kSystemPointerSize,
+                                     frame->iteration_depth());
 #endif
     // The frame position should still be the same after OSR.
     DCHECK_EQ(old_position, frame->position());
@@ -898,7 +902,7 @@ namespace {
 
 // Return the next breakable position at or after {offset_in_func} in function
 // {func_index}, or 0 if there is none.
-// Note that 0 is never a breakable position in wasm, since the first uint8_t
+// Note that 0 is never a breakable position in wasm, since the first byte
 // contains the locals count for the function.
 int FindNextBreakablePosition(wasm::NativeModule* native_module, int func_index,
                               int offset_in_func) {

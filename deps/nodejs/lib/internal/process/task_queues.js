@@ -102,13 +102,27 @@ function processTicksAndRejections() {
       AsyncContextFrame.set(priorContextFrame);
     }
     runMicrotasks();
-  } while (!queue.isEmpty() || processPromiseRejections());
+  } while (!queue.isEmpty() ||
+           (hasRejectionToWarn() && processPromiseRejections()));
   setHasTickScheduled(false);
   setHasRejectionToWarn(false);
 }
 
 // `nextTick()` will not enqueue any callback when the process is about to
 // exit since the callback would not have a chance to be executed.
+// The async resource behind each `process.nextTick()` call. A class keeps
+// every instance on one map with all fields in-object; an object literal
+// with computed symbol keys spills them into a separate property array.
+class TickObject {
+  constructor(callback, args, asyncId, triggerAsyncId) {
+    this[async_id_symbol] = asyncId;
+    this[trigger_async_id_symbol] = triggerAsyncId;
+    this[async_context_frame] = AsyncContextFrame.current();
+    this.callback = callback;
+    this.args = args;
+  }
+}
+
 function nextTick(callback) {
   validateFunction(callback, 'callback');
 
@@ -131,13 +145,7 @@ function nextTick(callback) {
     setHasTickScheduled(true);
   const asyncId = newAsyncId();
   const triggerAsyncId = getDefaultTriggerAsyncId();
-  const tickObject = {
-    [async_id_symbol]: asyncId,
-    [trigger_async_id_symbol]: triggerAsyncId,
-    [async_context_frame]: AsyncContextFrame.current(),
-    callback,
-    args,
-  };
+  const tickObject = new TickObject(callback, args, asyncId, triggerAsyncId);
   if (initHooksExist())
     emitInit(asyncId, 'TickObject', triggerAsyncId, tickObject);
   queue.push(tickObject);

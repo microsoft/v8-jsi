@@ -22,7 +22,6 @@
 'use strict';
 
 const {
-  Array,
   ArrayIsArray,
   MathFloor,
   ObjectDefineProperty,
@@ -38,12 +37,13 @@ const { getDefaultHighWaterMark } = require('internal/streams/state');
 const assert = require('internal/assert');
 const EE = require('events');
 const Stream = require('stream');
-const { kOutHeaders, utcDate, kNeedDrain } = require('internal/http');
+const { kOutHeaders, utcDateHeader, kNeedDrain } = require('internal/http');
 const { Buffer } = require('buffer');
 const {
   _checkIsHttpToken: checkIsHttpToken,
   _checkInvalidHeaderChar: checkInvalidHeaderChar,
   chunkExpression: RE_TE_CHUNKED,
+  isLenient,
 } = require('_http_common');
 const {
   defaultTriggerAsyncIdScope,
@@ -66,10 +66,15 @@ const {
     ERR_STREAM_DESTROYED,
     ERR_STREAM_NULL_VALUES,
     ERR_STREAM_WRITE_AFTER_END,
+    ERR_UNKNOWN_ENCODING,
   },
   hideStackFrames,
 } = require('internal/errors');
-const { validateString } = require('internal/validators');
+const {
+  validateObject,
+  validateOneOf,
+  validateString,
+} = require('internal/validators');
 const { assignFunctionName } = require('internal/util');
 const { isUint8Array } = require('internal/util/types');
 
@@ -78,12 +83,29 @@ let debug = require('internal/util/debuglog').debuglog('http', (fn) => {
 });
 
 const kCorked = Symbol('corked');
+
+// Container for the headers set through `setHeader()`, keyed by the
+// lower-cased header name. It has no enumerable or inherited properties, like
+// a `{ __proto__: null }` literal, but instances are fast-mode objects: V8
+// creates null-prototype literals in dictionary mode, which costs a hash table
+// allocation per response and slower property access for every header.
+class OutgoingHeaders {}
+ObjectSetPrototypeOf(OutgoingHeaders.prototype, null);
+delete OutgoingHeaders.prototype.constructor;
 const kSocket = Symbol('kSocket');
 const kChunkedBuffer = Symbol('kChunkedBuffer');
 const kChunkedLength = Symbol('kChunkedLength');
 const kUniqueHeaders = Symbol('kUniqueHeaders');
 const kBytesWritten = Symbol('kBytesWritten');
 const kErrored = Symbol('errored');
+const kLenientCache = Symbol('kLenientCache');
+
+let keepAliveTimeoutCache = -1;
+let keepAliveMaxCache = -1;
+let keepAliveHeaderCache = '';
+const kWritableFinished = Symbol('kWritableFinished');
+const kEndCallbacks = Symbol('kEndCallbacks');
+const kFlushError = Symbol('kFlushError');
 const kHighWaterMark = Symbol('kHighWaterMark');
 const kRejectNonStandardBodyWrites = Symbol('kRejectNonStandardBodyWrites');
 
@@ -103,6 +125,18 @@ function isContentDispositionField(s) {
 }
 
 function OutgoingMessage(options) {
+  // Preset the listener table with the events that are commonly listened
+  // for, mirroring streams. The presence of the properties keeps `_events`
+  // in fast mode: the first `on()` call would otherwise have to allocate a
+  // dictionary for the `{ __proto__: null }` object created by EventEmitter.
+  this._events ??= {
+    close: undefined,
+    error: undefined,
+    finish: undefined,
+    prefinish: undefined,
+    drain: undefined,
+  };
+
   Stream.call(this);
 
   // Queue that holds all currently pending data, until the response will be
@@ -152,11 +186,49 @@ function OutgoingMessage(options) {
   this._onPendingData = nop;
 
   this[kErrored] = null;
+  this[kWritableFinished] = false;
+  this[kEndCallbacks] = null;
+  this[kFlushError] = null;
   this[kHighWaterMark] = options?.highWaterMark ?? getDefaultHighWaterMark();
   this[kRejectNonStandardBodyWrites] = options?.rejectNonStandardBodyWrites ?? false;
+  this[kLenientCache] = null;
 }
 ObjectSetPrototypeOf(OutgoingMessage.prototype, Stream.prototype);
 ObjectSetPrototypeOf(OutgoingMessage, Stream);
+
+// Check if lenient header validation should be used.
+// For ClientRequest: checks this.httpValidation or this.insecureHTTPParser
+// For ServerResponse: checks the server's httpValidation or insecureHTTPParser
+// Falls back to global --insecure-http-parser flag.
+OutgoingMessage.prototype._isLenientHeaderValidation = function() {
+  // The underlying options cannot change during the lifetime of a message:
+  // compute the lookup chain only once per message.
+  this[kLenientCache] ??= isLenientHeaderValidation(this);
+  return this[kLenientCache];
+};
+
+function isLenientHeaderValidation(msg) {
+  // New httpValidation option takes priority (ClientRequest case)
+  if (msg.httpValidation !== undefined) {
+    return msg.httpValidation !== 'strict';
+  }
+  // ServerResponse: check server's httpValidation option
+  const serverHttpValidation = msg.req?.socket?.server?.httpValidation;
+  if (serverHttpValidation !== undefined) {
+    return serverHttpValidation !== 'strict';
+  }
+  // Legacy insecureHTTPParser - ClientRequest has it directly
+  if (typeof msg.insecureHTTPParser === 'boolean') {
+    return msg.insecureHTTPParser;
+  }
+  // ServerResponse can access via req.socket.server
+  const serverOption = msg.req?.socket?.server?.insecureHTTPParser;
+  if (typeof serverOption === 'boolean') {
+    return serverOption;
+  }
+  // Fall back to global option
+  return isLenient();
+}
 
 ObjectDefineProperty(OutgoingMessage.prototype, 'errored', {
   __proto__: null,
@@ -175,11 +247,7 @@ ObjectDefineProperty(OutgoingMessage.prototype, 'closed', {
 ObjectDefineProperty(OutgoingMessage.prototype, 'writableFinished', {
   __proto__: null,
   get() {
-    return (
-      this.finished &&
-      this.outputSize === 0 &&
-      (!this[kSocket] || this[kSocket].writableLength === 0)
-    );
+    return this[kWritableFinished];
   },
 });
 
@@ -193,7 +261,12 @@ ObjectDefineProperty(OutgoingMessage.prototype, 'writableObjectMode', {
 ObjectDefineProperty(OutgoingMessage.prototype, 'writableLength', {
   __proto__: null,
   get() {
-    return this.outputSize + this[kChunkedLength] + (this[kSocket] ? this[kSocket].writableLength : 0);
+    let bufferedLength = this[kChunkedLength];
+    if (bufferedLength !== 0) {
+      bufferedLength += bufferedLength.toString(16).length + 4 +
+        (!this._headerSent && this._header !== null ? this._header.length : 0);
+    }
+    return this.outputSize + bufferedLength + (this[kSocket] ? this[kSocket].writableLength : 0);
   },
 });
 
@@ -264,37 +337,51 @@ OutgoingMessage.prototype.cork = function cork() {
 
 OutgoingMessage.prototype.uncork = function uncork() {
   this[kCorked]--;
-  if (this[kSocket]) {
-    this[kSocket].uncork();
-  }
+  const socket = this[kSocket];
+  try {
+    if (this[kCorked] || this[kChunkedBuffer].length === 0) {
+      return;
+    }
 
-  if (this[kCorked] || this[kChunkedBuffer].length === 0) {
-    return;
-  }
+    const len = this[kChunkedLength];
+    const buf = this[kChunkedBuffer];
+    if (this.destroyed || socket?.destroyed) {
+      const error = this[kErrored] || socket?._writableState?.errored || new ERR_STREAM_DESTROYED('write');
+      for (let n = 2; n < buf.length; n += 3) {
+        if (buf[n] !== nop) {
+          process.nextTick(buf[n], error);
+        }
+      }
+      buf.length = 0;
+      this[kChunkedLength] = 0;
+      return;
+    }
+    assert(this.chunkedEncoding);
 
-  const len = this[kChunkedLength];
-  const buf = this[kChunkedBuffer];
-
-  assert(this.chunkedEncoding);
-
-  let callbacks;
-  this._send(len.toString(16), 'latin1', null);
-  this._send(crlf_buf, null, null);
-  for (let n = 0; n < buf.length; n += 3) {
-    this._send(buf[n + 0], buf[n + 1], null);
-    if (buf[n + 2]) {
-      callbacks ??= [];
+    const callbacks = [];
+    this._send(len.toString(16), 'latin1', null);
+    this._send(crlf_buf, null, null);
+    for (let n = 0; n < buf.length; n += 3) {
+      this._send(buf[n + 0], buf[n + 1], null);
       callbacks.push(buf[n + 2]);
     }
-  }
-  this._send(crlf_buf, null, callbacks.length ? (err) => {
-    for (const callback of callbacks) {
-      callback(err);
-    }
-  } : null);
+    this._send(crlf_buf, null, (err) => {
+      for (const callback of callbacks) {
+        callback(err);
+      }
+    });
 
-  this[kChunkedBuffer].length = 0;
-  this[kChunkedLength] = 0;
+    this[kChunkedBuffer].length = 0;
+    this[kChunkedLength] = 0;
+  } finally {
+    socket?.uncork();
+  }
+
+  // If we had a pending drain and flushed all data, emit the drain event.
+  if (this[kNeedDrain] && this.writableLength === 0) {
+    this[kNeedDrain] = false;
+    this.emit('drain');
+  }
 };
 
 OutgoingMessage.prototype.setTimeout = function setTimeout(msecs, callback) {
@@ -324,17 +411,26 @@ OutgoingMessage.prototype.destroy = function destroy(error) {
   this.destroyed = true;
 
   this[kErrored] = error;
+  if (this[kChunkedBuffer].length !== 0) {
+    this[kCorked] = 1;
+    this.uncork();
+  }
 
   if (this[kSocket]) {
     this[kSocket].destroy(error);
   } else {
-    this.once('socket', function socketDestroyOnConnect(socket) {
-      socket.destroy(error);
-    });
+    process.nextTick(emitDestroyNT, this);
   }
 
   return this;
 };
+
+function emitDestroyNT(self) {
+  if (!self._closed) {
+    self._closed = true;
+    self.emit('close');
+  }
+}
 
 
 // This abstract either writing directly to the socket or buffering it.
@@ -406,18 +502,19 @@ function _storeHeader(firstLine, headers) {
     trailer: false,
     header: firstLine,
   };
+  const lenient = this._isLenientHeaderValidation();
 
   if (headers) {
     if (headers === this[kOutHeaders]) {
       for (const key in headers) {
         const entry = headers[key];
-        processHeader(this, state, entry[0], entry[1], false);
+        processHeader(this, state, entry[0], entry[1], false, lenient);
       }
     } else if (ArrayIsArray(headers)) {
       if (headers.length && ArrayIsArray(headers[0])) {
         for (let i = 0; i < headers.length; i++) {
           const entry = headers[i];
-          processHeader(this, state, entry[0], entry[1], true);
+          processHeader(this, state, entry[0], entry[1], true, lenient);
         }
       } else {
         if (headers.length % 2 !== 0) {
@@ -425,13 +522,13 @@ function _storeHeader(firstLine, headers) {
         }
 
         for (let n = 0; n < headers.length; n += 2) {
-          processHeader(this, state, headers[n + 0], headers[n + 1], true);
+          processHeader(this, state, headers[n + 0], headers[n + 1], true, lenient);
         }
       }
     } else {
       for (const key in headers) {
         if (ObjectHasOwn(headers, key)) {
-          processHeader(this, state, key, headers[key], true);
+          processHeader(this, state, key, headers[key], true, lenient);
         }
       }
     }
@@ -441,7 +538,7 @@ function _storeHeader(firstLine, headers) {
 
   // Date header
   if (this.sendDate && !state.date) {
-    header += 'Date: ' + utcDate() + '\r\n';
+    header += utcDateHeader();
   }
 
   // Force the connection to close when the response is a 204 No Content or
@@ -474,14 +571,21 @@ function _storeHeader(firstLine, headers) {
     if (shouldSendKeepAlive && this.maxRequestsOnConnectionReached) {
       header += 'Connection: close\r\n';
     } else if (shouldSendKeepAlive) {
-      header += 'Connection: keep-alive\r\n';
       if (this._keepAliveTimeout && this._defaultKeepAlive) {
-        const timeoutSeconds = MathFloor(this._keepAliveTimeout / 1000);
-        let max = '';
-        if (~~this._maxRequestsPerSocket > 0) {
-          max = `, max=${this._maxRequestsPerSocket}`;
+        // The keep-alive header lines are identical for every response of a
+        // given server: cache the last rendered value.
+        const timeout = this._keepAliveTimeout;
+        const max = ~~this._maxRequestsPerSocket;
+        if (timeout !== keepAliveTimeoutCache || max !== keepAliveMaxCache) {
+          keepAliveTimeoutCache = timeout;
+          keepAliveMaxCache = max;
+          keepAliveHeaderCache = 'Connection: keep-alive\r\n' +
+            `Keep-Alive: timeout=${MathFloor(timeout / 1000)}` +
+            (max > 0 ? `, max=${max}` : '') + '\r\n';
         }
-        header += `Keep-Alive: timeout=${timeoutSeconds}${max}\r\n`;
+        header += keepAliveHeaderCache;
+      } else {
+        header += 'Connection: keep-alive\r\n';
       }
     } else {
       this._last = true;
@@ -530,7 +634,7 @@ function _storeHeader(firstLine, headers) {
   if (state.expect) this._send('');
 }
 
-function processHeader(self, state, key, value, validate) {
+function processHeader(self, state, key, value, validate, lenient) {
   if (validate)
     validateHeaderName(key);
 
@@ -557,25 +661,53 @@ function processHeader(self, state, key, value, validate) {
       // Retain for(;;) loop for performance reasons
       // Refs: https://github.com/nodejs/node/pull/30958
       for (let i = 0; i < value.length; i++)
-        storeHeader(self, state, key, value[i], validate);
+        storeHeader(self, state, key, value[i], validate, lenient);
       return;
     }
     value = value.join('; ');
   }
-  storeHeader(self, state, key, value, validate);
+  storeHeader(self, state, key, value, validate, lenient);
 }
 
-function storeHeader(self, state, key, value, validate) {
+function storeHeader(self, state, key, value, validate, lenient) {
   if (validate)
-    validateHeaderValue(key, value);
+    validateHeaderValue(key, value, lenient);
   state.header += key + ': ' + value + '\r\n';
   matchHeader(self, state, key, value);
+}
+
+function lowerOutgoingHeaderName(field) {
+  switch (field) {
+    case 'Connection':
+    case 'connection':
+      return 'connection';
+    case 'Content-Length':
+    case 'content-length':
+      return 'content-length';
+    case 'Transfer-Encoding':
+    case 'transfer-encoding':
+      return 'transfer-encoding';
+    case 'Date':
+    case 'date':
+      return 'date';
+    case 'Expect':
+    case 'expect':
+      return 'expect';
+    case 'Trailer':
+    case 'trailer':
+      return 'trailer';
+    case 'Keep-Alive':
+    case 'keep-alive':
+      return 'keep-alive';
+    default:
+      return field.toLowerCase();
+  }
 }
 
 function matchHeader(self, state, field, value) {
   if (field.length < 4 || field.length > 17)
     return;
-  field = field.toLowerCase();
+  field = lowerOutgoingHeaderName(field);
   switch (field) {
     case 'connection':
       state.connection = true;
@@ -608,16 +740,50 @@ function matchHeader(self, state, field, value) {
 }
 
 const validateHeaderName = assignFunctionName('validateHeaderName', hideStackFrames((name, label) => {
-  if (typeof name !== 'string' || !name || !checkIsHttpToken(name)) {
+  if (!isValidHeaderName(name)) {
     throw new ERR_INVALID_HTTP_TOKEN.HideStackFramesError(label || 'Header name', name);
   }
 }));
 
-const validateHeaderValue = assignFunctionName('validateHeaderValue', hideStackFrames((name, value) => {
+/**
+ * Non-throwing counterpart of `validateHeaderName()`.
+ * @param {any} name
+ * @returns {boolean}
+ */
+function isValidHeaderName(name) {
+  return typeof name === 'string' && checkIsHttpToken(name);
+}
+
+const kHttpValidationValues = ['strict', 'relaxed'];
+
+/**
+ * Non-throwing counterpart of `validateHeaderValue()`.
+ * @param {any} value
+ * @param {{ httpValidation?: 'strict' | 'relaxed' }} [options]
+ * @returns {boolean}
+ */
+function isValidHeaderValue(value, options) {
+  let lenient = false;
+  if (options !== undefined) {
+    validateObject(options, 'options');
+    const { httpValidation } = options;
+    if (httpValidation === 'relaxed') {
+      lenient = true;
+    } else if (httpValidation !== undefined && httpValidation !== 'strict') {
+      validateOneOf(httpValidation, 'options.httpValidation', kHttpValidationValues);
+    }
+  }
+  if (value === undefined || typeof value === 'symbol') {
+    return false;
+  }
+  return !checkInvalidHeaderChar(value, lenient);
+}
+
+const validateHeaderValue = assignFunctionName('validateHeaderValue', hideStackFrames((name, value, lenient) => {
   if (value === undefined) {
     throw new ERR_HTTP_INVALID_HEADER_VALUE.HideStackFramesError(value, name);
   }
-  if (checkInvalidHeaderChar(value)) {
+  if (checkInvalidHeaderChar(value, lenient)) {
     debug('Header "%s" contains invalid characters', name);
     throw new ERR_INVALID_CHAR.HideStackFramesError('header content', name);
   }
@@ -642,11 +808,17 @@ OutgoingMessage.prototype.setHeader = function setHeader(name, value) {
     throw new ERR_HTTP_HEADERS_SENT('set');
   }
   validateHeaderName(name);
-  validateHeaderValue(name, value);
+  if (value === undefined) {
+    throw new ERR_HTTP_INVALID_HEADER_VALUE(value, name);
+  }
+  if (checkInvalidHeaderChar(value, this._isLenientHeaderValidation())) {
+    debug('Header "%s" contains invalid characters', name);
+    throw new ERR_INVALID_CHAR('header content', name);
+  }
 
   let headers = this[kOutHeaders];
   if (headers === null)
-    this[kOutHeaders] = headers = { __proto__: null };
+    this[kOutHeaders] = headers = new OutgoingHeaders();
 
   headers[name.toLowerCase()] = [name, value];
   return this;
@@ -700,7 +872,13 @@ OutgoingMessage.prototype.appendHeader = function appendHeader(name, value) {
     throw new ERR_HTTP_HEADERS_SENT('append');
   }
   validateHeaderName(name);
-  validateHeaderValue(name, value);
+  if (value === undefined) {
+    throw new ERR_HTTP_INVALID_HEADER_VALUE(value, name);
+  }
+  if (checkInvalidHeaderChar(value, this._isLenientHeaderValidation())) {
+    debug('Header "%s" contains invalid characters', name);
+    throw new ERR_INVALID_CHAR('header content', name);
+  }
 
   const field = name.toLowerCase();
   const headers = this[kOutHeaders];
@@ -749,12 +927,11 @@ OutgoingMessage.prototype.getRawHeaderNames = function getRawHeaderNames() {
   const headersMap = this[kOutHeaders];
   if (headersMap === null) return [];
 
-  const values = ObjectValues(headersMap);
-  const headers = Array(values.length);
+  const headers = ObjectValues(headersMap);
   // Retain for(;;) loop for performance reasons
   // Refs: https://github.com/nodejs/node/pull/30958
-  for (let i = 0, l = values.length; i < l; i++) {
-    headers[i] = values[i][0];
+  for (let i = 0; i < headers.length; i++) {
+    headers[i] = headers[i][0];
   }
 
   return headers;
@@ -945,24 +1122,34 @@ function write_(msg, chunk, encoding, callback, fromEnd) {
     }
   }
 
+  if (msg.chunkedEncoding && typeof chunk === 'string' && encoding && !Buffer.isEncoding(encoding)) {
+    throw new ERR_UNKNOWN_ENCODING(encoding);
+  }
+
   if (!fromEnd && msg.socket && !msg.socket.writableCorked) {
-    msg.socket.cork();
-    process.nextTick(connectionCorkNT, msg.socket);
+    msg.cork();
+    process.nextTick(connectionCorkNT, msg);
   }
 
   let ret;
   if (msg.chunkedEncoding && chunk.length !== 0) {
     len ??= typeof chunk === 'string' ? Buffer.byteLength(chunk, encoding) : chunk.byteLength;
-    if (msg[kCorked] && msg._headerSent) {
+    if (msg[kCorked]) {
+      if (typeof chunk !== 'string' && !(chunk instanceof Buffer)) {
+        chunk = Stream._uint8ArrayToBuffer(chunk);
+      }
       msg[kChunkedBuffer].push(chunk, encoding, callback);
       msg[kChunkedLength] += len;
-      ret = msg[kChunkedLength] < msg[kHighWaterMark];
+      ret = msg.writableLength < msg.writableHighWaterMark;
     } else {
       msg._send(len.toString(16), 'latin1', null);
       msg._send(crlf_buf, null, null);
       msg._send(chunk, encoding, null, len);
       ret = msg._send(crlf_buf, null, callback);
     }
+  } else if (msg.chunkedEncoding && msg[kCorked] && msg[kChunkedBuffer].length !== 0) {
+    msg[kChunkedBuffer].push(chunk, encoding, callback);
+    ret = msg.writableLength < msg.writableHighWaterMark;
   } else {
     ret = msg._send(chunk, encoding, callback, len);
   }
@@ -972,8 +1159,29 @@ function write_(msg, chunk, encoding, callback, fromEnd) {
 }
 
 
-function connectionCorkNT(conn) {
-  conn.uncork();
+// If this last write can be delivered immediately as the final chunk, this
+// prepares to do so, and then returns true. If not, it returns false and
+// a separate _send call and tick will be required to finish up.
+function maybePrepareFinalChunk(msg, chunk, encoding) {
+  if (typeof chunk !== 'string' && !isUint8Array(chunk))
+    return false;
+
+  if (msg.destroyed || msg.strictContentLength)
+    return false;
+
+  if (!msg._header) {
+    msg._contentLength = typeof chunk === 'string' ?
+      Buffer.byteLength(chunk, encoding) : chunk.byteLength;
+    msg._implicitHeader();
+  }
+
+  return !!msg._header && msg._hasBody && !msg.chunkedEncoding;
+}
+
+function connectionCorkNT(msg) {
+  if (msg[kCorked]) {
+    msg.uncork();
+  }
 }
 
 OutgoingMessage.prototype.addTrailers = function addTrailers(headers) {
@@ -996,12 +1204,13 @@ OutgoingMessage.prototype.addTrailers = function addTrailers(headers) {
 
     // Check if the field must be sent several times
     const isArrayValue = ArrayIsArray(value);
+    const lenient = this._isLenientHeaderValidation();
     if (
       isArrayValue && value.length > 1 &&
       (!this[kUniqueHeaders] || !this[kUniqueHeaders].has(field.toLowerCase()))
     ) {
       for (let j = 0, l = value.length; j < l; j++) {
-        if (checkInvalidHeaderChar(value[j])) {
+        if (checkInvalidHeaderChar(value[j], lenient)) {
           debug('Trailer "%s"[%d] contains invalid characters', field, j);
           throw new ERR_INVALID_CHAR('trailer content', field);
         }
@@ -1012,7 +1221,7 @@ OutgoingMessage.prototype.addTrailers = function addTrailers(headers) {
         value = value.join('; ');
       }
 
-      if (checkInvalidHeaderChar(value)) {
+      if (checkInvalidHeaderChar(value, lenient)) {
         debug('Trailer "%s" contains invalid characters', field);
         throw new ERR_INVALID_CHAR('trailer content', field);
       }
@@ -1021,8 +1230,48 @@ OutgoingMessage.prototype.addTrailers = function addTrailers(headers) {
   }
 };
 
-function onFinish(outmsg) {
-  if (outmsg?.socket?._hadError) return;
+// Deliver end() callbacks, mirroring Writable: null on successful finish,
+// otherwise the error that prevented all data from being flushed.
+function flushEndCallbacks(msg, err) {
+  const callbacks = msg[kEndCallbacks];
+  if (callbacks === null)
+    return;
+  msg[kEndCallbacks] = null;
+  for (let i = 0; i < callbacks.length; i++)
+    callbacks[i](err);
+}
+
+function getEndCallbackError(msg) {
+  return msg[kErrored] ??
+    msg[kSocket]?.errored ??
+    new ERR_STREAM_DESTROYED('end');
+}
+
+function queueEndCallback(msg, callback) {
+  if (msg[kWritableFinished]) {
+    callback(new ERR_STREAM_ALREADY_FINISHED('end'));
+    return;
+  }
+  if (msg[kFlushError] !== null) {
+    process.nextTick(callback, msg[kFlushError]);
+    return;
+  }
+  msg[kEndCallbacks] ??= [];
+  msg[kEndCallbacks].push(callback);
+}
+
+function onFinish(outmsg, err) {
+  if (err ||
+      outmsg[kErrored] ||
+      outmsg[kSocket]?.errored ||
+      outmsg[kSocket]?._hadError) {
+    outmsg[kFlushError] = err ?? getEndCallbackError(outmsg);
+    flushEndCallbacks(outmsg, outmsg[kFlushError]);
+    return;
+  }
+
+  outmsg[kWritableFinished] = true;
+  flushEndCallbacks(outmsg, null);
   outmsg.emit('finish');
 }
 
@@ -1036,6 +1285,8 @@ OutgoingMessage.prototype.end = function end(chunk, encoding, callback) {
     encoding = null;
   }
 
+  let finishCallback = null;
+
   if (chunk) {
     if (this.finished) {
       onError(this,
@@ -1048,14 +1299,21 @@ OutgoingMessage.prototype.end = function end(chunk, encoding, callback) {
       this[kSocket].cork();
     }
 
-    write_(this, chunk, encoding, null, true);
+    if (maybePrepareFinalChunk(this, chunk, encoding)) {
+      // If just one final write is required, with nothing to follow, we
+      // attach finish to the write to avoid a separate send() & tick step
+      // later on - this is purely a performance optimization.
+      if (typeof callback === 'function') {
+        queueEndCallback(this, callback);
+        callback = undefined;
+      }
+      finishCallback = onFinish.bind(undefined, this);
+    }
+
+    write_(this, chunk, encoding, finishCallback, true);
   } else if (this.finished) {
     if (typeof callback === 'function') {
-      if (!this.writableFinished) {
-        this.on('finish', callback);
-      } else {
-        callback(new ERR_STREAM_ALREADY_FINISHED('end'));
-      }
+      queueEndCallback(this, callback);
     }
     return this;
   } else if (!this._header) {
@@ -1068,20 +1326,30 @@ OutgoingMessage.prototype.end = function end(chunk, encoding, callback) {
   }
 
   if (typeof callback === 'function')
-    this.once('finish', callback);
+    queueEndCallback(this, callback);
 
   if (strictContentLength(this) && this[kBytesWritten] !== this._contentLength) {
     throw new ERR_HTTP_CONTENT_LENGTH_MISMATCH(this[kBytesWritten], this._contentLength);
   }
 
-  const finish = onFinish.bind(undefined, this);
+  // Flush buffered chunks before terminating the response.
+  if (this[kChunkedBuffer].length !== 0) {
+    this[kSocket]?.cork();
+    this[kCorked] = 1;
+    this.uncork();
+  }
 
-  if (this._hasBody && this.chunkedEncoding) {
-    this._send('0\r\n' + this._trailer + '\r\n', 'latin1', finish);
-  } else if (!this._headerSent || this.writableLength || chunk) {
-    this._send('', 'latin1', finish);
-  } else {
-    process.nextTick(finish);
+  if (finishCallback === null) {
+    // If we didn't early finish, send the last data and schedule 'finish' now:
+    finishCallback = onFinish.bind(undefined, this);
+
+    if (this._hasBody && this.chunkedEncoding) {
+      this._send('0\r\n' + this._trailer + '\r\n', 'latin1', finishCallback);
+    } else if (!this._headerSent || this.writableLength || chunk) {
+      this._send('', 'latin1', finishCallback);
+    } else {
+      process.nextTick(finishCallback);
+    }
   }
 
   if (this[kSocket]) {
@@ -1144,7 +1412,9 @@ OutgoingMessage.prototype._flush = function _flush() {
     if (this.finished) {
       // This is a queue to the server or client to bring in the next this.
       this._finish();
-    } else if (ret && this[kNeedDrain]) {
+    } else if (this[kNeedDrain] && ret !== false) {
+      // Socket accepted all data without backpressure - it won't emit
+      // drain, so we emit it since the OM buffer is now clear.
       this[kNeedDrain] = false;
       this.emit('drain');
     }
@@ -1200,6 +1470,8 @@ module.exports = {
   kHighWaterMark,
   kUniqueHeaders,
   parseUniqueHeadersOption,
+  isValidHeaderName,
+  isValidHeaderValue,
   validateHeaderName,
   validateHeaderValue,
   OutgoingMessage,

@@ -53,9 +53,6 @@ class TemplateInfo
 
   inline uint32_t GetHash() const;
 
-  inline bool TryGetIsolate(Isolate** isolate) const;
-  inline Isolate* GetIsolateChecked() const;
-
   using BodyDescriptor = StructBodyDescriptor;
 
   // Whether or not to cache every instance: when we materialize a getter or
@@ -257,12 +254,13 @@ class FunctionTemplateInfo
   // Bit position in the flag, from least significant bit position.
   DEFINE_TORQUE_GENERATED_FUNCTION_TEMPLATE_INFO_FLAGS()
 
-  // This is a wrapper around |maybe_redirected_callback| accessor which
-  // returns/accepts C function and converts the value from and to redirected
-  // pointer.
-  DECL_EXTERNAL_POINTER_ACCESSORS_MAYBE_READ_ONLY_HOST(callback, Address)
-  inline void init_callback_redirection(i::IsolateForSandbox isolate);
-  inline void remove_callback_redirection(i::IsolateForSandbox isolate);
+  // C function pointer that can be called from native code.
+  DECL_REDIRECTED_CALLBACK_ACCESSORS_MAYBE_READ_ONLY_HOST(callback, Address)
+
+  inline void RemoveCallbackRedirectionForSerialization(
+      IsolateForSandbox isolate);
+  inline void RestoreCallbackRedirectionAfterDeserialization(
+      IsolateForSandbox isolate);
 
   template <class IsolateT>
   inline bool has_callback(IsolateT* isolate) const;
@@ -272,16 +270,6 @@ class FunctionTemplateInfo
   class BodyDescriptor;
 
  private:
-  // When simulator is enabled the field stores the "redirected" address of the
-  // C function (the one that's callabled from simulated compiled code), in
-  // this case the original address of the C function has to be taken from the
-  // redirection.
-  // For native builds the field contains the address of the C function.
-  // This field is initialized implicitly via respective |callback|-related
-  // methods.
-  DECL_EXTERNAL_POINTER_ACCESSORS_MAYBE_READ_ONLY_HOST(
-      maybe_redirected_callback, Address)
-
   // For ease of use of the BITFIELD macro.
   inline int32_t relaxed_flag() const;
   inline void set_relaxed_flag(int32_t flags);
@@ -310,8 +298,6 @@ class ObjectTemplateInfo
     : public TorqueGeneratedObjectTemplateInfo<ObjectTemplateInfo,
                                                TemplateInfoWithProperties> {
  public:
-  NEVER_READ_ONLY_SPACE
-
   DECL_INT_ACCESSORS(embedder_field_count)
   DECL_BOOLEAN_ACCESSORS(immutable_proto)
   DECL_BOOLEAN_ACCESSORS(code_like)
@@ -319,6 +305,9 @@ class ObjectTemplateInfo
   // Starting from given object template's constructor walk up the inheritance
   // chain till a function template that has an instance template is found.
   inline Tagged<ObjectTemplateInfo> GetParent(Isolate* isolate);
+
+  static void SealAndPrepareForPromotionToReadOnly(
+      Isolate* isolate, DirectHandle<ObjectTemplateInfo> info);
 
   using BodyDescriptor = StructBodyDescriptor;
 
@@ -341,8 +330,6 @@ class DictionaryTemplateInfo
       DirectHandle<NativeContext> context,
       DirectHandle<DictionaryTemplateInfo> self,
       const MemorySpan<MaybeLocal<Value>>& property_values);
-
-  NEVER_READ_ONLY_SPACE
 
   TQ_OBJECT_CONSTRUCTORS(DictionaryTemplateInfo)
 };

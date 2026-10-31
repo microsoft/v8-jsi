@@ -10,14 +10,12 @@
 #endif  // !V8_ENABLE_WEBASSEMBLY
 
 #include "src/base/platform/wrappers.h"
-#include "src/logging/counters.h"
 #include "src/strings/unicode.h"
 #include "src/utils/ostreams.h"
 #include "src/wasm/canonical-types.h"
 #include "src/wasm/constant-expression-interface.h"
 #include "src/wasm/function-body-decoder-impl.h"
 #include "src/wasm/module-decoder.h"
-#include "src/wasm/wasm-engine.h"
 #include "src/wasm/wasm-module.h"
 #include "src/wasm/wasm-subtyping.h"
 #include "src/wasm/well-known-imports.h"
@@ -28,15 +26,6 @@ namespace v8::internal::wasm {
   do {                                                    \
     if (v8_flags.trace_wasm_decoder) PrintF(__VA_ARGS__); \
   } while (false)
-
-constexpr char kNameString[] = "name";
-constexpr char kSourceMappingURLString[] = "sourceMappingURL";
-constexpr char kInstTraceString[] = "metadata.code.trace_inst";
-constexpr char kCompilationHintsString[] = "compilationHints";
-constexpr char kBranchHintsString[] = "metadata.code.branch_hint";
-constexpr char kDebugInfoString[] = ".debug_info";
-constexpr char kExternalDebugInfoString[] = "external_debug_info";
-constexpr char kBuildIdString[] = "build_id";
 
 inline const char* ExternalKindName(ImportExportKindCode kind) {
   switch (kind) {
@@ -50,6 +39,8 @@ inline const char* ExternalKindName(ImportExportKindCode kind) {
       return "global";
     case kExternalTag:
       return "tag";
+    case kExternalExactFunction:
+      return "exact function";
   }
   return "unknown";
 }
@@ -139,13 +130,17 @@ inline SectionCode IdentifyUnknownSectionInternal(Decoder* decoder,
       {base::StaticCharVector(kSourceMappingURLString),
        kSourceMappingURLSectionCode},
       {base::StaticCharVector(kInstTraceString), kInstTraceSectionCode},
-      {base::StaticCharVector(kCompilationHintsString),
-       kCompilationHintsSectionCode},
       {base::StaticCharVector(kBranchHintsString), kBranchHintsSectionCode},
+      {base::StaticCharVector(kCompilationPriorityString),
+       kCompilationPrioritySectionCode},
+      {base::StaticCharVector(kInstructionFrequenciesString),
+       kInstFrequenciesSectionCode},
+      {base::StaticCharVector(kCallTargetsString), kCallTargetsSectionCode},
       {base::StaticCharVector(kDebugInfoString), kDebugInfoSectionCode},
       {base::StaticCharVector(kExternalDebugInfoString),
        kExternalDebugInfoSectionCode},
-      {base::StaticCharVector(kBuildIdString), kBuildIdSectionCode}};
+      {base::StaticCharVector(kBuildIdString), kBuildIdSectionCode},
+      {base::StaticCharVector(kDescriptorsString), kDescriptorsSectionCode}};
 
   auto name_vec = base::Vector<const char>::cast(
       base::VectorOf(section_name_start, string.length()));
@@ -252,8 +247,7 @@ class WasmSectionIterator {
     }
 
     if (section_code == kUnknownSectionCode) {
-      // Check for the known "name", "sourceMappingURL", or "compilationHints"
-      // section.
+      // Check for known custom sections.
       // To identify the unknown section we set the end of the decoder bytes to
       // the end of the custom section, so that we do not read the section name
       // beyond the end of the section.
@@ -296,7 +290,7 @@ inline void DumpModule(const base::Vector<const uint8_t> module_bytes,
   path += buf.begin();
   size_t rv = 0;
   if (FILE* file = base::OS::FOpen(path.c_str(), "wb")) {
-    rv = fwrite(module_bytes.begin(), module_bytes.length(), 1, file);
+    rv = fwrite(module_bytes.begin(), module_bytes.size(), 1, file);
     base::Fclose(file);
   }
   if (rv != 1) {
@@ -491,19 +485,6 @@ class ModuleDecoderImpl : public Decoder {
           consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
         }
         break;
-      case kCompilationHintsSectionCode:
-        // TODO(jkummerow): We're missing tracing support for well-known
-        // custom sections. This confuses `wami --full-hexdump` e.g.
-        // for the modules created by
-        // mjsunit/wasm/compilation-hints-streaming-compilation.js.
-        if (enabled_features_.has_compilation_hints()) {
-          DecodeCompilationHintsSection();
-        } else {
-          // Ignore this section when feature was disabled. It is an optional
-          // custom section anyways.
-          consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
-        }
-        break;
       case kBranchHintsSectionCode:
         if (enabled_features_.has_branch_hinting()) {
           DecodeBranchHintsSection();
@@ -512,6 +493,36 @@ class ModuleDecoderImpl : public Decoder {
           // custom section anyways.
           consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
         }
+        break;
+      case kCompilationPrioritySectionCode:
+        if (enabled_features_.has_compilation_hints()) {
+          DecodeCompilationPrioritySection();
+        } else {
+          // Ignore this section when feature was disabled. It is an optional
+          // custom section anyways.
+          consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+        }
+        break;
+      case kInstFrequenciesSectionCode:
+        if (enabled_features_.has_compilation_hints()) {
+          DecodeInstructionFrequenciesSection();
+        } else {
+          // Ignore this section when feature was disabled. It is an optional
+          // custom section anyways.
+          consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+        }
+        break;
+      case kCallTargetsSectionCode:
+        if (enabled_features_.has_compilation_hints()) {
+          DecodeCallTargetsSection();
+        } else {
+          // Ignore this section when feature was disabled. It is an optional
+          // custom section anyways.
+          consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+        }
+        break;
+      case kDescriptorsSectionCode:
+        DecodeDescriptorsSection();
         break;
       case kDataCountSectionCode:
         DecodeDataCountSection();
@@ -555,9 +566,9 @@ class ModuleDecoderImpl : public Decoder {
     }
   }
 
-  TypeDefinition consume_base_type_definition(bool is_descriptor) {
+  TypeDefinition consume_base_type_definition(bool is_descriptor,
+                                              bool is_shared) {
     const bool is_final = true;
-    const bool shared = false;
     uint8_t kind = consume_u8(" kind", tracer_);
     if (tracer_) {
       tracer_->Description(": ");
@@ -565,31 +576,31 @@ class ModuleDecoderImpl : public Decoder {
     }
     switch (kind) {
       case kWasmFunctionTypeCode: {
-        const FunctionSig* sig = consume_sig(&module_->signature_zone);
+        const FunctionSig* sig = consume_sig();
         if (sig == nullptr) {
           CHECK(!ok());
           return {};
         }
-        return {sig, kNoSuperType, is_final, shared};
+
+        return {sig, kNoSuperType, is_final, is_shared};
       }
       case kWasmStructTypeCode: {
         module_->is_wasm_gc = true;
-        const StructType* type =
-            consume_struct(&module_->signature_zone, is_descriptor);
+        const StructType* type = consume_struct(is_descriptor, is_shared);
         if (type == nullptr) {
           CHECK(!ok());
           return {};
         }
-        return {type, kNoSuperType, is_final, shared};
+        return {type, kNoSuperType, is_final, is_shared};
       }
       case kWasmArrayTypeCode: {
         module_->is_wasm_gc = true;
-        const ArrayType* type = consume_array(&module_->signature_zone);
+        const ArrayType* type = consume_array();
         if (type == nullptr) {
           CHECK(!ok());
           return {};
         }
-        return {type, kNoSuperType, is_final, shared};
+        return {type, kNoSuperType, is_final, is_shared};
       }
       case kWasmContTypeCode: {
         if (!enabled_features_.has_wasmfx()) {
@@ -602,13 +613,14 @@ class ModuleDecoderImpl : public Decoder {
         const uint8_t* pos = pc();
         HeapType hp = consume_heap_type();
 
-        if (!hp.is_index()) {
+        if (!hp.has_index()) {
           error(pos, "cont type must refer to a signature index");
           return {};
         }
 
-        ContType* type = module_->signature_zone.New<ContType>(hp.ref_index());
-        return {type, kNoSuperType, is_final, shared};
+        ContType* type =
+            module_->signature_storage.New<ContType>(hp.ref_index());
+        return {type, kNoSuperType, is_final, is_shared};
       }
       default:
         if (tracer_) tracer_->NextLine();
@@ -617,7 +629,7 @@ class ModuleDecoderImpl : public Decoder {
     }
   }
 
-  TypeDefinition consume_described_type(bool is_descriptor) {
+  TypeDefinition consume_described_type(bool is_descriptor, bool is_shared) {
     uint8_t kind = read_u8<Decoder::FullValidationTag>(pc(), "type kind");
     if (kind == kWasmDescriptorCode) {
       if (!enabled_features_.has_custom_descriptors()) {
@@ -626,15 +638,17 @@ class ModuleDecoderImpl : public Decoder {
         return {};
       }
       detected_features_->add_custom_descriptors();
-      consume_bytes(1, " described_by", tracer_);
+      consume_bytes(1, "", tracer_);
       const uint8_t* pos = pc();
-      uint32_t descriptor = consume_u32v("descriptor", tracer_);
+      uint32_t descriptor = consume_u32v(" descriptor", tracer_);
       if (descriptor >= module_->types.size()) {
         errorf(pos, "descriptor type index %u is out of bounds", descriptor);
         return {};
       }
+      if (tracer_) tracer_->Description(descriptor);
       if (tracer_) tracer_->NextLine();
-      TypeDefinition type = consume_base_type_definition(is_descriptor);
+      TypeDefinition type =
+          consume_base_type_definition(is_descriptor, is_shared);
       if (type.kind != TypeDefinition::kStruct) {
         error(pos - 1, "'descriptor' may only be used with structs");
         return {};
@@ -642,11 +656,12 @@ class ModuleDecoderImpl : public Decoder {
       type.descriptor = ModuleTypeIndex{descriptor};
       return type;
     } else {
-      return consume_base_type_definition(is_descriptor);
+      return consume_base_type_definition(is_descriptor, is_shared);
     }
   }
 
-  TypeDefinition consume_describing_type(size_t current_type_index) {
+  TypeDefinition consume_describing_type(size_t current_type_index,
+                                         bool is_shared) {
     uint8_t kind = read_u8<Decoder::FullValidationTag>(pc(), "type kind");
     if (kind == kWasmDescribesCode) {
       if (!enabled_features_.has_custom_descriptors()) {
@@ -655,15 +670,16 @@ class ModuleDecoderImpl : public Decoder {
         return {};
       }
       detected_features_->add_custom_descriptors();
-      consume_bytes(1, " describes", tracer_);
+      consume_bytes(1, "", tracer_);
       const uint8_t* pos = pc();
-      uint32_t describes = consume_u32v("describes", tracer_);
+      uint32_t describes = consume_u32v(" describes", tracer_);
       if (describes >= current_type_index) {
         error(pos, "types can only describe previously-declared types");
         return {};
       }
+      if (tracer_) tracer_->Description(describes);
       if (tracer_) tracer_->NextLine();
-      TypeDefinition type = consume_described_type(true);
+      TypeDefinition type = consume_described_type(true, is_shared);
       if (type.kind != TypeDefinition::kStruct) {
         error(pos - 1, "'describes' may only be used with structs");
         return {};
@@ -671,14 +687,14 @@ class ModuleDecoderImpl : public Decoder {
       type.describes = ModuleTypeIndex{describes};
       return type;
     } else {
-      return consume_described_type(false);
+      return consume_described_type(false, is_shared);
     }
   }
 
   TypeDefinition consume_shared_type(size_t current_type_index) {
     uint8_t kind = read_u8<Decoder::FullValidationTag>(pc(), "type kind");
     if (kind == kSharedFlagCode) {
-      if (!v8_flags.experimental_wasm_shared) {
+      if (!enabled_features_.has_shared()) {
         errorf(pc() - 1,
                "unknown type form: %d, enable with --experimental-wasm-shared",
                kind);
@@ -686,11 +702,17 @@ class ModuleDecoderImpl : public Decoder {
       }
       module_->has_shared_part = true;
       consume_bytes(1, " shared", tracer_);
-      TypeDefinition type = consume_describing_type(current_type_index);
-      type.is_shared = true;
+      TypeDefinition type = consume_describing_type(current_type_index, true);
+      DCHECK(type.is_shared);
+      if (type.kind == TypeDefinition::kFunction ||
+          type.kind == TypeDefinition::kCont) {
+        // TODO(42204563): Support shared functions/continuations.
+        error(pc() - 1, "shared functions/continuations are not supported yet");
+        return {};
+      }
       return type;
     } else {
-      return consume_describing_type(current_type_index);
+      return consume_describing_type(current_type_index, false);
     }
   }
 
@@ -788,7 +810,7 @@ class ModuleDecoderImpl : public Decoder {
             value_type_reader::Populate(&storage[j], module);
             ValueType type = storage[j];
             if (is_shared && !type.is_shared()) {
-              DCHECK(v8_flags.experimental_wasm_shared);
+              DCHECK(enabled_features_.has_shared());
               uint32_t retcount =
                   static_cast<uint32_t>(type_def.function_sig->return_count());
               const char* param_or_return =
@@ -907,8 +929,7 @@ class ModuleDecoderImpl : public Decoder {
         errorf("type %u extends final type %u", i, explicit_super.index);
         return;
       }
-      if (!ValidSubtypeDefinition(ModuleTypeIndex{i}, explicit_super, module,
-                                  module)) {
+      if (!ValidSubtypeDefinition(ModuleTypeIndex{i}, explicit_super, module)) {
         errorf("type %u has invalid explicit supertype %u", i,
                explicit_super.index);
         return;
@@ -940,7 +961,8 @@ class ModuleDecoderImpl : public Decoder {
           .module_name = module_name, .field_name = field_name, .kind = kind});
       WasmImport* import = &module_->import_table.back();
       switch (kind) {
-        case kExternalFunction: {
+        case kExternalFunction:
+        case kExternalExactFunction: {
           // ===== Imported function ===========================================
           import->index = static_cast<uint32_t>(module_->functions.size());
           module_->num_imported_functions++;
@@ -949,6 +971,18 @@ class ModuleDecoderImpl : public Decoder {
               .imported = true,
           });
           WasmFunction* function = &module_->functions.back();
+          if (kind == kExternalExactFunction) {
+            if (!enabled_features_.has_custom_descriptors()) {
+              // We haven't decoded any bytes since {consume_u8("kind")}.
+              errorf(pc_ - 1,
+                     "Invalid import kind %d, enable with "
+                     "--experimental-wasm-custom-descriptors",
+                     kind);
+              break;
+            }
+            function->exact = true;
+            detected_features_->add_custom_descriptors();
+          }
           function->sig_index =
               consume_sig_index(module_.get(), &function->sig);
           break;
@@ -958,7 +992,7 @@ class ModuleDecoderImpl : public Decoder {
           import->index = static_cast<uint32_t>(module_->tables.size());
           const uint8_t* type_position = pc();
           ValueType type = consume_value_type(module_.get());
-          if (!type.is_object_reference()) {
+          if (!type.is_ref()) {
             errorf(type_position, "Invalid table type %s", type.name().c_str());
             break;
           }
@@ -970,10 +1004,10 @@ class ModuleDecoderImpl : public Decoder {
           WasmTable* table = &module_->tables.back();
           consume_table_flags(table);
           DCHECK_IMPLIES(table->shared,
-                         v8_flags.experimental_wasm_shared || !ok());
-          if (table->shared && v8_flags.experimental_wasm_shared) {
+                         enabled_features_.has_shared() || !ok());
+          if (table->shared && enabled_features_.has_shared()) {
             module_->has_shared_part = true;
-            if (!IsShared(type, module_.get())) {
+            if (!type.is_shared()) {
               errorf(type_position,
                      "Shared table %i must have shared element type, actual "
                      "type %s",
@@ -1022,7 +1056,7 @@ class ModuleDecoderImpl : public Decoder {
           ValueType type = consume_value_type(module_.get());
           auto [mutability, shared] = consume_global_flags();
           if (V8_UNLIKELY(failed())) break;
-          if (V8_UNLIKELY(shared && !IsShared(type, module_.get()))) {
+          if (V8_UNLIKELY(shared && !type.is_shared())) {
             error("shared imported global must have shared type");
             break;
           }
@@ -1060,6 +1094,9 @@ class ModuleDecoderImpl : public Decoder {
       if (v8_flags.wasm_jitless) {
         error("Multiple memories not supported in Wasm jitless mode");
       }
+    }
+    if (module_->num_imported_mutable_globals > 0) {
+      detected_features_->add_mutable_globals();
     }
     UpdateComputedMemoryInformation();
     module_->type_feedback.well_known_imports.Initialize(
@@ -1122,7 +1159,7 @@ class ModuleDecoderImpl : public Decoder {
       }
 
       ValueType table_type = consume_value_type(module_.get());
-      if (!table_type.is_object_reference()) {
+      if (!table_type.is_ref()) {
         error(type_position, "Only reference types can be used as table types");
         break;
       }
@@ -1135,10 +1172,10 @@ class ModuleDecoderImpl : public Decoder {
       table->type = table_type;
 
       consume_table_flags(table);
-      DCHECK_IMPLIES(table->shared, v8_flags.experimental_wasm_shared || !ok());
-      if (table->shared && v8_flags.experimental_wasm_shared) {
+      DCHECK_IMPLIES(table->shared, enabled_features_.has_shared() || !ok());
+      if (table->shared && enabled_features_.has_shared()) {
         module_->has_shared_part = true;
-        if (!IsShared(table_type, module_.get())) {
+        if (!table_type.is_shared()) {
           errorf(
               type_position,
               "Shared table %i must have shared element type, actual type %s",
@@ -1218,21 +1255,24 @@ class ModuleDecoderImpl : public Decoder {
       ValueType type = consume_value_type(module_.get());
       auto [mutability, shared] = consume_global_flags();
       if (failed()) return;
-      if (shared && !IsShared(type, module_.get())) {
-        CHECK(v8_flags.experimental_wasm_shared);
+      if (shared && !type.is_shared()) {
+        CHECK(enabled_features_.has_shared());
         errorf(pos, "Shared global %i must have shared type, actual type %s",
                i + imported_globals, type.name().c_str());
         return;
       }
       // Validation that {type} and {shared} are compatible will happen in
       // {consume_init_expr}.
-      ConstantExpression init = consume_init_expr(module_.get(), type, shared);
+      bool ends_with_struct_new = false;
+      ConstantExpression init =
+          consume_init_expr(module_.get(), type, shared, &ends_with_struct_new);
       module_->globals.push_back(
           WasmGlobal{.type = type,
                      .mutability = mutability,
                      .init = init,
                      .index = 0,  // set later in CalculateGlobalOffsets
-                     .shared = shared});
+                     .shared = shared,
+                     .initializer_ends_with_struct_new = ends_with_struct_new});
       if (shared) module_->has_shared_part = true;
     }
   }
@@ -1310,6 +1350,7 @@ class ModuleDecoderImpl : public Decoder {
           exp->index = consume_tag_index(module_.get(), &tag);
           break;
         }
+        case kExternalExactFunction:
         default:
           errorf(kind_pos, "invalid export kind 0x%02x", exp->kind);
           break;
@@ -1567,6 +1608,16 @@ class ModuleDecoderImpl : public Decoder {
     consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
   }
 
+  void DecodeDescriptorsSection() {
+    if (enabled_features_.has_custom_descriptors() &&
+        !has_seen_unordered_section(kDescriptorsSectionCode)) {
+      set_seen_unordered_section(kDescriptorsSectionCode);
+      module_->descriptors_section = {buffer_offset_,
+                                      static_cast<uint32_t>(end_ - start_)};
+    }
+    consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+  }
+
   void DecodeSourceMappingURLSection() {
     Decoder inner(start_, pc_, end_, buffer_offset_);
     WireBytesRef url =
@@ -1669,102 +1720,6 @@ class ModuleDecoderImpl : public Decoder {
     consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
   }
 
-  void DecodeCompilationHintsSection() {
-    TRACE("DecodeCompilationHints module+%d\n", static_cast<int>(pc_ - start_));
-
-    // TODO(frgossen): Find a way to report compilation hint errors as warnings.
-    // All except first occurrence after function section and before code
-    // section are ignored.
-    const bool before_function_section =
-        next_ordered_section_ <= kFunctionSectionCode;
-    const bool after_code_section = next_ordered_section_ > kCodeSectionCode;
-    if (before_function_section || after_code_section ||
-        has_seen_unordered_section(kCompilationHintsSectionCode)) {
-      return;
-    }
-    set_seen_unordered_section(kCompilationHintsSectionCode);
-
-    // TODO(frgossen) Propagate errors to outer decoder in experimental phase.
-    // We should use an inner decoder later and propagate its errors as
-    // warnings.
-    Decoder& decoder = *this;
-    // Decoder decoder(start_, pc_, end_, buffer_offset_);
-
-    // Ensure exactly one compilation hint per function.
-    uint32_t hint_count = decoder.consume_u32v("compilation hint count");
-    if (hint_count != module_->num_declared_functions) {
-      decoder.errorf(decoder.pc(), "Expected %u compilation hints (%u found)",
-                     module_->num_declared_functions, hint_count);
-    }
-
-    // Decode sequence of compilation hints.
-    if (decoder.ok()) {
-      module_->compilation_hints.reserve(hint_count);
-    }
-    for (uint32_t i = 0; decoder.ok() && i < hint_count; i++) {
-      TRACE("DecodeCompilationHints[%d] module+%d\n", i,
-            static_cast<int>(pc_ - start_));
-
-      // Compilation hints are encoded in one byte each.
-      // +-------+----------+---------------+----------+
-      // | 2 bit | 2 bit    | 2 bit         | 2 bit    |
-      // | ...   | Top tier | Baseline tier | Strategy |
-      // +-------+----------+---------------+----------+
-      uint8_t hint_byte = decoder.consume_u8("compilation hint");
-      if (!decoder.ok()) break;
-
-      // Validate the hint_byte.
-      // For the compilation strategy, all 2-bit values are valid. For the tier,
-      // only 0x0, 0x1, and 0x2 are allowed.
-      static_assert(
-          static_cast<int>(WasmCompilationHintTier::kDefault) == 0 &&
-              static_cast<int>(WasmCompilationHintTier::kBaseline) == 1 &&
-              static_cast<int>(WasmCompilationHintTier::kOptimized) == 2,
-          "The check below assumes that 0x03 is the only invalid 2-bit number "
-          "for a compilation tier");
-      if (((hint_byte >> 2) & 0x03) == 0x03 ||
-          ((hint_byte >> 4) & 0x03) == 0x03) {
-        decoder.errorf(decoder.pc(),
-                       "Invalid compilation hint %#04x (invalid tier 0x03)",
-                       hint_byte);
-        break;
-      }
-
-      // Decode compilation hint.
-      WasmCompilationHint hint;
-      hint.strategy =
-          static_cast<WasmCompilationHintStrategy>(hint_byte & 0x03);
-      hint.baseline_tier =
-          static_cast<WasmCompilationHintTier>((hint_byte >> 2) & 0x03);
-      hint.top_tier =
-          static_cast<WasmCompilationHintTier>((hint_byte >> 4) & 0x03);
-
-      // Ensure that the top tier never downgrades a compilation result. If
-      // baseline and top tier are the same compilation will be invoked only
-      // once.
-      if (hint.top_tier < hint.baseline_tier &&
-          hint.top_tier != WasmCompilationHintTier::kDefault) {
-        decoder.errorf(decoder.pc(),
-                       "Invalid compilation hint %#04x (forbidden downgrade)",
-                       hint_byte);
-      }
-
-      // Happily accept compilation hint.
-      if (decoder.ok()) {
-        module_->compilation_hints.push_back(std::move(hint));
-      }
-    }
-
-    // If section was invalid reset compilation hints.
-    if (decoder.failed()) {
-      module_->compilation_hints.clear();
-    }
-
-    // @TODO(frgossen) Skip the whole compilation hints section in the outer
-    // decoder if inner decoder was used.
-    // consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
-  }
-
   void DecodeBranchHintsSection() {
     TRACE("DecodeBranchHints module+%d\n", static_cast<int>(pc_ - start_));
     detected_features_->add_branch_hinting();
@@ -1836,9 +1791,279 @@ class ModuleDecoderImpl : public Decoder {
       // If everything went well, accept the hints for the module.
       if (inner.ok()) {
         module_->branch_hints = std::move(branch_hints);
+      } else {
+        TRACE("DecodeBranchHints error: %s", inner.error().message().c_str());
       }
     }
     // Skip the whole branch hints section in the outer decoder.
+    consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+  }
+
+  void DecodeCompilationPrioritySection() {
+    TRACE("DecodeCompilationPriority module+%d\n",
+          static_cast<int>(pc_ - start_));
+    detected_features_->add_compilation_hints();
+    if (!has_seen_unordered_section(kCompilationPrioritySectionCode)) {
+      set_seen_unordered_section(kCompilationPrioritySectionCode);
+      // Use an inner decoder so that errors don't fail the outer decoder.
+      Decoder inner(start_, pc_, end_, buffer_offset_);
+      CompilationPriorities compilation_priorities;
+
+      uint32_t func_count = inner.consume_u32v("number of functions");
+
+      int64_t last_func_index = -1;
+
+      for (uint32_t i = 0; i < func_count; i++) {
+        uint32_t func_index = inner.consume_u32v("function index");
+        if (static_cast<int64_t>(func_index) <= last_func_index) {
+          inner.error("out of order functions");
+          break;
+        }
+        last_func_index = func_index;
+        uint32_t byte_offset = inner.consume_u32v("byte offset");
+        if (byte_offset != 0) {
+          inner.error("byte offset has to be 0 (function level only)");
+          break;
+        }
+        uint32_t hint_length = inner.consume_u32v("hint length");
+        const uint8_t* pc_after_hint_length = inner.pc();
+        uint32_t compilation_priority =
+            inner.consume_u32v("compilation priority");
+        if (static_cast<int64_t>(hint_length) <
+            inner.pc() - pc_after_hint_length) {
+          inner.error("Compilation priority longer than declared hint length");
+          break;
+        }
+        int optimization_priority = kOptimizationPriorityNotSpecifiedSentinel;
+
+        // If we exhausted the declared hint length, do not parse optimization
+        // priority.
+        if (static_cast<int64_t>(hint_length) >
+            inner.pc() - pc_after_hint_length) {
+          uint32_t parsed_priority =
+              inner.consume_u32v("optimization priority");
+          if (static_cast<int>(parsed_priority) >
+              kOptimizationPriorityExecutedOnceSentinel) {
+            inner.error("Optimization priority too large");
+            break;
+          }
+          optimization_priority = static_cast<int>(parsed_priority);
+          if (static_cast<int64_t>(hint_length) <
+              inner.pc() - pc_after_hint_length) {
+            inner.error("Optimization priority overflows declared hint length");
+            break;
+          }
+        }
+
+        // Ignore remaining hint bytes.
+        inner.consume_bytes(
+            hint_length -
+            static_cast<uint32_t>(inner.pc() - pc_after_hint_length));
+
+        if (!inner.ok()) break;
+
+        compilation_priorities.emplace(
+            func_index,
+            CompilationPriority{compilation_priority, optimization_priority});
+      }
+
+      // Extra unexpected bytes are an error.
+      if (inner.more()) {
+        inner.errorf("Unexpected extra bytes: %d\n",
+                     static_cast<int>(inner.pc() - inner.start()));
+      }
+      // If everything went well, accept the compilation priority hints for the
+      // module.
+      if (inner.ok()) {
+        module_->compilation_priorities = std::move(compilation_priorities);
+      } else if (v8_flags.trace_wasm_decoder ||
+                 v8_flags.trace_wasm_compilation_hints) {
+        PrintF("DecodeCompilationPriority error, offset %d: %s\n",
+               inner.error().offset(), inner.error().message().c_str());
+      }
+    }
+    // Skip the whole compilation priority section in the outer decoder.
+    consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+  }
+
+  void DecodeInstructionFrequenciesSection() {
+    TRACE("DecodeInstructionFrequencies module+%d\n",
+          static_cast<int>(pc_ - start_));
+    detected_features_->add_compilation_hints();
+    if (!has_seen_unordered_section(kInstFrequenciesSectionCode)) {
+      set_seen_unordered_section(kInstFrequenciesSectionCode);
+      // Use an inner decoder so that errors don't fail the outer decoder.
+      Decoder inner(start_, pc_, end_, buffer_offset_);
+
+      InstructionFrequencies frequencies;
+
+      uint32_t func_count = inner.consume_u32v("number of functions");
+
+      int64_t last_func_index = -1;
+
+      for (uint32_t i = 0; i < func_count; i++) {
+        uint32_t func_index = inner.consume_u32v("function index");
+        if (static_cast<int64_t>(func_index) <= last_func_index) {
+          inner.error("out of order functions");
+          break;
+        }
+        last_func_index = func_index;
+
+        int64_t last_byte_offset = -1;
+        uint32_t hints_count = inner.consume_u32v("hints count");
+
+        for (uint32_t hint = 0; hint < hints_count; hint++) {
+          uint32_t byte_offset = inner.consume_u32v("byte offset");
+          if (static_cast<int64_t>(byte_offset) <= last_byte_offset) {
+            inner.error("out of order hints");
+            break;
+          }
+          last_byte_offset = byte_offset;
+
+          uint32_t hint_length = inner.consume_u32v("hint length");
+          if (hint_length == 0) {
+            inner.error("hint length must be larger than 0");
+            break;
+          }
+
+          uint8_t frequency = inner.consume_u8("frequency");
+
+          if (!(frequency <= 64 || frequency == 127)) {
+            inner.error("invalid frequency");
+            break;
+          }
+
+          // Skip remaining hint bytes.
+          if (hint_length > 1) {
+            inner.consume_bytes(hint_length - 1);
+          }
+
+          frequencies[func_index].emplace_back(byte_offset, frequency);
+        }
+      }
+
+      // Extra unexpected bytes are an error.
+      if (inner.more()) {
+        inner.errorf("Unexpected extra bytes: %d\n",
+                     static_cast<int>(inner.pc() - inner.start()));
+      }
+      // If everything went well, accept the instruction-frequency hints for the
+      // module.
+      if (inner.ok()) {
+        module_->instruction_frequencies = std::move(frequencies);
+      } else if (v8_flags.trace_wasm_decoder ||
+                 v8_flags.trace_wasm_compilation_hints) {
+        PrintF("DecodeInstructionFrequencies error, offset %d: %s\n",
+               inner.error().offset(), inner.error().message().c_str());
+      }
+    }
+    // Skip the whole instruction frequencies section in the outer decoder.
+    consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
+  }
+
+  void DecodeCallTargetsSection() {
+    TRACE("DecodeCallTargets module+%d\n", static_cast<int>(pc_ - start_));
+    detected_features_->add_compilation_hints();
+    if (!has_seen_unordered_section(kCallTargetsSectionCode)) {
+      set_seen_unordered_section(kCallTargetsSectionCode);
+      // Use an inner decoder so that errors don't fail the outer decoder.
+      Decoder inner(start_, pc_, end_, buffer_offset_);
+
+      CallTargets call_targets;
+
+      uint32_t func_count = inner.consume_u32v("number of functions");
+
+      int64_t last_func_index = -1;
+
+      for (uint32_t i = 0; i < func_count; i++) {
+        uint32_t func_index = inner.consume_u32v("function index");
+        if (static_cast<int64_t>(func_index) <= last_func_index) {
+          inner.error("out of order functions");
+          break;
+        }
+        last_func_index = func_index;
+
+        int64_t last_byte_offset = -1;
+        uint32_t hints_count = inner.consume_u32v("hints count");
+
+        for (uint32_t hint = 0; hint < hints_count; hint++) {
+          uint32_t byte_offset = inner.consume_u32v("byte offset");
+          if (static_cast<int64_t>(byte_offset) <= last_byte_offset) {
+            inner.error("out of order hints");
+            break;
+          }
+          last_byte_offset = byte_offset;
+          uint32_t hint_length = inner.consume_u32v("hint length");
+          if (hint_length == 0) {
+            inner.error("hint length must be greater than 0");
+            break;
+          }
+          CallTargetVector call_targets_for_offset;
+          while (hint_length > 0) {
+            auto [function_index, function_index_length] =
+                inner.read_u32v<FullValidationTag>(inner.pc(),
+                                                   "function index");
+            if (inner.failed()) break;
+            if (function_index_length > hint_length) {
+              inner.error("function length overflows declared hint length");
+              break;
+            }
+            hint_length -= function_index_length;
+            inner.consume_bytes(function_index_length);
+
+            auto [call_frequency, call_frequency_length] =
+                inner.read_u32v<FullValidationTag>(inner.pc(),
+                                                   "call frequency");
+            if (inner.failed()) break;
+            if (call_frequency_length > hint_length) {
+              inner.error("call frequency overflows declared hint length");
+              break;
+            }
+            if (call_frequency > 100U) {
+              inner.error("invalid call frequency percentage");
+              break;
+            }
+            hint_length -= call_frequency_length;
+            inner.consume_bytes(call_frequency_length);
+
+            call_targets_for_offset.emplace_back(function_index,
+                                                 call_frequency);
+          }
+          if (inner.failed()) break;
+
+          DCHECK_EQ(hint_length, 0);
+
+          uint32_t sum_of_percentages = 0;
+          for (CallTarget& call_target : call_targets_for_offset) {
+            sum_of_percentages += call_target.call_frequency_percent;
+          }
+
+          if (sum_of_percentages > 100U) {
+            inner.error("percentages must sum to at most 100");
+            break;
+          }
+
+          call_targets[func_index].emplace_back(byte_offset,
+                                                call_targets_for_offset);
+        }
+        if (inner.failed()) break;
+      }
+
+      // Extra unexpected bytes are an error.
+      if (inner.more()) {
+        inner.errorf("Unexpected extra bytes: %d\n",
+                     static_cast<int>(inner.pc() - inner.start()));
+      }
+      // If everything went well, accept the call-target hints for the module.
+      if (inner.ok()) {
+        module_->call_targets = std::move(call_targets);
+      } else if (v8_flags.trace_wasm_decoder ||
+                 v8_flags.trace_wasm_compilation_hints) {
+        PrintF("DecodeCallTargets error, offset %d: %s\n",
+               inner.error().offset(), inner.error().message().c_str());
+      }
+    }
+    // Skip the whole call-targets section in the outer decoder.
     consume_bytes(static_cast<uint32_t>(end_ - start_), nullptr);
   }
 
@@ -1971,43 +2196,12 @@ class ModuleDecoderImpl : public Decoder {
     return result;
   }
 
-  // Decodes a single anonymous function starting at {start_}.
-  FunctionResult DecodeSingleFunctionForTesting(Zone* zone,
-                                                ModuleWireBytes wire_bytes,
-                                                const WasmModule* module) {
-    DCHECK(ok());
-    pc_ = start_;
-    expect_u8("type form", kWasmFunctionTypeCode);
-    WasmFunction function;
-    function.sig = consume_sig(zone);
-    function.code = {off(pc_), static_cast<uint32_t>(end_ - pc_)};
-
-    if (!ok()) return FunctionResult{std::move(error_)};
-
-    constexpr bool kShared = false;
-    FunctionBody body{function.sig, off(pc_), pc_, end_, kShared};
-
-    WasmDetectedFeatures unused_detected_features;
-    DecodeResult result = ValidateFunctionBody(zone, enabled_features_, module,
-                                               &unused_detected_features, body);
-
-    if (result.failed()) return FunctionResult{std::move(result).error()};
-
-    return FunctionResult{std::make_unique<WasmFunction>(function)};
-  }
-
   // Decodes a single function signature at {start}.
-  const FunctionSig* DecodeFunctionSignatureForTesting(Zone* zone,
-                                                       const uint8_t* start) {
+  const FunctionSig* DecodeFunctionSignatureForTesting(const uint8_t* start) {
     pc_ = start;
     if (!expect_u8("type form", kWasmFunctionTypeCode)) return nullptr;
-    const FunctionSig* result = consume_sig(zone);
+    const FunctionSig* result = consume_sig();
     return ok() ? result : nullptr;
-  }
-
-  ConstantExpression DecodeInitExprForTesting(ValueType expected) {
-    constexpr bool kIsShared = false;  // TODO(14616): Extend this.
-    return consume_init_expr(module_.get(), expected, kIsShared);
   }
 
   // Takes a module as parameter so that wasm-disassembler.cc can pass its own
@@ -2056,7 +2250,7 @@ class ModuleDecoderImpl : public Decoder {
     for (WasmGlobal& global : module->globals) {
       if (global.mutability && global.imported) {
         global.index = num_imported_mutable_globals++;
-      } else if (global.type.is_reference()) {
+      } else if (global.type.is_ref()) {
         global.offset = tagged_offset;
         // All entries in the tagged_globals_buffer have size 1.
         tagged_offset++;
@@ -2189,15 +2383,13 @@ class ModuleDecoderImpl : public Decoder {
         if (!limits.has_maximum()) {
           error(pc() - 1, "shared memory must have a maximum defined");
         }
-        if (v8_flags.experimental_wasm_shared) {
-          error(pc() - 1,
-                "shared memories are not supported with "
-                "--experimental-wasm-shared yet.");
-        }
-      } else if (!v8_flags.experimental_wasm_shared) {  // table
-        error(pc() - 1,
-              "invalid table limits flags, enable with "
-              "--experimental-wasm-shared");
+        // TODO(42204563): Implement proper handling of shared memories when
+        // Shared Everything is enabled.
+      } else if (!enabled_features_.has_shared()) {  // table
+        error(pc() - 1, "invalid table limits flags");
+      } else {
+        // TODO(42204563): Support shared tables.
+        error(pc() - 1, "shared tables are not supported yet");
       }
     }
 
@@ -2246,11 +2438,13 @@ class ModuleDecoderImpl : public Decoder {
       if (shared) tracer_->Description(" shared");
       tracer_->Description(mutability ? " mutable" : " immutable");
     }
-    if (shared && !v8_flags.experimental_wasm_shared) {
-      errorf(
-          pc() - 1,
-          "invalid global flags 0x%x (enable via --experimental-wasm-shared)",
-          flags);
+    if (shared && !enabled_features_.has_shared()) {
+      errorf(pc() - 1, "invalid global flags 0x%x", flags);
+      return {false, false};
+    }
+    if (shared) {
+      // TODO(42204563): Support shared globals.
+      error(pc() - 1, "shared globals are not supported yet");
       return {false, false};
     }
     return {mutability, shared};
@@ -2317,7 +2511,8 @@ class ModuleDecoderImpl : public Decoder {
   }
 
   ConstantExpression consume_init_expr(WasmModule* module, ValueType expected,
-                                       bool is_shared) {
+                                       bool is_shared,
+                                       bool* ends_with_struct_new = nullptr) {
     // The error message mimics the one generated by the {WasmFullDecoder}.
 #define TYPE_CHECK(found)                                                \
   if (V8_UNLIKELY(!IsSubtypeOf(found, expected, module))) {              \
@@ -2366,6 +2561,11 @@ class ModuleDecoderImpl : public Decoder {
           bool functype_is_shared = module->type(functype).is_shared;
           ValueType type = ValueType::Ref(functype, functype_is_shared,
                                           RefTypeKind::kFunction);
+          if (enabled_features_.has_custom_descriptors() &&
+              (index >= module->num_imported_functions ||
+               module->functions[index].exact)) {
+            type = type.AsExact();
+          }
           TYPE_CHECK(type)
           if (V8_UNLIKELY(is_shared && !type.is_shared())) {
             error(pc(), "ref.func does not have a shared type");
@@ -2383,15 +2583,14 @@ class ModuleDecoderImpl : public Decoder {
       case kExprRefNull: {
         auto [type, length] =
             value_type_reader::read_heap_type<FullValidationTag>(
-                this, pc() + 1, enabled_features_);
+                this, pc() + 1, enabled_features_, detected_features_);
         value_type_reader::ValidateHeapType<FullValidationTag>(this, pc_,
                                                                module, type);
         if (V8_UNLIKELY(failed())) return {};
         value_type_reader::Populate(&type, module);
         if (V8_LIKELY(lookahead(1 + length, kExprEnd))) {
           TYPE_CHECK(ValueType::RefNull(type))
-          if (V8_UNLIKELY(is_shared &&
-                          !IsShared(ValueType::RefNull(type), module))) {
+          if (V8_UNLIKELY(is_shared && !type.is_shared())) {
             error(pc(), "ref.null does not have a shared type");
             return {};
           }
@@ -2451,6 +2650,10 @@ class ModuleDecoderImpl : public Decoder {
 
       result = ConstantExpression::WireBytes(
           offset, static_cast<uint32_t>(decoder.end() - decoder.start()));
+
+      if (ends_with_struct_new) {
+        *ends_with_struct_new = decoder.interface().ends_with_struct_new();
+      }
     }
 
     // We reset the zone here; its memory is not used anymore, and we do not
@@ -2480,7 +2683,8 @@ class ModuleDecoderImpl : public Decoder {
         value_type_reader::read_value_type<FullValidationTag>(
             this, pc_,
             module_->origin == kWasmOrigin ? enabled_features_
-                                           : WasmEnabledFeatures::None());
+                                           : WasmEnabledFeatures::None(),
+            detected_features_);
     value_type_reader::ValidateValueType<FullValidationTag>(
         this, pc_, module_.get(), result);
     if (ok() && module) value_type_reader::Populate(&result, module);
@@ -2497,7 +2701,8 @@ class ModuleDecoderImpl : public Decoder {
         value_type_reader::read_heap_type<FullValidationTag>(
             this, pc_,
             module_->origin == kWasmOrigin ? enabled_features_
-                                           : WasmEnabledFeatures::None());
+                                           : WasmEnabledFeatures::None(),
+            detected_features_);
 
     value_type_reader::ValidateHeapType<FullValidationTag>(
         this, pc_, module_.get(), heap_type);
@@ -2524,7 +2729,7 @@ class ModuleDecoderImpl : public Decoder {
     }
   }
 
-  const FunctionSig* consume_sig(Zone* zone) {
+  const FunctionSig* consume_sig() {
     if (tracer_) tracer_->NextLine();
     // Parse parameter types.
     uint32_t param_count =
@@ -2542,46 +2747,51 @@ class ModuleDecoderImpl : public Decoder {
     // Parse return types.
     uint32_t return_count =
         consume_count("return count", kV8MaxWasmFunctionReturns);
+    if (return_count > 1) {
+      detected_features_->add_multi_value();
+    }
     // Now that we know the param count and the return count, we can allocate
     // the permanent storage.
-    ValueType* sig_storage =
-        zone->AllocateArray<ValueType>(param_count + return_count);
-    // Note: Returns come first in the signature storage.
-    std::copy_n(params.begin(), param_count, sig_storage + return_count);
+    FunctionSig::Builder sig_builder{&module_->signature_storage, return_count,
+                                     param_count};
+    for (ValueType t : params) sig_builder.AddParam(t);
     for (uint32_t i = 0; i < return_count; ++i) {
-      sig_storage[i] = consume_value_type();
+      sig_builder.AddReturn(consume_value_type());
       if (tracer_) tracer_->NextLineIfFull();
     }
     if (tracer_) tracer_->NextLineIfNonEmpty();
 
-    return zone->New<FunctionSig>(return_count, param_count, sig_storage);
+    return sig_builder.Get();
   }
 
-  const StructType* consume_struct(Zone* zone, bool is_descriptor) {
+  const StructType* consume_struct(bool is_descriptor, bool is_shared) {
     uint32_t field_count =
         consume_count(", field count", kV8MaxWasmStructFields);
     if (failed()) return nullptr;
-    ValueType* fields = zone->AllocateArray<ValueType>(field_count);
-    bool* mutabilities = zone->AllocateArray<bool>(field_count);
+    ValueType* fields =
+        module_->signature_storage.AllocateArray<ValueType>(field_count);
+    bool* mutabilities =
+        module_->signature_storage.AllocateArray<bool>(field_count);
     for (uint32_t i = 0; ok() && i < field_count; ++i) {
       fields[i] = consume_storage_type();
       mutabilities[i] = consume_mutability();
       if (tracer_) tracer_->NextLine();
     }
     if (failed()) return nullptr;
-    uint32_t* offsets = zone->AllocateArray<uint32_t>(field_count);
-    StructType* result = zone->New<StructType>(field_count, offsets, fields,
-                                               mutabilities, is_descriptor);
+    uint32_t* offsets =
+        module_->signature_storage.AllocateArray<uint32_t>(field_count);
+    StructType* result = module_->signature_storage.New<StructType>(
+        field_count, offsets, fields, mutabilities, is_descriptor, is_shared);
     result->InitializeOffsets();
     return result;
   }
 
-  const ArrayType* consume_array(Zone* zone) {
+  const ArrayType* consume_array() {
     ValueType element_type = consume_storage_type();
     bool mutability = consume_mutability();
     if (tracer_) tracer_->NextLine();
     if (failed()) return nullptr;
-    return zone->New<ArrayType>(element_type, mutability);
+    return module_->signature_storage.New<ArrayType>(element_type, mutability);
   }
 
   // Consume the attribute field of an exception.
@@ -2622,12 +2832,16 @@ class ModuleDecoderImpl : public Decoder {
     }
 
     bool is_shared = flag & kSharedFlag;
-    if (is_shared && !v8_flags.experimental_wasm_shared) {
-      errorf(pos,
-             "illegal flag value %u, enable with --experimental-wasm-shared",
-             flag);
+    if (is_shared && !enabled_features_.has_shared()) {
+      errorf(pos, "illegal flag value %u", flag);
       return {};
     }
+    if (is_shared) {
+      // TODO(42204563): Support shared element segments.
+      error(pos, "shared element segments are not supported yet.");
+      return {};
+    }
+
     if (is_shared) module_->has_shared_part = true;
 
     const WasmElemSegment::Status status =
@@ -2767,10 +2981,13 @@ class ModuleDecoderImpl : public Decoder {
 
     bool is_shared = flag & 0b1000;
 
-    if (V8_UNLIKELY(is_shared && !v8_flags.experimental_wasm_shared)) {
-      errorf(pos,
-             "illegal flag value %u. Enable with --experimental-wasm-shared",
-             flag);
+    if (V8_UNLIKELY(is_shared && !enabled_features_.has_shared())) {
+      errorf(pos, "illegal flag value %u.", flag);
+      return {};
+    }
+    if (V8_UNLIKELY(is_shared)) {
+      // TODO(42204563): Support shared data segments.
+      error(pos, "shared data segments are not supported yet.");
       return {};
     }
 
@@ -2816,7 +3033,7 @@ class ModuleDecoderImpl : public Decoder {
         ValueType::Ref(func->sig_index, module->type(func->sig_index).is_shared,
                        RefTypeKind::kFunction);
     if (V8_LIKELY(expected == kWasmFuncRef &&
-                  !v8_flags.experimental_wasm_shared)) {
+                  !enabled_features_.has_shared())) {
       DCHECK(module->type(func->sig_index).kind == TypeDefinition::kFunction);
       DCHECK(IsSubtypeOf(entry_type, expected, module));
     } else if (V8_UNLIKELY(!IsSubtypeOf(entry_type, expected, module))) {

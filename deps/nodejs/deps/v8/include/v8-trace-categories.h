@@ -5,10 +5,15 @@
 #ifndef INCLUDE_V8_TRACE_CATEGORIES_H_
 #define INCLUDE_V8_TRACE_CATEGORIES_H_
 
+#include "v8config.h"  // NOLINT(build/include_directory)
+
 #if defined(V8_USE_PERFETTO)
 
+#if defined(V8_USE_PERFETTO_SDK)
+#include "perfetto.h"  // NOLINT(build/include_directory)
+#else
 #include "perfetto/tracing/track_event.h"
-#include "v8config.h"
+#endif
 
 namespace v8 {
 

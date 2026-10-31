@@ -12,19 +12,19 @@
 
 namespace v8::internal {
 
-class PageMetadata;
+class NormalPage;
 
 class LiveObjectRange final {
  public:
   class iterator final {
    public:
-    using value_type = std::pair<Tagged<HeapObject>, int /* size */>;
+    using value_type = std::pair<Tagged<HeapObject>, SafeHeapObjectSize>;
     using pointer = const value_type*;
     using reference = const value_type&;
     using iterator_category = std::forward_iterator_tag;
 
     inline iterator();
-    explicit inline iterator(const PageMetadata* page);
+    explicit inline iterator(const NormalPage* page);
 
     inline iterator& operator++();
     inline iterator operator++(int);
@@ -35,14 +35,16 @@ class LiveObjectRange final {
     bool operator!=(iterator other) const { return !(*this == other); }
 
     value_type operator*() {
-      return std::make_pair(current_object_, current_size_);
+      return std::make_pair(
+          current_object_,
+          SafeHeapObjectSize(static_cast<uint32_t>(current_size_)));
     }
 
    private:
     inline bool AdvanceToNextMarkedObject();
     inline void AdvanceToNextValidObject();
 
-    const PageMetadata* const page_ = nullptr;
+    const NormalPage* const page_ = nullptr;
     const MarkBit::CellType* const cells_ = nullptr;
     const PtrComprCageBase cage_base_;
     MarkingBitmap::CellIndex current_cell_index_ = 0;
@@ -52,13 +54,13 @@ class LiveObjectRange final {
     int current_size_ = 0;
   };
 
-  explicit LiveObjectRange(const PageMetadata* page) : page_(page) {}
+  explicit LiveObjectRange(const NormalPage* page) : page_(page) {}
 
   inline iterator begin();
   inline iterator end();
 
  private:
-  const PageMetadata* const page_;
+  const NormalPage* const page_;
 };
 
 }  // namespace v8::internal

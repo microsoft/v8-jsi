@@ -285,6 +285,19 @@ const features = {
   get require_module() {
     return getOptionValue('--require-module');
   },
+  get dtls() {
+    return process.config.variables.node_use_dtls &&
+           hasOpenSSL &&
+           getOptionValue('--experimental-dtls');
+  },
+  get quic() {
+    // TODO(@jasnell): When the implementation is updated to support Boring,
+    // then this should be refactored to depend not only on the OpenSSL version.
+    return process.config.variables.node_use_quic &&
+           !openSSLIsBoringSSL &&
+           getOptionValue('--experimental-quic') &&
+           process.config.variables.openssl_version >= 810549279; // >= 3.5.1
+  },
 };
 
 ObjectDefineProperty(process, 'features', {
@@ -299,6 +312,7 @@ ObjectDefineProperty(process, 'features', {
   const {
     onGlobalUncaughtException,
     setUncaughtExceptionCaptureCallback,
+    addUncaughtExceptionCaptureCallback,
     hasUncaughtExceptionCaptureCallback,
   } = require('internal/process/execution');
 
@@ -311,6 +325,8 @@ ObjectDefineProperty(process, 'features', {
   process._fatalException = onGlobalUncaughtException;
   process.setUncaughtExceptionCaptureCallback =
     setUncaughtExceptionCaptureCallback;
+  process.addUncaughtExceptionCaptureCallback =
+    addUncaughtExceptionCaptureCallback;
   process.hasUncaughtExceptionCaptureCallback =
     hasUncaughtExceptionCaptureCallback;
 }
@@ -325,9 +341,7 @@ ObjectDefineProperty(process.features, 'typescript', {
   __proto__: null,
   get() {
     if (kTypeStrippingMode === null) {
-      if (getOptionValue('--experimental-transform-types')) {
-        kTypeStrippingMode = 'transform';
-      } else if (getOptionValue('--strip-types')) {
+      if (getOptionValue('--strip-types')) {
         kTypeStrippingMode = 'strip';
       } else {
         kTypeStrippingMode = false;

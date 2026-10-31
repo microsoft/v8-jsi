@@ -112,6 +112,12 @@ class Managed : public Foreign {
   // Read back the memory estimate that was provided when creating this Managed.
   size_t estimated_size() const { return GetDestructor()->estimated_size_; }
 
+  // Set a new managed object, dropping the old reference.
+  // TODO(clemensb): Add an `UpdateEstimatedSize(size_t)` method.
+  void SetManagedObject(std::shared_ptr<CppType> new_managed) {
+    *GetSharedPtrPtr() = std::move(new_managed);
+  }
+
   // Create a {Managed>} from an existing {std::shared_ptr} or {std::unique_ptr}
   // (which will automatically convert to a {std::shared_ptr}).
   static DirectHandle<Managed<CppType>> From(
@@ -161,7 +167,7 @@ class TrustedManaged : public TrustedForeign {
   // {std::unique_ptr} (which will implicitly convert to {std::shared_ptr}).
   static DirectHandle<TrustedManaged<CppType>> From(
       Isolate* isolate, size_t estimated_size,
-      std::shared_ptr<CppType> shared_ptr);
+      std::shared_ptr<CppType> shared_ptr, bool shared);
 
  private:
   friend class Tagged<TrustedManaged>;

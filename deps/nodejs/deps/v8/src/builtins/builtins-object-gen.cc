@@ -73,7 +73,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::ConstructAccessorDescriptor(
     TNode<Context> context, TNode<Object> getter, TNode<Object> setter,
     TNode<BoolT> enumerable, TNode<BoolT> configurable) {
   TNode<NativeContext> native_context = LoadNativeContext(context);
-  TNode<Map> map = CAST(LoadContextElement(
+  TNode<Map> map = CAST(LoadContextElementNoCell(
       native_context, Context::ACCESSOR_PROPERTY_DESCRIPTOR_MAP_INDEX));
   TNode<JSObject> js_desc = AllocateJSObjectFromMap(map);
 
@@ -95,7 +95,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::ConstructDataDescriptor(
     TNode<Context> context, TNode<Object> value, TNode<BoolT> writable,
     TNode<BoolT> enumerable, TNode<BoolT> configurable) {
   TNode<NativeContext> native_context = LoadNativeContext(context);
-  TNode<Map> map = CAST(LoadContextElement(
+  TNode<Map> map = CAST(LoadContextElementNoCell(
       native_context, Context::DATA_PROPERTY_DESCRIPTOR_MAP_INDEX));
   TNode<JSObject> js_desc = AllocateJSObjectFromMap(map);
 
@@ -561,9 +561,9 @@ TF_BUILTIN(ObjectAssign, ObjectBuiltinsAssembler) {
               SideStepTransition::Kind::kObjectAssignValidityCell)));
       TNode<Cell> validity_cell = CAST(
           GetHeapObjectAssumeWeak(maybe_validity_cell, &runtime_map_lookup));
-      GotoIfNot(TaggedEqual(LoadCellValue(validity_cell),
-                            SmiConstant(Map::kPrototypeChainValid)),
-                &runtime_map_lookup);
+      GotoIf(TaggedEqual(LoadCellMaybeValue(validity_cell),
+                         PrototypeChainInvalidConstant()),
+             &runtime_map_lookup);
       clone_map = target_map;
     }
     Goto(&continue_fast_path);
@@ -666,7 +666,7 @@ TF_BUILTIN(ObjectKeys, ObjectBuiltinsAssembler) {
     TNode<EnumCache> object_enum_cache = LoadObjectField<EnumCache>(
         object_descriptors, DescriptorArray::kEnumCacheOffset);
     auto object_enum_keys = LoadObjectField<FixedArrayBase>(
-        object_enum_cache, EnumCache::kKeysOffset);
+        object_enum_cache, offsetof(EnumCache, keys_));
 
     // Allocate a JSArray and copy the elements from the {object_enum_keys}.
     TNode<JSArray> array;
@@ -796,7 +796,7 @@ TF_BUILTIN(ObjectGetOwnPropertyNames, ObjectBuiltinsAssembler) {
     TNode<EnumCache> object_enum_cache = LoadObjectField<EnumCache>(
         object_descriptors, DescriptorArray::kEnumCacheOffset);
     auto object_enum_keys = LoadObjectField<FixedArrayBase>(
-        object_enum_cache, EnumCache::kKeysOffset);
+        object_enum_cache, offsetof(EnumCache, keys_));
 
     // Allocate a JSArray and copy the elements from the {object_enum_keys}.
     TNode<JSArray> array;
@@ -979,8 +979,8 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   BIND(&if_boolean);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<JSFunction> boolean_constructor = CAST(
-        LoadContextElement(native_context, Context::BOOLEAN_FUNCTION_INDEX));
+    TNode<JSFunction> boolean_constructor = CAST(LoadContextElementNoCell(
+        native_context, Context::BOOLEAN_FUNCTION_INDEX));
     TNode<Map> boolean_initial_map = LoadObjectField<Map>(
         boolean_constructor, JSFunction::kPrototypeOrInitialMapOffset);
     TNode<JSPrototype> boolean_prototype =
@@ -1012,8 +1012,8 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   BIND(&if_number);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<JSFunction> number_constructor = CAST(
-        LoadContextElement(native_context, Context::NUMBER_FUNCTION_INDEX));
+    TNode<JSFunction> number_constructor = CAST(LoadContextElementNoCell(
+        native_context, Context::NUMBER_FUNCTION_INDEX));
     TNode<Map> number_initial_map = LoadObjectField<Map>(
         number_constructor, JSFunction::kPrototypeOrInitialMapOffset);
     TNode<JSPrototype> number_prototype = LoadMapPrototype(number_initial_map);
@@ -1056,8 +1056,8 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   BIND(&if_string);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<JSFunction> string_constructor = CAST(
-        LoadContextElement(native_context, Context::STRING_FUNCTION_INDEX));
+    TNode<JSFunction> string_constructor = CAST(LoadContextElementNoCell(
+        native_context, Context::STRING_FUNCTION_INDEX));
     TNode<Map> string_initial_map = LoadObjectField<Map>(
         string_constructor, JSFunction::kPrototypeOrInitialMapOffset);
     TNode<JSPrototype> string_prototype = LoadMapPrototype(string_initial_map);
@@ -1070,8 +1070,8 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   BIND(&if_symbol);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<JSFunction> symbol_constructor = CAST(
-        LoadContextElement(native_context, Context::SYMBOL_FUNCTION_INDEX));
+    TNode<JSFunction> symbol_constructor = CAST(LoadContextElementNoCell(
+        native_context, Context::SYMBOL_FUNCTION_INDEX));
     TNode<Map> symbol_initial_map = LoadObjectField<Map>(
         symbol_constructor, JSFunction::kPrototypeOrInitialMapOffset);
     TNode<JSPrototype> symbol_prototype = LoadMapPrototype(symbol_initial_map);
@@ -1084,8 +1084,8 @@ TF_BUILTIN(ObjectToString, ObjectBuiltinsAssembler) {
   BIND(&if_bigint);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<JSFunction> bigint_constructor = CAST(
-        LoadContextElement(native_context, Context::BIGINT_FUNCTION_INDEX));
+    TNode<JSFunction> bigint_constructor = CAST(LoadContextElementNoCell(
+        native_context, Context::BIGINT_FUNCTION_INDEX));
     TNode<Map> bigint_initial_map = LoadObjectField<Map>(
         bigint_constructor, JSFunction::kPrototypeOrInitialMapOffset);
     TNode<JSPrototype> bigint_prototype = LoadMapPrototype(bigint_initial_map);
@@ -1336,8 +1336,8 @@ TF_BUILTIN(CreateIterResultObject, ObjectBuiltinsAssembler) {
   const auto context = Parameter<Context>(Descriptor::kContext);
 
   const TNode<NativeContext> native_context = LoadNativeContext(context);
-  const TNode<Map> map = CAST(
-      LoadContextElement(native_context, Context::ITERATOR_RESULT_MAP_INDEX));
+  const TNode<Map> map = CAST(LoadContextElementNoCell(
+      native_context, Context::ITERATOR_RESULT_MAP_INDEX));
 
   const TNode<JSObject> result = AllocateJSObjectFromMap(map);
 
@@ -1405,8 +1405,9 @@ TF_BUILTIN(CreateGeneratorObject, ObjectBuiltinsAssembler) {
   Label done(this), runtime(this);
   GotoIfForceSlowPath(&runtime);
   GotoIfNot(IsFunctionWithPrototypeSlotMap(LoadMap(closure)), &runtime);
-  TNode<HeapObject> maybe_map = LoadObjectField<HeapObject>(
-      closure, JSFunction::kPrototypeOrInitialMapOffset);
+  TNode<UnionOf<JSPrototype, Map, TheHole>> maybe_map =
+      LoadObjectField<UnionOf<JSPrototype, Map, TheHole>>(
+          closure, JSFunction::kPrototypeOrInitialMapOffset);
   GotoIf(DoesntHaveInstanceType(maybe_map, MAP_TYPE), &runtime);
   TNode<Map> map = CAST(maybe_map);
 
@@ -1575,7 +1576,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   TVARIABLE(JSObject, js_descriptor);
 
   TNode<Int32T> flags = LoadAndUntagToWord32ObjectField(
-      desc, PropertyDescriptorObject::kFlagsOffset);
+      desc, offsetof(PropertyDescriptorObject, flags_));
 
   TNode<Int32T> has_flags =
       Word32And(flags, Int32Constant(PropertyDescriptorObject::kHasMask));
@@ -1596,8 +1597,9 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   BIND(&if_accessor_desc);
   {
     js_descriptor = ConstructAccessorDescriptor(
-        context, LoadObjectField(desc, PropertyDescriptorObject::kGetOffset),
-        LoadObjectField(desc, PropertyDescriptorObject::kSetOffset),
+        context,
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, get_)),
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, set_)),
         IsSetWord32<PropertyDescriptorObject::IsEnumerableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsConfigurableBit>(flags));
     Goto(&return_desc);
@@ -1606,7 +1608,8 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   BIND(&if_data_desc);
   {
     js_descriptor = ConstructDataDescriptor(
-        context, LoadObjectField(desc, PropertyDescriptorObject::kValueOffset),
+        context,
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, value_)),
         IsSetWord32<PropertyDescriptorObject::IsWritableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsEnumerableBit>(flags),
         IsSetWord32<PropertyDescriptorObject::IsConfigurableBit>(flags));
@@ -1616,7 +1619,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
   BIND(&if_generic_desc);
   {
     TNode<NativeContext> native_context = LoadNativeContext(context);
-    TNode<Map> map = CAST(LoadContextElement(
+    TNode<Map> map = CAST(LoadContextElementNoCell(
         native_context, Context::SLOW_OBJECT_WITH_OBJECT_PROTOTYPE_MAP));
     // We want to preallocate the slots for value, writable, get, set,
     // enumerable and configurable - a total of 6
@@ -1627,7 +1630,7 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
 
     Factory* factory = isolate()->factory();
     TNode<Object> value =
-        LoadObjectField(desc, PropertyDescriptorObject::kValueOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, value_));
     AddToDictionaryIf(IsNotTheHole(value), context, js_desc, properties,
                       factory->value_string(), value, &bailout);
     AddToDictionaryIf(
@@ -1638,11 +1641,11 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDescriptor(
         &bailout);
 
     TNode<Object> get =
-        LoadObjectField(desc, PropertyDescriptorObject::kGetOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, get_));
     AddToDictionaryIf(IsNotTheHole(get), context, js_desc, properties,
                       factory->get_string(), get, &bailout);
     TNode<Object> set =
-        LoadObjectField(desc, PropertyDescriptorObject::kSetOffset);
+        LoadObjectField(desc, offsetof(PropertyDescriptorObject, set_));
     AddToDictionaryIf(IsNotTheHole(set), context, js_desc, properties,
                       factory->set_string(), set, &bailout);
 
@@ -1701,10 +1704,10 @@ TNode<JSObject> ObjectBuiltinsAssembler::FromPropertyDetails(
   BIND(&if_accessor_desc);
   {
     TNode<AccessorPair> accessor_pair_value = CAST(raw_value);
-    TNode<HeapObject> getter = LoadObjectField<HeapObject>(
-        accessor_pair_value, AccessorPair::kGetterOffset);
-    TNode<HeapObject> setter = LoadObjectField<HeapObject>(
-        accessor_pair_value, AccessorPair::kSetterOffset);
+    TNode<HeapObject> getter =
+        CAST(LoadAccessorPairGetter(accessor_pair_value));
+    TNode<HeapObject> setter =
+        CAST(LoadAccessorPairSetter(accessor_pair_value));
     js_descriptor = ConstructAccessorDescriptor(
         context, GetAccessorOrUndefined(getter, if_bailout),
         GetAccessorOrUndefined(setter, if_bailout),

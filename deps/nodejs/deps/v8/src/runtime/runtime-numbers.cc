@@ -2,26 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/common/globals.h"
 #include "src/execution/arguments-inl.h"
 #include "src/execution/isolate-inl.h"
-#include "src/heap/heap-inl.h"  // For ToBoolean. TODO(jkummerow): Drop.
+#include "src/roots/roots-inl.h"
 #include "src/runtime/runtime-utils.h"
 
 namespace v8 {
 namespace internal {
 
 RUNTIME_FUNCTION(Runtime_StringToNumber) {
-  // When this is called from Wasm code, clear the "thread in wasm" flag,
-  // which is important in case any GC needs to happen.
-  // TODO(40192807): Find a better fix, likely by replacing the global flag.
-  SaveAndClearThreadInWasmFlag clear_wasm_flag(isolate);
-
   HandleScope handle_scope(isolate);
   DCHECK_EQ(1, args.length());
   Handle<String> subject = args.at<String>(0);
   return *String::ToNumber(isolate, subject);
 }
-
 
 // ES6 18.2.5 parseInt(string, radix) slow path
 RUNTIME_FUNCTION(Runtime_StringParseInt) {
@@ -50,7 +45,6 @@ RUNTIME_FUNCTION(Runtime_StringParseInt) {
   return *isolate->factory()->NewNumber(result);
 }
 
-
 // ES6 18.2.4 parseFloat(string)
 RUNTIME_FUNCTION(Runtime_StringParseFloat) {
   HandleScope shs(isolate);
@@ -64,15 +58,23 @@ RUNTIME_FUNCTION(Runtime_StringParseFloat) {
 }
 
 RUNTIME_FUNCTION(Runtime_NumberToStringSlow) {
-  // When this is called from Wasm code, clear the "thread in wasm" flag,
-  // which is important in case any GC needs to happen.
-  // TODO(40192807): Find a better fix, likely by replacing the global flag.
-  SaveAndClearThreadInWasmFlag clear_wasm_flag(isolate);
-
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
   return *isolate->factory()->NumberToString(args.at(0),
                                              NumberCacheMode::kSetOnly);
+}
+
+RUNTIME_FUNCTION(Runtime_Float64ToStringSlow) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(0, args.length());
+
+  // Don't try to canonicalize values. CSA::Float64ToString() machinery
+  // does not check the SmiStringCache, so returning values from there
+  // will not put an entry to DoubleStringCache.
+  const bool canonicalize = false;
+  return *isolate->factory()->DoubleToString(
+      isolate->isolate_data()->GetRawArgument<double>(0), canonicalize,
+      NumberCacheMode::kSetOnly);
 }
 
 RUNTIME_FUNCTION(Runtime_MaxSmi) {
@@ -81,26 +83,11 @@ RUNTIME_FUNCTION(Runtime_MaxSmi) {
   return Smi::FromInt(Smi::kMaxValue);
 }
 
-
 RUNTIME_FUNCTION(Runtime_IsSmi) {
   SealHandleScope shs(isolate);
   DCHECK_EQ(1, args.length());
   Tagged<Object> obj = args[0];
-  return isolate->heap()->ToBoolean(IsSmi(obj));
-}
-
-
-RUNTIME_FUNCTION(Runtime_GetHoleNaNUpper) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(0, args.length());
-  return *isolate->factory()->NewNumberFromUint(kHoleNanUpper32);
-}
-
-
-RUNTIME_FUNCTION(Runtime_GetHoleNaNLower) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(0, args.length());
-  return *isolate->factory()->NewNumberFromUint(kHoleNanLower32);
+  return ReadOnlyRoots(isolate).boolean_value(IsSmi(obj));
 }
 
 }  // namespace internal

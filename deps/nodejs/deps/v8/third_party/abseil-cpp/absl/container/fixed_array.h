@@ -50,6 +50,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/port.h"
 #include "absl/container/internal/compressed_tuple.h"
+#include "absl/hash/internal/weakly_mixed_integer.h"
 #include "absl/memory/memory.h"
 
 namespace absl {
@@ -83,11 +84,9 @@ class ABSL_ATTRIBUTE_WARN_UNUSED FixedArray {
   static constexpr size_t kInlineBytesDefault = 256;
 
   using AllocatorTraits = std::allocator_traits<A>;
-  // std::iterator_traits isn't guaranteed to be SFINAE-friendly until C++17,
-  // but this seems to be mostly pedantic.
   template <typename Iterator>
-  using EnableIfForwardIterator = std::enable_if_t<
-      base_internal::IsAtLeastForwardIterator<Iterator>::value>;
+  using EnableIfInputIterator =
+      std::enable_if_t<base_internal::IsAtLeastInputIterator<Iterator>::value>;
   static constexpr bool NoexceptCopyable() {
     return std::is_nothrow_copy_constructible<StorageElement>::value &&
            absl::allocator_is_nothrow<allocator_type>::value;
@@ -160,8 +159,8 @@ class ABSL_ATTRIBUTE_WARN_UNUSED FixedArray {
 
   // Creates an array initialized with the elements from the input
   // range. The array's size will always be `std::distance(first, last)`.
-  // REQUIRES: Iterator must be a forward_iterator or better.
-  template <typename Iterator, EnableIfForwardIterator<Iterator>* = nullptr>
+  // REQUIRES: Iterator must be a input_iterator or better.
+  template <typename Iterator, EnableIfInputIterator<Iterator>* = nullptr>
   FixedArray(Iterator first, Iterator last,
              const allocator_type& a = allocator_type())
       : storage_(std::distance(first, last), a) {
@@ -391,8 +390,7 @@ class ABSL_ATTRIBUTE_WARN_UNUSED FixedArray {
 
   template <typename H>
   friend H AbslHashValue(H h, const FixedArray& v) {
-    return H::combine(H::combine_contiguous(std::move(h), v.data(), v.size()),
-                      v.size());
+    return H::combine_contiguous(std::move(h), v.data(), v.size());
   }
 
  private:

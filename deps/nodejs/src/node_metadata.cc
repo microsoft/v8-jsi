@@ -9,11 +9,15 @@
 #include "nbytes.h"
 #include "nghttp2/nghttp2ver.h"
 #include "node.h"
+#include "quic/guard.h"
 #include "simdjson.h"
 #include "simdutf.h"
 #if HAVE_SQLITE
 #include "sqlite3.h"
 #endif  // HAVE_SQLITE
+#if HAVE_FFI
+#include "ffi.h"
+#endif  // HAVE_FFI
 #include "undici_version.h"
 #include "util.h"
 #include "uv.h"
@@ -30,15 +34,15 @@
 #if HAVE_OPENSSL
 #include <openssl/crypto.h>
 #include "ncrypto.h"
-#if NODE_OPENSSL_HAS_QUIC
+#ifndef OPENSSL_NO_QUIC
 #include <openssl/quic.h>
 #endif
 #endif  // HAVE_OPENSSL
 
-#ifdef NODE_OPENSSL_HAS_QUIC
+#ifndef OPENSSL_NO_QUIC
 #include <ngtcp2/version.h>
 #include <nghttp3/version.h>
-#endif
+#endif  // OPENSSL_NO_QUIC
 
 #ifdef NODE_HAVE_I18N_SUPPORT
 #include <unicode/timezone.h>
@@ -46,6 +50,10 @@
 #include <unicode/uvernum.h>
 #include <unicode/uversion.h>
 #endif  // NODE_HAVE_I18N_SUPPORT
+
+#if HAVE_LIEF
+#include "LIEF/version.h"
+#endif
 
 namespace node {
 
@@ -109,6 +117,13 @@ Metadata::Versions::Versions() {
   modules = NODE_STRINGIFY(NODE_MODULE_VERSION);
   nghttp2 = NGHTTP2_VERSION;
   napi = NODE_STRINGIFY(NODE_API_SUPPORTED_VERSION_MAX);
+
+#if HAVE_LIEF
+  lief = (std::to_string(LIEF_VERSION_MAJOR) + "." +
+          std::to_string(LIEF_VERSION_MINOR) + "." +
+          std::to_string(LIEF_VERSION_PATCH));
+#endif
+
   llhttp =
       NODE_STRINGIFY(LLHTTP_VERSION_MAJOR)
       "."
@@ -147,16 +162,19 @@ Metadata::Versions::Versions() {
   unicode = U_UNICODE_VERSION;
 #endif  // NODE_HAVE_I18N_SUPPORT
 
-#ifdef NODE_OPENSSL_HAS_QUIC
+#ifndef OPENSSL_NO_QUIC
   ngtcp2 = NGTCP2_VERSION;
   nghttp3 = NGHTTP3_VERSION;
-#endif
+#endif  // OPENSSL_NO_QUIC
 
   simdjson = SIMDJSON_VERSION;
   simdutf = SIMDUTF_VERSION;
 #if HAVE_SQLITE
   sqlite = SQLITE_VERSION;
 #endif  // HAVE_SQLITE
+#if HAVE_FFI
+  libffi = FFI_VERSION_STRING;
+#endif  // HAVE_FFI
   ada = ADA_VERSION;
   nbytes = NBYTES_VERSION;
 }

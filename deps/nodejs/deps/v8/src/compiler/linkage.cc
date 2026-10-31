@@ -62,6 +62,9 @@ std::ostream& operator<<(std::ostream& os, const CallDescriptor::Kind& k) {
     case CallDescriptor::kCallWasmImportWrapper:
       os << "WasmImportWrapper";
       break;
+    case CallDescriptor::kResumeWasmContinuation:
+      os << "WasmResumeContinuation";
+      break;
 #endif  // V8_ENABLE_WEBASSEMBLY
     case CallDescriptor::kCallBuiltinPointer:
       os << "BuiltinPointer";
@@ -221,6 +224,8 @@ int CallDescriptor::CalculateFixedFrameSize(CodeKind code_kind) const {
     case kCallWasmFunctionIndirect:
     case kCallWasmImportWrapper:
       return WasmFrameConstants::kFixedSlotCount;
+    case kResumeWasmContinuation:
+      return TypedFrameConstants::kFixedSlotCount;
     case kCallWasmCapiFunction:
       return WasmExitFrameConstants::kFixedSlotCount;
 #endif  // V8_ENABLE_WEBASSEMBLY
@@ -342,7 +347,6 @@ CallDescriptor* ReplaceTypeInCallDescriptorWith(
       call_descriptor->CalleeSavedFPRegisters(),  // callee-saved fp regs
       call_descriptor->flags(),                   // flags
       call_descriptor->debug_name(),              // debug name
-      call_descriptor->GetStackArgumentOrder(),   // stack order
       call_descriptor->AllocatableRegisters(),    // allocatable registers
       return_slots,                               // return slot count
       call_descriptor->IsIndirectWasmFunctionCall()
@@ -412,7 +416,6 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
     case Runtime::kInlineIncBlockCounter:
     case Runtime::kInlineGeneratorClose:
     case Runtime::kInlineGeneratorGetResumeMode:
-    case Runtime::kInlineCreateJSGeneratorObject:
       return false;
 
     default:
@@ -424,7 +427,7 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
 }
 
 CallDescriptor* Linkage::GetRuntimeCallDescriptor(
-    Zone* zone, Runtime::FunctionId function_id, int js_parameter_count,
+    Zone* zone, Runtime::FunctionId function_id, int parameter_count,
     Operator::Properties properties, CallDescriptor::Flags flags,
     LazyDeoptOnThrow lazy_deopt_on_throw) {
   const Runtime::Function* function = Runtime::FunctionForId(function_id);
@@ -440,19 +443,33 @@ CallDescriptor* Linkage::GetRuntimeCallDescriptor(
   DCHECK_IMPLIES(lazy_deopt_on_throw == LazyDeoptOnThrow::kYes,
                  flags & CallDescriptor::kNeedsFrameState);
 
-  return GetCEntryStubCallDescriptor(zone, return_count, js_parameter_count,
-                                     debug_name, properties, flags);
+  CallDescriptor* descriptor =
+      GetCEntryStubCallDescriptor<StackArgumentOrder::kDefault>(
+          zone, return_count, parameter_count, debug_name, properties, flags,
+          kCEntryEntrypointTag);
+  descriptor->runtime_function_id_ = function_id;
+  return descriptor;
 }
 
+CallDescriptor* Linkage::GetCPPBuiltinCallDescriptor(
+    Zone* zone, int js_parameter_count, const char* debug_name,
+    Operator::Properties properties, CallDescriptor::Flags flags) {
+  DCHECK_LE(BuiltinArguments::kNumExtraArgsWithReceiver, js_parameter_count);
+  return GetCEntryStubCallDescriptor<StackArgumentOrder::kJS>(
+      zone, 1, js_parameter_count, debug_name, properties, flags,
+      kInvalidEntrypointTag);
+}
+
+template <StackArgumentOrder kStackArgumentOrder>
 CallDescriptor* Linkage::GetCEntryStubCallDescriptor(
-    Zone* zone, int return_count, int js_parameter_count,
+    Zone* zone, int return_count, int stack_parameter_count,
     const char* debug_name, Operator::Properties properties,
-    CallDescriptor::Flags flags, StackArgumentOrder stack_order) {
+    CallDescriptor::Flags flags, CodeEntrypointTag entrypoint_tag) {
   const size_t function_count = 1;
   const size_t num_args_count = 1;
   const size_t context_count = 1;
   const size_t parameter_count = function_count +
-                                 static_cast<size_t>(js_parameter_count) +
+                                 static_cast<size_t>(stack_parameter_count) +
                                  num_args_count + context_count;
 
   LocationSignature::Builder locations(zone, static_cast<size_t>(return_count),
@@ -469,10 +486,21 @@ CallDescriptor* Linkage::GetCEntryStubCallDescriptor(
     locations.AddReturn(regloc(kReturnRegister2, MachineType::AnyTagged()));
   }
 
-  // All parameters to the runtime call go on the stack.
-  for (int i = 0; i < js_parameter_count; i++) {
+  // All parameters for the runtime function go on the stack.
+  for (int i = 0; i < stack_parameter_count; i++) {
+    int stack_slot;
+    if constexpr (kStackArgumentOrder == StackArgumentOrder::kHighToLow) {
+      // Convert [0..stack_param_count) to [-stack_param_count, 0) while also
+      // reversing the order (argument #0 goes to sp[stack_param_count - 1]).
+      stack_slot = i - stack_parameter_count;
+    } else {
+      static_assert(kStackArgumentOrder == StackArgumentOrder::kLowToHigh);
+      // Convert [0..stack_param_count) to [-stack_param_count, 0) without
+      // reversing the order (element #0 goes to sp[0]).
+      stack_slot = -i - 1;
+    }
     locations.AddParam(LinkageLocation::ForCallerFrameSlot(
-        i - js_parameter_count, MachineType::AnyTagged()));
+        stack_slot, MachineType::AnyTagged()));
   }
   // Add runtime function itself.
   locations.AddParam(
@@ -491,17 +519,16 @@ CallDescriptor* Linkage::GetCEntryStubCallDescriptor(
       LinkageLocation::ForAnyRegister(MachineType::AnyTagged());
   return zone->New<CallDescriptor>(     // --
       CallDescriptor::kCallCodeObject,  // kind
-      kDefaultCodeEntrypointTag,        // tag
+      entrypoint_tag,                   // tag
       target_type,                      // target MachineType
       target_loc,                       // target location
       locations.Get(),                  // location_sig
-      js_parameter_count,               // stack_parameter_count
+      stack_parameter_count,            // stack_parameter_count
       properties,                       // properties
       kNoCalleeSaved,                   // callee-saved
       kNoCalleeSavedFp,                 // callee-saved fp
       flags,                            // flags
-      debug_name,                       // debug name
-      stack_order);                     // stack order
+      debug_name);                      // debug name
 }
 
 CallDescriptor* Linkage::GetJSCallDescriptor(Zone* zone, bool is_osr,
@@ -613,27 +640,42 @@ CallDescriptor* Linkage::GetStubCallDescriptor(
   }
 
   // Add parameters in registers and on the stack.
-  for (int i = 0; i < js_parameter_count; i++) {
-    if (i < register_parameter_count) {
-      // The first parameters go in registers.
-      MachineType type = descriptor.GetParameterType(i);
-      if (IsFloatingPoint(type.representation())) {
-        DoubleRegister reg = descriptor.GetDoubleRegisterParameter(i);
-        locations.AddParam(regloc(reg, type));
-      } else {
-        Register reg = descriptor.GetRegisterParameter(i);
-        locations.AddParam(regloc(reg, type));
-      }
+  // The first |register_parameter_count| parameters go in registers.
+  for (int i = 0; i < register_parameter_count; i++) {
+    MachineType type = descriptor.GetParameterType(i);
+    if (IsFloatingPoint(type.representation())) {
+      DoubleRegister reg = descriptor.GetDoubleRegisterParameter(i);
+      locations.AddParam(regloc(reg, type));
     } else {
-      // The rest of the parameters go on the stack.
+      Register reg = descriptor.GetRegisterParameter(i);
+      locations.AddParam(regloc(reg, type));
+    }
+  }
+  // The rest of the parameters go on the stack.
+  int descriptor_parameter_count = descriptor.GetParameterCount();
+  if (descriptor.GetStackArgumentOrder() == StackArgumentOrder::kHighToLow) {
+    for (int i = register_parameter_count; i < js_parameter_count; i++) {
+      // Convert [0..stack_param_count) to [-stack_param_count, 0) while also
+      // reversing the order (argument #0 goes to sp[stack_param_count - 1]).
       int stack_slot = i - register_parameter_count - stack_parameter_count;
       locations.AddParam(LinkageLocation::ForCallerFrameSlot(
-          stack_slot, i < descriptor.GetParameterCount()
+          stack_slot, i < descriptor_parameter_count
+                          ? descriptor.GetParameterType(i)
+                          : MachineType::AnyTagged()));
+    }
+  } else {
+    DCHECK_EQ(descriptor.GetStackArgumentOrder(),
+              StackArgumentOrder::kLowToHigh);
+    for (int i = register_parameter_count; i < js_parameter_count; i++) {
+      // Convert [0..stack_param_count) to [-stack_param_count, 0) without
+      // reversing the order (element #0 goes to sp[0]).
+      int stack_slot = -(i - register_parameter_count) - 1;
+      locations.AddParam(LinkageLocation::ForCallerFrameSlot(
+          stack_slot, i < descriptor_parameter_count
                           ? descriptor.GetParameterType(i)
                           : MachineType::AnyTagged()));
     }
   }
-
   // Add context.
   if (context_count) {
     locations.AddParam(regloc(kContextRegister, MachineType::AnyTagged()));
@@ -678,7 +720,6 @@ CallDescriptor* Linkage::GetStubCallDescriptor(
       kNoCalleeSavedFp,                      // callee-saved fp
       CallDescriptor::kCanUseRoots | flags,  // flags
       descriptor.DebugName(),                // debug name
-      descriptor.GetStackArgumentOrder(),    // stack order
       allocatable_registers);
 }
 

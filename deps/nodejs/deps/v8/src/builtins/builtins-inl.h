@@ -181,8 +181,6 @@ constexpr Builtin Builtins::CEntry(int result_size, ArgvMode argv_mode,
     return Builtin::kCEntry_Return1_ArgvInRegister_NoBuiltinExit;
   } else if (rs == 2 && am == ArgvMode::kStack && !be) {
     return Builtin::kCEntry_Return2_ArgvOnStack_NoBuiltinExit;
-  } else if (rs == 2 && am == ArgvMode::kStack && be) {
-    return Builtin::kCEntry_Return2_ArgvOnStack_BuiltinExit;
   } else if (rs == 2 && am == ArgvMode::kRegister && !be) {
     return Builtin::kCEntry_Return2_ArgvInRegister_NoBuiltinExit;
   }
@@ -239,6 +237,13 @@ constexpr Builtin Builtins::InterpreterPushArgsThenConstruct(
 
 // static
 Address Builtins::EntryOf(Builtin builtin, Isolate* isolate) {
+#ifdef V8_ENABLE_WEBASSEMBLY
+  // We don't use the isolate-specific copy of the WasmToJS wrapper; use
+  // EmbeddedEntryOf() instead to get the isolate-independent copy.
+  DCHECK(builtin != Builtin::kWasmToJsWrapperCSA &&
+         builtin != Builtin::kWasmToJsWrapperAsm &&
+         builtin != Builtin::kWasmToJsWrapperInvalidSig);
+#endif
   return isolate->builtin_entry_table()[Builtins::ToInt(builtin)];
 }
 
@@ -261,14 +266,16 @@ int Builtins::GetFormalParameterCount(Builtin builtin) {
 
   // TODO(saelo): consider merging GetFormalParameterCount and
   // GetStackParameterCount into a single function.
-  if (Builtins::KindOf(builtin) == TSJ || Builtins::KindOf(builtin) == TFJ) {
+  Builtins::Kind kind = KindOf(builtin);
+  if (kind == TFJ_TSA || kind == TFJ) {
     return Builtins::GetStackParameterCount(builtin);
-  } else if (Builtins::KindOf(builtin) == ASM ||
-             Builtins::KindOf(builtin) == TFC) {
+
+  } else if (kind == ASM || kind == TFC) {
     // At the moment, all ASM builtins are varargs builtins. This is verified
     // in CheckFormalParameterCount.
     return kDontAdaptArgumentsSentinel;
-  } else if (Builtins::KindOf(builtin) == CPP) {
+
+  } else if (kind == CPP) {
 #define CPP_BUILTIN(Name, Argc) \
   case Builtin::k##Name:        \
     return Argc;
@@ -283,6 +290,75 @@ int Builtins::GetFormalParameterCount(Builtin builtin) {
     UNREACHABLE();
   }
 }
+
+// static
+bool Builtins::IsDisabled(Builtin builtin) {
+  auto flags = GetJSBuiltinState(builtin);
+  DCHECK_EQ(HasJSLinkage(builtin),
+            !(flags & JSBuiltinStateFlag::kNonJSLinkage));
+  if (!(flags & JSBuiltinStateFlag::kNonJSLinkage) &&
+      !(flags & JSBuiltinStateFlag::kEnabled)) {
+    return true;
+  }
+  return false;
+}
+
+// static
+bool Builtins::IsJSTrampoline(Builtin builtin) {
+  bool is_js_trampoline = false;
+  // This allow list is the same as "GetJSBuiltinState() & kCoreV8JSTrampoline"
+  // but we keep it here in explicit form in order to make it easier to
+  // reason about.
+  switch (builtin) {
+    case Builtin::kIllegal:
+    case Builtin::kCompileLazy:
+    case Builtin::kInterpreterEntryTrampoline:
+    case Builtin::kInstantiateAsmJs:
+    case Builtin::kDebugBreakTrampoline:
+#ifdef V8_ENABLE_WEBASSEMBLY
+    case Builtin::kJSToWasmWrapper:
+    case Builtin::kJSToJSWrapper:
+    case Builtin::kJSToJSWrapperInvalidSig:
+    case Builtin::kWasmPromising:
+#if V8_ENABLE_DRUMBRAKE
+    case Builtin::kGenericJSToWasmInterpreterWrapper:
+#endif
+    case Builtin::kWasmStressSwitch:
+#endif
+      is_js_trampoline = true;
+      break;
+    default:
+      break;
+  }
+  if (DEBUG_BOOL) {
+    // Check that the above list matches JSBuiltinState(..) flags.
+    auto flags = GetJSBuiltinState(builtin);
+    CHECK_EQ(is_js_trampoline,
+             (flags & JSBuiltinStateFlag::kCoreV8JSTrampoline) != 0);
+  }
+  return is_js_trampoline;
+}
+
+// static
+bool Builtins::IsEnabledAndNotJSTrampoline(Builtin builtin) {
+  auto flags = GetJSBuiltinState(builtin);
+  DCHECK_EQ(HasJSLinkage(builtin),
+            !(flags & JSBuiltinStateFlag::kNonJSLinkage));
+  if ((flags & JSBuiltinStateFlag::kEnabled) &&
+      !(flags & JSBuiltinStateFlag::kCoreV8JSTrampoline)) {
+    return true;
+  }
+  return false;
+}
+
+// LINT.IfChange(IsCompatibleJSBuiltin)
+// static
+bool Builtins::IsCompatibleJSBuiltin(Builtin builtin,
+                                     uint16_t parameter_count) {
+  return parameter_count == GetFormalParameterCount(builtin) &&
+         IsEnabledAndNotJSTrampoline(builtin);
+}
+// LINT.ThenChange(/src/sandbox/js-dispatch-table-inl.h:IsCompatibleCode)
 
 }  // namespace internal
 }  // namespace v8

@@ -16,6 +16,18 @@
 #endif
 #endif
 
+#if defined(NAPI_EXPERIMENTAL) &&                                              \
+    !defined(NODE_API_EXPERIMENTAL_NO_WARNING) &&                              \
+    !defined(NODE_WANT_INTERNALS)
+#ifdef _MSC_VER
+#pragma message("NAPI_EXPERIMENTAL is enabled. "                               \
+                "Experimental features may be unstable.")
+#else
+#warning "NAPI_EXPERIMENTAL is enabled. " \
+       "Experimental features may be unstable."
+#endif
+#endif
+
 // This file needs to be compatible with C compilers.
 // This is a public include file, and these includes have essentially
 // become part of its API.
@@ -175,6 +187,10 @@ typedef void(NAPI_CDECL* node_api_nogc_finalize)(node_api_nogc_env env,
                                                  void* finalize_hint);
 #endif
 typedef node_api_nogc_finalize node_api_basic_finalize;
+
+// A finalizer that can be called from any thread and at any time.
+typedef void(NAPI_CDECL* node_api_noenv_finalize)(void* finalize_data,
+                                                  void* finalize_hint);
 
 typedef struct {
   // One of utf8name or name should be NULL.

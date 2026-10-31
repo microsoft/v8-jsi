@@ -181,7 +181,7 @@ LiftoffAssembler::CacheState LiftoffAssembler::MergeIntoNewState(
 
   uint32_t target_height = num_locals + stack_depth + arity;
 
-  target.stack_state.resize(target_height);
+  target.stack_state.resize_no_init(target_height);
 
   const VarState* source_begin = cache_state_.stack_state.data();
   VarState* target_begin = target.stack_state.data();
@@ -664,7 +664,7 @@ void LiftoffAssembler::SpillAllRegisters() {
 
 void LiftoffAssembler::ClearRegister(
     Register reg, std::initializer_list<Register*> possible_uses,
-    LiftoffRegList pinned) {
+    LiftoffRegList& pinned) {
   if (reg == cache_state()->cached_instance_data) {
     cache_state()->ClearCachedInstanceRegister();
     // We can return immediately. The instance is only used to load information
@@ -687,7 +687,7 @@ void LiftoffAssembler::ClearRegister(
   for (Register* use : possible_uses) {
     if (reg != *use) continue;
     if (replacement == no_reg) {
-      replacement = GetUnusedRegister(kGpReg, pinned).gp();
+      replacement = pinned.set(GetUnusedRegister(kGpReg, pinned).gp());
       Move(replacement, reg, kIntPtrKind);
     }
     // We cannot leave this loop early. There may be multiple uses of {reg}.
@@ -884,6 +884,13 @@ void LiftoffAssembler::FinishCall(const ValueKindSig* sig,
         DCHECK(!loc.IsAnyRegister());
         reg_pair[pair_idx] = LiftoffRegister::from_external_code(
             rc, lowered_kind, loc.AsRegister());
+#if V8_TARGET_ARCH_64_BIT
+        // See explanation in `LiftoffCompiler::ParameterProcessor`.
+        if (return_kind == kI32) {
+          DCHECK(!needs_gp_pair);
+          clear_i32_upper_half(reg_pair[0].gp());
+        }
+#endif
       } else {
         DCHECK(loc.IsCallerFrameSlot());
         reg_pair[pair_idx] = GetUnusedRegister(rc, pinned);
@@ -1211,7 +1218,7 @@ bool CompatibleStackSlotTypes(ValueKind a, ValueKind b) {
   // Since Liftoff doesn't do accurate type tracking (e.g. on loop back edges,
   // ref.as_non_null/br_on_cast results), we only care that pointer types stay
   // amongst pointer types. It's fine if ref/ref null overwrite each other.
-  return a == b || (is_object_reference(a) && is_object_reference(b));
+  return a == b || (is_reference(a) && is_reference(b));
 }
 #endif
 

@@ -6,6 +6,8 @@
 #include "node_file.h"
 #include "req_wrap-inl.h"
 
+#include <algorithm>
+
 namespace node {
 namespace fs {
 
@@ -25,6 +27,15 @@ void FSContinuationData::MaybeSetFirstPath(const std::string& path) {
   if (first_path_.empty()) {
     first_path_ = path;
   }
+}
+
+bool FSContinuationData::ShouldRetryENOENT(const std::string& path) {
+  if (std::find(enoent_paths_.begin(), enoent_paths_.end(), path) !=
+      enoent_paths_.end()) {
+    return false;
+  }
+  enoent_paths_.push_back(path);
+  return true;
 }
 
 std::string FSContinuationData::PopPath() {
@@ -153,6 +164,7 @@ void FillStatFsArray(AliasedBufferBase<NativeT, V8T>* fields,
 
   SET_FIELD(kType, s->f_type);
   SET_FIELD(kBSize, s->f_bsize);
+  SET_FIELD(kFrSize, s->f_frsize);
   SET_FIELD(kBlocks, s->f_blocks);
   SET_FIELD(kBFree, s->f_bfree);
   SET_FIELD(kBAvail, s->f_bavail);
@@ -208,13 +220,7 @@ FSReqPromise<AliasedBufferT>::FSReqPromise(BindingData* binding_data,
                                            v8::Local<v8::Object> obj,
                                            bool use_bigint)
     : FSReqBase(
-          binding_data, obj, AsyncWrap::PROVIDER_FSREQPROMISE, use_bigint),
-      stats_field_array_(
-          env()->isolate(),
-          static_cast<size_t>(FsStatsOffset::kFsStatsFieldsNumber)),
-      statfs_field_array_(
-          env()->isolate(),
-          static_cast<size_t>(FsStatFsOffset::kFsStatFsFieldsNumber)) {}
+          binding_data, obj, AsyncWrap::PROVIDER_FSREQPROMISE, use_bigint) {}
 
 template <typename AliasedBufferT>
 void FSReqPromise<AliasedBufferT>::Reject(v8::Local<v8::Value> reject) {
@@ -252,14 +258,24 @@ void FSReqPromise<AliasedBufferT>::Resolve(v8::Local<v8::Value> value) {
 
 template <typename AliasedBufferT>
 void FSReqPromise<AliasedBufferT>::ResolveStat(const uv_stat_t* stat) {
-  FillStatsArray(&stats_field_array_, stat);
-  Resolve(stats_field_array_.GetJSArray());
+  if (!stats_field_array_.has_value()) {
+    stats_field_array_.emplace(
+        env()->isolate(),
+        static_cast<size_t>(FsStatsOffset::kFsStatsFieldsNumber));
+  }
+  FillStatsArray(&stats_field_array_.value(), stat);
+  Resolve(stats_field_array_->GetJSArray());
 }
 
 template <typename AliasedBufferT>
 void FSReqPromise<AliasedBufferT>::ResolveStatFs(const uv_statfs_t* stat) {
-  FillStatFsArray(&statfs_field_array_, stat);
-  Resolve(statfs_field_array_.GetJSArray());
+  if (!statfs_field_array_.has_value()) {
+    statfs_field_array_.emplace(
+        env()->isolate(),
+        static_cast<size_t>(FsStatFsOffset::kFsStatFsFieldsNumber));
+  }
+  FillStatFsArray(&statfs_field_array_.value(), stat);
+  Resolve(statfs_field_array_->GetJSArray());
 }
 
 template <typename AliasedBufferT>
@@ -279,8 +295,12 @@ void FSReqPromise<AliasedBufferT>::SetReturnValue(
 template <typename AliasedBufferT>
 void FSReqPromise<AliasedBufferT>::MemoryInfo(MemoryTracker* tracker) const {
   FSReqBase::MemoryInfo(tracker);
-  tracker->TrackField("stats_field_array", stats_field_array_);
-  tracker->TrackField("statfs_field_array", statfs_field_array_);
+  if (stats_field_array_.has_value()) {
+    tracker->TrackField("stats_field_array", stats_field_array_.value());
+  }
+  if (statfs_field_array_.has_value()) {
+    tracker->TrackField("statfs_field_array", statfs_field_array_.value());
+  }
 }
 
 FSReqBase* GetReqWrap(const v8::FunctionCallbackInfo<v8::Value>& args,

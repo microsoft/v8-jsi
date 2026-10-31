@@ -5,6 +5,8 @@
 #ifndef V8_HEAP_OBJECT_STATS_H_
 #define V8_HEAP_OBJECT_STATS_H_
 
+#include <vector>
+
 #include "src/objects/code.h"
 #include "src/objects/objects.h"
 
@@ -76,7 +78,6 @@
   V(SCRIPT_SOURCE_NON_EXTERNAL_ONE_BYTE_TYPE)    \
   V(SCRIPT_SOURCE_NON_EXTERNAL_TWO_BYTE_TYPE)    \
   V(SERIALIZED_OBJECTS_TYPE)                     \
-  V(SINGLE_CHARACTER_STRING_TABLE_TYPE)          \
   V(STRING_SPLIT_CACHE_TYPE)                     \
   V(STRING_EXTERNAL_RESOURCE_ONE_BYTE_TYPE)      \
   V(STRING_EXTERNAL_RESOURCE_TWO_BYTE_TYPE)      \
@@ -95,6 +96,12 @@ class Isolate;
 class ObjectStats {
  public:
   static const size_t kNoOverAllocation = 0;
+
+  struct ObjectData {
+    uint32_t address;
+    size_t size;
+    int type;
+  };
 
   explicit ObjectStats(Heap* heap) : heap_(heap) { ClearObjectStats(true); }
 
@@ -120,9 +127,11 @@ class ObjectStats {
   void Dump(std::stringstream& stream);
 
   void CheckpointObjectStats();
-  void RecordObjectStats(InstanceType type, size_t size,
+  void RecordObject(Tagged<HeapObject> obj, int type, size_t size);
+  void RecordObjectStats(Tagged<HeapObject> obj, InstanceType type, size_t size,
                          size_t over_allocated = kNoOverAllocation);
-  void RecordVirtualObjectStats(VirtualInstanceType type, size_t size,
+  void RecordVirtualObjectStats(Tagged<HeapObject> obj,
+                                VirtualInstanceType type, size_t size,
                                 size_t over_allocated);
 
   size_t object_count_last_gc(size_t index) {
@@ -144,10 +153,10 @@ class ObjectStats {
   static const int kNumberOfBuckets = kLastBucketShift - kFirstBucketShift + 1;
   static const int kLastValueBucketIndex = kLastBucketShift - kFirstBucketShift;
 
-  void PrintKeyAndId(const char* key, int gc_count);
+  void PrintKeyAndId(const char* key, GCEpoch gc_count);
   // The following functions are excluded from inline to reduce the overall
   // binary size of VB. On x64 this save around 80KB.
-  V8_NOINLINE void PrintInstanceTypeJSON(const char* key, int gc_count,
+  V8_NOINLINE void PrintInstanceTypeJSON(const char* key, GCEpoch gc_count,
                                          const char* name, int index);
   V8_NOINLINE void DumpInstanceTypeData(std::stringstream& stream,
                                         const char* name, int index);
@@ -172,6 +181,12 @@ class ObjectStats {
   size_t boxed_double_fields_count_;
   size_t string_data_count_;
   size_t raw_fields_count_;
+
+#ifdef V8_COMPRESS_POINTERS
+  std::vector<ObjectData> objects_main_;
+  std::vector<ObjectData> objects_trusted_;
+  std::vector<ObjectData> objects_code_;
+#endif  // V8_COMPRESS_POINTERS
 
   friend class ObjectStatsCollectorImpl;
 };

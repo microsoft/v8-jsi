@@ -64,7 +64,13 @@ class V8_EXPORT UnboundScript : public Data {
    */
   Local<Script> BindToCurrentContext();
 
+  /*
+   * A unique id.
+   */
+  int ScriptId() const;
+  V8_DEPRECATE_SOON("Use ScriptId")
   int GetId() const;
+
   Local<Value> GetScriptName();
 
   /**
@@ -104,7 +110,16 @@ class V8_EXPORT UnboundModuleScript : public Data {
    * Data read from magic sourceMappingURL comments.
    */
   Local<Value> GetSourceMappingURL();
+
+  /*
+   * A unique id.
+   */
+  int ScriptId() const;
+
+  static const int kNoScriptId = 0;
 };
+
+static_assert(UnboundModuleScript::kNoScriptId == UnboundScript::kNoScriptId);
 
 /**
  * A location in JavaScript source.
@@ -188,6 +203,13 @@ class V8_EXPORT Module : public Data {
   };
 
   /**
+   * If the module is a Source Text Module, returns the name that was passed
+   * by the embedder as resource_name to the ScriptOrigin. If it's a Synthetic
+   * Module, returns the module_name passed to CreateSyntheticModule().
+   */
+  Local<Value> GetResourceName() const;
+
+  /**
    * Returns the module's current status.
    */
   Status GetStatus() const;
@@ -220,6 +242,13 @@ class V8_EXPORT Module : public Data {
       Local<Context> context, Local<String> specifier,
       Local<FixedArray> import_attributes, Local<Module> referrer);
 
+  using ResolveModuleByIndexCallback = MaybeLocal<Module> (*)(
+      Local<Context> context, size_t module_request_index,
+      Local<Module> referrer);
+  using ResolveSourceByIndexCallback = MaybeLocal<Object> (*)(
+      Local<Context> context, size_t module_request_index,
+      Local<Module> referrer);
+
   /**
    * Instantiates the module and its dependencies.
    *
@@ -230,6 +259,16 @@ class V8_EXPORT Module : public Data {
   V8_WARN_UNUSED_RESULT Maybe<bool> InstantiateModule(
       Local<Context> context, ResolveModuleCallback module_callback,
       ResolveSourceCallback source_callback = nullptr);
+
+  /**
+   * Similar to the variant that takes ResolveModuleCallback and
+   * ResolveSourceCallback, but uses the index into the array that is returned
+   * by GetModuleRequests() instead of the specifier and import attributes to
+   * identify the requests.
+   */
+  V8_WARN_UNUSED_RESULT Maybe<bool> InstantiateModule(
+      Local<Context> context, ResolveModuleByIndexCallback module_callback,
+      ResolveSourceByIndexCallback source_callback = nullptr);
 
   /**
    * Evaluates the module and its dependencies.
@@ -372,6 +411,11 @@ class V8_EXPORT Script : public Data {
    * Returns the corresponding context-unbound script.
    */
   Local<UnboundScript> GetUnboundScript();
+
+  /**
+   * Returns the id of the corresponding context-unbound script.
+   */
+  int ScriptId() const;
 
   /**
    * The name that was passed by the embedder as ResourceName to the

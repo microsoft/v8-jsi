@@ -366,7 +366,9 @@ class MachineOptimizationReducer : public Next {
     if (const ConstantOp* cst = matcher_.TryCast<ConstantOp>(input)) {
       // Try to constant-fold Word constant -> Tagged (Smi).
       if (cst->IsIntegral() && to == RegisterRepresentation::Tagged()) {
-        if (Smi::IsValid(cst->integral())) {
+        // Any Tagged value that has the Smi Tag is a Smi, regardless of its
+        // value, so there is no need to check that {cst} is in Smi range.
+        if (HAS_SMI_TAG(cst->integral())) {
           return __ SmiConstant(
               i::Tagged<Smi>(static_cast<intptr_t>(cst->integral())));
         }
@@ -390,131 +392,87 @@ class MachineOptimizationReducer : public Next {
     }
     if (float f32_k; rep == FloatRepresentation::Float32() &&
                      matcher_.MatchFloat32Constant(input, &f32_k)) {
-      if (std::isnan(f32_k) && !signalling_nan_possible) {
-        return __ Float32Constant(std::numeric_limits<float>::quiet_NaN());
-      }
+      float result;
+#define CONSTANT_F32_CASE(kind, op) \
+  case FloatUnaryOp::Kind::kind:    \
+    result = op;                    \
+    break;
       switch (kind) {
-        case FloatUnaryOp::Kind::kAbs:
-          return __ Float32Constant(std::abs(f32_k));
-        case FloatUnaryOp::Kind::kNegate:
-          return __ Float32Constant(-f32_k);
-        case FloatUnaryOp::Kind::kSilenceNaN:
-          DCHECK(!std::isnan(f32_k));
-          return __ Float32Constant(f32_k);
-        case FloatUnaryOp::Kind::kRoundDown:
-          return __ Float32Constant(std::floor(f32_k));
-        case FloatUnaryOp::Kind::kRoundUp:
-          return __ Float32Constant(std::ceil(f32_k));
-        case FloatUnaryOp::Kind::kRoundToZero:
-          return __ Float32Constant(std::trunc(f32_k));
-        case FloatUnaryOp::Kind::kRoundTiesEven:
-          DCHECK_EQ(std::nearbyint(1.5), 2);
-          DCHECK_EQ(std::nearbyint(2.5), 2);
-          return __ Float32Constant(std::nearbyint(f32_k));
-        case FloatUnaryOp::Kind::kLog:
-          return __ Float32Constant(base::ieee754::log(f32_k));
-        case FloatUnaryOp::Kind::kSqrt:
-          return __ Float32Constant(std::sqrt(f32_k));
-        case FloatUnaryOp::Kind::kExp:
-          return __ Float32Constant(base::ieee754::exp(f32_k));
-        case FloatUnaryOp::Kind::kExpm1:
-          return __ Float32Constant(base::ieee754::expm1(f32_k));
-        case FloatUnaryOp::Kind::kSin:
-          return __ Float32Constant(SIN_IMPL(f32_k));
-        case FloatUnaryOp::Kind::kCos:
-          return __ Float32Constant(COS_IMPL(f32_k));
-        case FloatUnaryOp::Kind::kSinh:
-          return __ Float32Constant(base::ieee754::sinh(f32_k));
-        case FloatUnaryOp::Kind::kCosh:
-          return __ Float32Constant(base::ieee754::cosh(f32_k));
-        case FloatUnaryOp::Kind::kAcos:
-          return __ Float32Constant(base::ieee754::acos(f32_k));
-        case FloatUnaryOp::Kind::kAsin:
-          return __ Float32Constant(base::ieee754::asin(f32_k));
-        case FloatUnaryOp::Kind::kAsinh:
-          return __ Float32Constant(base::ieee754::asinh(f32_k));
-        case FloatUnaryOp::Kind::kAcosh:
-          return __ Float32Constant(base::ieee754::acosh(f32_k));
-        case FloatUnaryOp::Kind::kTan:
-          return __ Float32Constant(base::ieee754::tan(f32_k));
-        case FloatUnaryOp::Kind::kTanh:
-          return __ Float32Constant(base::ieee754::tanh(f32_k));
-        case FloatUnaryOp::Kind::kLog2:
-          return __ Float32Constant(base::ieee754::log2(f32_k));
-        case FloatUnaryOp::Kind::kLog10:
-          return __ Float32Constant(base::ieee754::log10(f32_k));
-        case FloatUnaryOp::Kind::kLog1p:
-          return __ Float32Constant(base::ieee754::log1p(f32_k));
-        case FloatUnaryOp::Kind::kCbrt:
-          return __ Float32Constant(base::ieee754::cbrt(f32_k));
-        case FloatUnaryOp::Kind::kAtan:
-          return __ Float32Constant(base::ieee754::atan(f32_k));
-        case FloatUnaryOp::Kind::kAtanh:
-          return __ Float32Constant(base::ieee754::atanh(f32_k));
+        CONSTANT_F32_CASE(kAbs, std::abs(f32_k))
+        CONSTANT_F32_CASE(kNegate, -f32_k)
+        CONSTANT_F32_CASE(kSilenceNaN, f32_k)
+        CONSTANT_F32_CASE(kRoundDown, std::floor(f32_k))
+        CONSTANT_F32_CASE(kRoundUp, std::ceil(f32_k))
+        CONSTANT_F32_CASE(kRoundToZero, std::trunc(f32_k))
+        CONSTANT_F32_CASE(kRoundTiesEven, std::nearbyint(f32_k))
+        CONSTANT_F32_CASE(kLog, base::ieee754::log(f32_k))
+        CONSTANT_F32_CASE(kSqrt, std::sqrt(f32_k))
+        CONSTANT_F32_CASE(kExp, base::ieee754::exp(f32_k))
+        CONSTANT_F32_CASE(kExpm1, base::ieee754::expm1(f32_k))
+        CONSTANT_F32_CASE(kSin, SIN_IMPL(f32_k))
+        CONSTANT_F32_CASE(kCos, COS_IMPL(f32_k))
+        CONSTANT_F32_CASE(kSinh, base::ieee754::sinh(f32_k))
+        CONSTANT_F32_CASE(kCosh, base::ieee754::cosh(f32_k))
+        CONSTANT_F32_CASE(kAcos, base::ieee754::acos(f32_k))
+        CONSTANT_F32_CASE(kAsin, base::ieee754::asin(f32_k))
+        CONSTANT_F32_CASE(kAsinh, base::ieee754::asinh(f32_k))
+        CONSTANT_F32_CASE(kAcosh, base::ieee754::acosh(f32_k))
+        CONSTANT_F32_CASE(kTan, base::ieee754::tan(f32_k))
+        CONSTANT_F32_CASE(kTanh, base::ieee754::tanh(f32_k))
+        CONSTANT_F32_CASE(kLog2, base::ieee754::log2(f32_k))
+        CONSTANT_F32_CASE(kLog10, base::ieee754::log10(f32_k))
+        CONSTANT_F32_CASE(kLog1p, base::ieee754::log1p(f32_k))
+        CONSTANT_F32_CASE(kCbrt, base::ieee754::cbrt(f32_k))
+        CONSTANT_F32_CASE(kAtan, base::ieee754::atan(f32_k))
+        CONSTANT_F32_CASE(kAtanh, base::ieee754::atanh(f32_k))
+      }
+#undef CONSTANT_F32_CASE
+      DCHECK_IMPLIES(std::isnan(f32_k), std::isnan(result));
+      if (!std::isnan(result)) return __ Float32Constant(result);
+      if (!ensure_deterministic_nan) {
+        return __ Float32Constant(std::numeric_limits<float>::quiet_NaN());
       }
     } else if (double f64_k; rep == FloatRepresentation::Float64() &&
                              matcher_.MatchFloat64Constant(input, &f64_k)) {
-      if (std::isnan(f64_k) && !signalling_nan_possible) {
-        return __ Float64Constant(std::numeric_limits<double>::quiet_NaN());
-      }
+      double result;
+#define CONSTANT_F64_CASE(kind, op) \
+  case FloatUnaryOp::Kind::kind:    \
+    result = op;                    \
+    break;
       switch (kind) {
-        case FloatUnaryOp::Kind::kAbs:
-          return __ Float64Constant(std::abs(f64_k));
-        case FloatUnaryOp::Kind::kNegate:
-          return __ Float64Constant(-f64_k);
-        case FloatUnaryOp::Kind::kSilenceNaN:
-          DCHECK(!std::isnan(f64_k));
-          return __ Float64Constant(f64_k);
-        case FloatUnaryOp::Kind::kRoundDown:
-          return __ Float64Constant(std::floor(f64_k));
-        case FloatUnaryOp::Kind::kRoundUp:
-          return __ Float64Constant(std::ceil(f64_k));
-        case FloatUnaryOp::Kind::kRoundToZero:
-          return __ Float64Constant(std::trunc(f64_k));
-        case FloatUnaryOp::Kind::kRoundTiesEven:
-          DCHECK_EQ(std::nearbyint(1.5), 2);
-          DCHECK_EQ(std::nearbyint(2.5), 2);
-          return __ Float64Constant(std::nearbyint(f64_k));
-        case FloatUnaryOp::Kind::kLog:
-          return __ Float64Constant(base::ieee754::log(f64_k));
-        case FloatUnaryOp::Kind::kSqrt:
-          return __ Float64Constant(std::sqrt(f64_k));
-        case FloatUnaryOp::Kind::kExp:
-          return __ Float64Constant(base::ieee754::exp(f64_k));
-        case FloatUnaryOp::Kind::kExpm1:
-          return __ Float64Constant(base::ieee754::expm1(f64_k));
-        case FloatUnaryOp::Kind::kSin:
-          return __ Float64Constant(SIN_IMPL(f64_k));
-        case FloatUnaryOp::Kind::kCos:
-          return __ Float64Constant(COS_IMPL(f64_k));
-        case FloatUnaryOp::Kind::kSinh:
-          return __ Float64Constant(base::ieee754::sinh(f64_k));
-        case FloatUnaryOp::Kind::kCosh:
-          return __ Float64Constant(base::ieee754::cosh(f64_k));
-        case FloatUnaryOp::Kind::kAcos:
-          return __ Float64Constant(base::ieee754::acos(f64_k));
-        case FloatUnaryOp::Kind::kAsin:
-          return __ Float64Constant(base::ieee754::asin(f64_k));
-        case FloatUnaryOp::Kind::kAsinh:
-          return __ Float64Constant(base::ieee754::asinh(f64_k));
-        case FloatUnaryOp::Kind::kAcosh:
-          return __ Float64Constant(base::ieee754::acosh(f64_k));
-        case FloatUnaryOp::Kind::kTan:
-          return __ Float64Constant(base::ieee754::tan(f64_k));
-        case FloatUnaryOp::Kind::kTanh:
-          return __ Float64Constant(base::ieee754::tanh(f64_k));
-        case FloatUnaryOp::Kind::kLog2:
-          return __ Float64Constant(base::ieee754::log2(f64_k));
-        case FloatUnaryOp::Kind::kLog10:
-          return __ Float64Constant(base::ieee754::log10(f64_k));
-        case FloatUnaryOp::Kind::kLog1p:
-          return __ Float64Constant(base::ieee754::log1p(f64_k));
-        case FloatUnaryOp::Kind::kCbrt:
-          return __ Float64Constant(base::ieee754::cbrt(f64_k));
-        case FloatUnaryOp::Kind::kAtan:
-          return __ Float64Constant(base::ieee754::atan(f64_k));
-        case FloatUnaryOp::Kind::kAtanh:
-          return __ Float64Constant(base::ieee754::atanh(f64_k));
+        CONSTANT_F64_CASE(kAbs, std::abs(f64_k))
+        CONSTANT_F64_CASE(kNegate, -f64_k)
+        CONSTANT_F64_CASE(kSilenceNaN, f64_k)
+        CONSTANT_F64_CASE(kRoundDown, std::floor(f64_k))
+        CONSTANT_F64_CASE(kRoundUp, std::ceil(f64_k))
+        CONSTANT_F64_CASE(kRoundToZero, std::trunc(f64_k))
+        CONSTANT_F64_CASE(kRoundTiesEven, std::nearbyint(f64_k))
+        CONSTANT_F64_CASE(kLog, base::ieee754::log(f64_k))
+        CONSTANT_F64_CASE(kSqrt, std::sqrt(f64_k))
+        CONSTANT_F64_CASE(kExp, base::ieee754::exp(f64_k))
+        CONSTANT_F64_CASE(kExpm1, base::ieee754::expm1(f64_k))
+        CONSTANT_F64_CASE(kSin, SIN_IMPL(f64_k))
+        CONSTANT_F64_CASE(kCos, COS_IMPL(f64_k))
+        CONSTANT_F64_CASE(kSinh, base::ieee754::sinh(f64_k))
+        CONSTANT_F64_CASE(kCosh, base::ieee754::cosh(f64_k))
+        CONSTANT_F64_CASE(kAcos, base::ieee754::acos(f64_k))
+        CONSTANT_F64_CASE(kAsin, base::ieee754::asin(f64_k))
+        CONSTANT_F64_CASE(kAsinh, base::ieee754::asinh(f64_k))
+        CONSTANT_F64_CASE(kAcosh, base::ieee754::acosh(f64_k))
+        CONSTANT_F64_CASE(kTan, base::ieee754::tan(f64_k))
+        CONSTANT_F64_CASE(kTanh, base::ieee754::tanh(f64_k))
+        CONSTANT_F64_CASE(kLog2, base::ieee754::log2(f64_k))
+        CONSTANT_F64_CASE(kLog10, base::ieee754::log10(f64_k))
+        CONSTANT_F64_CASE(kLog1p, base::ieee754::log1p(f64_k))
+        CONSTANT_F64_CASE(kCbrt, base::ieee754::cbrt(f64_k))
+        CONSTANT_F64_CASE(kAtan, base::ieee754::atan(f64_k))
+        CONSTANT_F64_CASE(kAtanh, base::ieee754::atanh(f64_k))
+      }
+#undef CONSTANT_F64_CASE
+      DCHECK_IMPLIES(std::isnan(f64_k), std::isnan(result));
+      if (!std::isnan(result)) return __ Float64Constant(result);
+      if (!ensure_deterministic_nan) {
+        return __ Float64Constant(std::numeric_limits<double>::quiet_NaN());
       }
     }
     return Next::ReduceFloatUnary(input, kind, rep);
@@ -579,7 +537,7 @@ class MachineOptimizationReducer : public Next {
 
     // Place constant on the right for commutative operators.
     if (FloatBinopOp::IsCommutative(kind) && matcher_.Is<ConstantOp>(lhs) &&
-        !matcher_.Is<ConstantOp>(rhs)) {
+        !matcher_.Is<ConstantOp>(rhs) && !ensure_deterministic_nan) {
       return ReduceFloatBinop(rhs, lhs, kind, rep);
     }
 
@@ -587,58 +545,86 @@ class MachineOptimizationReducer : public Next {
     if (float k1, k2; rep == FloatRepresentation::Float32() &&
                       matcher_.MatchFloat32Constant(lhs, &k1) &&
                       matcher_.MatchFloat32Constant(rhs, &k2)) {
+      float result;
+#define CONSTANT_F32_CASE(kind, op) \
+  case Kind::kind:                  \
+    result = op;                    \
+    break;
       switch (kind) {
-        case Kind::kAdd:
-          return __ Float32Constant(k1 + k2);
-        case Kind::kMul:
-          return __ Float32Constant(k1 * k2);
-        case Kind::kSub:
-          return __ Float32Constant(k1 - k2);
-        case Kind::kMin:
-          return __ Float32Constant(JSMin(k1, k2));
-        case Kind::kMax:
-          return __ Float32Constant(JSMax(k1, k2));
-        case Kind::kDiv:
-          return __ Float32Constant(k1 / k2);
-        case Kind::kPower:
-          return __ Float32Constant(internal::math::pow(k1, k2));
-        case Kind::kAtan2:
-          return __ Float32Constant(base::ieee754::atan2(k1, k2));
+        CONSTANT_F32_CASE(kAdd, k1 + k2)
+        CONSTANT_F32_CASE(kMul, k1 * k2)
+        CONSTANT_F32_CASE(kSub, k1 - k2)
+        CONSTANT_F32_CASE(kMin, JSMin(k1, k2))
+        CONSTANT_F32_CASE(kMax, JSMax(k1, k2))
+        CONSTANT_F32_CASE(kDiv, k1 / k2)
+        CONSTANT_F32_CASE(kPower, i::math::pow(k1, k2))
+        CONSTANT_F32_CASE(kAtan2, base::ieee754::atan2(k1, k2));
         case Kind::kMod:
           UNREACHABLE();
+      }
+#undef CONSTANT_F32_CASE
+      DCHECK_IMPLIES(std::isnan(k1) || std::isnan(k2), std::isnan(result));
+      if (!std::isnan(result)) return __ Float32Constant(result);
+      if (!ensure_deterministic_nan) {
+        return __ Float32Constant(std::numeric_limits<float>::quiet_NaN());
       }
     }
     if (double k1, k2; rep == FloatRepresentation::Float64() &&
                        matcher_.MatchFloat64Constant(lhs, &k1) &&
                        matcher_.MatchFloat64Constant(rhs, &k2)) {
+      double result;
+#define CONSTANT_F64_CASE(kind, op) \
+  case Kind::kind:                  \
+    result = op;                    \
+    break;
       switch (kind) {
-        case Kind::kAdd:
-          return __ Float64Constant(k1 + k2);
-        case Kind::kMul:
-          return __ Float64Constant(k1 * k2);
-        case Kind::kSub:
-          return __ Float64Constant(k1 - k2);
-        case Kind::kMin:
-          return __ Float64Constant(JSMin(k1, k2));
-        case Kind::kMax:
-          return __ Float64Constant(JSMax(k1, k2));
-        case Kind::kDiv:
-          return __ Float64Constant(k1 / k2);
-        case Kind::kMod:
-          return __ Float64Constant(Modulo(k1, k2));
-        case Kind::kPower:
-          return __ Float64Constant(math::pow(k1, k2));
-        case Kind::kAtan2:
-          return __ Float64Constant(base::ieee754::atan2(k1, k2));
+        CONSTANT_F64_CASE(kAdd, k1 + k2)
+        CONSTANT_F64_CASE(kMul, k1 * k2)
+        CONSTANT_F64_CASE(kSub, k1 - k2)
+        CONSTANT_F64_CASE(kMin, JSMin(k1, k2))
+        CONSTANT_F64_CASE(kMax, JSMax(k1, k2))
+        CONSTANT_F64_CASE(kDiv, k1 / k2)
+        CONSTANT_F64_CASE(kMod, Modulo(k1, k2))
+        CONSTANT_F64_CASE(kPower, i::math::pow(k1, k2))
+        CONSTANT_F64_CASE(kAtan2, base::ieee754::atan2(k1, k2))
+      }
+#undef CONSTANT_F64_CASE
+      DCHECK_IMPLIES(
+          std::isnan(k1) || std::isnan(k2),
+          std::isnan(result) ||
+              (kind == Kind::kPower && k2 == 0) /* Special case: NaN^0 == 1 */);
+      if (!std::isnan(result)) return __ Float64Constant(result);
+      if (!ensure_deterministic_nan) {
+        return __ Float64Constant(std::numeric_limits<double>::quiet_NaN());
       }
     }
 
-    // lhs <op> NaN  =>  NaN
-    if (matcher_.MatchNaN(rhs) ||
-        (matcher_.MatchNaN(lhs) && kind != Kind::kPower)) {
-      // Return a quiet NaN since Wasm operations could have signalling NaN as
-      // input but not as output.
-      return __ FloatConstant(std::numeric_limits<double>::quiet_NaN(), rep);
+    // All NaN folding is disabled for Wasm; architectures disagree on which
+    // input to take in case both are NaN, sometimes it even depends on the
+    // exact NaN which one is propagated as the result.
+    // Even though the Wasm spec allows propagating any NaN input, we want
+    // determinism here for differential fuzzing across compilers.
+    if (!ensure_deterministic_nan) {
+      // NaN <op> rhs  =>  NaN (except for Kind::kPower).
+      // lhs <op> NaN  =>  NaN.
+      if (i::Float32 nan;
+          (matcher_.MatchFloat32Constant(lhs, &nan) && nan.is_nan() &&
+           kind != Kind::kPower) ||
+          (matcher_.MatchFloat32Constant(rhs, &nan) && nan.is_nan())) {
+        // Return a quiet NaN since Wasm operations could have signalling NaN as
+        // input but not as output.
+        return __ Float32Constant(std::numeric_limits<float>::quiet_NaN());
+      }
+
+      // Same for float64.
+      if (i::Float64 nan;
+          (matcher_.MatchFloat64Constant(lhs, &nan) && nan.is_nan() &&
+           kind != Kind::kPower) ||
+          (matcher_.MatchFloat64Constant(rhs, &nan) && nan.is_nan())) {
+        // Return a quiet NaN since Wasm operations could have signalling NaN as
+        // input but not as output.
+        return __ Float64Constant(std::numeric_limits<double>::quiet_NaN());
+      }
     }
 
     if (matcher_.Is<ConstantOp>(rhs)) {
@@ -652,6 +638,8 @@ class MachineOptimizationReducer : public Next {
           return __ FloatAdd(lhs, lhs, rep);
         }
         // lhs * -1  =>  -lhs
+        // Note: FloatNegate does not set the quiet bit so we cannot use this if
+        // signalling nans can happen.
         if (!signalling_nan_possible && matcher_.MatchFloat(rhs, -1.0)) {
           return __ FloatNegate(lhs, rep);
         }
@@ -663,6 +651,8 @@ class MachineOptimizationReducer : public Next {
           return lhs;
         }
         // lhs / -1  =>  -lhs
+        // Note: FloatNegate does not set the quiet bit so we cannot use this if
+        // signalling nans can happen.
         if (!signalling_nan_possible && matcher_.MatchFloat(rhs, -1.0)) {
           return __ FloatNegate(lhs, rep);
         }
@@ -699,6 +689,13 @@ class MachineOptimizationReducer : public Next {
       if (kind == Kind::kSub) {
         // lhs - +0.0  =>  lhs
         if (!signalling_nan_possible && matcher_.MatchFloat(rhs, +0.0)) {
+          return lhs;
+        }
+      }
+
+      if (kind == Kind::kAdd) {
+        // lhs + -0.0  =>  lhs
+        if (!signalling_nan_possible && matcher_.MatchFloat(rhs, -0.0)) {
           return lhs;
         }
       }
@@ -826,8 +823,7 @@ class MachineOptimizationReducer : public Next {
       }
     }
 
-    if (kind == WordBinopOp::Kind::kBitwiseAnd &&
-        rep == WordRepresentation::Word32()) {
+    if (kind == Kind::kBitwiseAnd && rep == WordRepresentation::Word32()) {
       if (auto right_bitfield = detail::BitfieldCheck::Detect(
               matcher_, __ output_graph(), right)) {
         if (auto left_bitfield = detail::BitfieldCheck::Detect(
@@ -1051,11 +1047,11 @@ class MachineOptimizationReducer : public Next {
             }
           }
           break;
-        case WordBinopOp::Kind::kSignedDiv:
+        case Kind::kSignedDiv:
           return ReduceSignedDiv(left, right_value_signed, rep);
-        case WordBinopOp::Kind::kUnsignedDiv:
+        case Kind::kUnsignedDiv:
           return ReduceUnsignedDiv(left, right_value, rep);
-        case WordBinopOp::Kind::kSignedMod:
+        case Kind::kSignedMod:
           // left % 0  =>  0
           // left % 1  =>  0
           // left % -1  =>  0
@@ -1088,7 +1084,7 @@ class MachineOptimizationReducer : public Next {
           // multiplication, avoiding the expensive integer division.
           return __ WordSub(
               left, __ WordMul(__ IntDiv(left, right, rep), right, rep), rep);
-        case WordBinopOp::Kind::kUnsignedMod:
+        case Kind::kUnsignedMod:
           // left % 0  =>  0
           // left % 1  =>  0
           if (right_value == 0 || right_value == 1) {
@@ -1103,8 +1099,8 @@ class MachineOptimizationReducer : public Next {
           // multiplication, avoiding the expensive integer division.
           return __ WordSub(
               left, __ WordMul(right, __ UintDiv(left, right, rep), rep), rep);
-        case WordBinopOp::Kind::kSignedMulOverflownBits:
-        case WordBinopOp::Kind::kUnsignedMulOverflownBits:
+        case Kind::kSignedMulOverflownBits:
+        case Kind::kUnsignedMulOverflownBits:
           break;
       }
     }
@@ -1138,28 +1134,28 @@ class MachineOptimizationReducer : public Next {
       switch (kind) {
         // x & x  =>  x
         // x | x  =>  x
-        case WordBinopOp::Kind::kBitwiseAnd:
-        case WordBinopOp::Kind::kBitwiseOr:
+        case Kind::kBitwiseAnd:
+        case Kind::kBitwiseOr:
           return x;
         // x ^ x  =>  0
         // x - x  =>  0
         // x % x  =>  0
-        case WordBinopOp::Kind::kBitwiseXor:
-        case WordBinopOp::Kind::kSub:
-        case WordBinopOp::Kind::kSignedMod:
-        case WordBinopOp::Kind::kUnsignedMod:
+        case Kind::kBitwiseXor:
+        case Kind::kSub:
+        case Kind::kSignedMod:
+        case Kind::kUnsignedMod:
           return __ WordConstant(0, rep);
         // x / x  =>  x != 0
-        case WordBinopOp::Kind::kSignedDiv:
-        case WordBinopOp::Kind::kUnsignedDiv: {
+        case Kind::kSignedDiv:
+        case Kind::kUnsignedDiv: {
           V<Word> zero = __ WordConstant(0, rep);
           V<Word32> result = __ Word32Equal(__ Equal(left, zero, rep), 0);
           return __ ZeroExtendWord32ToRep(result, rep);
         }
-        case WordBinopOp::Kind::kAdd:
-        case WordBinopOp::Kind::kMul:
-        case WordBinopOp::Kind::kSignedMulOverflownBits:
-        case WordBinopOp::Kind::kUnsignedMulOverflownBits:
+        case Kind::kAdd:
+        case Kind::kMul:
+        case Kind::kSignedMulOverflownBits:
+        case Kind::kUnsignedMulOverflownBits:
           break;
       }
     }
@@ -1249,7 +1245,7 @@ class MachineOptimizationReducer : public Next {
     if (matcher_.MatchWordSub(high->right(), &a, &b, rep) &&
         matcher_.MatchIntegralWordConstant(a, rep, &k) && b == low->right() &&
         k == rep.bit_width()) {
-      return __ RotateRight(x, b, rep);
+      return __ RotateRight(x, V<Word32>::Cast(b), rep);
     } else if (matcher_.MatchWordSub(low->right(), &a, &b, rep) &&
                matcher_.MatchIntegralWordConstant(a, rep, &k) &&
                b == high->right() && k == rep.bit_width()) {
@@ -1291,7 +1287,8 @@ class MachineOptimizationReducer : public Next {
             overflow = base::bits::SignedSubOverflow32(k1, k2, &res);
             break;
         }
-        return __ Tuple(__ Word32Constant(res), __ Word32Constant(overflow));
+        return __ MakeTuple(__ Word32Constant(res),
+                            __ Word32Constant(overflow));
       }
     } else {
       DCHECK_EQ(rep, WordRepresentation::Word64());
@@ -1310,7 +1307,8 @@ class MachineOptimizationReducer : public Next {
             overflow = base::bits::SignedSubOverflow64(k1, k2, &res);
             break;
         }
-        return __ Tuple(__ Word64Constant(res), __ Word32Constant(overflow));
+        return __ MakeTuple(__ Word64Constant(res),
+                            __ Word32Constant(overflow));
       }
     }
 
@@ -1318,18 +1316,19 @@ class MachineOptimizationReducer : public Next {
     // left - 0  =>  (left, false)
     if (kind == any_of(Kind::kSignedAdd, Kind::kSignedSub) &&
         matcher_.MatchZero(right)) {
-      return __ Tuple(left, __ Word32Constant(0));
+      return __ MakeTuple(left, __ Word32Constant(0));
     }
 
     if (kind == Kind::kSignedMul) {
       if (int64_t k; matcher_.MatchIntegralWordConstant(right, rep, &k)) {
         // left * 0  =>  (0, false)
         if (k == 0) {
-          return __ Tuple(__ WordConstant(0, rep), __ Word32Constant(false));
+          return __ MakeTuple(__ WordConstant(0, rep),
+                              __ Word32Constant(false));
         }
         // left * 1  =>  (left, false)
         if (k == 1) {
-          return __ Tuple(left, __ Word32Constant(false));
+          return __ MakeTuple(left, __ Word32Constant(false));
         }
         // left * -1  =>  0 - left
         if (k == -1) {
@@ -1342,14 +1341,49 @@ class MachineOptimizationReducer : public Next {
       }
     }
 
-    // UntagSmi(x) + UntagSmi(x)  =>  (x, false)
-    // (where UntagSmi(x) = x >> 1   with a ShiftOutZeros shift)
     if (kind == Kind::kSignedAdd && left == right) {
       uint16_t amount;
+      // UntagSmi(x) + UntagSmi(x)  =>  (x, false)
+      // (where UntagSmi(x) = x >> 1   with a ShiftOutZeros shift)
       if (V<Word32> x; matcher_.MatchConstantShiftRightArithmeticShiftOutZeros(
                            left, &x, WordRepresentation::Word32(), &amount) &&
                        amount == 1) {
-        return __ Tuple(x, __ Word32Constant(0));
+        return __ MakeTuple(x, __ Word32Constant(0));
+      }
+
+      // t1 = UntagSmi(x)
+      // t2 = t1 bitwise_op k
+      // t2 + t2
+      //   => x bitwise_op (k << 1)
+      // (where UntagSmi(x) = x >> 1  with a ShiftOutZeros shift)
+      WordBinopOp::Kind bitwise_op_kind;
+      if (V<Word32> t1, tk; matcher_.MatchWordBinop<Word32>(
+              left, &t1, &tk, &bitwise_op_kind, WordRepresentation::Word32())) {
+        if (V<Word32> x;
+            matcher_.MatchConstantShiftRightArithmeticShiftOutZeros(
+                t1, &x, WordRepresentation::Word32(), &amount) &&
+            amount == 1) {
+          if (int32_t k; matcher_.MatchIntegralWord32Constant(tk, &k)) {
+            switch (bitwise_op_kind) {
+              case WordBinopOp::Kind::kBitwiseAnd:
+              case WordBinopOp::Kind::kBitwiseOr:
+              case WordBinopOp::Kind::kBitwiseXor:
+                // If the topmost two bits are not identical then retagging
+                // the smi could cause an overflow, so we do not optimize that
+                // here.
+                if (((k >> 31) & 0b1) == ((k >> 30) & 0b1)) {
+                  return __ MakeTuple(
+                      __ WordBinop(x, __ Word32Constant(k << 1),
+                                   bitwise_op_kind,
+                                   WordRepresentation::Word32()),
+                      __ Word32Constant(0));
+                }
+                break;
+              default:
+                break;
+            }
+          }
+        }
       }
     }
 
@@ -1700,10 +1734,9 @@ class MachineOptimizationReducer : public Next {
           if (k == l) {
             return x;
           } else if (k > l) {
-            return __ ShiftRightArithmeticShiftOutZeros(
-                x, __ Word32Constant(k - l), rep);
+            return __ ShiftRightArithmeticShiftOutZeros(x, k - l, rep);
           } else if (k < l) {
-            return __ ShiftLeft(x, __ Word32Constant(l - k), rep);
+            return __ ShiftLeft(x, l - k, rep);
           }
         }
         // (x >>> K) << K => x & ~(2^K - 1)
@@ -1997,9 +2030,11 @@ class MachineOptimizationReducer : public Next {
           // HeapObject, so unparking the JSHeapBroker here rather than before
           // the optimization pass itself it probably more efficient.
 
-          DCHECK_IMPLIES(
-              __ data()->pipeline_kind() != TurboshaftPipelineKind::kCSA,
-              broker != nullptr);
+          TurboshaftPipelineKind pkind = __ data() -> pipeline_kind();
+          USE(pkind);
+          DCHECK_IMPLIES(pkind != TurboshaftPipelineKind::kCSA &&
+                             pkind != TurboshaftPipelineKind::kTSABuiltin,
+                         broker != nullptr);
           if (broker != nullptr) {
             UnparkedScopeIfNeeded scope(broker);
             AllowHandleDereference allow_handle_dereference;
@@ -2037,7 +2072,125 @@ class MachineOptimizationReducer : public Next {
   }
 
 #if V8_ENABLE_WEBASSEMBLY
+  V<Any> REDUCE(Simd128Binop)(V<Simd128> left, V<Simd128> right,
+                              Simd128BinopOp::Kind kind) {
+    LABEL_BLOCK(no_change) {
+      return Next::ReduceSimd128Binop(left, right, kind);
+    }
+    if (ShouldSkipOptimizationStep()) goto no_change;
+
+    if (kind != Simd128BinopOp::Kind::kI32x4DotI16x8S) goto no_change;
+
+    // Check to see whether we're really performing the operation on
+    // i8x8 inputs.
+    auto GetExtMul =
+        [this](OpIndex input) -> std::optional<Simd128BinopOp::Kind> {
+      using unop_extmul_pair =
+          std::pair<Simd128UnaryOp::Kind, Simd128BinopOp::Kind>;
+      std::array extend_muls = to_array<unop_extmul_pair>({
+          {Simd128UnaryOp::Kind::kI16x8SConvertI8x16Low,
+           Simd128BinopOp::Kind::kI16x8ExtMulLowI8x16S},
+          {Simd128UnaryOp::Kind::kI16x8SConvertI8x16High,
+           Simd128BinopOp::Kind::kI16x8ExtMulHighI8x16S},
+          {Simd128UnaryOp::Kind::kI16x8UConvertI8x16Low,
+           Simd128BinopOp::Kind::kI16x8ExtMulLowI8x16U},
+          {Simd128UnaryOp::Kind::kI16x8UConvertI8x16High,
+           Simd128BinopOp::Kind::kI16x8ExtMulHighI8x16U},
+      });
+
+      if (const Simd128UnaryOp* unop =
+              matcher_.TryCast<Simd128UnaryOp>(input)) {
+        for (const auto [unop_kind, extmul_kind] : extend_muls) {
+          if (unop->kind == unop_kind) {
+            return extmul_kind;
+          }
+        }
+      }
+      return {};
+    };
+
+    if (std::optional<Simd128BinopOp::Kind> left_extmul = GetExtMul(left)) {
+      if (std::optional<Simd128BinopOp::Kind> right_extmul = GetExtMul(right)) {
+        OpIndex left_conv = matcher_.Get(left).input(0);
+        OpIndex right_conv = matcher_.Get(right).input(0);
+        if (left_extmul.value() == right_extmul.value()) {
+          // If both inputs are being extended in the same way, we can just use
+          // one extmul and one extadd_pairwise, instead.
+          Simd128BinopOp::Kind extmul_kind = left_extmul.value();
+          Simd128UnaryOp::Kind extadd_kind =
+              extmul_kind == Simd128BinopOp::Kind::kI16x8ExtMulLowI8x16S ||
+                      extmul_kind ==
+                          Simd128BinopOp::Kind::kI16x8ExtMulHighI8x16S
+                  ? Simd128UnaryOp::Kind::kI32x4ExtAddPairwiseI16x8S
+                  : Simd128UnaryOp::Kind::kI32x4ExtAddPairwiseI16x8U;
+          return __ Simd128Unary(
+              __ Simd128Binop(left_conv, right_conv, extmul_kind), extadd_kind);
 #ifdef V8_TARGET_ARCH_ARM64
+        } else {
+          // Otherwise, just break the dot into its constituent parts.
+          OpIndex mul_low = __ Simd128Binop(
+              left, right, Simd128BinopOp::Kind::kI32x4ExtMulLowI16x8S);
+          OpIndex mul_high = __ Simd128Binop(
+              left, right, Simd128BinopOp::Kind::kI32x4ExtMulHighI16x8S);
+          return __ Simd128Binop(mul_low, mul_high,
+                                 Simd128BinopOp::Kind::kI32x4AddPairwise);
+#endif  // V8_TARGET_ARCH_ARM64
+        }
+      }
+    }
+
+    goto no_change;
+  }
+#ifdef V8_TARGET_ARCH_ARM64
+  V<Simd128> REDUCE(Simd128ReplaceLane)(V<Simd128> into, V<Any> new_lane,
+                                        Simd128ReplaceLaneOp::Kind kind,
+                                        uint8_t lane) {
+    if (kind == Simd128ReplaceLaneOp::Kind::kF16x8) {
+      // Not supported yet.
+      return Next::ReduceSimd128ReplaceLane(into, new_lane, kind, lane);
+    }
+
+    if (const Simd128ExtractLaneOp* extract =
+            matcher_.TryCast<Simd128ExtractLaneOp>(new_lane)) {
+      Simd128ExtractLaneOp::Kind extract_kind = extract->kind;
+      int extract_bytes =
+          ElementSizeInBytes(Simd128ExtractLaneOp::element_rep(extract_kind));
+      int replace_bytes =
+          ElementSizeInBytes(Simd128ReplaceLaneOp::element_rep(kind));
+      if (extract_bytes >= replace_bytes) {
+#if DEBUG
+        switch (kind) {
+          case Simd128ReplaceLaneOp::Kind::kI8x16:
+          case Simd128ReplaceLaneOp::Kind::kI16x8:
+          case Simd128ReplaceLaneOp::Kind::kI32x4:
+            DCHECK(extract_kind == Simd128ExtractLaneOp::Kind::kI8x16S ||
+                   extract_kind == Simd128ExtractLaneOp::Kind::kI8x16U ||
+                   extract_kind == Simd128ExtractLaneOp::Kind::kI16x8S ||
+                   extract_kind == Simd128ExtractLaneOp::Kind::kI16x8U ||
+                   extract_kind == Simd128ExtractLaneOp::Kind::kI32x4);
+            break;
+          case Simd128ReplaceLaneOp::Kind::kI64x2:
+            DCHECK_EQ(extract_kind, Simd128ExtractLaneOp::Kind::kI64x2);
+            break;
+          case Simd128ReplaceLaneOp::Kind::kF32x4:
+            DCHECK_EQ(extract_kind, Simd128ExtractLaneOp::Kind::kF32x4);
+            break;
+          case Simd128ReplaceLaneOp::Kind::kF64x2:
+            DCHECK_EQ(extract_kind, Simd128ExtractLaneOp::Kind::kF64x2);
+            break;
+          case Simd128ReplaceLaneOp::Kind::kF16x8:
+            UNIMPLEMENTED();
+        }
+#endif  // DEBUG
+        // Skip the extract and just move a lane.
+        int from_lane = extract->lane * (extract_bytes / replace_bytes);
+        return __ Simd128MoveLane(into, extract->input(), kind, lane,
+                                  from_lane);
+      }
+    }
+    return Next::ReduceSimd128ReplaceLane(into, new_lane, kind, lane);
+  }
+
   V<Any> REDUCE(Simd128ExtractLane)(V<Simd128> input,
                                     Simd128ExtractLaneOp::Kind kind,
                                     uint8_t lane) {
@@ -2068,12 +2221,11 @@ class MachineOptimizationReducer : public Next {
         break;
     }
 
-    auto MatchUnaryShuffle =
+    auto MatchShuffle =
         [this](V<Simd128> maybe_shuffle) -> const Simd128ShuffleOp* {
       if (const Simd128ShuffleOp* shuffle =
               matcher_.TryCast<Simd128ShuffleOp>(maybe_shuffle)) {
-        if (shuffle->kind == Simd128ShuffleOp::Kind::kI8x16 &&
-            shuffle->left() == shuffle->right()) {
+        if (shuffle->kind == Simd128ShuffleOp::Kind::kI8x16) {
           return shuffle;
         }
       }
@@ -2117,11 +2269,11 @@ class MachineOptimizationReducer : public Next {
       V<Simd128> operands[2] = {binop->left(), binop->right()};
       for (unsigned i = 0; i < 2; ++i) {
         V<Simd128> operand = operands[i];
-        if (const Simd128ShuffleOp* shuffle = MatchUnaryShuffle(operand)) {
+        if (const Simd128ShuffleOp* shuffle = MatchShuffle(operand)) {
           // Ensure that the input to the shuffle is also the other input to
-          // current binop.
+          // current binop. We take the left input because all of the shuffle
+          // pattern matching is specified, and will test, for it.
           V<Simd128> shuffle_in = shuffle->left();
-          DCHECK_EQ(shuffle_in, shuffle->right());
           V<Simd128> other_operand = operands[i ^ 1];
           if (shuffle_in != other_operand) {
             break;
@@ -2223,6 +2375,31 @@ class MachineOptimizationReducer : public Next {
     goto no_change;
   }
 #endif  // V8_TARGET_ARCH_ARM64
+
+#if V8_ENABLE_WASM_SIMD256_REVEC
+
+  V<Simd128> REDUCE(Simd256Extract128Lane)(V<Simd256> input, uint8_t lane) {
+    LABEL_BLOCK(no_change) {
+      return Next::ReduceSimd256Extract128Lane(input, lane);
+    }
+    if (ShouldSkipOptimizationStep()) goto no_change;
+
+    const Simd256ConstantOp* constant_input =
+        __ Get(input).template TryCast<Simd256ConstantOp>();
+    if (!constant_input) goto no_change;
+
+    switch (lane) {
+      case 0:
+        return __ Simd128Constant(constant_input->value);
+      case 1:
+        return __ Simd128Constant(&constant_input->value[kSimd256Size / 2]);
+      default:
+        UNREACHABLE();
+    }
+  }
+
+#endif  // V8_ENABLE_WASM_SIMD256_REVEC
+
 #endif  // V8_ENABLE_WEBASSEMBLY
 
  private:
@@ -2250,6 +2427,14 @@ class MachineOptimizationReducer : public Next {
                                      right, WordRepresentation(rep), &k2)) {
               return __ Word32Constant(k1 == k2);
             }
+            if (Handle<HeapObject> o1, o2;
+                matcher_.MatchHeapConstant(left, &o1) &&
+                matcher_.MatchHeapConstant(right, &o2)) {
+              UnparkedScopeIfNeeded unparked(broker);
+              DCHECK_IMPLIES(broker, broker->IsCanonicalHandle(o1));
+              DCHECK_IMPLIES(broker, broker->IsCanonicalHandle(o2));
+              return __ Word32Constant(o1.address() == o2.address());
+            }
             break;
           }
           case RegisterRepresentation::Float32(): {
@@ -2271,6 +2456,8 @@ class MachineOptimizationReducer : public Next {
                 matcher_.MatchHeapConstant(left, &o1) &&
                 matcher_.MatchHeapConstant(right, &o2)) {
               UnparkedScopeIfNeeded unparked(broker);
+              DCHECK_IMPLIES(broker, broker->IsCanonicalHandle(o1));
+              DCHECK_IMPLIES(broker, broker->IsCanonicalHandle(o2));
               if (IsString(*o1) && IsString(*o2)) {
                 // If handles refer to the same object, we can eliminate the
                 // check.
@@ -2282,6 +2469,13 @@ class MachineOptimizationReducer : public Next {
                 break;
               }
               return __ Word32Constant(o1.address() == o2.address());
+            }
+            if ((TryMatchHeapObject(left) &&
+                 matcher_.Is<Opmask::kSmiConstant>(right)) ||
+                (TryMatchHeapObject(right) &&
+                 matcher_.Is<Opmask::kSmiConstant>(left))) {
+              // Comparing a HeapObject with a Smi always returns false.
+              return __ Word32Constant(0);
             }
             break;
           }
@@ -2852,9 +3046,13 @@ class MachineOptimizationReducer : public Next {
   JSHeapBroker* broker = __ data() -> broker();
   const OperationMatcher& matcher_ = __ matcher();
 #if V8_ENABLE_WEBASSEMBLY
+  // Note: `signalling_nan_possible` and `ensure_deterministic_nan` are always
+  // the same value; we introduce both to better express intent at use sites.
   const bool signalling_nan_possible = __ data() -> is_wasm();
+  const bool ensure_deterministic_nan = signalling_nan_possible;
 #else
   static constexpr bool signalling_nan_possible = false;
+  static constexpr bool ensure_deterministic_nan = false;
 #endif  // V8_ENABLE_WEBASSEMBLY
 };
 

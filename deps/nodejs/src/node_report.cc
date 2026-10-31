@@ -6,6 +6,7 @@
 #include "node_internals.h"
 #include "node_metadata.h"
 #include "node_mutex.h"
+#include "node_watchdog.h"
 #include "node_worker.h"
 #include "permission/permission.h"
 #include "util.h"
@@ -56,9 +57,9 @@ namespace report {
 // Internal/static function declarations
 static void WriteNodeReport(Isolate* isolate,
                             Environment* env,
-                            const char* message,
-                            const char* trigger,
-                            const std::string& filename,
+                            std::string_view message,
+                            std::string_view trigger,
+                            std::string_view filename,
                             std::ostream& out,
                             Local<Value> error,
                             bool compact,
@@ -69,11 +70,11 @@ static void PrintVersionInformation(JSONWriter* writer,
 static void PrintJavaScriptErrorStack(JSONWriter* writer,
                                       Isolate* isolate,
                                       Local<Value> error,
-                                      const char* trigger);
+                                      std::string_view trigger);
 static void PrintEmptyJavaScriptStack(JSONWriter* writer);
 static void PrintJavaScriptStack(JSONWriter* writer,
                                  Isolate* isolate,
-                                 const char* trigger);
+                                 std::string_view trigger);
 static void PrintJavaScriptErrorProperties(JSONWriter* writer,
                                            Isolate* isolate,
                                            Local<Value> error);
@@ -92,9 +93,9 @@ static void PrintNetworkInterfaceInfo(JSONWriter* writer);
 // sections of the report to the supplied stream
 static void WriteNodeReport(Isolate* isolate,
                             Environment* env,
-                            const char* message,
-                            const char* trigger,
-                            const std::string& filename,
+                            std::string_view message,
+                            std::string_view trigger,
+                            std::string_view filename,
                             std::ostream& out,
                             Local<Value> error,
                             bool compact,
@@ -227,29 +228,49 @@ static void WriteNodeReport(Isolate* isolate,
 
   writer.json_arraystart("workers");
   if (env != nullptr) {
-    Mutex workers_mutex;
-    ConditionVariable notify;
-    std::vector<std::string> worker_infos;
+    // Shared with the callbacks, which can outlive this function if a Worker
+    // thread does not respond in time.
+    struct WorkerInfos {
+      Mutex mutex;
+      ConditionVariable notify;
+      std::vector<std::string> infos;
+    };
+    auto shared = std::make_shared<WorkerInfos>();
     size_t expected_results = 0;
 
     env->ForEachWorker([&](Worker* w) {
-      expected_results += w->RequestInterrupt([&, w = w](Environment* env) {
-        std::ostringstream os;
-        std::string name =
-            "Worker thread subreport [" + std::string(w->name()) + "]";
-        GetNodeReport(env, name.c_str(), trigger, Local<Value>(), os);
+      expected_results += w->RequestInterrupt(
+          [shared, w, trigger = std::string(trigger)](Environment* env) {
+            std::ostringstream os;
+            std::string name =
+                "Worker thread subreport [" + std::string(w->name()) + "]";
+            GetNodeReport(env, name, trigger, Local<Value>(), os);
 
-        Mutex::ScopedLock lock(workers_mutex);
-        worker_infos.emplace_back(os.str());
-        notify.Signal(lock);
-      });
+            Mutex::ScopedLock lock(shared->mutex);
+            shared->infos.emplace_back(os.str());
+            shared->notify.Signal(lock);
+          });
     });
 
-    Mutex::ScopedLock lock(workers_mutex);
-    worker_infos.reserve(expected_results);
-    while (worker_infos.size() < expected_results)
-      notify.Wait(lock);
-    for (const std::string& worker_info : worker_infos)
+    // --process-timeout forces the process to exit shortly after it triggers
+    // the report, so do not wait for Worker threads that are blocked, e.g. in
+    // a synchronous native call. They are left out of the report.
+    const bool wait_forever = trigger != kProcessTimeoutReportTrigger;
+    const uint64_t deadline =
+        uv_hrtime() + kProcessTimeoutResponseGraceMs * 1000 * 1000;
+    Mutex::ScopedLock lock(shared->mutex);
+    shared->infos.reserve(expected_results);
+    while (shared->infos.size() < expected_results) {
+      const uint64_t now = uv_hrtime();
+      if (wait_forever) {
+        shared->notify.Wait(lock);
+      } else if (now < deadline) {
+        shared->notify.TimedWait(lock, deadline - now);
+      } else {
+        break;
+      }
+    }
+    for (const std::string& worker_info : shared->infos)
       writer.json_element(JSONWriter::ForeignJSON { worker_info });
   }
   writer.json_arrayend();
@@ -400,7 +421,7 @@ static void PrintJavaScriptErrorProperties(JSONWriter* writer,
   if (!error.IsEmpty() && error->IsObject()) {
     TryCatch try_catch(isolate);
     Local<Object> error_obj = error.As<Object>();
-    Local<Context> context = error_obj->GetIsolate()->GetCurrentContext();
+    Local<Context> context = Isolate::GetCurrent()->GetCurrentContext();
     Local<Array> keys;
     if (!error_obj->GetOwnPropertyNames(context).ToLocal(&keys)) {
       return writer->json_objectend();  // the end of 'errorProperties'
@@ -471,7 +492,7 @@ static void PrintEmptyJavaScriptStack(JSONWriter* writer) {
 // Do our best to report the JavaScript stack without calling into JavaScript.
 static void PrintJavaScriptStack(JSONWriter* writer,
                                  Isolate* isolate,
-                                 const char* trigger) {
+                                 std::string_view trigger) {
   HandleScope scope(isolate);
   Local<v8::StackTrace> stack;
   if (!GetCurrentStackTrace(isolate, MAX_FRAME_COUNT).ToLocal(&stack) ||
@@ -513,7 +534,7 @@ static void PrintJavaScriptStack(JSONWriter* writer,
 static void PrintJavaScriptErrorStack(JSONWriter* writer,
                                       Isolate* isolate,
                                       Local<Value> error,
-                                      const char* trigger) {
+                                      std::string_view trigger) {
   if (error.IsEmpty()) {
     return PrintJavaScriptStack(writer, isolate, trigger);
   }
@@ -825,22 +846,15 @@ static void PrintRelease(JSONWriter* writer) {
 
 std::string TriggerNodeReport(Isolate* isolate,
                               Environment* env,
-                              const char* message,
-                              const char* trigger,
-                              const std::string& name,
+                              std::string_view message,
+                              std::string_view trigger,
+                              std::string_view name,
                               Local<Value> error) {
   std::string filename;
 
   // Determine the required report filename. In order of priority:
   //   1) supplied on API 2) configured on startup 3) default generated
   if (!name.empty()) {
-    // we may not always be in a great state when generating a node report
-    // allow for the case where we don't have an env
-    if (env != nullptr) {
-      THROW_IF_INSUFFICIENT_PERMISSIONS(
-          env, permission::PermissionScope::kFileSystemWrite, name, name);
-      // Filename was specified as API parameter.
-    }
     filename = name;
   } else {
     std::string report_filename;
@@ -854,13 +868,6 @@ std::string TriggerNodeReport(Isolate* isolate,
     } else {
       filename = *DiagnosticFilename(
           env != nullptr ? env->thread_id() : 0, "report", "json");
-    }
-    if (env != nullptr) {
-      THROW_IF_INSUFFICIENT_PERMISSIONS(
-          env,
-          permission::PermissionScope::kFileSystemWrite,
-          Environment::GetCwd(env->exec_path()),
-          filename);
     }
   }
 
@@ -879,12 +886,21 @@ std::string TriggerNodeReport(Isolate* isolate,
       report_directory = per_process::cli_options->report_directory;
     }
     // Regular file. Append filename to directory path if one was specified
+    std::string pathname;
     if (report_directory.length() > 0) {
-      std::string pathname = report_directory + kPathSeparator + filename;
-      outfile.open(pathname, std::ios::out | std::ios::binary);
+      pathname = report_directory + kPathSeparator + filename;
     } else {
-      outfile.open(filename, std::ios::out | std::ios::binary);
+      pathname = filename;
     }
+
+    // We may not always be in a great state when generating a node report.
+    // Allow for the case where we don't have an env.
+    if (env != nullptr) {
+      THROW_IF_INSUFFICIENT_PERMISSIONS(
+          env, permission::PermissionScope::kFileSystemWrite, pathname, "");
+    }
+
+    outfile.open(pathname, std::ios::out | std::ios::binary);
     // Check for errors on the file open
     if (!outfile.is_open()) {
       std::cerr << "\nFailed to open Node.js report file: " << filename;
@@ -938,9 +954,9 @@ std::string TriggerNodeReport(Isolate* isolate,
 
 // External function to trigger a report, writing to file.
 std::string TriggerNodeReport(Isolate* isolate,
-                              const char* message,
-                              const char* trigger,
-                              const std::string& name,
+                              std::string_view message,
+                              std::string_view trigger,
+                              std::string_view name,
                               Local<Value> error) {
   Environment* env = nullptr;
   if (isolate != nullptr) {
@@ -951,9 +967,9 @@ std::string TriggerNodeReport(Isolate* isolate,
 
 // External function to trigger a report, writing to file.
 std::string TriggerNodeReport(Environment* env,
-                              const char* message,
-                              const char* trigger,
-                              const std::string& name,
+                              std::string_view message,
+                              std::string_view trigger,
+                              std::string_view name,
                               Local<Value> error) {
   return TriggerNodeReport(env != nullptr ? env->isolate() : nullptr,
                            env,
@@ -965,8 +981,8 @@ std::string TriggerNodeReport(Environment* env,
 
 // External function to trigger a report, writing to a supplied stream.
 void GetNodeReport(Isolate* isolate,
-                   const char* message,
-                   const char* trigger,
+                   std::string_view message,
+                   std::string_view trigger,
                    Local<Value> error,
                    std::ostream& out) {
   Environment* env = nullptr;
@@ -994,8 +1010,8 @@ void GetNodeReport(Isolate* isolate,
 
 // External function to trigger a report, writing to a supplied stream.
 void GetNodeReport(Environment* env,
-                   const char* message,
-                   const char* trigger,
+                   std::string_view message,
+                   std::string_view trigger,
                    Local<Value> error,
                    std::ostream& out) {
   Isolate* isolate = nullptr;

@@ -40,14 +40,17 @@
 #include "crypto/crypto_hash.h"
 #include "crypto/crypto_hkdf.h"
 #include "crypto/crypto_hmac.h"
-#if OPENSSL_VERSION_MAJOR >= 3
+#if OPENSSL_WITH_KEM
 #include "crypto/crypto_kem.h"
+#endif
+#if OPENSSL_WITH_EVP_MAC
 #include "crypto/crypto_kmac.h"
 #endif
 #include "crypto/crypto_keygen.h"
 #include "crypto/crypto_keys.h"
-#include "crypto/crypto_ml_dsa.h"
+#include "crypto/crypto_mac.h"
 #include "crypto/crypto_pbkdf2.h"
+#include "crypto/crypto_pkcs12.h"
 #include "crypto/crypto_random.h"
 #include "crypto/crypto_rsa.h"
 #include "crypto/crypto_scrypt.h"
@@ -55,6 +58,7 @@
 #include "crypto/crypto_spkac.h"
 #include "crypto/crypto_timing.h"
 #include "crypto/crypto_tls.h"
+#include "crypto/crypto_turboshake.h"
 #include "crypto/crypto_util.h"
 #include "crypto/crypto_x509.h"
 

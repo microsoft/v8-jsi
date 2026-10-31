@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifdef VERIFY_HEAP
+
 #include "src/heap/heap-verifier.h"
 
 #include <optional>
@@ -13,6 +15,7 @@
 #include "src/common/globals.h"
 #include "src/execution/isolate.h"
 #include "src/heap/array-buffer-sweeper.h"
+#include "src/heap/base-page.h"
 #include "src/heap/combined-heap.h"
 #include "src/heap/ephemeron-remembered-set.h"
 #include "src/heap/heap-layout-inl.h"
@@ -21,7 +24,6 @@
 #include "src/heap/heap.h"
 #include "src/heap/large-spaces.h"
 #include "src/heap/memory-chunk-layout.h"
-#include "src/heap/memory-chunk-metadata.h"
 #include "src/heap/memory-chunk.h"
 #include "src/heap/new-spaces.h"
 #include "src/heap/paged-spaces.h"
@@ -35,7 +37,10 @@
 #include "src/objects/slots-inl.h"
 #include "src/objects/string-table.h"
 
-#ifdef VERIFY_HEAP
+#if V8_ENABLE_WEBASSEMBLY
+#include "src/wasm/wasm-export-wrapper-cache.h"
+#endif  // V8_ENABLE_WEBASSEMBLY
+
 namespace v8 {
 namespace internal {
 
@@ -79,9 +84,9 @@ class VerifyPointersVisitor : public HeapVisitor<VerifyPointersVisitor>,
 
   void VisitRootPointers(Root root, const char* description,
                          FullObjectSlot start, FullObjectSlot end) override;
-  void VisitRootPointers(Root root, const char* description,
-                         OffHeapObjectSlot start,
-                         OffHeapObjectSlot end) override;
+  void VisitCompressedRootPointers(Root root, const char* description,
+                                   OffHeapObjectSlot start,
+                                   OffHeapObjectSlot end) override;
   void VisitMapPointer(Tagged<HeapObject> host) override;
 
  protected:
@@ -127,10 +132,10 @@ void VerifyPointersVisitor::VisitRootPointers(Root root,
   VerifyPointersImpl(start, end);
 }
 
-void VerifyPointersVisitor::VisitRootPointers(Root root,
-                                              const char* description,
-                                              OffHeapObjectSlot start,
-                                              OffHeapObjectSlot end) {
+void VerifyPointersVisitor::VisitCompressedRootPointers(Root root,
+                                                        const char* description,
+                                                        OffHeapObjectSlot start,
+                                                        OffHeapObjectSlot end) {
   VerifyPointersImpl(start, end);
 }
 
@@ -272,8 +277,8 @@ class HeapVerification final : public SpaceVerificationVisitor {
  private:
   void VerifySpace(BaseSpace* space);
 
-  void VerifyPage(const MemoryChunkMetadata* chunk) final;
-  void VerifyPageDone(const MemoryChunkMetadata* chunk) final;
+  void VerifyPage(const BasePage* chunk) final;
+  void VerifyPageDone(const BasePage* chunk) final;
 
   void VerifyObject(Tagged<HeapObject> object) final;
   void VerifyObjectMap(Tagged<HeapObject> object);
@@ -315,7 +320,7 @@ class HeapVerification final : public SpaceVerificationVisitor {
   Isolate* const isolate_;
   const PtrComprCageBase cage_base_;
   std::optional<AllocationSpace> current_space_identity_;
-  std::optional<const MemoryChunkMetadata*> current_chunk_;
+  std::optional<const BasePage*> current_chunk_;
 };
 
 void HeapVerification::Verify() {
@@ -327,7 +332,7 @@ void HeapVerification::Verify() {
   SafepointScope safepoint_scope(isolate(), safepoint_kind);
   HandleScope scope(isolate());
 
-  heap()->MakeHeapIterable();
+  heap()->MakeHeapIterable(CompleteSweepingReason::kTesting);
   heap()->FreeLinearAllocationAreas();
 
   // TODO(v8:13257): Currently we don't iterate through the stack conservatively
@@ -356,15 +361,7 @@ void HeapVerification::Verify() {
     CHECK(maybe_rtt.IsWeak());
     CHECK(IsMap(maybe_rtt.GetHeapObjectAssumeWeak()));
   }
-
-  // js_to_wasm_wrappers holds weak references to code or cleared values.
-  Tagged<WeakFixedArray> wrappers = heap()->js_to_wasm_wrappers();
-  for (int i = 0, e = wrappers->length(); i < e; ++i) {
-    Tagged<MaybeObject> maybe_wrapper = wrappers->get(i);
-    if (maybe_wrapper.IsCleared()) continue;
-    CHECK(maybe_wrapper.IsWeak());
-    CHECK(IsCodeWrapper(maybe_wrapper.GetHeapObjectAssumeWeak()));
-  }
+  wasm::WasmExportWrapperCache::Verify(heap());
 #endif  // V8_ENABLE_WEBASSEMBLY
 
   // The heap verifier can't deal with partially deserialized objects, so
@@ -406,14 +403,17 @@ void HeapVerification::VerifySpace(BaseSpace* space) {
   current_space_identity_.reset();
 }
 
-void HeapVerification::VerifyPage(const MemoryChunkMetadata* chunk_metadata) {
+void HeapVerification::VerifyPage(const BasePage* chunk_metadata) {
   const MemoryChunk* chunk = chunk_metadata->Chunk();
 
   CHECK(!current_chunk_.has_value());
-  CHECK(!chunk->IsFlagSet(MemoryChunk::PAGE_NEW_OLD_PROMOTION));
-  CHECK(!chunk->IsFlagSet(MemoryChunk::FROM_PAGE));
-  CHECK(!chunk->IsFlagSet(MemoryChunk::WILL_BE_PROMOTED));
-  CHECK(!chunk->IsQuarantined());
+#ifndef V8_ENABLE_STICKY_MARK_BITS_BOOL
+  CHECK(!chunk->IsFromPage());
+#endif
+  CHECK(!chunk_metadata->will_be_promoted());
+  CHECK(!chunk_metadata->is_quarantined());
+  CHECK_EQ(chunk_metadata->is_evacuation_candidate(),
+           chunk->IsEvacuationCandidate());
   if (chunk->InReadOnlySpace()) {
     CHECK_NULL(chunk_metadata->owner());
   } else {
@@ -423,13 +423,13 @@ void HeapVerification::VerifyPage(const MemoryChunkMetadata* chunk_metadata) {
   current_chunk_ = chunk_metadata;
 }
 
-void HeapVerification::VerifyPageDone(const MemoryChunkMetadata* chunk) {
+void HeapVerification::VerifyPageDone(const BasePage* chunk) {
   CHECK_EQ(chunk, *current_chunk_);
   current_chunk_.reset();
 }
 
 void HeapVerification::VerifyObject(Tagged<HeapObject> object) {
-  CHECK_EQ(MemoryChunkMetadata::FromHeapObject(object), *current_chunk_);
+  CHECK_EQ(BasePage::FromHeapObject(isolate(), object), *current_chunk_);
 
   // Verify object map.
   VerifyObjectMap(object);
@@ -624,22 +624,24 @@ class OldToNewSlotVerifyingVisitor : public SlotVerifyingVisitor {
            !HeapLayout::InYoungGeneration(host);
   }
 
-  void VisitEphemeron(Tagged<HeapObject> host, int index, ObjectSlot key,
+  void VisitEphemeron(Tagged<HeapObject> host, int index, ObjectSlot key_slot,
                       ObjectSlot target) override {
     VisitPointer(host, target);
     if (v8_flags.minor_ms) return;
-    // Keys are handled separately and should never appear in this set.
-    CHECK(!InUntypedSet(key));
-    Tagged<Object> k = *key;
-    if (!HeapLayout::InYoungGeneration(host) &&
-        HeapLayout::InYoungGeneration(k)) {
-      Tagged<EphemeronHashTable> table = i::Cast<EphemeronHashTable>(host);
-      auto it = ephemeron_remembered_set_->find(table);
-      CHECK(it != ephemeron_remembered_set_->end());
-      int slot_index =
-          EphemeronHashTable::SlotToIndex(table.address(), key.address());
-      InternalIndex entry = EphemeronHashTable::IndexToEntry(slot_index);
-      CHECK(it->second.find(entry.as_int()) != it->second.end());
+    Tagged<EphemeronHashTable> table = i::Cast<EphemeronHashTable>(host);
+    if (!heap_->incremental_marking()->IsMajorMarking()) {
+      // Keys are handled separately and should never appear in this set.
+      CHECK(!InUntypedSet(key_slot));
+      Tagged<Object> k = *key_slot;
+      if (!HeapLayout::InYoungGeneration(host) &&
+          HeapLayout::InYoungGeneration(k)) {
+        auto it = ephemeron_remembered_set_->find(table);
+        CHECK(it != ephemeron_remembered_set_->end());
+        int slot_index = EphemeronHashTable::SlotToIndex(table.address(),
+                                                         key_slot.address());
+        InternalIndex entry = EphemeronHashTable::IndexToEntry(slot_index);
+        CHECK(it->second.find(entry.as_int()) != it->second.end());
+      }
     }
   }
 
@@ -660,14 +662,14 @@ class OldToSharedSlotVerifyingVisitor : public SlotVerifyingVisitor {
     return target.GetHeapObject(&target_heap_object) &&
            HeapLayout::InWritableSharedSpace(target_heap_object) &&
            !(v8_flags.black_allocated_pages &&
-             HeapLayout::InBlackAllocatedPage(target_heap_object)) &&
+             TrustedHeapLayout::InBlackAllocatedPage(target_heap_object)) &&
            !HeapLayout::InYoungGeneration(host) &&
            !HeapLayout::InWritableSharedSpace(host);
   }
 };
 
 template <RememberedSetType direction>
-void CollectSlots(MutablePageMetadata* chunk, Address start, Address end,
+void CollectSlots(MutablePage* chunk, Address start, Address end,
                   std::set<Address>* untyped,
                   std::set<std::pair<SlotType, Address>>* typed) {
   RememberedSet<direction>::Iterate(
@@ -748,7 +750,7 @@ void HeapVerification::VerifyRememberedSetFor(Tagged<HeapObject> object) {
     return;
   }
 
-  MutablePageMetadata* chunk = MutablePageMetadata::FromHeapObject(object);
+  MutablePage* chunk = MutablePage::FromHeapObject(isolate(), object);
 
   Address start = object.address();
   Address end = start + object->Size(cage_base_);
@@ -776,7 +778,7 @@ void HeapVerification::VerifyRememberedSetFor(Tagged<HeapObject> object) {
       &trusted_to_shared_trusted);
   old_to_shared_visitor.Visit(object);
 
-  if (!MemoryChunk::FromHeapObject(object)->IsTrusted()) {
+  if (!MemoryChunk::FromHeapObject(object)->Metadata()->is_trusted()) {
     CHECK_NULL(chunk->slot_set<TRUSTED_TO_TRUSTED>());
     CHECK_NULL(chunk->slot_set<TRUSTED_TO_SHARED_TRUSTED>());
   }
@@ -858,7 +860,8 @@ void HeapVerifier::VerifyObjectLayoutChange(Heap* heap,
                                             Tagged<HeapObject> object,
                                             Tagged<Map> new_map) {
   // Object layout changes are currently not supported on background threads.
-  CHECK_NULL(LocalHeap::Current());
+  CHECK(heap->gc_state() == Heap::MARK_COMPACT ||
+        LocalHeap::Current()->is_main_thread());
 
   if (!v8_flags.verify_heap) return;
 

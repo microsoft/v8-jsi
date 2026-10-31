@@ -23,14 +23,15 @@ namespace node {
 enum ParseResult { Valid, FileError, InvalidContent };
 
 // ConfigReader is the class that parses the configuration JSON file.
-// It reads the file provided by --experimental-config-file and
+// It reads the file provided by --config-file and
 // extracts the flags.
 class ConfigReader {
  public:
   ParseResult ParseConfig(const std::string_view& config_path);
 
   std::optional<std::string_view> GetDataFromArgs(
-      const std::vector<std::string>& args);
+      std::vector<std::string>* args);
+  bool HasInvalidDefaultConfigFileArgument() const;
 
   std::string GetNodeOptions();
   const std::vector<std::string>& GetNamespaceFlags() const;
@@ -38,6 +39,14 @@ class ConfigReader {
   size_t GetFlagsSize();
 
  private:
+  ParseResult ParseConfigObject(simdjson::ondemand::object* config_object,
+                                const std::string_view& config_path,
+                                bool allow_version_selection);
+  ParseResult ParseNodeVersion(simdjson::ondemand::value* version_value,
+                               const std::string_view& config_path);
+  ParseResult ParseConfigs(simdjson::ondemand::array* configs,
+                           const std::string_view& config_path);
+
   // Parse options for a specific namespace (including nodeOptions for backward
   // compatibility)
   ParseResult ParseOptions(simdjson::ondemand::object* options_object,
@@ -46,15 +55,18 @@ class ConfigReader {
 
   // Process a single option value based on its type
   ParseResult ProcessOptionValue(
-      const std::pair<std::string, options_parser::OptionType>& option_info,
+      const std::pair<std::string, options_parser::OptionMappingDetails>&
+          option_details,
       simdjson::ondemand::value* option_value,
       std::vector<std::string>* output);
 
   std::vector<std::string> node_options_;
   std::vector<std::string> namespace_options_;
+  bool invalid_default_config_file_argument_ = false;
 
   // Cache for fast lookup of environment options
-  std::unordered_map<std::string, options_parser::OptionType> env_options_map_;
+  std::unordered_map<std::string, options_parser::OptionMappingDetails>
+      env_options_map_;
   bool env_options_initialized_ = false;
 };
 

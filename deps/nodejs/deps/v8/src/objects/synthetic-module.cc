@@ -81,7 +81,7 @@ bool SyntheticModule::PrepareInstantiate(Isolate* isolate,
     DirectHandle<Cell> cell = isolate->factory()->NewCell();
     DirectHandle<String> name(Cast<String>(export_names->get(i)), isolate);
     CHECK(IsTheHole(exports->Lookup(name), isolate));
-    exports = ObjectHashTable::Put(exports, name, cell);
+    exports = ObjectHashTable::Put(isolate, exports, name, cell);
   }
   module->set_exports(*exports);
   return true;
@@ -93,6 +93,13 @@ bool SyntheticModule::PrepareInstantiate(Isolate* isolate,
 bool SyntheticModule::FinishInstantiate(Isolate* isolate,
                                         DirectHandle<SyntheticModule> module) {
   module->SetStatus(kLinked);
+
+  // Ensure that if the namespace binding was created it is not empty.
+  if (!IsUndefined(module->module_namespace())) {
+    Module::GetModuleNamespace(isolate, handle(*module, isolate));
+    DCHECK(!IsUndefined(Cast<Cell>(module->module_namespace())->value()));
+  }
+
   return true;
 }
 

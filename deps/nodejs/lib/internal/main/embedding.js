@@ -12,19 +12,20 @@
 const {
   prepareMainThreadExecution,
 } = require('internal/process/pre_execution');
-const { isExperimentalSeaWarningNeeded, isSea } = internalBinding('sea');
+const {
+  isExperimentalSeaWarningNeeded,
+  isSea,
+  isVfsEnabled,
+  mainCodePath: seaMainCodePath,
+} = internalBinding('sea');
 const { emitExperimentalWarning } = require('internal/util');
 const { emitWarningSync } = require('internal/process/warning');
-const { BuiltinModule } = require('internal/bootstrap/realm');
-const { normalizeRequirableId } = BuiltinModule;
-const { Module } = require('internal/modules/cjs/loader');
+const { Module, wrapModuleLoad } = require('internal/modules/cjs/loader');
 const { compileFunctionForCJSLoader } = internalBinding('contextify');
 const { maybeCacheSourceMap } = require('internal/source_map/source_map_cache');
-const { codes: {
-  ERR_UNKNOWN_BUILTIN_MODULE,
-} } = require('internal/errors');
 const { pathToFileURL } = require('internal/url');
-const { loadBuiltinModule } = require('internal/modules/helpers');
+const { loadBuiltinModuleForEmbedder } = require('internal/modules/helpers');
+const { compileSourceTextModule, SourceTextModuleTypes: { kEmbedder } } = require('internal/modules/esm/utils');
 const { moduleFormats } = internalBinding('modules');
 const assert = require('internal/assert');
 const path = require('path');
@@ -34,7 +35,6 @@ const path = require('path');
 prepareMainThreadExecution(false, true);
 
 const isLoadingSea = isSea();
-const isBuiltinWarningNeeded = isLoadingSea && isExperimentalSeaWarningNeeded();
 if (isExperimentalSeaWarningNeeded()) {
   emitExperimentalWarning('Single executable application');
 }
@@ -65,6 +65,7 @@ function embedderRunCjs(content, filename) {
     filename,
     isLoadingSea, // is_sea_main
     false, // should_detect_module, ESM should be supported differently for embedded code
+    true,  // is_embedder
   );
   // Cache the source map for the module if present.
   if (sourceMapURL) {
@@ -103,28 +104,8 @@ function embedderRunCjs(content, filename) {
   );
 }
 
-let warnedAboutBuiltins = false;
-function warnNonBuiltinInSEA() {
-  if (isBuiltinWarningNeeded && !warnedAboutBuiltins) {
-    emitWarningSync(
-      'Currently the require() provided to the main script embedded into ' +
-      'single-executable applications only supports loading built-in modules.\n' +
-      'To load a module from disk after the single executable application is ' +
-      'launched, use require("module").createRequire().\n' +
-      'Support for bundled module loading or virtual file systems are under ' +
-      'discussions in https://github.com/nodejs/single-executable');
-    warnedAboutBuiltins = true;
-  }
-}
-
 function embedderRequire(id) {
-  const normalizedId = normalizeRequirableId(id);
-
-  if (!normalizedId) {
-    warnNonBuiltinInSEA();
-    throw new ERR_UNKNOWN_BUILTIN_MODULE(id);
-  }
-  return require(normalizedId);
+  return loadBuiltinModuleForEmbedder(id).exports;
 }
 
 function embedderRunESM(content, filename) {
@@ -134,40 +115,63 @@ function embedderRunESM(content, filename) {
   } else {
     resourceName = filename;
   }
-  const { compileSourceTextModule } = require('internal/modules/esm/utils');
-  // TODO(joyeecheung): support code cache, dynamic import() and import.meta.
-  const wrap = compileSourceTextModule(resourceName, content);
-  // Cache the source map for the module if present.
-  if (wrap.sourceMapURL) {
-    maybeCacheSourceMap(resourceName, content, wrap, false, undefined, wrap.sourceMapURL);
-  }
-  const requests = wrap.getModuleRequests();
-  const modules = [];
-  for (let i = 0; i < requests.length; ++i) {
-    const { specifier } = requests[i];
-    const normalizedId = normalizeRequirableId(specifier);
-    if (!normalizedId) {
-      warnNonBuiltinInSEA();
-      throw new ERR_UNKNOWN_BUILTIN_MODULE(specifier);
-    }
-    const mod = loadBuiltinModule(normalizedId);
-    if (!mod) {
-      throw new ERR_UNKNOWN_BUILTIN_MODULE(specifier);
-    }
-    modules.push(mod.getESMFacade());
-  }
-  wrap.link(modules);
-  wrap.instantiate();
-  wrap.evaluate(-1, false);
+  // TODO(joyeecheung): allow configuration from node::ModuleData,
+  // either via a more generic context object, or something like import.meta extensions.
+  const context = { isMain: true, __proto__: null };
+  const wrap = compileSourceTextModule(resourceName, content, kEmbedder, context);
 
   // TODO(joyeecheung): we may want to return the v8::Module via a vm.SourceTextModule
-  // when vm.SourceTextModule stablizes, or put it in an out parameter.
+  // when vm.SourceTextModule stabilizes, or put it in an out parameter.
   return wrap.getNamespace();
 }
+
+/* c8 ignore start -- only reachable in an actual SEA binary */
+/**
+ * Mounts the SEA virtual file system with the main script placed at the
+ * mount point root, and returns the path of the main script inside the
+ * mount, or null when the VFS could not be set up.
+ * @param {string} content The source of the SEA main script
+ * @returns {string|null} The VFS path of the main script
+ */
+function setUpSeaVfs(content) {
+  const mainName = path.basename(seaMainCodePath || process.execPath);
+  const { initSeaVfs } = require('internal/vfs/sea');
+  const seaVfs = initSeaVfs({ extraFiles: { [mainName]: content } });
+  if (seaVfs === null) {
+    return null;
+  }
+  return path.join(seaVfs.mountPoint, mainName);
+}
+/* c8 ignore stop */
 
 function embedderRunEntryPoint(content, format, filename) {
   format ||= moduleFormats.kCommonJS;
   filename ||= process.execPath;
+
+  /* c8 ignore start -- only reachable in an actual SEA binary */
+  if (isLoadingSea && isVfsEnabled()) {
+    // Run the main script from inside the SEA VFS mount so that
+    // `__filename`, `__dirname`, `import.meta`, relative requires and
+    // imports, and `node_modules` lookups all resolve against the
+    // bundled assets.
+    const vfsMain = setUpSeaVfs(content);
+    if (vfsMain !== null) {
+      if (format === moduleFormats.kCommonJS) {
+        return wrapModuleLoad(vfsMain, null, true);
+      } else if (format === moduleFormats.kModule) {
+        const { runEntryPointWithESMLoader } =
+          require('internal/modules/run_main');
+        const mainURL = pathToFileURL(vfsMain);
+        return runEntryPointWithESMLoader((cascadedLoader) => {
+          // Note that if the graph contains unsettled TLA, this may never
+          // resolve even after the event loop stops running.
+          return cascadedLoader.import(
+            mainURL, undefined, { __proto__: null }, undefined, true);
+        });
+      }
+    }
+  }
+  /* c8 ignore stop */
 
   if (format === moduleFormats.kCommonJS) {
     return embedderRunCjs(content, filename);

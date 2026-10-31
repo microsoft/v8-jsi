@@ -2,6 +2,7 @@
 
 const {
   ArrayPrototypeForEach,
+  ArrayPrototypeSplice,
   Date,
   DatePrototypeGetDate,
   DatePrototypeGetFullYear,
@@ -32,6 +33,7 @@ const {
 const {
   ERR_MISSING_OPTION,
   ERR_ACCESS_DENIED,
+  ERR_VFS_INVALID_TARGET,
 } = require('internal/errors').codes;
 const assert = require('internal/assert');
 const {
@@ -114,9 +116,9 @@ function prepareExecution(options) {
   setupNetworkInspection();
   setupNavigator();
   setupWarningHandler();
-  setupSQLite();
-  setupQuic();
+  setupOptionGatedBuiltins();
   setupWebStorage();
+  removeWebWorkersIfDisabled();
   setupWebsocket();
   setupEventsource();
   setupCodeCoverage();
@@ -124,7 +126,7 @@ function prepareExecution(options) {
   // Process initial diagnostic reporting configuration, if present.
   initializeReport();
 
-  setupDiagnosticsChannel();
+  setupDiagnosticsChannel(isMainThread);
 
   // Load permission system API
   initializePermission();
@@ -132,9 +134,12 @@ function prepareExecution(options) {
   initializeSourceMapsHandlers();
   initializeDeprecations();
 
-  initializeConfigFileSupport();
-
-  require('internal/dns/utils').initializeDns();
+  // internal/dns/utils (and internal/net behind it) is only needed up front
+  // to validate an explicit --dns-result-order or to register the resolver's
+  // snapshot serialization; otherwise it is loaded with node:dns.
+  if (getOptionValue('--dns-result-order') || isBuildingSnapshot()) {
+    require('internal/dns/utils').initializeDns();
+  }
 
   if (isMainThread) {
     assert(internalBinding('worker').isMainThread);
@@ -154,14 +159,12 @@ function prepareExecution(options) {
     // channel. This needs to be done before any user code gets executed
     // (including preload modules).
     initializeClusterIPC();
-
-    // TODO(joyeecheung): do this for worker threads as well.
-    runDeserializeCallbacks();
   } else {
     assert(!internalBinding('worker').isMainThread);
     // The setup should be called in LOAD_SCRIPT message handler.
     assert(!initializeModules);
   }
+  runDeserializeCallbacks();
 
   const { initializeExtensionFormatMap } = require('internal/modules/esm/get_format');
   initializeExtensionFormatMap();
@@ -169,6 +172,14 @@ function prepareExecution(options) {
   setupVmModules();
   if (initializeModules) {
     initializeModuleLoaders({ shouldSpawnLoaderHookWorker, shouldPreloadModules });
+  }
+
+  // Mount here only when there is no --import: those preloads run later (inside
+  // run_main's ESM entry flow), and a preload may registerProvider() before a
+  // target's provider is chosen, so with --import the mount is deferred to after
+  // that loop via finishVfsMounts(), which is idempotent.
+  if (isMainThread && getOptionValue('--import').length === 0) {
+    finishVfsMounts();
   }
 
   // This has to be done after the user module loader is initialized,
@@ -191,6 +202,70 @@ function setupVmModules() {
     vm.SourceTextModule = SourceTextModule;
     vm.SyntheticModule = SyntheticModule;
   }
+}
+
+let vfsMounted = false;
+let vfsLoadRoot;
+
+// Mounts the --vfs-load source. Called from prepareExecution() when there is
+// no --import, and otherwise from run_main after the --import loop has run; the
+// guard makes the second call a no-op so a provider registered by either a -r
+// or an --import preload is available before the source's provider is chosen.
+function finishVfsMounts() {
+  if (vfsMounted) return;
+  vfsMounted = true;
+
+  const source = getOptionValue('--vfs-load');
+  if (source === '') return;
+  emitExperimentalWarning('--vfs-load');
+
+  const fs = require('fs');
+  const path = require('path');
+  const { selectProvider } = require('internal/vfs/provider_registry');
+  const { VirtualFileSystem, kLoadLayer } = require('internal/vfs/file_system');
+
+  const resolvedSource = path.resolve(source);
+  let stats;
+  try {
+    stats = fs.statSync(resolvedSource);
+  } catch {
+    throw new ERR_VFS_INVALID_TARGET(resolvedSource);
+  }
+  if (!stats.isDirectory() && !stats.isFile()) {
+    throw new ERR_VFS_INVALID_TARGET(resolvedSource);
+  }
+  const provider = selectProvider(resolvedSource, stats);
+  if (provider === null) {
+    throw new ERR_VFS_INVALID_TARGET(resolvedSource);
+  }
+  // The source is mounted at the layer reserved for it, so it is at the same
+  // reserved path in every thread.
+  const vfs = new VirtualFileSystem(provider, {
+    __proto__: null,
+    emitExperimentalWarning: false,
+    [kLoadLayer]: true,
+  });
+  const mountPoint = vfs.mount();
+  // A worker inherits the source but not [vfs_load_set] (see node_worker.cc):
+  // it mounts the same source, and so reaches it at the same reserved path,
+  // but runs its own entry point.
+  //
+  // On the main thread the entry is require()d from the mount point, while
+  // process.argv[1] reports the source, since the reserved mount point is an
+  // opaque implementation detail. The source is spliced in rather than
+  // assigned over argv[1]: the entry comes from the mount, so nothing was
+  // consumed as an entry point and the first positional argument is the
+  // program's own. Overwriting would drop it.
+  if (getOptionValue('[vfs_load_set]')) {
+    vfsLoadRoot = mountPoint;
+    ArrayPrototypeSplice(process.argv, 1, 0, resolvedSource);
+  }
+}
+
+// The reserved mount point of the --vfs-load entry, available once
+// finishVfsMounts() has run. run_main require()s the entry from here.
+function getVfsLoadRoot() {
+  return vfsLoadRoot;
 }
 
 function setupHttpProxy() {
@@ -279,7 +354,11 @@ function patchProcessObject(expandArgv1) {
   let mainEntry;
   // If requested, update process.argv[1] to replace whatever the user provided with the resolved absolute file path of
   // the entry point.
-  if (expandArgv1 && process.argv[1] && process.argv[1][0] !== '-') {
+  // Under --vfs-load the entry point comes from the mount, so no positional
+  // argument was consumed as one: argv[1] is the program's own first argument
+  // and expanding it to a path would corrupt it.
+  if (expandArgv1 && !getOptionValue('[vfs_load_set]') &&
+      process.argv[1] && process.argv[1][0] !== '-') {
     // Expand process.argv[1] into a full path.
     const path = require('path');
     try {
@@ -356,6 +435,13 @@ function setupWebsocket() {
   }
 }
 
+// https://html.spec.whatwg.org/multipage/workers.html
+function removeWebWorkersIfDisabled() {
+  if (!getOptionValue('--experimental-web-worker')) {
+    delete globalThis.Worker;
+  }
+}
+
 // https://html.spec.whatwg.org/multipage/server-sent-events.html
 function setupEventsource() {
   if (!getOptionValue('--experimental-eventsource')) {
@@ -376,29 +462,9 @@ function setupNavigator() {
   defineReplaceableLazyAttribute(globalThis, 'internal/navigator', ['navigator'], false);
 }
 
-function setupSQLite() {
-  if (getOptionValue('--no-experimental-sqlite')) {
-    return;
-  }
-
+function setupOptionGatedBuiltins() {
   const { BuiltinModule } = require('internal/bootstrap/realm');
-  BuiltinModule.allowRequireByUsers('sqlite');
-}
-
-function initializeConfigFileSupport() {
-  if (getOptionValue('--experimental-default-config-file') ||
-      getOptionValue('--experimental-config-file')) {
-    emitExperimentalWarning('--experimental-config-file');
-  }
-}
-
-function setupQuic() {
-  if (!getOptionValue('--experimental-quic')) {
-    return;
-  }
-
-  const { BuiltinModule } = require('internal/bootstrap/realm');
-  BuiltinModule.allowRequireByUsers('quic');
+  BuiltinModule.allowOptionGatedBuiltins(getOptionValue);
 }
 
 function setupWebStorage() {
@@ -409,8 +475,26 @@ function setupWebStorage() {
 
   // https://html.spec.whatwg.org/multipage/webstorage.html#webstorage
   exposeLazyInterfaces(globalThis, 'internal/webstorage', ['Storage']);
+
+  // localStorage is non-enumerable when --localstorage-file is not provided
+  // to avoid breaking {...globalThis} operations.
+  const localStorageFile = getOptionValue('--localstorage-file');
+  let lazyLocalStorage;
+  ObjectDefineProperty(globalThis, 'localStorage', {
+    __proto__: null,
+    enumerable: localStorageFile !== '',
+    configurable: true,
+    get() {
+      lazyLocalStorage ??= require('internal/webstorage').localStorage;
+      return lazyLocalStorage;
+    },
+    set(value) {
+      lazyLocalStorage = value;
+    },
+  });
+
   defineReplaceableLazyAttribute(globalThis, 'internal/webstorage', [
-    'localStorage', 'sessionStorage',
+    'sessionStorage',
   ]);
 }
 
@@ -606,35 +690,51 @@ function initializeClusterIPC() {
   }
 }
 
-function setupDiagnosticsChannel() {
+function setupDiagnosticsChannel(isMainThread) {
   // Re-link native channels after snapshot deserialization since
   // JS references are cleared during serialization.
+  // Keep this callback in sync with the initial registration in
+  // lib/diagnostics_channel.js.
   const dc = require('diagnostics_channel');
   const dc_binding = internalBinding('diagnostics_channel');
-  dc_binding.linkNativeChannel((name) => dc.channel(name));
+  dc_binding.linkNativeChannel((name, index) => {
+    const channel = dc.channel(name);
+    channel._index = index;
+    dc_binding.subscribers[index] =
+      (channel._subscribers?.length || 0) +
+      (channel._stores?.size || 0);
+    return channel;
+  });
+  if (isMainThread &&
+      process.versions.openssl !== undefined &&
+      getOptionValue('--enable-fips-indicator-events')) {
+    internalBinding('crypto').setupFipsIndicatorChannel();
+  }
 }
 
 function initializePermission() {
-  const permission = getOptionValue('--permission');
+  const permission = getOptionValue('--permission') || getOptionValue('--permission-audit');
   if (permission) {
     process.binding = function binding(_module) {
       throw new ERR_ACCESS_DENIED('process.binding');
     };
     // Guarantee path module isn't monkey-patched to bypass permission model
     ObjectFreeze(require('path'));
-    const { has } = require('internal/process/permission');
+    const { has, drop } = require('internal/process/permission');
     const warnFlags = [
-      '--allow-addons',
-      '--allow-child-process',
-      '--allow-inspector',
-      '--allow-wasi',
-      '--allow-worker',
+      { flag: '--allow-addons', enabled: true, code: 'PERM0001' },
+      { flag: '--allow-child-process', enabled: true, code: 'PERM0002' },
+      { flag: '--allow-ffi', enabled: process.config.variables.node_use_ffi, code: 'PERM0003' },
+      { flag: '--allow-inspector', enabled: true, code: 'PERM0004' },
+      { flag: '--allow-wasi', enabled: true, code: 'PERM0005' },
+      { flag: '--allow-worker', enabled: true, code: 'PERM0006' },
+      { flag: '--allow-openssl-store', enabled: true, code: 'PERM0007' },
     ];
-    for (const flag of warnFlags) {
-      if (getOptionValue(flag)) {
+    for (const { flag, enabled, code } of warnFlags) {
+      if (enabled && getOptionValue(flag)) {
         process.emitWarning(
           `The flag ${flag} must be used with extreme caution. ` +
-        'It could invalidate the permission model.', 'SecurityWarning');
+        'It could invalidate the permission model.', 'SecurityWarning', code);
       }
     }
     const warnCommaFlags = [
@@ -654,19 +754,31 @@ function initializePermission() {
       }
     }
 
+    const experimentalWarnFlags = [
+      '--allow-net',
+    ];
+    for (const flag of experimentalWarnFlags) {
+      if (getOptionValue(flag)) {
+        process.emitWarning(
+          `The flag ${flag} is under experimental phase.`,
+          'ExperimentalWarning');
+      }
+    }
+
     ObjectDefineProperty(process, 'permission', {
       __proto__: null,
       enumerable: true,
       configurable: false,
       value: {
         has,
+        drop,
       },
     });
   } else {
     const { availableFlags } = require('internal/process/permission');
     ArrayPrototypeForEach(availableFlags(), (flag) => {
       const value = getOptionValue(flag);
-      if (value.length) {
+      if (value === true || value?.length) {
         throw new ERR_MISSING_OPTION('--permission');
       }
     });
@@ -742,6 +854,8 @@ function getHeapSnapshotFilename(diagnosticDir) {
 }
 
 module.exports = {
+  finishVfsMounts,
+  getVfsLoadRoot,
   initializeModuleLoaders,
   prepareMainThreadExecution,
   prepareWorkerThreadExecution,

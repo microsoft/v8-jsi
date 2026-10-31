@@ -52,8 +52,9 @@ namespace node {
   V(HTTPINCOMINGMESSAGE)                                                       \
   V(HTTPCLIENTREQUEST)                                                         \
   V(LOCKS)                                                                     \
+  V(DTLS_ENDPOINT)                                                             \
+  V(DTLS_SESSION)                                                              \
   V(JSSTREAM)                                                                  \
-  V(JSUDPWRAP)                                                                 \
   V(MESSAGEPORT)                                                               \
   V(PIPECONNECTWRAP)                                                           \
   V(PIPESERVERWRAP)                                                            \
@@ -63,7 +64,6 @@ namespace node {
   V(QUERYWRAP)                                                                 \
   V(QUIC_ENDPOINT)                                                             \
   V(QUIC_LOGSTREAM)                                                            \
-  V(QUIC_PACKET)                                                               \
   V(QUIC_SESSION)                                                              \
   V(QUIC_STREAM)                                                               \
   V(QUIC_UDP)                                                                  \

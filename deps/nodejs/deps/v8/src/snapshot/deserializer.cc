@@ -99,10 +99,13 @@ class SlotAccessorForHeapObject {
     // we must have one of these objects here. See the comments in
     // trusted-object.h for more details.
     DCHECK(IsExposedTrustedObject(value));
-    Tagged<ExposedTrustedObject> object = Cast<ExposedTrustedObject>(value);
+    Tagged<ExposedTrustedObject> object =
+        TrustedCast<ExposedTrustedObject>(value);
 
     InstanceType instance_type = value->map()->instance_type();
-    IndirectPointerTag tag = IndirectPointerTagFromInstanceType(instance_type);
+    bool shared = HeapLayout::InAnySharedSpace(value);
+    IndirectPointerTag tag =
+        IndirectPointerTagFromInstanceType(instance_type, shared);
     IndirectPointerSlot dest = object_->RawIndirectPointerField(offset_, tag);
     dest.store(object);
 
@@ -113,7 +116,7 @@ class SlotAccessorForHeapObject {
   int WriteProtectedPointerTo(Tagged<TrustedObject> value,
                               WriteBarrierMode mode) {
     DCHECK(IsTrustedObject(*object_));
-    Tagged<TrustedObject> host = Cast<TrustedObject>(*object_);
+    Tagged<TrustedObject> host = TrustedCast<TrustedObject>(*object_);
     ProtectedPointerSlot dest = host->RawProtectedPointerField(offset_);
     dest.store(value);
     WriteBarrier::ForProtectedPointer(host, dest, value, mode);
@@ -236,7 +239,7 @@ int Deserializer<IsolateT>::WriteHeapPointer(
   } else if (descr.is_protected_pointer) {
     DCHECK(IsTrustedObject(*heap_object));
     return slot_accessor.WriteProtectedPointerTo(
-        Cast<TrustedObject>(*heap_object), mode);
+        TrustedCast<TrustedObject>(*heap_object), mode);
   } else {
     return slot_accessor.Write(heap_object, descr.type, 0, mode);
   }
@@ -273,7 +276,11 @@ int Deserializer<IsolateT>::WriteExternalPointer(Tagged<HeapObject> host,
   }
 #endif  // V8_ENABLE_SANDBOX
 
-  dest.init(main_thread_isolate(), host, value, tag);
+  if (tag == kExternalPointerNullTag && value == kNullAddress) {
+    dest.init_lazily_initialized();
+  } else {
+    dest.init(main_thread_isolate(), host, value, tag);
+  }
 
 #ifdef V8_ENABLE_SANDBOX
   if (managed_resource) {
@@ -320,8 +327,9 @@ Deserializer<IsolateT>::Deserializer(IsolateT* isolate,
       magic_number_(magic_number),
       new_maps_(isolate),
       new_allocation_sites_(isolate),
-      new_code_objects_(isolate),
+      new_instruction_stream_objects_(isolate),
       accessor_infos_(isolate),
+      interceptor_infos_(isolate),
       function_template_infos_(isolate),
       new_scripts_(isolate),
       new_descriptor_arrays_(isolate->heap()),
@@ -490,6 +498,14 @@ void PostProcessExternalString(Tagged<ExternalString> string,
                                Isolate* isolate) {
   DisallowGarbageCollection no_gc;
   uint32_t index = string->GetResourceRefForDeserialization();
+  // Our (sandbox) fuzzers can sometimes get here by mutating an in-sandbox
+  // object after deserialization but before post-processing, and making it
+  // look like an ExternalString. In that case, the Isolate may not have any
+  // external references and this CHECK then avoids false-positive crashes.
+  // Technically we should probably also check that the index is in-bounds if
+  // we do have external references on the Isolate, but in our current fuzzer
+  // setup, this doesn't seem to be the case.
+  CHECK_NE(isolate->api_external_references(), nullptr);
   Address address =
       static_cast<Address>(isolate->api_external_references()[index]);
   string->InitExternalPointerFields(isolate);
@@ -537,10 +553,18 @@ void Deserializer<Isolate>::PostProcessNewJSReceiver(
       uint32_t store_index =
           typed_array->GetExternalBackingStoreRefForDeserialization();
       auto backing_store = backing_stores_[store_index];
-      void* start = backing_store ? backing_store->buffer_start() : nullptr;
-      if (!start) start = EmptyBackingStoreBuffer();
-      typed_array->SetOffHeapDataPtr(main_thread_isolate(), start,
-                                     typed_array->byte_offset());
+      if (backing_store && backing_store->buffer_start()) {
+        typed_array->SetOffHeapDataPtr(main_thread_isolate(),
+                                       backing_store->buffer_start(),
+                                       typed_array->byte_offset());
+      } else {
+        // Directly set the data pointer to point to the
+        // EmptyBackingStoreBuffer. Otherwise, we might end up setting it to
+        // EmptyBackingStoreBuffer() + byte_offset() which would result in an
+        // invalid pointer.
+        typed_array->SetOffHeapDataPtr(main_thread_isolate(),
+                                       EmptyBackingStoreBuffer(), 0);
+      }
     }
   } else if (InstanceTypeChecker::IsJSArrayBuffer(instance_type)) {
     auto buffer = Cast<JSArrayBuffer>(*obj);
@@ -558,8 +582,11 @@ void Deserializer<Isolate>::PostProcessNewJSReceiver(
       ResizableFlag resizable = bs && bs->is_resizable_by_js()
                                     ? ResizableFlag::kResizable
                                     : ResizableFlag::kNotResizable;
-      buffer->Setup(shared, resizable, bs, main_thread_isolate());
+      buffer->Setup(shared, resizable, bs, main_thread_isolate(),
+                    buffer->views());
     }
+  } else if (InstanceTypeChecker::IsJSDate(instance_type)) {
+    Cast<JSDate>(*obj)->UpdateFieldsAfterDeserialization(main_thread_isolate());
   }
 }
 
@@ -639,10 +666,11 @@ void Deserializer<IsolateT>::PostProcessNewObject(DirectHandle<Map> map,
     // Hence we only remember each individual code object when deserializing
     // user code.
     if (deserializing_user_code()) {
-      new_code_objects_.push_back(Cast<InstructionStream>(obj));
+      new_instruction_stream_objects_.push_back(
+          TrustedCast<InstructionStream>(obj));
     }
   } else if (InstanceTypeChecker::IsCode(instance_type)) {
-    Tagged<Code> code = Cast<Code>(raw_obj);
+    Tagged<Code> code = TrustedCast<Code>(raw_obj);
     if (!code->has_instruction_stream()) {
       code->SetInstructionStartForOffHeapBuiltin(
           main_thread_isolate(), EmbeddedData::FromBlob(main_thread_isolate())
@@ -661,14 +689,15 @@ void Deserializer<IsolateT>::PostProcessNewObject(DirectHandle<Map> map,
       // partially initialized at this point.
       new_maps_.push_back(Cast<Map>(obj));
     }
-  } else if (InstanceTypeChecker::IsAccessorInfo(instance_type)) {
-#ifdef USE_SIMULATOR
+  } else if (USE_SIMULATOR_BOOL &&
+             InstanceTypeChecker::IsAccessorInfo(instance_type)) {
     accessor_infos_.push_back(Cast<AccessorInfo>(obj));
-#endif
-  } else if (InstanceTypeChecker::IsFunctionTemplateInfo(instance_type)) {
-#ifdef USE_SIMULATOR
+  } else if (USE_SIMULATOR_BOOL &&
+             InstanceTypeChecker::IsInterceptorInfo(instance_type)) {
+    interceptor_infos_.push_back(Cast<InterceptorInfo>(obj));
+  } else if (USE_SIMULATOR_BOOL &&
+             InstanceTypeChecker::IsFunctionTemplateInfo(instance_type)) {
     function_template_infos_.push_back(Cast<FunctionTemplateInfo>(obj));
-#endif
   } else if (InstanceTypeChecker::IsExternalString(instance_type)) {
     PostProcessExternalString(Cast<ExternalString>(raw_obj),
                               main_thread_isolate());
@@ -682,8 +711,9 @@ void Deserializer<IsolateT>::PostProcessNewObject(DirectHandle<Map> map,
     auto descriptors = Cast<DescriptorArray>(obj);
     new_descriptor_arrays_.Push(*descriptors);
   } else if (InstanceTypeChecker::IsNativeContext(instance_type)) {
-    Cast<NativeContext>(raw_obj)->init_microtask_queue(main_thread_isolate(),
-                                                       nullptr);
+    Tagged<NativeContext> context = Cast<NativeContext>(raw_obj);
+    context->init_microtask_queue(main_thread_isolate(), nullptr);
+    main_thread_isolate()->heap()->AddToWeakNativeContextList(context);
   } else if (InstanceTypeChecker::IsScript(instance_type)) {
     LogScriptEvents(Cast<Script>(*obj));
   }
@@ -794,8 +824,12 @@ Handle<HeapObject> Deserializer<IsolateT>::ReadObject(SnapshotSpace space) {
   //     before fields with objects.
   //     - We ensure this is the case by DCHECKing on object allocation that the
   //       previously allocated object has a valid size (see `Allocate`).
+
+  const InSharedSpace in_shared_space =
+      IsSharedAllocationType(allocation) ? kInSharedSpace : kNotInSharedSpace;
   Tagged<HeapObject> raw_obj =
-      Allocate(allocation, size_in_bytes, HeapObject::RequiredAlignment(*map));
+      Allocate(allocation, size_in_bytes,
+               HeapObject::RequiredAlignment(in_shared_space, *map));
   raw_obj->set_map_after_allocation(isolate_, *map);
   MemsetTagged(raw_obj->RawField(kTaggedSize),
                Smi::uninitialized_deserialization_value(), size_in_tagged - 1);
@@ -823,8 +857,8 @@ Handle<HeapObject> Deserializer<IsolateT>::ReadObject(SnapshotSpace space) {
     Tagged<JSObject> js_obj = Cast<JSObject>(raw_obj);
     for (int i = 0; i < js_obj->GetEmbedderFieldCount(); ++i) {
       void* pointer;
-      CHECK(EmbedderDataSlot(js_obj, i).ToAlignedPointer(main_thread_isolate(),
-                                                         &pointer));
+      CHECK(EmbedderDataSlot(js_obj, i).DeprecatedToAlignedPointer(
+          main_thread_isolate(), &pointer));
       CHECK_NULL(pointer);
     }
   } else if (IsEmbedderDataArray(raw_obj, cage_base)) {
@@ -833,7 +867,7 @@ Handle<HeapObject> Deserializer<IsolateT>::ReadObject(SnapshotSpace space) {
     EmbedderDataSlot end(array, array->length());
     for (EmbedderDataSlot slot = start; slot < end; ++slot) {
       void* pointer;
-      CHECK(slot.ToAlignedPointer(main_thread_isolate(), &pointer));
+      CHECK(slot.DeprecatedToAlignedPointer(main_thread_isolate(), &pointer));
       CHECK_NULL(pointer);
     }
   }
@@ -1128,7 +1162,7 @@ int Deserializer<IsolateT>::ReadReadOnlyHeapRef(uint8_t data,
   uint32_t chunk_offset = source_.GetUint30();
 
   ReadOnlySpace* read_only_space = isolate()->heap()->read_only_space();
-  ReadOnlyPageMetadata* page = read_only_space->pages()[chunk_index];
+  ReadOnlyPage* page = read_only_space->pages()[chunk_index];
   Address address = page->OffsetToAddress(chunk_offset);
   Tagged<HeapObject> heap_object = HeapObject::FromAddress(address);
 
@@ -1421,7 +1455,7 @@ int Deserializer<IsolateT>::ReadClearedWeakReference(
   if (v8_flags.trace_deserialization) {
     PrintF("%*sClearedWeakReference\n", depth_, "");
   }
-  return slot_accessor.Write(ClearedValue(isolate()), 0, SKIP_WRITE_BARRIER);
+  return slot_accessor.Write(ClearedValue(), 0, SKIP_WRITE_BARRIER);
 }
 
 template <typename IsolateT>
@@ -1465,8 +1499,8 @@ int Deserializer<IsolateT>::ReadInitializeSelfIndirectPointer(
             ExposedTrustedObject::kSelfIndirectPointerOffset);
 
   Tagged<ExposedTrustedObject> host =
-      Cast<ExposedTrustedObject>(*slot_accessor.object());
-  host->init_self_indirect_pointer(isolate());
+      TrustedCast<ExposedTrustedObject>(*slot_accessor.object());
+  host->InitAndPublish(isolate());
 
   return 1;
 #else
@@ -1478,7 +1512,6 @@ template <typename IsolateT>
 template <typename SlotAccessor>
 int Deserializer<IsolateT>::ReadAllocateJSDispatchEntry(
     uint8_t data, SlotAccessor slot_accessor) {
-#ifdef V8_ENABLE_LEAPTIERING
   DCHECK_NE(slot_accessor.object()->address(), kNullAddress);
   DirectHandle<HeapObject> host = slot_accessor.object();
 
@@ -1489,7 +1522,7 @@ int Deserializer<IsolateT>::ReadAllocateJSDispatchEntry(
     PrintF("%*sAllocateJSDispatchEntry [%u]\n", depth_, "", parameter_count);
   }
 
-  DirectHandle<Code> code = Cast<Code>(ReadObject());
+  DirectHandle<Code> code = TrustedCast<Code>(ReadObject());
 
   JSDispatchTable::Space* space =
       isolate()->GetJSDispatchTableSpaceFor(host->address());
@@ -1501,16 +1534,12 @@ int Deserializer<IsolateT>::ReadAllocateJSDispatchEntry(
   JS_DISPATCH_HANDLE_WRITE_BARRIER(*host, handle);
 
   return 1;
-#else
-  UNREACHABLE();
-#endif  // V8_ENABLE_SANDBOX
 }
 
 template <typename IsolateT>
 template <typename SlotAccessor>
 int Deserializer<IsolateT>::ReadJSDispatchEntry(uint8_t data,
                                                 SlotAccessor slot_accessor) {
-#ifdef V8_ENABLE_LEAPTIERING
   DCHECK_NE(slot_accessor.object()->address(), kNullAddress);
   DirectHandle<HeapObject> host = slot_accessor.object();
   uint32_t entry_id = source_.GetUint30();
@@ -1528,9 +1557,6 @@ int Deserializer<IsolateT>::ReadJSDispatchEntry(uint8_t data,
   JS_DISPATCH_HANDLE_WRITE_BARRIER(*host, handle);
 
   return 1;
-#else
-  UNREACHABLE();
-#endif  // V8_ENABLE_SANDBOX
 }
 
 template <typename IsolateT>

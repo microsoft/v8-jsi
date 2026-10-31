@@ -107,11 +107,6 @@ class V8_NODISCARD RwxMemoryWriteScope {
   static int memory_protection_key();
 
   static bool IsPKUWritable();
-
-  // Linux resets key's permissions to kDisableAccess before executing signal
-  // handlers. If the handler requires access to code page bodies it should take
-  // care of changing permissions to the default state (kDisableWrite).
-  static V8_EXPORT void SetDefaultPermissionsForSignalHandler();
 #endif  // V8_HAS_PKU_JIT_WRITE_PROTECT
 
  private:
@@ -143,6 +138,7 @@ class V8_EXPORT ThreadIsolation {
  public:
   static bool Enabled();
   static void Initialize(ThreadIsolatedAllocator* allocator);
+  static void TearDown();
 
   enum class JitAllocationType {
     kInstructionStream,
@@ -212,14 +208,11 @@ class V8_EXPORT ThreadIsolation {
   static void UnregisterJitAllocationForTesting(Address addr, size_t size);
 
 #if V8_HAS_PKU_JIT_WRITE_PROTECT
-  static int pkey() { return trusted_data_.pkey; }
-  static bool PkeyIsAvailable() { return trusted_data_.pkey != -1; }
+  static int pkey() { return trusted_data_.pkey_; }
+  static bool PkeyIsAvailable() { return trusted_data_.pkey_ != -1; }
 #endif
 
-#if DEBUG
-  static bool initialized() { return trusted_data_.initialized; }
-  static void CheckTrackedMemoryEmpty();
-#endif
+  static bool initialized() { return trusted_data_.initialized_; }
 
   // A std::allocator implementation that wraps the ThreadIsolated allocator.
   // This is needed to create STL containers backed by ThreadIsolated memory.
@@ -324,7 +317,7 @@ class V8_EXPORT ThreadIsolation {
 
  private:
   static ThreadIsolatedAllocator* allocator() {
-    return trusted_data_.allocator;
+    return trusted_data_.allocator_;
   }
 
   // We store pointers in the map since we want to use the entries without
@@ -336,18 +329,16 @@ class V8_EXPORT ThreadIsolation {
   // The TrustedData needs to be page aligned so that we can protect it using
   // per-thread memory permissions (e.g. pkeys on x64).
   struct THREAD_ISOLATION_ALIGN TrustedData {
-    ThreadIsolatedAllocator* allocator = nullptr;
+    ThreadIsolatedAllocator* allocator_ = nullptr;
 
 #if V8_HAS_PKU_JIT_WRITE_PROTECT
-    int pkey = -1;
+    int pkey_ = -1;
 #endif
 
     base::Mutex* jit_pages_mutex_;
     JitPageMap* jit_pages_;
 
-#if DEBUG
-    bool initialized = false;
-#endif
+    bool initialized_ = false;
   };
 
   static struct TrustedData trusted_data_;
@@ -405,6 +396,11 @@ class WritableJitAllocation {
   static V8_INLINE WritableJitAllocation ForNonExecutableMemory(
       Address addr, size_t size, ThreadIsolation::JitAllocationType type);
 
+#ifdef V8_ENABLE_SPARKPLUG_PLUS
+  static V8_INLINE WritableJitAllocation ForPatchableBaselineJIT(Address addr,
+                                                                 size_t size);
+#endif
+
   // Writes a header slot either as a primitive or as a Tagged value.
   // Important: this function will not trigger a write barrier by itself,
   // since we want to keep the code running with write access to executable
@@ -441,6 +437,11 @@ class WritableJitAllocation {
 
   V8_INLINE void ClearBytes(size_t offset, size_t len);
 
+#ifdef V8_ENABLE_WEBASSEMBLY
+  void UpdateWasmCodePointer(WasmCodePointer code_pointer,
+                             uint64_t signature_hash);
+#endif
+
   Address address() const { return address_; }
   size_t size() const { return allocation_.Size(); }
 
@@ -457,6 +458,11 @@ class WritableJitAllocation {
   V8_INLINE WritableJitAllocation(Address addr, size_t size,
                                   ThreadIsolation::JitAllocationType type,
                                   bool enforce_write_api);
+
+#ifdef V8_ENABLE_SPARKPLUG_PLUS
+  // Used for patchable baseline JIT.
+  V8_INLINE WritableJitAllocation(Address addr, size_t size);
+#endif
 
   ThreadIsolation::JitPageReference& page_ref() { return page_ref_.value(); }
 

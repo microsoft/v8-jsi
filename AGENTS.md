@@ -17,8 +17,10 @@ TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 
 ## Build
 
-`v8jsi.dll` is built from the vendored Node.js v24.x tree via `scripts/build.ts`
+`v8jsi.dll` is built from the vendored Node.js v26.x tree via `scripts/build.ts`
 (which wraps `deps/nodejs/vcbuild.bat` with the right narrow-build flags).
+Node.js v24 remains the tooling runtime. Both engine variants disable Temporal
+and Node-only LIEF tooling, so Rust is not a build prerequisite.
 
 Canonical entry point:
 ```powershell
@@ -60,6 +62,11 @@ success, but every runtime then crashes with 0xc0000005. After a switch, build
 again until the build is nearly a no-op, then test. To run the sandbox with a
 fresh engine, copy `v8jsisb.dll` and its PDB into
 `deps/chromium/out/sandbox-x64` yourself; no script does it.
+
+Architecture switches share those output folders too. The first build after
+switching architecture can report missing embedded-blob symbols or leave stale
+builtins. Build again until nearly a no-op before testing; never run two
+architectures or variants concurrently in the same Node output directory.
 
 **Key build files:**
 - `src/v8jsi.gyp` — main GYP target for v8jsi

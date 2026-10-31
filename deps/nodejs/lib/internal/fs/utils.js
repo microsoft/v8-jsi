@@ -2,18 +2,19 @@
 
 const {
   ArrayIsArray,
+  ArrayPrototypePush,
   BigInt,
   Date,
   DateNow,
   DatePrototypeGetTime,
   ErrorCaptureStackTrace,
   FunctionPrototypeCall,
+  MathFloor,
   MathMin,
   MathRound,
   Number,
   NumberIsFinite,
   ObjectDefineProperties,
-  ObjectDefineProperty,
   ObjectIs,
   ObjectSetPrototypeOf,
   ReflectOwnKeys,
@@ -23,9 +24,11 @@ const {
   Symbol,
   TypedArrayPrototypeAt,
   TypedArrayPrototypeIncludes,
+  globalThis,
 } = primordials;
 
 const { Buffer } = require('buffer');
+const { isBuffer: BufferIsBuffer } = Buffer;
 const {
   UVException,
   codes: {
@@ -33,6 +36,7 @@ const {
     ERR_INCOMPATIBLE_OPTION_PAIR,
     ERR_INVALID_ARG_TYPE,
     ERR_INVALID_ARG_VALUE,
+    ERR_NO_TEMPORAL,
     ERR_OUT_OF_RANGE,
   },
   hideStackFrames,
@@ -44,15 +48,17 @@ const {
   isUint8Array,
 } = require('internal/util/types');
 const {
-  kEmptyObject,
-  once,
   deprecate,
   isWindows,
+  kEmptyObject,
+  once,
+  setOwnProperty,
 } = require('internal/util');
 const { toPathIfFileURL } = require('internal/url');
 const {
   validateAbortSignal,
   validateBoolean,
+  validateBuffer,
   validateFunction,
   validateInt32,
   validateInteger,
@@ -60,8 +66,17 @@ const {
   validateUint32,
 } = require('internal/validators');
 const pathModule = require('path');
+const binding = internalBinding('fs');
+const {
+  CHAR_BACKWARD_SLASH,
+  CHAR_FORWARD_SLASH,
+} = require('internal/constants');
 const kType = Symbol('type');
 const kStats = Symbol('stats');
+const kPartialAtimeNs = Symbol('partialAtimeNs');
+const kPartialMtimeNs = Symbol('partialMtimeNs');
+const kPartialCtimeNs = Symbol('partialCtimeNs');
+const kPartialBirthtimeNs = Symbol('kPartialBirthtimeNs');
 const assert = require('internal/assert');
 
 const {
@@ -314,6 +329,81 @@ function getDirent(path, name, type, callback) {
   }
 }
 
+/**
+ * Builds the Dirent objects for a `binding.readdirRecursive()` result, whose
+ * entries are grouped by directory: `counts[i]` entries under `dirs[i]`.
+ * @param {string | Buffer} basePath
+ * @param {[string[] | Buffer[], Uint8Array, Uint32Array, string[] | Buffer[]]} result
+ * @returns {Dirent[]}
+ */
+function getRecursiveDirents(basePath, { 0: names, 1: types, 2: counts, 3: dirs }) {
+  let i = 0;
+  for (let d = 0; d < dirs.length; d++) {
+    // The root keeps the path as given, the directories below it get the
+    // relative directory joined onto it.
+    const parentPath = d === 0 ? basePath : joinParentPath(basePath, dirs[d]);
+    for (const end = i + counts[d]; i < end; i++) {
+      names[i] = new Dirent(names[i], types[i], parentPath);
+    }
+  }
+  return names;
+}
+
+/**
+ * Joins the relative path of a directory onto the path a recursive readdir
+ * was given.
+ * @param {string | Buffer} basePath
+ * @param {string | Buffer} relative
+ * @returns {string | Buffer}
+ */
+function joinParentPath(basePath, relative) {
+  if (typeof basePath === 'string' && typeof relative === 'string') {
+    return pathModule.join(basePath, relative);
+  }
+  const base = typeof basePath === 'string' ? Buffer.from(basePath) : basePath;
+  const parts = [base];
+  const last = base.length === 0 ? -1 : base[base.length - 1];
+  if (last !== CHAR_FORWARD_SLASH && (!isWindows || last !== CHAR_BACKWARD_SLASH)) {
+    ArrayPrototypePush(parts, Buffer.from(pathModule.sep));
+  }
+  ArrayPrototypePush(parts, typeof relative === 'string' ? Buffer.from(relative) : relative);
+  return Buffer.concat(parts);
+}
+
+/**
+ * Appends one directory's entries to `context.results` and the subdirectories
+ * still to visit to `context.dirs`.
+ * @param {string} dir
+ * @param {string} prefix
+ * @param {[string[], number[]]} result
+ * @param {{ withFileTypes: boolean, results: (string | Dirent)[], dirs: string[], prefixes: string[] }} context
+ */
+function collectRecursiveReaddirResult(dir, prefix, { 0: names, 1: types }, context) {
+  const { length } = names;
+  for (let i = 0; i < length; i++) {
+    const name = names[i];
+    const relative = prefix === '' ? name : `${prefix}${pathModule.sep}${name}`;
+    let isDirectory;
+    if (context.withFileTypes) {
+      const dirent = getDirent(dir, name, types[i]);
+      ArrayPrototypePush(context.results, dirent);
+      // https://github.com/nodejs/node/issues/52663
+      isDirectory = dirent.isDirectory() ||
+        (dirent.isSymbolicLink() && binding.internalModuleStat(pathModule.join(dir, name)) === 1);
+    } else {
+      ArrayPrototypePush(context.results, relative);
+      const type = types[i];
+      isDirectory = type === UV_DIRENT_DIR ||
+        ((type === UV_DIRENT_LINK || type === UV_DIRENT_UNKNOWN) &&
+         binding.internalModuleStat(pathModule.join(dir, name)) === 1);
+    }
+    if (isDirectory) {
+      ArrayPrototypePush(context.dirs, pathModule.join(dir, name));
+      ArrayPrototypePush(context.prefixes, relative);
+    }
+  }
+}
+
 function getOptions(options, defaultOptions = kEmptyObject) {
   if (options == null || typeof options === 'function') {
     return defaultOptions;
@@ -430,6 +520,25 @@ function nsFromTimeSpecBigInt(sec, nsec) {
   return sec * kNsPerSecBigInt + nsec;
 }
 
+// TODO(LiviaMedeiros): TemporalInstant primordial
+let TemporalInstant;
+
+function instantFromNs(nsec) {
+  TemporalInstant ??= globalThis.Temporal?.Instant;
+  if (TemporalInstant === undefined) {
+    throw new ERR_NO_TEMPORAL();
+  }
+  return new TemporalInstant(nsec);
+}
+
+function instantFromTimeSpecMs(msec, nsec) {
+  TemporalInstant ??= globalThis.Temporal?.Instant;
+  if (TemporalInstant === undefined) {
+    throw new ERR_NO_TEMPORAL();
+  }
+  return new TemporalInstant(BigInt(MathFloor(msec / kMsPerSec)) * kNsPerSecBigInt + BigInt(nsec));
+}
+
 // The Date constructor performs Math.floor() on the absolute value
 // of the timestamp: https://tc39.es/ecma262/#sec-timeclip
 // Since there may be a precision loss when the timestamp is
@@ -449,10 +558,10 @@ const lazyDateFields = {
     enumerable: true,
     configurable: true,
     get() {
-      return this.atime = dateFromMs(this.atimeMs);
+      return setOwnProperty(this, 'atime', dateFromMs(this.atimeMs));
     },
     set(value) {
-      ObjectDefineProperty(this, 'atime', { __proto__: null, value, writable: true });
+      setOwnProperty(this, 'atime', value);
     },
   },
   mtime: {
@@ -460,10 +569,10 @@ const lazyDateFields = {
     enumerable: true,
     configurable: true,
     get() {
-      return this.mtime = dateFromMs(this.mtimeMs);
+      return setOwnProperty(this, 'mtime', dateFromMs(this.mtimeMs));
     },
     set(value) {
-      ObjectDefineProperty(this, 'mtime', { __proto__: null, value, writable: true });
+      setOwnProperty(this, 'mtime', value);
     },
   },
   ctime: {
@@ -471,10 +580,10 @@ const lazyDateFields = {
     enumerable: true,
     configurable: true,
     get() {
-      return this.ctime = dateFromMs(this.ctimeMs);
+      return setOwnProperty(this, 'ctime', dateFromMs(this.ctimeMs));
     },
     set(value) {
-      ObjectDefineProperty(this, 'ctime', { __proto__: null, value, writable: true });
+      setOwnProperty(this, 'ctime', value);
     },
   },
   birthtime: {
@@ -482,10 +591,110 @@ const lazyDateFields = {
     enumerable: true,
     configurable: true,
     get() {
-      return this.birthtime = dateFromMs(this.birthtimeMs);
+      return setOwnProperty(this, 'birthtime', dateFromMs(this.birthtimeMs));
     },
     set(value) {
-      ObjectDefineProperty(this, 'birthtime', { __proto__: null, value, writable: true });
+      setOwnProperty(this, 'birthtime', value);
+    },
+  },
+};
+
+const lazyTemporalFields = {
+  __proto__: null,
+  atimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'atimeInstant',
+                            instantFromTimeSpecMs(this.atimeMs, this[kPartialAtimeNs]));
+    },
+    set(value) {
+      setOwnProperty(this, 'atimeInstant', value);
+    },
+  },
+  mtimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'mtimeInstant',
+                            instantFromTimeSpecMs(this.mtimeMs, this[kPartialMtimeNs]));
+    },
+    set(value) {
+      setOwnProperty(this, 'mtimeInstant', value);
+    },
+  },
+  ctimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'ctimeInstant',
+                            instantFromTimeSpecMs(this.ctimeMs, this[kPartialCtimeNs]));
+    },
+    set(value) {
+      setOwnProperty(this, 'ctimeInstant', value);
+    },
+  },
+  birthtimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'birthtimeInstant',
+                            instantFromTimeSpecMs(this.birthtimeMs, this[kPartialBirthtimeNs]));
+    },
+    set(value) {
+      setOwnProperty(this, 'birthtimeInstant', value);
+    },
+  },
+};
+
+const lazyTemporalBigIntFields = {
+  __proto__: null,
+  atimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'atimeInstant', instantFromNs(this.atimeNs));
+    },
+    set(value) {
+      setOwnProperty(this, 'atimeInstant', value);
+    },
+  },
+  mtimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'mtimeInstant', instantFromNs(this.mtimeNs));
+    },
+    set(value) {
+      setOwnProperty(this, 'mtimeInstant', value);
+    },
+  },
+  ctimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'ctimeInstant', instantFromNs(this.ctimeNs));
+    },
+    set(value) {
+      setOwnProperty(this, 'ctimeInstant', value);
+    },
+  },
+  birthtimeInstant: {
+    __proto__: null,
+    enumerable: true,
+    configurable: true,
+    get() {
+      return setOwnProperty(this, 'birthtimeInstant', instantFromNs(this.birthtimeNs));
+    },
+    set(value) {
+      setOwnProperty(this, 'birthtimeInstant', value);
     },
   },
 };
@@ -508,6 +717,7 @@ function BigIntStats(dev, mode, nlink, uid, gid, rdev, blksize,
 ObjectSetPrototypeOf(BigIntStats.prototype, StatsBase.prototype);
 ObjectSetPrototypeOf(BigIntStats, StatsBase);
 ObjectDefineProperties(BigIntStats.prototype, lazyDateFields);
+ObjectDefineProperties(BigIntStats.prototype, lazyTemporalBigIntFields);
 
 BigIntStats.prototype._checkModeProperty = function(property) {
   if (isWindows && (property === S_IFIFO || property === S_IFBLK ||
@@ -519,18 +729,23 @@ BigIntStats.prototype._checkModeProperty = function(property) {
 
 function Stats(dev, mode, nlink, uid, gid, rdev, blksize,
                ino, size, blocks,
-               atimeMs, mtimeMs, ctimeMs, birthtimeMs) {
+               atimeS, atimeNs, mtimeS, mtimeNs, ctimeS, ctimeNs, birthtimeS, birthtimeNs) {
   FunctionPrototypeCall(StatsBase, this, dev, mode, nlink, uid, gid, rdev,
                         blksize, ino, size, blocks);
-  this.atimeMs = atimeMs;
-  this.mtimeMs = mtimeMs;
-  this.ctimeMs = ctimeMs;
-  this.birthtimeMs = birthtimeMs;
+  this.atimeMs = msFromTimeSpec(atimeS, atimeNs);
+  this.mtimeMs = msFromTimeSpec(mtimeS, mtimeNs);
+  this.ctimeMs = msFromTimeSpec(ctimeS, ctimeNs);
+  this.birthtimeMs = msFromTimeSpec(birthtimeS, birthtimeNs);
+  this[kPartialAtimeNs] = atimeNs;
+  this[kPartialMtimeNs] = mtimeNs;
+  this[kPartialCtimeNs] = ctimeNs;
+  this[kPartialBirthtimeNs] = birthtimeNs;
 }
 
 ObjectSetPrototypeOf(Stats.prototype, StatsBase.prototype);
 ObjectSetPrototypeOf(Stats, StatsBase);
 ObjectDefineProperties(Stats.prototype, lazyDateFields);
+ObjectDefineProperties(Stats.prototype, lazyTemporalFields);
 
 Stats.prototype._checkModeProperty = function(property) {
   if (isWindows && (property === S_IFIFO || property === S_IFBLK ||
@@ -563,17 +778,18 @@ function getStatsFromBinding(stats, offset = 0) {
     stats[3 + offset], stats[4 + offset], stats[5 + offset],
     stats[6 + offset], stats[7 + offset], stats[8 + offset],
     stats[9 + offset],
-    msFromTimeSpec(stats[10 + offset], stats[11 + offset]),
-    msFromTimeSpec(stats[12 + offset], stats[13 + offset]),
-    msFromTimeSpec(stats[14 + offset], stats[15 + offset]),
-    msFromTimeSpec(stats[16 + offset], stats[17 + offset]),
+    stats[10 + offset], stats[11 + offset], // atime
+    stats[12 + offset], stats[13 + offset], // mtime
+    stats[14 + offset], stats[15 + offset], // ctime
+    stats[16 + offset], stats[17 + offset], // birthtime
   );
 }
 
 class StatFs {
-  constructor(type, bsize, blocks, bfree, bavail, files, ffree) {
+  constructor(type, bsize, frsize, blocks, bfree, bavail, files, ffree) {
     this.type = type;
     this.bsize = bsize;
+    this.frsize = frsize;
     this.blocks = blocks;
     this.bfree = bfree;
     this.bavail = bavail;
@@ -584,14 +800,15 @@ class StatFs {
 
 function getStatFsFromBinding(stats) {
   return new StatFs(
-    stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6],
+    stats[0], stats[1], stats[2], stats[3], stats[4], stats[5], stats[6], stats[7],
   );
 }
 
 function stringToFlags(flags, name = 'flags') {
   if (typeof flags === 'number') {
     validateInt32(flags, name);
-    return flags;
+    // Coerce -0 to +0.
+    return flags + 0;
   }
 
   if (flags == null) {
@@ -776,12 +993,6 @@ const defaultRmOptions = {
   maxRetries: 0,
 };
 
-const defaultRmdirOptions = {
-  retryDelay: 100,
-  maxRetries: 0,
-  recursive: false,
-};
-
 const validateCpOptions = hideStackFrames((options) => {
   if (options === undefined)
     return { ...defaultCpOptions };
@@ -805,7 +1016,10 @@ const validateCpOptions = hideStackFrames((options) => {
 
 const validateRmOptions = hideStackFrames((path, options, expectDir, cb) => {
   options = validateRmdirOptions(options, defaultRmOptions);
-  validateBoolean(options.force, 'options.force');
+  validateBoolean.withoutStackTrace(options.force, 'options.force');
+  validateBoolean.withoutStackTrace(options.recursive, 'options.recursive');
+  validateInt32.withoutStackTrace(options.retryDelay, 'options.retryDelay', 0);
+  validateUint32.withoutStackTrace(options.maxRetries, 'options.maxRetries');
 
   lazyLoadFs().lstat(path, (err, stats) => {
     if (err) {
@@ -837,6 +1051,10 @@ const validateRmOptions = hideStackFrames((path, options, expectDir, cb) => {
 const validateRmOptionsSync = hideStackFrames((path, options, expectDir) => {
   options = validateRmdirOptions.withoutStackTrace(options, defaultRmOptions);
   validateBoolean.withoutStackTrace(options.force, 'options.force');
+  validateBoolean.withoutStackTrace(options.recursive, 'options.recursive');
+  validateInt32.withoutStackTrace(options.retryDelay, 'options.retryDelay', 0);
+  validateUint32.withoutStackTrace(options.maxRetries, 'options.maxRetries');
+
 
   if (!options.force || expectDir || !options.recursive) {
     const isDirectory = lazyLoadFs()
@@ -860,34 +1078,13 @@ const validateRmOptionsSync = hideStackFrames((path, options, expectDir) => {
   return options;
 });
 
-let recursiveRmdirWarned;
-function emitRecursiveRmdirWarning() {
-  if (recursiveRmdirWarned === undefined) {
-    // TODO(joyeecheung): use getOptionValue('--no-deprecation') instead.
-    recursiveRmdirWarned = process.noDeprecation;
-  }
-  if (!recursiveRmdirWarned) {
-    process.emitWarning(
-      'In future versions of Node.js, fs.rmdir(path, { recursive: true }) ' +
-      'will be removed. Use fs.rm(path, { recursive: true }) instead',
-      'DeprecationWarning',
-      'DEP0147',
-    );
-    recursiveRmdirWarned = true;
-  }
-}
-
 const validateRmdirOptions = hideStackFrames(
-  (options, defaults = defaultRmdirOptions) => {
+  (options, defaults = { __proto__: null }) => {
     if (options === undefined)
       return defaults;
     validateObject.withoutStackTrace(options, 'options');
 
     options = { ...defaults, ...options };
-
-    validateBoolean.withoutStackTrace(options.recursive, 'options.recursive');
-    validateInt32.withoutStackTrace(options.retryDelay, 'options.retryDelay', 0);
-    validateUint32.withoutStackTrace(options.maxRetries, 'options.maxRetries');
 
     return options;
   });
@@ -920,6 +1117,60 @@ const validateStringAfterArrayBufferView = hideStackFrames((buffer, name) => {
   }
 });
 
+const validateReadFileBufferOptions = hideStackFrames((options) => {
+  const { buffer } = options;
+
+  if (buffer !== undefined && typeof buffer !== 'function' &&
+      !isArrayBufferView(buffer)) {
+    throw new ERR_INVALID_ARG_TYPE.HideStackFramesError(
+      'options.buffer',
+      ['Buffer', 'TypedArray', 'DataView', 'Function'],
+      buffer,
+    );
+  }
+});
+
+function getReadFileBufferByteLengthName(options) {
+  return typeof options.buffer === 'function' ?
+    'options.buffer().byteLength' :
+    'options.buffer.byteLength';
+}
+
+const getReadFileBuffer = hideStackFrames((options, size) => {
+  let { buffer } = options;
+
+  if (typeof buffer === 'function') {
+    buffer = options.buffer(size);
+    validateBuffer.withoutStackTrace(buffer, 'options.buffer()');
+  }
+
+  if (buffer === undefined) {
+    return undefined;
+  }
+
+  if (!BufferIsBuffer(buffer)) {
+    buffer = Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+
+  if (size > buffer.byteLength) {
+    throw new ERR_INVALID_ARG_VALUE.HideStackFramesError(
+      getReadFileBufferByteLengthName(options),
+      buffer.byteLength,
+      `is smaller than the file size of ${size} bytes`,
+    );
+  }
+
+  return buffer;
+});
+
+const createReadFileBufferTooSmallError = hideStackFrames((name, byteLength) => {
+  return new ERR_INVALID_ARG_VALUE.HideStackFramesError(
+    name,
+    byteLength,
+    'is too small to contain the entire file',
+  );
+});
+
 const validatePosition = hideStackFrames((position, name, length) => {
   if (typeof position === 'number') {
     validateInteger.withoutStackTrace(position, name, -1);
@@ -935,7 +1186,13 @@ const validatePosition = hideStackFrames((position, name, length) => {
   }
 });
 
+// Shared VFS handler state for fs wrapping.
+// When handlers is null, no VFS is active (zero overhead).
+const vfsState = { __proto__: null, handlers: null };
+function setVfsHandlers(handlers) { vfsState.handlers = handlers; }
+
 module.exports = {
+  collectRecursiveReaddirResult,
   constants: {
     kIoMaxLength,
     kMaxUserId,
@@ -944,14 +1201,16 @@ module.exports = {
     kWriteFileMaxChunkSize,
   },
   assertEncoding,
+  setVfsHandlers,
+  vfsState,
   BigIntStats,  // for testing
   copyObject,
   Dirent,
   DirentFromStats,
-  emitRecursiveRmdirWarning,
   getDirent,
   getDirents,
   getOptions,
+  getRecursiveDirents,
   getValidatedFd,
   getValidatedPath,
   handleErrorFromBinding,
@@ -969,6 +1228,10 @@ module.exports = {
   validateOffsetLengthWrite,
   validatePath,
   validatePosition,
+  validateReadFileBufferOptions,
+  getReadFileBuffer,
+  getReadFileBufferByteLengthName,
+  createReadFileBufferTooSmallError,
   validateRmOptions,
   validateRmOptionsSync,
   validateRmdirOptions,

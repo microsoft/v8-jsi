@@ -188,6 +188,13 @@ InterpreterCompilationJob::Status InterpreterCompilationJob::ExecuteJobImpl() {
   // TODO(lpy): add support for background compilation RCS trace.
   TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"), "V8.CompileIgnition");
 
+  std::optional<base::ElapsedTimer> timer;
+  if (v8_flags.enable_bytecode_compiler_ablation &&
+      base::TimeTicks::IsHighResolution()) {
+    timer.emplace();
+    timer->Start();
+  }
+
   // Print AST if flag is enabled. Note, if compiling on a background thread
   // then ASTs from different functions may be intersperse when printed.
   {
@@ -201,6 +208,17 @@ InterpreterCompilationJob::Status InterpreterCompilationJob::ExecuteJobImpl() {
   if (generator()->HasStackOverflow()) {
     return FAILED;
   }
+
+  if (timer && timer->Elapsed().InNanoseconds() > 0) {
+    auto end = timer->Elapsed();
+    end += std::min(base::TimeDelta::FromSeconds(1),
+                    base::TimeDelta::FromMicroseconds(
+                        static_cast<double>(end.InMicroseconds()) *
+                        v8_flags.bytecode_compiler_ablation_amount));
+    while (timer->Elapsed() < end) {
+    }
+  }
+
   return SUCCEEDED;
 }
 
@@ -209,7 +227,8 @@ template <typename IsolateT>
 void InterpreterCompilationJob::CheckAndPrintBytecodeMismatch(
     IsolateT* isolate, Handle<Script> script,
     DirectHandle<BytecodeArray> bytecode) {
-  int first_mismatch = generator()->CheckBytecodeMatches(*bytecode);
+  Handle<BytecodeArray> handle(*bytecode, isolate);
+  int first_mismatch = generator()->CheckBytecodeMatches(handle);
   if (first_mismatch >= 0) {
     parse_info()->ast_value_factory()->Internalize(isolate);
     DeclarationScope::AllocateScopeInfos(parse_info(), script, isolate);
@@ -351,7 +370,18 @@ void Interpreter::Initialize() {
   DCHECK(!code->has_instruction_stream());
   interpreter_entry_trampoline_instruction_start_ = code->instruction_start();
 
-  // Initialize the dispatch table.
+  // Initialize the dispatch table with pointers to IllegalHandler.
+  // This way, if we ever run into a situation where an invalid/unknown opcode
+  // is executed, this will be reported as a sandbox violation. This is
+  // important as such crashes are typically the symptom of a bug that could
+  // lead to arbitrary, attacker-controlled bytecode execution, which would
+  // allow breaking out of the sandbox.
+  Tagged<Code> illegal_bytecode_handler =
+      builtins->code(Builtin::kIllegalHandler);
+  for (int i = 0; i < kDispatchTableSize; ++i) {
+    dispatch_table_[i] = illegal_bytecode_handler->instruction_start();
+  }
+
   ForEachBytecode([=, this](Bytecode bytecode, OperandScale operand_scale) {
     Builtin builtin = BuiltinIndexFromBytecode(bytecode, operand_scale);
     Tagged<Code> handler = builtins->code(builtin);

@@ -3,12 +3,16 @@
 const {
   ArrayBuffer,
   FunctionPrototypeCall,
+  PromiseResolve,
+  TypedArrayPrototypeGetByteLength,
+  Uint8Array,
 } = primordials;
 
 const {
   HKDFJob,
   kCryptoJobAsync,
   kCryptoJobSync,
+  kCryptoJobWebCrypto,
 } = internalBinding('crypto');
 
 const {
@@ -20,25 +24,28 @@ const {
 const { kMaxLength } = require('buffer');
 
 const {
+  getBufferSourceByteLength,
+  jobPromise,
   normalizeHashName,
   toBuf,
   validateByteSource,
-  kKeyObject,
+  validateAlgorithm,
 } = require('internal/crypto/util');
 
 const {
-  createSecretKey,
+  getCryptoKeyHandle,
   isKeyObject,
+  prepareSecretKey,
 } = require('internal/crypto/keys');
 
 const {
   lazyDOMException,
-  promisify,
 } = require('internal/util');
 
 const {
   isAnyArrayBuffer,
   isArrayBufferView,
+  isSharedArrayBuffer,
 } = require('internal/util/types');
 
 const {
@@ -49,6 +56,13 @@ const {
   hideStackFrames,
 } = require('internal/errors');
 
+function getByteSourceByteLength(source) {
+  if (isSharedArrayBuffer(source)) {
+    return TypedArrayPrototypeGetByteLength(new Uint8Array(source));
+  }
+  return getBufferSourceByteLength(source);
+}
+
 const validateParameters = hideStackFrames((hash, key, salt, info, length) => {
   validateString.withoutStackTrace(hash, 'digest');
   key = prepareKey(key);
@@ -56,12 +70,15 @@ const validateParameters = hideStackFrames((hash, key, salt, info, length) => {
   info = validateByteSource.withoutStackTrace(info, 'info');
 
   validateInteger.withoutStackTrace(length, 'length', 0, kMaxLength);
+  // Coerce -0 to +0.
+  length += 0;
 
-  if (info.byteLength > 1024) {
+  const infoByteLength = getByteSourceByteLength(info);
+  if (infoByteLength > 1024) {
     throw new ERR_OUT_OF_RANGE.HideStackFramesError(
       'info',
       'must not contain more than 1024 bytes',
-      info.byteLength);
+      infoByteLength);
   }
 
   return {
@@ -75,10 +92,10 @@ const validateParameters = hideStackFrames((hash, key, salt, info, length) => {
 
 function prepareKey(key) {
   if (isKeyObject(key))
-    return key;
+    return prepareSecretKey(key);
 
   if (isAnyArrayBuffer(key))
-    return createSecretKey(key);
+    return key;
 
   key = toBuf(key);
 
@@ -96,21 +113,23 @@ function prepareKey(key) {
       key);
   }
 
-  return createSecretKey(key);
+  return key;
+}
+
+function createHkdfJob(mode, params) {
+  return new HKDFJob(
+    mode,
+    params.hash,
+    params.key,
+    params.salt,
+    params.info,
+    params.length);
 }
 
 function hkdf(hash, key, salt, info, length, callback) {
-  ({
-    hash,
-    key,
-    salt,
-    info,
-    length,
-  } = validateParameters(hash, key, salt, info, length));
-
+  const params = validateParameters(hash, key, salt, info, length);
   validateFunction(callback, 'callback');
-
-  const job = new HKDFJob(kCryptoJobAsync, hash, key, salt, info, length);
+  const job = createHkdfJob(kCryptoJobAsync, params);
 
   job.ondone = (error, bits) => {
     if (error) return FunctionPrototypeCall(callback, job, error);
@@ -121,15 +140,8 @@ function hkdf(hash, key, salt, info, length, callback) {
 }
 
 function hkdfSync(hash, key, salt, info, length) {
-  ({
-    hash,
-    key,
-    salt,
-    info,
-    length,
-  } = validateParameters(hash, key, salt, info, length));
-
-  const job = new HKDFJob(kCryptoJobSync, hash, key, salt, info, length);
+  const params = validateParameters(hash, key, salt, info, length);
+  const job = createHkdfJob(kCryptoJobSync, params);
   const { 0: err, 1: bits } = job.run();
   if (err !== undefined)
     throw err;
@@ -137,8 +149,23 @@ function hkdfSync(hash, key, salt, info, length) {
   return bits;
 }
 
-const hkdfPromise = promisify(hkdf);
-function validateHkdfDeriveBitsLength(length) {
+function getDigestSizeInBytes(name) {
+  switch (name) {
+    case 'SHA-1':
+      return 20;
+    case 'SHA-256': // Fall through
+    case 'SHA3-256':
+      return 32;
+    case 'SHA-384': // Fall through
+    case 'SHA3-384':
+      return 48;
+    case 'SHA-512': // Fall through
+    case 'SHA3-512':
+      return 64;
+  }
+}
+
+function validateHkdfDeriveBitsLength(length, hash) {
   if (length === null)
     throw lazyDOMException('length cannot be null', 'OperationError');
   if (length % 8) {
@@ -146,24 +173,28 @@ function validateHkdfDeriveBitsLength(length) {
       'length must be a multiple of 8',
       'OperationError');
   }
+  if (length > 255 * getDigestSizeInBytes(hash.name) * 8) {
+    throw lazyDOMException(
+      'length exceeds the maximum derived bit length',
+      'OperationError');
+  }
 }
 
-async function hkdfDeriveBits(algorithm, baseKey, length) {
-  validateHkdfDeriveBitsLength(length);
+function hkdfDeriveBits(algorithm, baseKey, length) {
   const { hash, salt, info } = algorithm;
+  validateHkdfDeriveBitsLength(length, hash);
+  validateAlgorithm(algorithm, 'deriveBits');
 
   if (length === 0)
-    return new ArrayBuffer(0);
+    return PromiseResolve(new ArrayBuffer(0));
 
-  try {
-    return await hkdfPromise(
-      normalizeHashName(hash.name), baseKey[kKeyObject], salt, info, length / 8,
-    );
-  } catch (err) {
-    throw lazyDOMException(
-      'The operation failed for an operation-specific reason',
-      { name: 'OperationError', cause: err });
-  }
+  return jobPromise(() => new HKDFJob(
+    kCryptoJobWebCrypto,
+    normalizeHashName(hash.name),
+    getCryptoKeyHandle(baseKey),
+    salt,
+    info,
+    length / 8));
 }
 
 module.exports = {

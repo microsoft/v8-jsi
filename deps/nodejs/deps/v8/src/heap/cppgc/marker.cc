@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/container/flat_hash_set.h"
 #include "include/cppgc/heap-consistency.h"
 #include "include/cppgc/platform.h"
 #include "src/base/platform/time.h"
@@ -170,7 +171,7 @@ MarkerBase::~MarkerBase() {
   if (!marking_worklists_.not_fully_constructed_worklist()->IsEmpty()) {
 #if DEBUG
     DCHECK_NE(StackState::kNoHeapPointers, config_.stack_state);
-    std::unordered_set<HeapObjectHeader*> objects =
+    absl::flat_hash_set<HeapObjectHeader*> objects =
         mutator_marking_state_.not_fully_constructed_worklist().Extract();
     for (HeapObjectHeader* object : objects) DCHECK(object->IsMarked());
 #else
@@ -559,7 +560,10 @@ bool MarkerBase::IncrementalMarkingStep(StackState stack_state) {
   }
   config_.stack_state = stack_state;
 
-  return AdvanceMarkingWithLimits();
+  const size_t marked_bytes_limit =
+      GetNextIncrementalStepDuration(schedule(), heap_);
+  return AdvanceMarkingWithLimits(kMaximumIncrementalStepDuration,
+                                  marked_bytes_limit);
 }
 
 void MarkerBase::AdvanceMarkingOnAllocation() {
@@ -571,7 +575,10 @@ void MarkerBase::AdvanceMarkingOnAllocation() {
 }
 
 void MarkerBase::AdvanceMarkingOnAllocationImpl() {
-  if (AdvanceMarkingWithLimits()) {
+  const size_t marked_bytes_limit =
+      GetNextIncrementalStepDuration(schedule(), heap_);
+  if (AdvanceMarkingWithLimits(kMaximumIncrementalStepDuration,
+                               marked_bytes_limit)) {
     // Schedule another incremental task for finalizing without a stack.
     ScheduleIncrementalMarkingTask();
   }
@@ -619,10 +626,7 @@ bool MarkerBase::AdvanceMarkingWithLimits(v8::base::TimeDelta max_duration,
       StatsCollector::kMarkTransitiveClosureWithDeadline, "max_duration_ms",
       max_duration.InMillisecondsF(), "max_bytes", marked_bytes_limit);
   last_bytes_marked_ = 0;
-  const auto deadline = v8::base::TimeTicks::Now() + max_duration;
-  if (marked_bytes_limit == 0) {
-    marked_bytes_limit = GetNextIncrementalStepDuration(schedule(), heap_);
-  }
+  const auto time_deadline = v8::base::TimeTicks::Now() + max_duration;
   // `ProcessWorklistsWithDeadline()` below checks against `marked_bytes()`
   // which are never reset.
   size_t marked_bytes_deadline =
@@ -631,7 +635,7 @@ bool MarkerBase::AdvanceMarkingWithLimits(v8::base::TimeDelta max_duration,
     marked_bytes_deadline = SIZE_MAX;
   }
   const bool is_done =
-      ProcessWorklistsWithDeadline(marked_bytes_deadline, deadline);
+      ProcessWorklistsWithDeadline(time_deadline, marked_bytes_deadline);
   last_bytes_marked_ = mutator_marking_state_.RecentlyMarkedBytes();
   schedule().AddMutatorThreadMarkedBytes(last_bytes_marked_);
   mutator_marking_state_.Publish();
@@ -641,8 +645,8 @@ bool MarkerBase::AdvanceMarkingWithLimits(v8::base::TimeDelta max_duration,
   return is_done;
 }
 
-bool MarkerBase::ProcessWorklistsWithDeadline(
-    size_t marked_bytes_deadline, v8::base::TimeTicks time_deadline) {
+bool MarkerBase::ProcessWorklistsWithDeadline(v8::base::TimeTicks time_deadline,
+                                              size_t marked_bytes_deadline) {
   StatsCollector* stats_collector = heap().stats_collector();
   StatsCollector::EnabledScope stats_scope(
       stats_collector, StatsCollector::kMarkTransitiveClosure);
@@ -656,11 +660,16 @@ bool MarkerBase::ProcessWorklistsWithDeadline(
 
     // Bailout objects may be complicated to trace and thus might take longer
     // than other objects. Therefore we reduce the interval between deadline
-    // checks to guarantee the deadline is not exceeded.
+    // checks to guarantee the deadline is not exceeded. This block also ignores
+    // `marked_bytes_deadline` and instead forces marking of bailout objects
+    // independent of the actual schedule. We only respect time deadlines here.
+    static constexpr size_t marked_bytes_deadline_for_bailout_objects =
+        SIZE_MAX;
     if (!DrainWorklistWithBytesAndTimeDeadline<
             StatsCollector::kMarkProcessBailOutObjects,
             kDefaultDeadlineCheckInterval / 5>(
-            stats_collector, mutator_marking_state_, SIZE_MAX, time_deadline,
+            stats_collector, mutator_marking_state_,
+            marked_bytes_deadline_for_bailout_objects, time_deadline,
             mutator_marking_state_.concurrent_marking_bailout_worklist(),
             [this](const MarkingWorklists::ConcurrentMarkingBailoutItem& item) {
               mutator_marking_state_.AccountMarkedBytes(
@@ -746,7 +755,7 @@ bool MarkerBase::ProcessWorklistsWithDeadline(
 void MarkerBase::MarkNotFullyConstructedObjects() {
   // Parallel marking may still be running which is why atomic extraction is
   // required.
-  std::unordered_set<HeapObjectHeader*> objects =
+  absl::flat_hash_set<HeapObjectHeader*> objects =
       mutator_marking_state_.not_fully_constructed_worklist()
           .Extract<AccessMode::kAtomic>();
   if (objects.empty()) {

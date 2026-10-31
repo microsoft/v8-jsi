@@ -63,13 +63,17 @@ static void uv__fs_event_queue_readdirchanges(uv_loop_t* loop,
   handle->req_pending = 1;
 }
 
-static void uv__relative_path(const WCHAR* filename,
-                              const WCHAR* dir,
-                              WCHAR** relpath) {
+/* Compute the path of `filename` relative to the watched directory `dir`.
+ * Returns 0 on success, -1 if `filename` is not actually prefixed by `dir`,
+ * which can happen if the directory is a short path. */
+static int uv__relative_path(const WCHAR* filename,
+                             const WCHAR* dir,
+                             WCHAR** relpath) {
   size_t relpathlen;
   size_t filenamelen = wcslen(filename);
   size_t dirlen = wcslen(dir);
-  assert(!_wcsnicmp(filename, dir, dirlen));
+  if (filenamelen <= dirlen || _wcsnicmp(filename, dir, dirlen) != 0)
+    return -1;
   if (dirlen > 0 && dir[dirlen - 1] == '\\')
     dirlen--;
   relpathlen = filenamelen - dirlen - 1;
@@ -78,6 +82,7 @@ static void uv__relative_path(const WCHAR* filename,
     uv_fatal_error(ERROR_OUTOFMEMORY, "uv__malloc");
   wcsncpy(*relpath, filename + dirlen + 1, relpathlen);
   (*relpath)[relpathlen] = L'\0';
+  return 0;
 }
 
 static int uv__split_path(const WCHAR* filename, WCHAR** dir,
@@ -158,14 +163,14 @@ int uv_fs_event_start(uv_fs_event_t* handle,
                       const char* path,
                       unsigned int flags) {
   int is_path_dir;
-  size_t size;
-  DWORD attr, last_error;
-  WCHAR* dir = NULL, *dir_to_watch, *pathw = NULL;
+  DWORD last_error;
+  WCHAR* dir, *pathw = NULL;
   DWORD short_path_buffer_len;
   WCHAR *short_path_buffer;
-  WCHAR* short_path, *long_path;
+  WCHAR* short_path = NULL;
+  HANDLE file_handle = INVALID_HANDLE_VALUE;
+  BY_HANDLE_FILE_INFORMATION info;
 
-  short_path = NULL;
   if (uv__is_active(handle))
     return UV_EINVAL;
 
@@ -181,43 +186,26 @@ int uv_fs_event_start(uv_fs_event_t* handle,
   if (last_error)
     goto error_uv;
 
-  /* Determine whether path is a file or a directory. */
-  attr = GetFileAttributesW(pathw);
-  if (attr == INVALID_FILE_ATTRIBUTES) {
+  file_handle = CreateFileW(pathw,
+                            FILE_LIST_DIRECTORY,
+                            FILE_SHARE_READ|FILE_SHARE_DELETE|FILE_SHARE_WRITE,
+                            NULL,
+                            OPEN_EXISTING,
+                            FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OVERLAPPED,
+                            NULL);
+  if (file_handle == INVALID_HANDLE_VALUE) {
     last_error = GetLastError();
     goto error;
   }
 
-  is_path_dir = (attr & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
+  if (!GetFileInformationByHandle(file_handle, &info)) {
+    last_error = GetLastError();
+    goto error;
+  }
 
-  if (is_path_dir) {
-     /* path is a directory, so that's the directory that we will watch. */
+  is_path_dir = (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
 
-    /* Convert to long path. */
-    size = GetLongPathNameW(pathw, NULL, 0);
-
-    if (size) {
-      long_path = (WCHAR*)uv__malloc(size * sizeof(WCHAR));
-      if (!long_path) {
-        uv_fatal_error(ERROR_OUTOFMEMORY, "uv__malloc");
-      }
-
-      size = GetLongPathNameW(pathw, long_path, size);
-      if (size) {
-        long_path[size] = '\0';
-      } else {
-        uv__free(long_path);
-        long_path = NULL;
-      }
-
-      if (long_path) {
-        uv__free(pathw);
-        pathw = long_path;
-      }
-    }
-
-    dir_to_watch = pathw;
-  } else {
+  if (!is_path_dir) {
     /*
      * path is a file.  So we split path into dir & file parts, and
      * watch the dir directory.
@@ -252,27 +240,49 @@ short_path_done:
       goto error;
     }
 
-    dir_to_watch = dir;
     uv__free(short_path);
     short_path = NULL;
     uv__free(pathw);
     pathw = NULL;
-  }
 
-  handle->dir_handle = CreateFileW(dir_to_watch,
-                                   FILE_LIST_DIRECTORY,
-                                   FILE_SHARE_READ | FILE_SHARE_DELETE |
-                                     FILE_SHARE_WRITE,
-                                   NULL,
-                                   OPEN_EXISTING,
-                                   FILE_FLAG_BACKUP_SEMANTICS |
-                                     FILE_FLAG_OVERLAPPED,
-                                   NULL);
-
-  if (dir) {
+    /* Open the containing directory and watch that instead. Events for
+     * other files are filtered out in uv__process_fs_event_req().
+     * Not super efficient but c'est ça.
+     */
+    CloseHandle(file_handle);
+    file_handle = CreateFileW(dir,
+                              FILE_LIST_DIRECTORY,
+                              FILE_SHARE_READ|FILE_SHARE_DELETE|FILE_SHARE_WRITE,
+                              NULL,
+                              OPEN_EXISTING,
+                              FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OVERLAPPED,
+                              NULL);
     uv__free(dir);
     dir = NULL;
+    if (file_handle == INVALID_HANDLE_VALUE) {
+      last_error = GetLastError();
+      goto error;
+    }
+
+    if (!GetFileInformationByHandle(file_handle, &info)) {
+      last_error = GetLastError();
+      goto error;
+    }
+
+    /* Race with another process: directory foo in foo/bar was replaced
+     * with a file. Bail out with an error, we're not recursing upwards.
+     */
+    if (!(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+      /* TODO(bnoordhuis) ERROR_DIRECTORY is translated to UV_ENOENT,
+       * there's currently nothing that maps to UV_ENOTDIR.
+       */
+      last_error = ERROR_DIRECTORY;
+      goto error;
+    }
   }
+
+  handle->dir_handle = file_handle;
+  file_handle = INVALID_HANDLE_VALUE;
 
   if (handle->dir_handle == INVALID_HANDLE_VALUE) {
     last_error = GetLastError();
@@ -325,6 +335,11 @@ error:
   last_error = uv_translate_sys_error(last_error);
 
 error_uv:
+  if (file_handle != INVALID_HANDLE_VALUE) {
+    CloseHandle(file_handle);
+    file_handle = INVALID_HANDLE_VALUE;
+  }
+
   if (handle->path) {
     uv__free(handle->path);
     handle->path = NULL;
@@ -507,12 +522,21 @@ void uv__process_fs_event_req(uv_loop_t* loop, uv_req_t* req,
 
               if (long_filenamew) {
                 /* Get the file name out of the long path. */
-                uv__relative_path(long_filenamew,
-                                  handle->dirw,
-                                  &filenamew);
-                uv__free(long_filenamew);
-                long_filenamew = filenamew;
-                sizew = -1;
+                if (uv__relative_path(long_filenamew,
+                                      handle->dirw,
+                                      &filenamew) == 0) {
+                  uv__free(long_filenamew);
+                  long_filenamew = filenamew;
+                  sizew = -1;
+                } else {
+                  /* The resolved long path was not prefixed by the watched
+                   * directory (e.g. short name vs long name mismatch),
+                   * fall back to the name given by ReadDirectoryChangesW. */
+                  uv__free(long_filenamew);
+                  long_filenamew = NULL;
+                  filenamew = file_info->FileName;
+                  sizew = file_info->FileNameLength / sizeof(WCHAR);
+                }
               } else {
                 /* We couldn't get the long filename, use the one reported. */
                 filenamew = file_info->FileName;

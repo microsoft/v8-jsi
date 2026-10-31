@@ -2,6 +2,8 @@
 
 BUILDTYPE ?= Release
 PYTHON ?= python3
+RUFF ?= tools/pip/site-packages/bin/ruff
+YAMLLINT ?= tools/pip/site-packages/bin/yamllint
 DESTDIR ?=
 SIGN ?=
 PREFIX ?= /usr/local
@@ -96,12 +98,12 @@ BUILD_RELEASE_FLAGS ?= $(BUILD_DOWNLOAD_FLAGS) $(BUILD_INTL_FLAGS)
 
 # Default to quiet/pretty builds.
 # To do verbose builds, run `make V=1` or set the V environment variable.
-V ?= 0
+V ?=
 
 # Use -e to double check in case it's a broken link
 available-node = \
 	if [ -x '$(NODE)' ] && [ -e '$(NODE)' ]; then \
-		'$(NODE)' $(1); \
+		PATH='$(PWD)/out/$(BUILDTYPE):$$PATH' '$(NODE)' $(1); \
 	elif [ -x `command -v node` ] && [ -e `command -v node` ] && [ `command -v node` ]; then \
 		`command -v node` $(1); \
 	else \
@@ -233,6 +235,7 @@ distclean: ## Remove all build and test artifacts.
 	$(RM) -r node_modules
 	$(RM) -r deps/icu
 	$(RM) -r deps/icu4c*.tgz deps/icu4c*.zip deps/icu-tmp
+	$(RM) tools/perfetto/trace_processor_shell
 	$(RM) $(BINARYTAR).* $(TARBALL).*
 
 .PHONY: check
@@ -318,7 +321,7 @@ v8: ## Build deps/v8.
 		tools/make-v8.sh $(V8_ARCH).$(BUILDTYPE_LOWER) $(V8_BUILD_OPTIONS)
 
 .PHONY: jstest
-jstest: build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests ## Run addon tests and JS tests.
+jstest: build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests build-ffi-tests ## Run addon tests and JS tests.
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) --mode=$(BUILDTYPE_LOWER) \
 		$(TEST_CI_ARGS) \
 		--skip-tests=$(CI_SKIP_TESTS) \
@@ -336,15 +339,27 @@ coverage-run-js: ## Run JavaScript tests with coverage.
 					TEST_CI_ARGS="$(TEST_CI_ARGS) --type=coverage" $(MAKE) jstest
 	$(MAKE) coverage-report-js
 
+TRACE_PROCESSOR_SHELL_PATH ?= tools/perfetto/trace_processor_shell
+
+# The downloaded copy has to match the vendored perfetto, so a version bump
+# re-downloads it. An overridden path is a build we do not manage and may not
+# be writable, so it gets no prerequisite and is left alone once it exists.
+ifeq ($(TRACE_PROCESSOR_SHELL_PATH),tools/perfetto/trace_processor_shell)
+TRACE_PROCESSOR_SHELL_DEPS = deps/perfetto/VERSION
+endif
+
+$(TRACE_PROCESSOR_SHELL_PATH): $(TRACE_PROCESSOR_SHELL_DEPS)
+	@tools/perfetto/get_trace_processor $@
+
 .PHONY: test
 # This does not run tests of third-party libraries inside deps.
 test: all ## Run default tests and build docs.
 	$(MAKE) -s tooltest
-	$(MAKE) -s test-doc
 	$(MAKE) -s build-addons
 	$(MAKE) -s build-js-native-api-tests
 	$(MAKE) -s build-node-api-tests
 	$(MAKE) -s build-sqlite-tests
+	$(MAKE) -s build-ffi-tests
 	$(MAKE) -s cctest
 	$(MAKE) -s jstest
 
@@ -354,6 +369,7 @@ test-only: all  ## Run default tests without building the docs.
 	$(MAKE) build-js-native-api-tests
 	$(MAKE) build-node-api-tests
 	$(MAKE) build-sqlite-tests
+	$(MAKE) build-ffi-tests
 	$(MAKE) cctest
 	$(MAKE) jstest
 	$(MAKE) tooltest
@@ -365,6 +381,7 @@ test-cov: all ## Run coverage tests.
 	$(MAKE) build-js-native-api-tests
 	$(MAKE) build-node-api-tests
 	$(MAKE) build-sqlite-tests
+	$(MAKE) build-ffi-tests
 	$(MAKE) cctest
 	CI_SKIP_TESTS=$(COV_SKIP_TESTS) $(MAKE) jstest
 
@@ -376,7 +393,7 @@ test-valgrind: all ## Run tests using valgrind.
 test-check-deopts: all
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) --mode=$(BUILDTYPE_LOWER) --check-deopts parallel sequential
 
-DOCBUILDSTAMP_PREREQS = tools/doc/addon-verify.mjs doc/api/addons.md
+DOCBUILDSTAMP_PREREQS = doc/api/addons.md
 
 ifeq ($(OSTYPE),aix)
 DOCBUILDSTAMP_PREREQS := $(DOCBUILDSTAMP_PREREQS) out/$(BUILDTYPE)/node.exp
@@ -385,14 +402,20 @@ ifeq ($(OSTYPE),os400)
 DOCBUILDSTAMP_PREREQS := $(DOCBUILDSTAMP_PREREQS) out/$(BUILDTYPE)/node.exp
 endif
 
+DOC_KIT ?= tools/doc/node_modules/@node-core/doc-kit/bin/cli.mjs
+
 node_use_openssl_and_icu = $(call available-node,"-p" \
 			 "process.versions.openssl != undefined && process.versions.icu != undefined")
-test/addons/.docbuildstamp: $(DOCBUILDSTAMP_PREREQS) tools/doc/node_modules
+test/addons/.docbuildstamp: $(DOCBUILDSTAMP_PREREQS) tools/doc/addon-verify.mjs
 	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
 		echo "Skipping .docbuildstamp (no crypto and/or no ICU)"; \
 	else \
 		$(RM) -r test/addons/??_*/; \
-		[ -x '$(NODE)' ] && '$(NODE)' $< || node $< ; \
+		$(call available-node, \
+			tools/doc/addon-verify.mjs \
+			--input doc/api/addons.md \
+			--output test/addons/ \
+		) \
 		[ $$? -eq 0 ] && touch $@; \
 	fi
 
@@ -406,7 +429,7 @@ ADDONS_HEADERS_PREREQS := tools/install.py \
 	$(wildcard deps/uv/include/*/*.h) \
 	$(wildcard deps/v8/include/*.h) \
 	$(wildcard deps/v8/include/*/*.h) \
-	deps/zlib/zconf.h deps/zlib/zlib.h \
+	$(wildcard deps/zlib/z*.h) \
 	src/node.h src/node_api.h src/js_native_api.h src/js_native_api_types.h \
 	src/node_api_types.h src/node_buffer.h src/node_object_wrap.h \
 	src/node_version.h
@@ -535,6 +558,29 @@ else
 build-sqlite-tests:
 endif
 
+FFI_BINDING_GYPS := $(wildcard test/ffi/*/binding.gyp)
+
+FFI_BINDING_SOURCES := \
+	$(wildcard test/ffi/*/*.c) \
+	$(wildcard test/ffi/*/*.def)
+
+ifndef NOFFI
+# Depends on $(NODE_EXE) as order-only to avoid ETXTBSY on AIX when make
+# tries to execute node while it is still being linked in parallel.
+test/ffi/.buildstamp: $(ADDONS_PREREQS) \
+	$(FFI_BINDING_GYPS) $(FFI_BINDING_SOURCES) | $(NODE_EXE)
+	@$(call run_build_addons,"$$PWD/test/ffi",$@)
+else
+test/ffi/.buildstamp:
+endif
+
+.PHONY: build-ffi-tests
+ifndef NOFFI
+build-ffi-tests: | test/ffi/.buildstamp ## Build FFI tests.
+else
+build-ffi-tests:
+endif
+
 .PHONY: clear-stalled
 clear-stalled: ## Clear any stalled processes.
 	$(info Clean up any leftover processes but don't error if found.)
@@ -545,7 +591,7 @@ clear-stalled: ## Clear any stalled processes.
 	fi
 
 .PHONY: test-build
-test-build: | all build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests ## Build all tests.
+test-build: | all build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests build-ffi-tests ## Build all tests.
 
 .PHONY: test-build-js-native-api
 test-build-js-native-api: all build-js-native-api-tests ## Build JS Native-API tests.
@@ -556,6 +602,8 @@ test-build-node-api: all build-node-api-tests ## Build Node-API tests.
 .PHONY: test-build-sqlite
 test-build-sqlite: all build-sqlite-tests ## Build SQLite tests.
 
+.PHONY: test-build-ffi
+test-build-ffi: all build-ffi-tests ## Build FFI tests.
 
 .PHONY: test-all
 test-all: test-build ## Run default tests with both Debug and Release builds.
@@ -570,7 +618,7 @@ test-all-suites: | clear-stalled test-build bench-addons-build doc-only ## Run a
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) --mode=$(BUILDTYPE_LOWER) test/*
 
 JS_SUITES ?= default
-NATIVE_SUITES ?= addons js-native-api node-api embedding
+NATIVE_SUITES ?= addons ffi js-native-api node-api embedding
 # CI_* variables should be kept synchronized with the ones in vcbuild.bat
 CI_NATIVE_SUITES ?= $(NATIVE_SUITES) benchmark
 CI_JS_SUITES ?= $(JS_SUITES) pummel
@@ -584,7 +632,7 @@ endif
 
 # Related CI job: node-test-commit-arm-fanned
 test-ci-native: LOGLEVEL := info ## Build and test addons without building anything else.
-test-ci-native: | benchmark/napi/.buildstamp test/addons/.buildstamp test/js-native-api/.buildstamp test/node-api/.buildstamp test/sqlite/.buildstamp
+test-ci-native: | benchmark/napi/.buildstamp test/addons/.buildstamp test/js-native-api/.buildstamp test/node-api/.buildstamp test/sqlite/.buildstamp test/ffi/.buildstamp
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) -p tap --logfile test.tap \
 		--mode=$(BUILDTYPE_LOWER) --flaky-tests=$(FLAKY_TESTS) \
 		$(TEST_CI_ARGS) $(CI_NATIVE_SUITES)
@@ -607,7 +655,7 @@ test-ci-js: | clear-stalled ## Build and test JavaScript with building anything 
 .PHONY: test-ci
 # Related CI jobs: most CI tests, excluding node-test-commit-arm-fanned
 test-ci: LOGLEVEL := info ## Build and test everything (CI).
-test-ci: | clear-stalled bench-addons-build build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests doc-only
+test-ci: | clear-stalled bench-addons-build build-addons build-js-native-api-tests build-node-api-tests build-sqlite-tests build-ffi-tests doc-only
 	out/Release/cctest --gtest_output=xml:out/junit/cctest.xml
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) -p tap --logfile test.tap \
 		--mode=$(BUILDTYPE_LOWER) --flaky-tests=$(FLAKY_TESTS) \
@@ -625,6 +673,7 @@ test-ci: | clear-stalled bench-addons-build build-addons build-js-native-api-tes
 build-ci: ## Build everything (CI).
 	$(PYTHON) ./configure --verbose $(CONFIG_FLAGS)
 	$(MAKE)
+	$(MAKE) build-ffi-tests
 
 .PHONY: run-ci
 # Run by CI tests, exceptions:
@@ -727,6 +776,16 @@ test-sqlite-clean: ## Remove SQLite testing artifacts.
 	$(RM) -r test/sqlite/*/build
 	$(RM) test/sqlite/.buildstamp
 
+.PHONY: test-ffi
+test-ffi: test-build-ffi ## Run FFI tests.
+	$(PYTHON) tools/test.py $(PARALLEL_ARGS) --mode=$(BUILDTYPE_LOWER) ffi
+
+.PHONY: test-ffi-clean
+.NOTPARALLEL: test-ffi-clean
+test-ffi-clean: ## Remove FFI testing artifacts.
+	$(RM) -r test/ffi/*/build
+	$(RM) test/ffi/.buildstamp
+
 .PHONY: test-addons
 test-addons: test-build test-js-native-api test-node-api ## Run addon tests.
 	$(PYTHON) tools/test.py $(PARALLEL_ARGS) --mode=$(BUILDTYPE_LOWER) addons
@@ -791,14 +850,14 @@ test-v8 test-v8-intl test-v8-benchmarks test-v8-all:
 	$(warning Use the git repo instead: $$ git clone https://github.com/nodejs/node.git)
 endif
 
-apidoc_dirs = out/doc out/doc/api out/doc/api/assets
+apidoc_dirs = out/doc out/doc/api
 skip_apidoc_files = doc/api/quic.md
 
 apidoc_sources = $(filter-out $(skip_apidoc_files), $(wildcard doc/api/*.md))
 apidocs_html = $(addprefix out/,$(apidoc_sources:.md=.html))
 apidocs_json = $(addprefix out/,$(apidoc_sources:.md=.json))
 
-apiassets = $(subst api_assets,api/assets,$(addprefix out/,$(wildcard doc/api_assets/*)))
+run-npm-ci = $(PWD)/$(NPM) ci --omit=dev
 
 tools/doc/node_modules: tools/doc/package.json
 	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
@@ -807,14 +866,12 @@ tools/doc/node_modules: tools/doc/package.json
 		cd tools/doc && $(call available-node,$(run-npm-ci)) \
 	fi
 
+RAWVER=$(shell $(PYTHON) tools/getnodeversion.py)
+VERSION=v$(RAWVER)
+
 .PHONY: doc-only
-doc-only: tools/doc/node_modules \
-	$(apidoc_dirs) $(apiassets) ## Build the docs with the local or the global Node.js binary.
-	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
-		echo "Skipping doc-only (no crypto and/or no ICU)"; \
-	else \
-		$(MAKE) out/doc/api/all.html out/doc/api/all.json out/doc/api/stability; \
-	fi
+.NOTPARALLEL: doc-only
+doc-only: $(apidoc_dirs) $(apidocs_html) $(apidocs_json) out/doc/api/all.html out/doc/api/all.json out/doc/llms.txt out/doc/apilinks.json  ## Builds the docs with the local or the global Node.js binary.
 
 .PHONY: doc
 doc: $(NODE_EXE) doc-only ## Build Node.js, and then build the documentation with the new binary.
@@ -829,82 +886,101 @@ out/doc/api: doc/api
 	mkdir -p $@
 	cp -r doc/api out/doc
 
-# If it's a source tarball, assets are already in doc/api/assets
-out/doc/api/assets:
-	mkdir -p $@
-	if [ -d doc/api/assets ]; then cp -r doc/api/assets out/doc/api; fi;
-
-# If it's not a source tarball, we need to copy assets from doc/api_assets
-out/doc/api/assets/%: doc/api_assets/% | out/doc/api/assets
-	@cp $< $@ ; $(RM) out/doc/api/assets/README.md
-
-
-run-npm-ci = '$(PWD)/$(NPM)' ci
-
-LINK_DATA = out/doc/apilinks.json
-VERSIONS_DATA = out/previous-doc-versions.json
-gen-api = tools/doc/generate.mjs --node-version=$(FULLVERSION) \
-		--apilinks=$(LINK_DATA) $< --output-directory=out/doc/api \
-		--versions-file=$(VERSIONS_DATA)
-gen-apilink = tools/doc/apilinks.mjs $(LINK_DATA) $(wildcard lib/*.js)
-
-$(LINK_DATA): $(wildcard lib/*.js) tools/doc/apilinks.mjs | out/doc
-	$(call available-node, $(gen-apilink))
-
-# Regenerate previous versions data if the current version changes
-$(VERSIONS_DATA): CHANGELOG.md src/node_version.h tools/doc/versions.mjs
-	$(call available-node, tools/doc/versions.mjs $@)
-
-node_use_icu = $(call available-node,"-p" "typeof Intl === 'object'")
-
-out/doc/api/%.json out/doc/api/%.html: doc/api/%.md tools/doc/generate.mjs \
-	tools/doc/markdown.mjs tools/doc/html.mjs tools/doc/json.mjs \
-	tools/doc/apilinks.mjs $(VERSIONS_DATA) | $(LINK_DATA) out/doc/api
-	@if [ "$(shell $(node_use_icu))" != "true" ]; then \
-		echo "Skipping documentation generation (no ICU)"; \
+# Generate all doc files (individual and all.html/all.json) in a single doc-kit call
+# Using grouped targets (&:) so Make knows one command produces all outputs
+ifeq ($(OSTYPE),aix)
+# TODO(@nodejs/web-infra): AIX is currently hanging during HTML minification
+$(apidocs_html) $(apidocs_json) out/doc/api/all.html out/doc/api/all.json:
+	@echo "Skipping $@ (not currently supported by $(OSTYPE) machines)"
+else ifeq ($(OSTYPE),os400)
+# TODO(@nodejs/web-infra): IBMi is currently hanging during HTML minification
+$(apidocs_html) $(apidocs_json) out/doc/api/all.html out/doc/api/all.json:
+	@echo "Skipping $@ (not currently supported by $(OSTYPE) machines)"
+else ifeq ($(ARCHTYPE),riscv64)
+# Many riscv64 environments (except qemu) fail on the wasm steps here
+# https://github.com/nodejs/build/issues/4099#issuecomment-4038743335
+$(apidocs_html) $(apidocs_json) out/doc/api/all.html out/doc/api/all.json:
+	@echo "Skipping $@ (not currently supported by $(DESTCPU) machines)"
+else
+$(apidocs_html) $(apidocs_json) out/doc/api/all.html out/doc/api/all.json &: $(apidoc_sources) tools/doc/node_modules | out/doc/api
+	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
+		echo "Skipping $@ (no crypto and/or no ICU)"; \
 	else \
-		$(call available-node, $(gen-api)) \
+		$(call available-node, \
+			$(DOC_KIT) generate \
+			-t legacy-html-all \
+			-t legacy-json-all \
+			-i doc/api/*.md \
+			--ignore $(skip_apidoc_files) \
+			-o out/doc/api \
+			-c ./CHANGELOG.md \
+			-v $(VERSION) \
+			--index doc/api/index.md \
+			--type-map doc/type-map.json \
+		) \
+	fi
+endif
+
+out/doc/llms.txt: $(apidoc_sources) tools/doc/node_modules | out/doc
+	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
+		echo "Skipping $@ (no crypto and/or no ICU)"; \
+	else \
+		$(call available-node, \
+			$(DOC_KIT) generate \
+			-t llms-txt \
+			-i doc/api/*.md \
+			--ignore $(skip_apidoc_files) \
+			-o $(@D) \
+			-c ./CHANGELOG.md \
+			-v $(VERSION) \
+			--type-map doc/type-map.json \
+		) \
 	fi
 
-out/doc/api/all.html: $(apidocs_html) tools/doc/allhtml.mjs \
-	tools/doc/apilinks.mjs | out/doc/api
-	@if [ "$(shell $(node_use_icu))" != "true" ]; then \
-		echo "Skipping HTML single-page doc generation (no ICU)"; \
+out/doc/apilinks.json: $(wildcard lib/*.js) tools/doc/node_modules | out/doc
+	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
+		echo "Skipping $@ (no crypto and/or no ICU)"; \
 	else \
-		$(call available-node, tools/doc/allhtml.mjs) \
+		$(call available-node, \
+			$(DOC_KIT) generate \
+			-t api-links \
+			-i lib/*.js \
+			-o $(@D) \
+			-c ./CHANGELOG.md \
+			-v $(VERSION) \
+			--type-map doc/type-map.json \
+		) \
 	fi
 
-out/doc/api/all.json: $(apidocs_json) tools/doc/alljson.mjs | out/doc/api
-	@if [ "$(shell $(node_use_icu))" != "true" ]; then \
-		echo "Skipping JSON single-file generation (no ICU)"; \
-	else \
-		$(call available-node, tools/doc/alljson.mjs) \
-	fi
+doc/node.1:
+	$(error Please use 'make node.1' instead of 'make $@'.)
 
-.PHONY: out/doc/api/stability
-out/doc/api/stability: out/doc/api/all.json tools/doc/stability.mjs | out/doc/api
-	@if [ "$(shell $(node_use_icu))" != "true" ]; then \
-		echo "Skipping stability indicator generation (no ICU)"; \
+.PHONY: node.1
+node.1: doc/api/cli.md tools/doc/node_modules
+	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
+		echo "Skipping $@ (no crypto and/or no ICU)"; \
 	else \
-		$(call available-node, tools/doc/stability.mjs) \
+		$(call available-node, \
+			$(DOC_KIT) generate \
+			-v $(VERSION) \
+			--config-file tools/doc/man-page.doc-kit.config.mjs \
+			-o doc \
+		) \
 	fi
 
 .PHONY: docopen
-docopen: out/doc/api/all.html ## Open the documentation in a web browser.
+docopen: doc-only ## Open the documentation in a web browser.
 	@$(PYTHON) -mwebbrowser file://$(abspath $<)
 
 .PHONY: docserve
-docserve: $(apidocs_html) $(apiassets) ## Serve the documentation on localhost:8000.
+docserve: doc-only ## Serve the documentation on localhost:8000.
 	@$(PYTHON) -m http.server 8000 --bind 127.0.0.1 --directory out/doc/api
 
 .PHONY: docclean
 .NOTPARALLEL: docclean
 docclean: ## Remove the generated documentation.
 	$(RM) -r out/doc
-	$(RM) "$(VERSIONS_DATA)"
 
-RAWVER=$(shell $(PYTHON) tools/getnodeversion.py)
-VERSION=v$(RAWVER)
 CHANGELOG=doc/changelogs/CHANGELOG_V$(firstword $(subst ., ,$(RAWVER))).md
 
 # For nightly builds, you must set DISTTYPE to "nightly", "next-nightly" or
@@ -1042,6 +1118,11 @@ override DESTCPU=x86
 endif
 
 TARNAME=node-$(FULLVERSION)
+# Supply SKIP_SHARED_DEPS=1 to explicitly skip all dependencies that can be included as shared deps
+SKIP_SHARED_DEPS ?= 0
+ifeq ($(SKIP_SHARED_DEPS), 1)
+TARNAME:=$(TARNAME)-slim
+endif
 TARBALL=$(TARNAME).tar
 # Custom user-specified variation, use it directly
 ifdef VARIATION
@@ -1056,6 +1137,7 @@ HAS_XZ ?= $(shell command -v xz > /dev/null 2>&1; [ $$? -eq 0 ] && echo 1 || ech
 SKIP_XZ ?= 0
 XZ = $(shell [ $(HAS_XZ) -eq 1 ] && [ $(SKIP_XZ) -eq 0 ] && echo 1 || echo 0)
 XZ_COMPRESSION ?= 9e
+GZIP_COMPRESSION ?= 9
 PKG=$(TARNAME).pkg
 MACOSOUTDIR=out/macos
 
@@ -1215,24 +1297,63 @@ pkg-upload: pkg
 	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg"
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME).pkg.done"
 
-$(TARBALL): release-only doc-only
+TARBALL_DEPS=release-only
+ifneq ($(SKIP_SHARED_DEPS), 1)
+TARBALL_DEPS+= doc-only
+endif
+
+$(TARBALL): $(TARBALL_DEPS)
 	git checkout-index -a -f --prefix=$(TARNAME)/
+ifneq ($(SKIP_SHARED_DEPS), 1)
 	mkdir -p $(TARNAME)/doc/api
 	cp doc/node.1 $(TARNAME)/doc/node.1
 	cp -r out/doc/api/* $(TARNAME)/doc/api/
+endif
+	sed 's/fileset = fileset.intersection (fileset.gitTracked root)/fileset =/' tools/nix/v8.nix > $(TARNAME)/tools/nix/v8.nix
 	$(RM) -r $(TARNAME)/.editorconfig
 	$(RM) -r $(TARNAME)/.git*
 	$(RM) -r $(TARNAME)/.mailmap
+	$(RM) -r $(TARNAME)/deps/corepack
+	$(RM) $(TARNAME)/test/parallel/test-corepack-version.js
+ifeq ($(SKIP_SHARED_DEPS), 1)
+	$(RM) -r $(TARNAME)/deps/ada
+	$(RM) -r $(TARNAME)/deps/brotli
+	$(RM) -r $(TARNAME)/deps/cares
+	$(RM) -r $(TARNAME)/deps/crates
+	$(RM) -r $(TARNAME)/deps/googletest
+	$(RM) -r $(TARNAME)/deps/histogram
+	$(RM) -r $(TARNAME)/deps/icu-small
+	$(RM) -r $(TARNAME)/deps/icu-tmp
+	$(RM) -r $(TARNAME)/deps/LIEF
+	$(RM) -r $(TARNAME)/deps/libffi
+	$(RM) -r $(TARNAME)/deps/llhttp
+	$(RM) -r $(TARNAME)/deps/merve
+	$(RM) -r $(TARNAME)/deps/nbytes
+	$(RM) -r $(TARNAME)/deps/nghttp2
+	$(RM) -r $(TARNAME)/deps/ngtcp2
+	find $(TARNAME)/deps/openssl -maxdepth 1 -type f ! -name 'nodejs-openssl.cnf' -exec $(RM) {} +
+	find $(TARNAME)/deps/openssl -mindepth 1 -maxdepth 1 -type d -exec $(RM) -r {} +
+	$(RM) -r $(TARNAME)/deps/perfetto
+	$(RM) -r $(TARNAME)/deps/simdjson
+	$(RM) -r $(TARNAME)/deps/sqlite
+	$(RM) -r $(TARNAME)/deps/uv
+	$(RM) -r $(TARNAME)/deps/uvwasi
+	$(RM) -r $(TARNAME)/deps/v8/third_party/abseil-cpp
+	$(RM) -r $(TARNAME)/deps/v8/third_party/highway
+	$(RM) -r $(TARNAME)/deps/v8/third_party/simdutf
+	$(RM) -r $(TARNAME)/deps/zlib
+	$(RM) -r $(TARNAME)/deps/zstd
+else
 	$(RM) -r $(TARNAME)/deps/openssl/openssl/demos
 	$(RM) -r $(TARNAME)/deps/openssl/openssl/doc
 	$(RM) -r $(TARNAME)/deps/openssl/openssl/test
 	$(RM) -r $(TARNAME)/deps/uv/docs
 	$(RM) -r $(TARNAME)/deps/uv/samples
 	$(RM) -r $(TARNAME)/deps/uv/test
+endif
 	$(RM) -r $(TARNAME)/deps/v8/samples
 	$(RM) -r $(TARNAME)/deps/v8/tools/profviz
 	$(RM) -r $(TARNAME)/deps/v8/tools/run-tests.py
-	$(RM) -r $(TARNAME)/doc/images # too big
 	$(RM) -r $(TARNAME)/test*.tap
 	$(RM) -r $(TARNAME)/tools/cpplint.py
 	$(RM) -r $(TARNAME)/tools/eslint
@@ -1249,7 +1370,7 @@ $(TARBALL): release-only doc-only
 	find $(TARNAME)/ -type l | xargs $(RM)
 	tar -cf $(TARNAME).tar $(TARNAME)
 	$(RM) -r $(TARNAME)
-	gzip -c -f -9 $(TARNAME).tar > $(TARNAME).tar.gz
+	gzip -c -f -$(GZIP_COMPRESSION) $(TARNAME).tar > $(TARNAME).tar.gz
 ifeq ($(XZ), 1)
 	xz -c -f -$(XZ_COMPRESSION) $(TARNAME).tar > $(TARNAME).tar.xz
 endif
@@ -1294,7 +1415,7 @@ $(TARBALL)-headers: release-only
 	find $(TARNAME)/ -type l | xargs $(RM)
 	tar -cf $(TARNAME)-headers.tar $(TARNAME)
 	$(RM) -r $(TARNAME)
-	gzip -c -f -9 $(TARNAME)-headers.tar > $(TARNAME)-headers.tar.gz
+	gzip -c -f -$(GZIP_COMPRESSION) $(TARNAME)-headers.tar > $(TARNAME)-headers.tar.gz
 ifeq ($(XZ), 1)
 	xz -c -f -$(XZ_COMPRESSION) $(TARNAME)-headers.tar > $(TARNAME)-headers.tar.xz
 endif
@@ -1339,7 +1460,7 @@ ifeq ($(OSTYPE),darwin)
 endif
 	tar -cf $(BINARYNAME).tar $(BINARYNAME)
 	$(RM) -r $(BINARYNAME)
-	gzip -c -f -9 $(BINARYNAME).tar > $(BINARYNAME).tar.gz
+	gzip -c -f -$(GZIP_COMPRESSION) $(BINARYNAME).tar > $(BINARYNAME).tar.gz
 ifeq ($(XZ), 1)
 	xz -c -f -$(XZ_COMPRESSION) $(BINARYNAME).tar > $(BINARYNAME).tar.xz
 endif
@@ -1353,15 +1474,15 @@ binary: $(BINARYTAR) ## Build release binary tarballs.
 # Note: this is strictly for release builds on release machines only.
 binary-upload: binary
 	ssh $(STAGINGSERVER) "mkdir -p nodejs/$(DISTTYPEDIR)/$(FULLVERSION)"
-	chmod 664 $(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz
-	scp -p $(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz
-	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz"
-	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.gz.done"
+	chmod 664 $(BINARYNAME).tar.gz
+	scp -p $(BINARYNAME).tar.gz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.gz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.gz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.gz"
+	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.gz.done"
 ifeq ($(XZ), 1)
-	chmod 664 $(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz
-	scp -p $(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz
-	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz"
-	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(TARNAME)-$(OSTYPE)-$(ARCH).tar.xz.done"
+	chmod 664 $(BINARYNAME).tar.xz
+	scp -p $(BINARYNAME).tar.xz $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.xz
+	ssh $(STAGINGSERVER) "rclone copyto nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.xz $(CLOUDFLARE_BUCKET)/nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.xz"
+	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/$(BINARYNAME).tar.xz.done"
 endif
 
 .PHONY: bench-all
@@ -1384,7 +1505,7 @@ else
 LINT_MD_NEWER = -newer tools/.mdlintstamp
 endif
 
-LINT_MD_TARGETS = doc src lib benchmark test tools/doc tools/icu $(wildcard *.md)
+LINT_MD_TARGETS = doc src lib benchmark test tools/doc tools/icu $(filter-out CLAUDE.md,$(wildcard *.md))
 LINT_MD_FILES = $(shell $(FIND) $(LINT_MD_TARGETS) -type f \
 	! -path '*node_modules*' ! -path 'test/fixtures/*' -name '*.md' \
 	$(LINT_MD_NEWER))
@@ -1400,8 +1521,26 @@ tools/.mdlintstamp: tools/lint-md/node_modules/remark-parse/package.json $(LINT_
 	@$(call available-node,$(run-lint-md))
 	@touch $@
 
+tools/.manpagelintstamp: doc/node.1 doc/api/cli.md tools/doc/node_modules
+	$(info Verifying that $< is up to date...)
+	@if [ "$(shell $(node_use_openssl_and_icu))" != "true" ]; then \
+		echo "Skipping $< verification (no crypto and/or no ICU)"; \
+	else \
+		$(RM) -r tools/doc/.manpagecheck && \
+		$(call available-node, \
+			$(DOC_KIT) generate \
+			-v $(VERSION) \
+			--config-file tools/doc/man-page.doc-kit.config.mjs \
+		) \
+		if ! diff -u $< tools/doc/.manpagecheck/node.1; then \
+			echo '$< is out of date; run `make node.1` to regenerate it.' >&2; \
+			exit 1; \
+		fi; \
+	fi
+	@touch $@
+
 .PHONY: lint-md
-lint-md: lint-js-doc | tools/.mdlintstamp ## Lint the markdown documents maintained by us in the codebase.
+lint-md: lint-js-doc | tools/.mdlintstamp tools/.manpagelintstamp ## Lint the markdown documents maintained by us in the codebase.
 
 run-format-md = tools/lint-md/lint-md.mjs --format $(LINT_MD_FILES)
 .PHONY: format-md
@@ -1410,11 +1549,12 @@ format-md: tools/lint-md/node_modules/remark-parse/package.json ## Format the ma
 	@$(call available-node,$(run-format-md))
 
 
-
+ESLINT_CACHE_FLAGS ?= --cache
 LINT_JS_TARGETS = eslint.config.mjs benchmark doc lib test tools
 
-run-lint-js = tools/eslint/node_modules/eslint/bin/eslint.js --cache \
-	--max-warnings=0 --report-unused-disable-directives $(LINT_JS_TARGETS)
+run-lint-js = tools/eslint/node_modules/eslint/bin/eslint.js $(ESLINT_CACHE_FLAGS) \
+	--max-warnings=0 --report-unused-disable-directives \
+	--concurrency auto $(LINT_JS_TARGETS)
 run-lint-js-fix = $(run-lint-js) --fix
 
 tools/eslint/node_modules/eslint/bin/eslint.js: tools/eslint/package-lock.json
@@ -1441,7 +1581,7 @@ jslint: lint-js
 
 run-lint-js-ci = tools/eslint/node_modules/eslint/bin/eslint.js \
   --max-warnings=0 --report-unused-disable-directives -f tap \
-	-o test-eslint.tap $(LINT_JS_TARGETS)
+  --concurrency auto -o test-eslint.tap $(LINT_JS_TARGETS)
 
 .PHONY: lint-js-ci
 # On the CI the output is emitted in the TAP format.
@@ -1458,7 +1598,7 @@ LINT_CPP_EXCLUDE ?=
 LINT_CPP_EXCLUDE += src/node_root_certs.h
 LINT_CPP_EXCLUDE += $(LINT_CPP_ADDON_DOC_FILES)
 # These files were copied more or less verbatim from V8.
-LINT_CPP_EXCLUDE += src/tracing/trace_event.h src/tracing/trace_event_common.h
+LINT_CPP_EXCLUDE += src/tracing/trace_event_legacy.h src/tracing/trace_event_legacy_inl.h
 
 # deps/ncrypto is included in this list, as it is maintained in
 # this repository, and should be linted. Eventually it should move
@@ -1482,6 +1622,7 @@ LINT_CPP_FILES = $(filter-out $(LINT_CPP_EXCLUDE), $(wildcard \
 	test/embedding/*.cc \
 	test/embedding/*.h \
 	test/sqlite/*/*.c \
+	test/ffi/*/*.c \
 	test/fixtures/*.c \
 	test/js-native-api/*/*.cc \
 	test/node-api/*/*.cc \
@@ -1506,6 +1647,7 @@ FORMAT_CPP_FILES += $(wildcard \
 	test/node-api/*/*.c \
 	test/node-api/*/*.h \
 	test/sqlite/*/*.c \
+	test/ffi/*/*.c \
 	)
 
 # Code blocks don't have newline at the end,
@@ -1577,15 +1719,15 @@ lint-py-build: ## Build resources needed to lint python files.
 		$(PYTHON) -m pip install --upgrade --system --target tools/pip/site-packages ruff==0.13.1
 
 .PHONY: lint-py lint-py-fix lint-py-fix-unsafe
-ifneq ("","$(wildcard tools/pip/site-packages/ruff)")
+ifneq ("","$(wildcard $(RUFF))")
 # Lint the Python code with ruff.
 lint-py:
 	$(info Running Python linter...)
-	tools/pip/site-packages/bin/ruff check .
+	$(RUFF) check .
 lint-py-fix:
-	tools/pip/site-packages/bin/ruff check . --fix
+	$(RUFF) check . --fix
 lint-py-fix-unsafe:
-	tools/pip/site-packages/bin/ruff check . --fix --unsafe-fixes
+	$(RUFF) check . --fix --unsafe-fixes
 else
 lint-py lint-py-fix lint-py-fix-unsafe:
 	$(warning Python linting with ruff is not available)
@@ -1601,14 +1743,15 @@ lint-yaml-build: ## Build resources needed to lint YAML files.
 		$(PYTHON) -m pip install --upgrade --system -t tools/pip/site-packages yamllint
 
 .PHONY: lint-yaml
+ifneq ("","$(wildcard $(YAMLLINT))")
 lint-yaml: ## Lint the YAML files with yamllint.
-	@if [ -d "tools/pip/site-packages/yamllint" ]; then \
-			$(info Running YAML linter...) \
-			PYTHONPATH=tools/pip $(PYTHON) -m yamllint .; \
-	else \
-		echo 'YAML linting with yamllint is not available'; \
-		echo "Run 'make lint-yaml-build'"; \
-	fi
+	$(info Running YAML linter...)
+	PYTHONPATH=tools/pip $(YAMLLINT) .
+else
+lint-yaml:
+	$(warning YAML linting with yamllint is not available)
+	$(warning Run 'make lint-yaml-build')
+endif
 
 .PHONY: lint
 .PHONY: lint-ci

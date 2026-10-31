@@ -21,6 +21,8 @@ namespace internal {
 
 enum class NamedPropertyType : bool { kNotOwn, kOwn };
 
+enum class CallerFrameType : uint8_t { kAny, kBaseline };
+
 //
 // IC is the base class for LoadIC, StoreIC, KeyedLoadIC, and KeyedStoreIC.
 //
@@ -32,7 +34,8 @@ class IC {
   // Construct the IC structure with the given number of extra
   // JavaScript frames on the stack.
   IC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot,
-     FeedbackSlotKind kind);
+     FeedbackSlotKind kind,
+     CallerFrameType caller_frame_type = CallerFrameType::kAny);
   virtual ~IC() = default;
 
   State state() const { return state_; }
@@ -63,6 +66,9 @@ class IC {
   }
 
   static inline bool IsHandler(Tagged<MaybeObject> object);
+
+  Builtin GetHandlerPolymorphic();
+  Builtin GetHandlerMegamorphic();
 
   // Notify the IC system that a feedback has changed.
   static void OnFeedbackChanged(Isolate* isolate, Tagged<FeedbackVector> vector,
@@ -106,10 +112,13 @@ class IC {
                            DirectHandle<Name> name);
   bool UpdateMegaDOMIC(const MaybeObjectDirectHandle& handler,
                        DirectHandle<Name> name);
+  bool UpdateOneMapManyNamesIC(DirectHandle<Name> new_name);
   bool UpdatePolymorphicIC(DirectHandle<Name> name,
                            const MaybeObjectDirectHandle& handler);
   void UpdateMegamorphicCache(DirectHandle<Map> map, DirectHandle<Name> name,
                               const MaybeObjectDirectHandle& handler);
+
+  void MaybePatchCode(Builtin handler);
 
   StubCache* stub_cache();
 
@@ -156,6 +165,8 @@ class IC {
   const FeedbackNexus* nexus() const { return &nexus_; }
   FeedbackNexus* nexus() { return &nexus_; }
 
+  CallerFrameType caller_frame_type() const { return caller_frame_type_; }
+
  private:
   void FindTargetMaps() {
     if (target_maps_set_) return;
@@ -173,6 +184,7 @@ class IC {
   MaybeHandle<Object> accessor_;
   MapHandles target_maps_;
   bool target_maps_set_;
+  CallerFrameType caller_frame_type_;
 
   const char* slow_stub_reason_;
 
@@ -184,8 +196,9 @@ class IC {
 class LoadIC : public IC {
  public:
   LoadIC(Isolate* isolate, Handle<FeedbackVector> vector, FeedbackSlot slot,
-         FeedbackSlotKind kind)
-      : IC(isolate, vector, slot, kind) {
+         FeedbackSlotKind kind,
+         CallerFrameType caller_frame_type = CallerFrameType::kAny)
+      : IC(isolate, vector, slot, kind, caller_frame_type) {
     DCHECK(IsAnyLoad() || IsAnyHas());
   }
 
@@ -248,11 +261,12 @@ class KeyedLoadIC : public LoadIC {
  private:
   friend class IC;
 
-  Handle<Object> LoadElementHandler(DirectHandle<Map> receiver_map,
-                                    KeyedAccessLoadMode new_load_mode);
+  Handle<Object> LoadElementHandler(
+      DirectHandle<Map> receiver_map, KeyedAccessLoadMode new_load_mode,
+      MaybeDirectHandle<Map> maybe_transition_target = {});
 
-  void LoadElementPolymorphicHandlers(MapHandles* receiver_maps,
-                                      MaybeObjectHandles* handlers,
+  void LoadElementPolymorphicHandlers(MapsAndHandlers* old_maps_and_handlers,
+                                      MapsAndHandlers* new_maps_and_handlers,
                                       KeyedAccessLoadMode new_load_mode);
 
   KeyedAccessLoadMode GetKeyedAccessLoadModeFor(

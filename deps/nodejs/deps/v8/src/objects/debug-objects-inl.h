@@ -15,6 +15,7 @@
 #include "src/objects/objects-inl.h"
 #include "src/objects/shared-function-info.h"
 #include "src/objects/string.h"
+#include "src/objects/trusted-pointer-inl.h"
 #include "src/torque/runtime-macro-shims.h"
 #include "src/torque/runtime-support.h"
 
@@ -30,8 +31,6 @@ TQ_OBJECT_CONSTRUCTORS_IMPL(BreakPoint)
 TQ_OBJECT_CONSTRUCTORS_IMPL(BreakPointInfo)
 TQ_OBJECT_CONSTRUCTORS_IMPL(CoverageInfo)
 TQ_OBJECT_CONSTRUCTORS_IMPL(DebugInfo)
-
-NEVER_READ_ONLY_SPACE_IMPL(DebugInfo)
 
 BIT_FIELD_ACCESSORS(DebugInfo, debugger_hints, side_effect_state,
                     DebugInfo::SideEffectStateBits)
@@ -66,7 +65,6 @@ TRUSTED_POINTER_ACCESSORS(DebugInfo, original_bytecode_array, BytecodeArray,
                           kBytecodeArrayIndirectPointerTag)
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(StackFrameInfo)
-NEVER_READ_ONLY_SPACE_IMPL(StackFrameInfo)
 
 Tagged<Script> StackFrameInfo::script() const {
   Tagged<HeapObject> object = shared_or_script();
@@ -82,24 +80,24 @@ BIT_FIELD_ACCESSORS(StackFrameInfo, flags, is_constructor,
                     StackFrameInfo::IsConstructorBit)
 
 TQ_OBJECT_CONSTRUCTORS_IMPL(StackTraceInfo)
-NEVER_READ_ONLY_SPACE_IMPL(StackTraceInfo)
 
-NEVER_READ_ONLY_SPACE_IMPL(ErrorStackData)
 TQ_OBJECT_CONSTRUCTORS_IMPL(ErrorStackData)
 
 bool ErrorStackData::HasFormattedStack() const {
-  return !IsFixedArray(call_site_infos_or_formatted_stack());
+  return !IsFixedArray(raw_data_for_call_site_infos_or_formatted_stack());
 }
 
 ACCESSORS_RELAXED_CHECKED2(ErrorStackData, formatted_stack, Tagged<Object>,
-                           kCallSiteInfosOrFormattedStackOffset,
+                           kRawDataForCallSiteInfosOrFormattedStackOffset,
                            HasFormattedStack(), true)
 
-bool ErrorStackData::HasCallSiteInfos() const { return !HasFormattedStack(); }
+bool ErrorStackData::HasRawDataForCallSiteInfos() const {
+  return !HasFormattedStack();
+}
 
-DEF_GETTER(ErrorStackData, call_site_infos, Tagged<FixedArray>) {
-  DCHECK(HasCallSiteInfos());
-  return Cast<FixedArray>(call_site_infos_or_formatted_stack());
+DEF_GETTER(ErrorStackData, raw_data_for_call_site_infos, Tagged<FixedArray>) {
+  DCHECK(HasRawDataForCallSiteInfos());
+  return Cast<FixedArray>(raw_data_for_call_site_infos_or_formatted_stack());
 }
 
 }  // namespace internal

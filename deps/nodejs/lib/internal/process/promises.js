@@ -1,26 +1,22 @@
 'use strict';
 
 const {
-  ArrayPrototypePush,
-  ArrayPrototypeShift,
   Error,
   ObjectPrototypeHasOwnProperty,
   SafeMap,
   SafeWeakMap,
 } = primordials;
 
+const FixedQueue = require('internal/fixed_queue');
+
 const {
   tickInfo,
   promiseRejectEvents: {
     kPromiseRejectWithNoHandler,
     kPromiseHandlerAddedAfterReject,
-    kPromiseRejectAfterResolved,
-    kPromiseResolveAfterResolved,
   },
   setPromiseRejectCallback,
 } = internalBinding('task_queue');
-
-const { deprecate } = require('internal/util');
 
 const {
   noSideEffectsToString,
@@ -42,27 +38,6 @@ const AsyncContextFrame = require('internal/async_context_frame');
 
 // *Must* match Environment::TickInfo::Fields in src/env.h.
 const kHasRejectionToWarn = 1;
-
-// By default true because in cases where process is not a global
-// it is not possible to determine if the user has added a listener
-// to the process object.
-let hasMultipleResolvesListener = true;
-
-if (process.on) {
-  hasMultipleResolvesListener = process.listenerCount('multipleResolves') !== 0;
-
-  process.on('newListener', (eventName) => {
-    if (eventName === 'multipleResolves') {
-      hasMultipleResolvesListener = true;
-    }
-  });
-
-  process.on('removeListener', (eventName) => {
-    if (eventName === 'multipleResolves') {
-      hasMultipleResolvesListener = process.listenerCount('multipleResolves') !== 0;
-    }
-  });
-}
 
 /**
  * Errors & Warnings
@@ -142,9 +117,9 @@ const maybeUnhandledPromises = new SafeWeakMap();
 let pendingUnhandledRejections = new SafeMap();
 
 /**
- * @type {Array<{promise: Promise, warning: Error}>}
+ * @type {import('internal/fixed_queue')<{promise: Promise, warning: Error}>}
  */
-const asyncHandledRejections = [];
+const asyncHandledRejections = new FixedQueue();
 
 /**
  * @type {number}
@@ -184,6 +159,8 @@ function promiseRejectHandler(type, promise, reason) {
   if (unhandledRejectionsMode === undefined) {
     unhandledRejectionsMode = getUnhandledRejectionsMode();
   }
+  // kPromiseRejectAfterResolved and kPromiseResolveAfterResolved are
+  // filtered out in C++ (src/node_task_queue.cc) and never reach JS.
   switch (type) {
     case kPromiseRejectWithNoHandler: // 0
       unhandledRejection(promise, reason);
@@ -191,54 +168,7 @@ function promiseRejectHandler(type, promise, reason) {
     case kPromiseHandlerAddedAfterReject: // 1
       handledRejection(promise);
       break;
-    case kPromiseRejectAfterResolved: // 2
-      if (hasMultipleResolvesListener) {
-        resolveErrorReject(promise, reason);
-      }
-      break;
-    case kPromiseResolveAfterResolved: // 3
-      if (hasMultipleResolvesListener) {
-        resolveErrorResolve(promise, reason);
-      }
-      break;
   }
-}
-
-const multipleResolvesDeprecate = deprecate(
-  () => {},
-  'The multipleResolves event has been deprecated.',
-  'DEP0160',
-);
-
-/**
- * @param {Promise} promise
- * @param {Error} reason
- */
-function resolveErrorResolve(promise, reason) {
-  // We have to wrap this in a next tick. Otherwise the error could be caught by
-  // the executed promise.
-  process.nextTick(() => {
-    // Emit the multipleResolves event.
-    // This is a deprecated event, so we have to check if it's being listened to.
-    if (process.emit('multipleResolves', 'resolve', promise, reason)) {
-      // If the event is being listened to, emit a deprecation warning.
-      multipleResolvesDeprecate();
-    }
-  });
-}
-
-/**
- * @param {Promise} promise
- * @param {Error} reason
- */
-function resolveErrorReject(promise, reason) {
-  // We have to wrap this in a next tick. Otherwise the error could be caught by
-  // the executed promise.
-  process.nextTick(() => {
-    if (process.emit('multipleResolves', 'reject', promise, reason)) {
-      multipleResolvesDeprecate();
-    }
-  });
 }
 
 /**
@@ -281,7 +211,7 @@ function handledRejection(promise) {
     if (promiseInfo.warned) {
       // Generate the warning object early to get a good stack trace.
       const warning = new PromiseRejectionHandledWarning(promiseInfo.uid);
-      ArrayPrototypePush(asyncHandledRejections, { promise, warning });
+      asyncHandledRejections.push({ promise, warning });
       setHasRejectionToWarn(true);
     }
   }
@@ -437,10 +367,10 @@ function getUnhandledRejectionsMode() {
 // a warning to be emitted which requires the microtask and next tick
 // queues to be drained again.
 function processPromiseRejections() {
-  let maybeScheduledTicksOrMicrotasks = asyncHandledRejections.length > 0;
+  let maybeScheduledTicksOrMicrotasks = !asyncHandledRejections.isEmpty();
 
-  while (asyncHandledRejections.length !== 0) {
-    const { promise, warning } = ArrayPrototypeShift(asyncHandledRejections);
+  while (!asyncHandledRejections.isEmpty()) {
+    const { promise, warning } = asyncHandledRejections.shift();
     if (!process.emit('rejectionHandled', promise)) {
       process.emitWarning(warning);
     }

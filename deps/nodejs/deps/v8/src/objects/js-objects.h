@@ -45,7 +45,6 @@ class Null;
 // JSObject and JSProxy.
 class JSReceiver : public TorqueGeneratedJSReceiver<JSReceiver, HeapObject> {
  public:
-  NEVER_READ_ONLY_SPACE
   // Returns true if there is no slow (ie, dictionary) backing store.
   DECL_GETTER(HasFastProperties, bool)
 
@@ -376,12 +375,12 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   V8_EXPORT_PRIVATE static V8_WARN_UNUSED_RESULT MaybeHandle<JSObject> New(
       DirectHandle<JSFunction> constructor, DirectHandle<JSReceiver> new_target,
       DirectHandle<AllocationSite> site,
-      NewJSObjectType = NewJSObjectType::kNoAPIWrapper);
+      NewJSObjectType = NewJSObjectType::kMaybeEmbedderFieldsAndNoApiWrapper);
 
   static MaybeDirectHandle<JSObject> NewWithMap(
       Isolate* isolate, DirectHandle<Map> initial_map,
       DirectHandle<AllocationSite> site,
-      NewJSObjectType = NewJSObjectType::kNoAPIWrapper);
+      NewJSObjectType = NewJSObjectType::kMaybeEmbedderFieldsAndNoApiWrapper);
 
   // 9.1.12 ObjectCreate ( proto [ , internalSlotsList ] )
   // Notice: This is NOT 19.1.2.2 Object.create ( O, Properties )
@@ -402,7 +401,8 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
                     WriteBarrierMode mode = UPDATE_WRITE_BARRIER) = delete;
 
   inline void initialize_elements();
-  static inline void SetMapAndElements(DirectHandle<JSObject> object,
+  static inline void SetMapAndElements(Isolate* isolate,
+                                       DirectHandle<JSObject> object,
                                        DirectHandle<Map> map,
                                        DirectHandle<FixedArrayBase> elements);
   DECL_GETTER(GetElementsKind, ElementsKind)
@@ -464,7 +464,10 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   DECL_GETTER(element_dictionary, Tagged<NumberDictionary>)
 
   // Requires: HasFastElements().
-  static void EnsureWritableFastElements(DirectHandle<JSObject> object);
+  static inline void EnsureWritableFastElements(Isolate* isolate,
+                                                DirectHandle<JSObject> object);
+  V8_NOINLINE V8_PRESERVE_MOST static void MakeElementsWritable(
+      Isolate* isolate, DirectHandle<JSObject> object);
 
   V8_WARN_UNUSED_RESULT static Maybe<InterceptorResult>
   SetPropertyWithInterceptor(LookupIterator* it,
@@ -489,7 +492,8 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
       PropertyAttributes attributes, Maybe<ShouldThrow> should_throw,
       AccessorInfoHandling handling = DONT_FORCE_FIELD,
       EnforceDefineSemantics semantics = EnforceDefineSemantics::kSet,
-      StoreOrigin store_origin = StoreOrigin::kNamed);
+      StoreOrigin store_origin = StoreOrigin::kNamed,
+      MaybeDirectHandle<Object> old_value = {});
 
   V8_WARN_UNUSED_RESULT static MaybeDirectHandle<Object> V8_EXPORT_PRIVATE
   SetOwnPropertyIgnoreAttributes(DirectHandle<JSObject> object,
@@ -529,12 +533,13 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
                           PropertyAttributes attributes);
 
   V8_EXPORT_PRIVATE static Maybe<bool> AddDataElement(
-      DirectHandle<JSObject> receiver, uint32_t index,
+      Isolate* isolate, DirectHandle<JSObject> receiver, uint32_t index,
       DirectHandle<Object> value, PropertyAttributes attributes);
 
   // Extend the receiver with a single fast property appeared first in the
   // passed map. This also extends the property backing store if necessary.
-  static void AllocateStorageForMap(DirectHandle<JSObject> object,
+  static void AllocateStorageForMap(Isolate* isolate,
+                                    DirectHandle<JSObject> object,
                                     DirectHandle<Map> map);
 
   // Migrates the given object to a map whose field representations are the
@@ -622,22 +627,30 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   V8_WARN_UNUSED_RESULT static MaybeHandle<JSAny> GetPropertyWithInterceptor(
       LookupIterator* it, bool* done);
 
-  static void ValidateElements(Tagged<JSObject> object);
+  static void ValidateElements(Isolate* isolate, Tagged<JSObject> object);
 
   // Makes sure that this object can contain HeapObject as elements.
   static inline void EnsureCanContainHeapObjectElements(
-      DirectHandle<JSObject> obj);
+      Isolate* isolate, DirectHandle<JSObject> obj);
+
+  template <typename TSlot>
+  static inline ElementsKind GetTransitionedElementsKind(
+      Isolate* isolate, ElementsKind current_kind, TSlot elements,
+      uint32_t count, EnsureElementsMode mode);
 
   // Makes sure that this object can contain the specified elements.
   // TSlot here is either ObjectSlot or FullObjectSlot.
   template <typename TSlot>
-  static inline void EnsureCanContainElements(DirectHandle<JSObject> object,
+  static inline void EnsureCanContainElements(Isolate* isolate,
+                                              DirectHandle<JSObject> object,
                                               TSlot elements, uint32_t count,
                                               EnsureElementsMode mode);
   static inline void EnsureCanContainElements(
-      DirectHandle<JSObject> object, DirectHandle<FixedArrayBase> elements,
-      uint32_t length, EnsureElementsMode mode);
-  static void EnsureCanContainElements(DirectHandle<JSObject> object,
+      Isolate* isolate, DirectHandle<JSObject> object,
+      DirectHandle<FixedArrayBase> elements, uint32_t length,
+      EnsureElementsMode mode);
+  static void EnsureCanContainElements(Isolate* isolate,
+                                       DirectHandle<JSObject> object,
                                        JavaScriptArguments* arguments,
                                        uint32_t arg_count,
                                        EnsureElementsMode mode);
@@ -667,7 +680,8 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   // These methods do not perform access checks!
   template <AllocationSiteUpdateMode update_or_check =
                 AllocationSiteUpdateMode::kUpdate>
-  static bool UpdateAllocationSite(DirectHandle<JSObject> object,
+  static bool UpdateAllocationSite(Isolate* isolate,
+                                   DirectHandle<JSObject> object,
                                    ElementsKind to_kind);
 
   // Lookup interceptors are used for handling properties controlled by host
@@ -712,9 +726,9 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   // Returns a new map with all transitions dropped from the object's current
   // map and the ElementsKind set.
   static DirectHandle<Map> GetElementsTransitionMap(
-      DirectHandle<JSObject> object, ElementsKind to_kind);
+      Isolate* isolate, DirectHandle<JSObject> object, ElementsKind to_kind);
   V8_EXPORT_PRIVATE static void TransitionElementsKind(
-      DirectHandle<JSObject> object, ElementsKind to_kind);
+      Isolate* isolate, DirectHandle<JSObject> object, ElementsKind to_kind);
 
   // Always use this to migrate an object to a new map.
   // |expected_additional_properties| is only used for fast-to-slow transitions
@@ -749,7 +763,7 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   // Convert and update the elements backing store to be a
   // NumberDictionary dictionary.  Returns the backing after conversion.
   V8_EXPORT_PRIVATE static DirectHandle<NumberDictionary> NormalizeElements(
-      DirectHandle<JSObject> object);
+      Isolate* isolate, DirectHandle<JSObject> object);
 
   void RequireSlowElements(Tagged<NumberDictionary> dictionary);
 
@@ -847,8 +861,7 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   // to ensure that |filler_map| can be collected without WB here.
   inline void InitializeBody(Tagged<Map> map, int start_offset,
                              bool is_slack_tracking_in_progress,
-                             MapWord filler_map,
-                             Tagged<Object> undefined_value);
+                             NewJSObjectType new_js_object_type);
 
   // Check whether this object references another object
   bool ReferencesObject(Tagged<Object> obj);
@@ -981,7 +994,7 @@ class JSObject : public TorqueGeneratedJSObject<JSObject, JSReceiver> {
   class FastBodyDescriptor;
 
   // Gets the number of currently used elements.
-  int GetFastElementsUsage();
+  uint32_t GetFastElementsUsage();
 
   template <typename Dictionary>
   static void ApplyAttributesToDictionary(Isolate* isolate, ReadOnlyRoots roots,
@@ -1026,7 +1039,13 @@ class JSExternalObject
     : public TorqueGeneratedJSExternalObject<JSExternalObject, JSObject> {
  public:
   // [value]: field containing the pointer value.
-  DECL_EXTERNAL_POINTER_ACCESSORS(value, void*)
+  inline void* value(ExternalPointerTagRange tag_range) const;
+  inline void* value(IsolateForSandbox isolate,
+                     ExternalPointerTagRange tag_range) const;
+  inline void init_value(IsolateForSandbox isolate, ExternalPointerTag tag,
+                         void* initial_value);
+  inline void set_value(IsolateForSandbox isolate, ExternalPointerTag tag,
+                        void* value);
 
   static constexpr int kEndOfTaggedFieldsOffset = JSObject::kHeaderSize;
 
@@ -1080,31 +1099,6 @@ class JSSpecialObject
                                             JSCustomElementsObject> {
  public:
   TQ_OBJECT_CONSTRUCTORS(JSSpecialObject)
-};
-
-// Helper union that doesn't actually exist as type. Use by value.
-class JSApiWrapper {
- public:
-  V8_INLINE explicit JSApiWrapper(Tagged<JSObject> object);
-
-  template <CppHeapPointerTag tag>
-  V8_INLINE void SetCppHeapWrappable(IsolateForPointerCompression isolate,
-                                     void*);
-  V8_INLINE void SetCppHeapWrappable(IsolateForPointerCompression isolate,
-                                     void*, CppHeapPointerTag tag);
-  template <CppHeapPointerTag lower_bound, CppHeapPointerTag upper_bound>
-  V8_INLINE void* GetCppHeapWrappable(
-      IsolateForPointerCompression isolate) const;
-  V8_INLINE void* GetCppHeapWrappable(IsolateForPointerCompression isolate,
-                                      CppHeapPointerTagRange tag_range) const;
-
- private:
-  static_assert(JSAPIObjectWithEmbedderSlots::kCppHeapWrappableOffset ==
-                JSSpecialObject::kCppHeapWrappableOffset);
-  static constexpr int kCppHeapWrappableOffset =
-      JSAPIObjectWithEmbedderSlots::kCppHeapWrappableOffset;
-
-  Tagged<JSObject> object_;
 };
 
 // JSAccessorPropertyDescriptor is just a JSObject with a specific initial
@@ -1224,6 +1218,11 @@ class JSGlobalObject
   static void InvalidatePropertyCell(DirectHandle<JSGlobalObject> object,
                                      DirectHandle<Name> name);
 
+  // https://tc39.es/ecma262/#sec-hasrestrictedglobalproperty
+  static Maybe<bool> HasRestrictedGlobalProperty(
+      Isolate* isolate, DirectHandle<JSGlobalObject> global,
+      DirectHandle<Name> name);
+
   inline bool IsDetached();
   inline Tagged<NativeContext> native_context();
 
@@ -1251,8 +1250,8 @@ class DateCache;
 class JSDate : public TorqueGeneratedJSDate<JSDate, JSObject> {
  public:
   static V8_WARN_UNUSED_RESULT MaybeDirectHandle<JSDate> New(
-      DirectHandle<JSFunction> constructor, DirectHandle<JSReceiver> new_target,
-      double tv);
+      Isolate* isolate, DirectHandle<JSFunction> constructor,
+      DirectHandle<JSReceiver> new_target, double tv);
 
   // Returns the time value (UTC) identifying the current time in milliseconds.
   static int64_t CurrentTimeValue(Isolate* isolate);
@@ -1267,8 +1266,10 @@ class JSDate : public TorqueGeneratedJSDate<JSDate, JSObject> {
   static Address GetField(Isolate* isolate, Address raw_date,
                           Address smi_index);
 
-  void SetValue(double v);
+  void SetValue(Isolate* isolate, double v);
   void SetNanValue();
+
+  void UpdateFieldsAfterDeserialization(Isolate* isolate);
 
   // Dispatched behavior.
   DECL_PRINTER(JSDate)
@@ -1310,7 +1311,8 @@ class JSDate : public TorqueGeneratedJSDate<JSDate, JSObject> {
                              DateCache* date_cache);
 
   // Computes and caches the cacheable fields of the date.
-  inline void SetCachedFields(int64_t local_time_ms, DateCache* date_cache);
+  inline void SetCachedFields(Isolate* isolate, int64_t local_time_ms,
+                              DateCache* date_cache);
 
   TQ_OBJECT_CONSTRUCTORS(JSDate)
 };
@@ -1469,6 +1471,32 @@ class JSPromiseWithResolversResult : public JSObject {
   static const int kRejectIndex = 2;
 
   OBJECT_CONSTRUCTORS(JSPromiseWithResolversResult, JSObject);
+};
+
+// JSUint8ArraySetFromResult is just a JSObject with a specific initial map.
+// This initial map adds in-object properties for "read" and "written",
+class JSUint8ArraySetFromResult : public JSObject {
+ public:
+  DECL_ACCESSORS(read, Tagged<Object>)
+
+  DECL_ACCESSORS(written, Tagged<Object>)
+
+  // Layout description.
+#define JS_UINT8_ARRAY_SET_FROM_RESULT_FIELDS(V) \
+  V(kReadOffset, kTaggedSize)                    \
+  V(kWrittenOffset, kTaggedSize)                 \
+  /* Total size. */                              \
+  V(kSize, 0)
+
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                JS_UINT8_ARRAY_SET_FROM_RESULT_FIELDS)
+#undef JS_UINT8_ARRAY_SET_FROM_RESULT_FIELDS
+
+  // Indices of in-object properties.
+  static const int kReadIndex = 0;
+  static const int kWrittenIndex = 1;
+
+  OBJECT_CONSTRUCTORS(JSUint8ArraySetFromResult, JSObject);
 };
 
 }  // namespace v8::internal

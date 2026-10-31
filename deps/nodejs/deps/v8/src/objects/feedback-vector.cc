@@ -197,7 +197,10 @@ const char* FeedbackMetadata::Kind2String(FeedbackSlotKind kind) {
       return "CloneObject";
     case FeedbackSlotKind::kJumpLoop:
       return "JumpLoop";
+    case FeedbackSlotKind::kStringAddAndInternalize:
+      return "StringAddAndInternalize";
   }
+  UNREACHABLE();
 }
 
 FeedbackSlotKind FeedbackVector::GetKind(FeedbackSlot slot) const {
@@ -226,14 +229,12 @@ DirectHandle<ClosureFeedbackCellArray> ClosureFeedbackCellArray::New(
   cells.reserve(length);
   for (int i = 0; i < length; i++) {
     DirectHandle<FeedbackCell> cell = isolate->factory()->NewNoClosuresCell();
-#ifdef V8_ENABLE_LEAPTIERING
     uint16_t parameter_count =
         shared->feedback_metadata()->GetCreateClosureParameterCount(i);
     auto initial_code = BUILTIN_CODE(isolate, CompileLazy);
     FeedbackCell::AllocateAndInstallJSDispatchHandle(
         cell, FeedbackCell::kDispatchHandleOffset, isolate, parameter_count,
         initial_code);
-#endif
     cells.push_back(cell);
   }
 
@@ -266,12 +267,6 @@ Handle<FeedbackVector> FeedbackVector::New(
 
   DCHECK_EQ(vector->shared_function_info(), *shared);
   DCHECK_EQ(vector->invocation_count(), 0);
-#ifndef V8_ENABLE_LEAPTIERING
-  DCHECK_EQ(vector->tiering_state(), TieringState::kNone);
-  DCHECK(!vector->maybe_has_maglev_code());
-  DCHECK(!vector->maybe_has_turbofan_code());
-  DCHECK(vector->maybe_optimized_code().IsCleared());
-#endif  // !V8_ENABLE_LEAPTIERING
 
   // Ensure we can skip the write barrier
   DirectHandle<Symbol> uninitialized_sentinel = UninitializedSentinel(isolate);
@@ -289,7 +284,7 @@ Handle<FeedbackVector> FeedbackVector::New(
       case FeedbackSlotKind::kStoreGlobalSloppy:
       case FeedbackSlotKind::kStoreGlobalStrict:
       case FeedbackSlotKind::kJumpLoop:
-        vector->Set(slot, ClearedValue(isolate), SKIP_WRITE_BARRIER);
+        vector->Set(slot, kClearedWeakValue, SKIP_WRITE_BARRIER);
         break;
       case FeedbackSlotKind::kForIn:
       case FeedbackSlotKind::kCompareOp:
@@ -318,6 +313,9 @@ Handle<FeedbackVector> FeedbackVector::New(
       case FeedbackSlotKind::kDefineKeyedOwnPropertyInLiteral:
       case FeedbackSlotKind::kInstanceOf:
         vector->Set(slot, *uninitialized_sentinel, SKIP_WRITE_BARRIER);
+        break;
+      case FeedbackSlotKind::kStringAddAndInternalize:
+        vector->Set(slot, Smi::zero(), SKIP_WRITE_BARRIER);
         break;
 
       case FeedbackSlotKind::kInvalid:
@@ -384,94 +382,13 @@ void FeedbackVector::AddToVectorsForProfilingTools(
   isolate->SetFeedbackVectorsForProfilingTools(*list);
 }
 
-#ifdef V8_ENABLE_LEAPTIERING
-
 void FeedbackVector::set_tiering_in_progress(bool in_progress) {
   set_flags(TieringInProgressBit::update(flags(), in_progress));
 }
 
-#else
-
-void FeedbackVector::SetOptimizedCode(IsolateForSandbox isolate,
-                                      Tagged<Code> code) {
-  DCHECK(CodeKindIsOptimizedJSFunction(code->kind()));
-  int32_t state = flags();
-  // Skip setting optimized code if it would cause us to tier down.
-  if (!has_optimized_code()) {
-    state = MaybeHasTurbofanCodeBit::update(state, false);
-  } else if (!CodeKindCanTierUp(optimized_code(isolate)->kind()) ||
-             optimized_code(isolate)->kind() > code->kind()) {
-    if (!v8_flags.stress_concurrent_inlining_attach_code &&
-        !optimized_code(isolate)->marked_for_deoptimization()) {
-      return;
-    }
-    // If we fall through, we may be tiering down. This is fine since we only do
-    // that when the current code is marked for deoptimization, or because we're
-    // stress testing.
-    state = MaybeHasTurbofanCodeBit::update(state, false);
-  }
-  // TODO(mythria): We could see a CompileOptimized state here either from
-  // tests that use %OptimizeFunctionOnNextCall, --always-turbofan or because we
-  // re-mark the function for non-concurrent optimization after an OSR. We
-  // should avoid these cases and also check that marker isn't
-  // TieringState::kRequestTurbofan*.
-  set_maybe_optimized_code(MakeWeak(code->wrapper()));
-  // TODO(leszeks): Reconsider whether this could clear the tiering state vs.
-  // the callers doing so.
-  state = TieringStateBits::update(state, TieringState::kNone);
-  if (code->is_maglevved()) {
-    DCHECK(!MaybeHasTurbofanCodeBit::decode(state));
-    state = MaybeHasMaglevCodeBit::update(state, true);
-  } else {
-    DCHECK(code->is_turbofanned());
-    state = MaybeHasTurbofanCodeBit::update(state, true);
-    state = MaybeHasMaglevCodeBit::update(state, false);
-  }
-  set_flags(state);
-}
-
-void FeedbackVector::ClearOptimizedCode() {
-  DCHECK(has_optimized_code());
-  DCHECK(maybe_has_maglev_code() || maybe_has_turbofan_code());
-  set_maybe_optimized_code(ClearedValue(GetIsolate()));
-  set_maybe_has_maglev_code(false);
-  set_maybe_has_turbofan_code(false);
-}
-
-void FeedbackVector::EvictOptimizedCodeMarkedForDeoptimization(
-    Isolate* isolate, Tagged<SharedFunctionInfo> shared, const char* reason) {
-  Tagged<MaybeObject> slot = maybe_optimized_code();
-  if (slot.IsCleared()) {
-    set_maybe_has_maglev_code(false);
-    set_maybe_has_turbofan_code(false);
-    return;
-  }
-
-  Tagged<Code> code = Cast<CodeWrapper>(slot.GetHeapObject())->code(isolate);
-  if (code->marked_for_deoptimization()) {
-    Deoptimizer::TraceEvictFromOptimizedCodeCache(isolate, shared, reason);
-    ClearOptimizedCode();
-  }
-}
-
-void FeedbackVector::set_tiering_state(TieringState state) {
-  int32_t new_flags = flags();
-  new_flags = TieringStateBits::update(new_flags, state);
-  set_flags(new_flags);
-}
-
-#endif  // V8_ENABLE_LEAPTIERING
-
 void FeedbackVector::reset_flags() {
   set_flags(
-#ifdef V8_ENABLE_LEAPTIERING
       TieringInProgressBit::encode(false) |
-#else
-      TieringStateBits::encode(TieringState::kNone) |
-      LogNextExecutionBit::encode(false) |
-      MaybeHasMaglevCodeBit::encode(false) |
-      MaybeHasTurbofanCodeBit::encode(false) |
-#endif  // V8_ENABLE_LEAPTIERING
       OsrTieringInProgressBit::encode(false) |
       MaybeHasMaglevOsrCodeBit::encode(false) |
       MaybeHasTurbofanOsrCodeBit::encode(false));
@@ -481,7 +398,7 @@ void FeedbackVector::SetOptimizedOsrCode(Isolate* isolate, FeedbackSlot slot,
                                          Tagged<Code> code) {
   DCHECK(CodeKindIsOptimizedJSFunction(code->kind()));
   DCHECK(!slot.IsInvalid());
-  auto current = GetOptimizedOsrCode(isolate, slot);
+  auto current = GetOptimizedOsrCode(isolate, {}, slot);
   if (V8_UNLIKELY(current && current.value()->kind() > code->kind())) {
     return;
   }
@@ -503,7 +420,8 @@ bool FeedbackVector::ClearSlots(Isolate* isolate, ClearBehavior behavior) {
       FeedbackVector::RawUninitializedSentinel(isolate);
 
   bool feedback_updated = false;
-  FeedbackMetadataIterator iter(metadata());
+  DisallowGarbageCollection no_gc;
+  FeedbackMetadataIterator iter(metadata(), no_gc);
   while (iter.HasNext()) {
     FeedbackSlot slot = iter.Next();
 
@@ -608,13 +526,12 @@ DirectHandle<WeakFixedArray> FeedbackNexus::CreateArrayOfSize(int length) {
 }
 
 void FeedbackNexus::ConfigureUninitialized() {
-  Isolate* isolate = config()->isolate();
   switch (kind()) {
     case FeedbackSlotKind::kStoreGlobalSloppy:
     case FeedbackSlotKind::kStoreGlobalStrict:
     case FeedbackSlotKind::kLoadGlobalNotInsideTypeof:
     case FeedbackSlotKind::kLoadGlobalInsideTypeof:
-      SetFeedback(ClearedValue(isolate), SKIP_WRITE_BARRIER,
+      SetFeedback(kClearedWeakValue, SKIP_WRITE_BARRIER,
                   UninitializedSentinel(), SKIP_WRITE_BARRIER);
       break;
     case FeedbackSlotKind::kCloneObject:
@@ -640,7 +557,7 @@ void FeedbackNexus::ConfigureUninitialized() {
                   UninitializedSentinel(), SKIP_WRITE_BARRIER);
       break;
     case FeedbackSlotKind::kJumpLoop:
-      SetFeedback(ClearedValue(isolate), SKIP_WRITE_BARRIER);
+      SetFeedback(kClearedWeakValue, SKIP_WRITE_BARRIER);
       break;
     default:
       UNREACHABLE();
@@ -696,6 +613,17 @@ bool FeedbackNexus::Clear(ClearBehavior behavior) {
       }
       break;
 
+    case FeedbackSlotKind::kStringAddAndInternalize:
+      if (V8_LIKELY(behavior == ClearBehavior::kDefault)) {
+        // We don't clear these, either.
+      } else if (!IsCleared()) {
+        DCHECK_EQ(behavior, ClearBehavior::kClearAll);
+        SetFeedback(Smi::zero(), SKIP_WRITE_BARRIER, UninitializedSentinel(),
+                    SKIP_WRITE_BARRIER);
+        feedback_updated = true;
+      }
+      break;
+
     case FeedbackSlotKind::kInvalid:
       UNREACHABLE();
   }
@@ -704,10 +632,9 @@ bool FeedbackNexus::Clear(ClearBehavior behavior) {
 
 bool FeedbackNexus::ConfigureMegamorphic() {
   DisallowGarbageCollection no_gc;
-  Isolate* isolate = config()->isolate();
   Tagged<MaybeObject> sentinel = MegamorphicSentinel();
   if (GetFeedback() != sentinel) {
-    SetFeedback(sentinel, SKIP_WRITE_BARRIER, ClearedValue(isolate));
+    SetFeedback(sentinel, SKIP_WRITE_BARRIER, kClearedWeakValue);
     return true;
   }
 
@@ -842,7 +769,8 @@ InlineCacheState FeedbackNexus::ic_state() const {
       CHECK_EQ(feedback, UninitializedSentinel());
       return InlineCacheState::UNINITIALIZED;
     }
-    case FeedbackSlotKind::kBinaryOp: {
+    case FeedbackSlotKind::kBinaryOp:
+    case FeedbackSlotKind::kStringAddAndInternalize: {
       BinaryOperationHint hint = GetBinaryOperationFeedback();
       if (hint == BinaryOperationHint::kNone) {
         return InlineCacheState::UNINITIALIZED;
@@ -923,6 +851,52 @@ InlineCacheState FeedbackNexus::ic_state() const {
   return InlineCacheState::UNINITIALIZED;
 }
 
+Builtin FeedbackNexus::ic_handler(Tagged<MaybeObject> feedback_extra,
+                                  FeedbackSlotKind kind) {
+  if (kind != FeedbackSlotKind::kLoadProperty) return Builtin::kIllegal;
+
+  if (IsSmi(feedback_extra)) {
+    int handler = feedback_extra.ToSmi().value();
+    LoadHandler::Kind handler_kind = LoadHandler::KindBits::decode(handler);
+    // LoadField.
+    if (handler_kind == LoadHandler::Kind::kField) {
+      int field_index = LoadHandler::FieldIndexBits::decode(handler);
+      bool is_inobject = LoadHandler::IsInobjectBits::decode(handler);
+      bool is_double = LoadHandler::IsDoubleBits::decode(handler);
+      return GetLoadICHandlerForFieldIndex(field_index, is_inobject, is_double);
+    }
+  } else {
+    Tagged<HeapObject> heap_object;
+    // LoadConstantFromPrototype.
+    if (feedback_extra.GetHeapObjectIfStrong(&heap_object)) {
+      if (IsDataHandler(heap_object)) {
+        Tagged<DataHandler> handler = Cast<DataHandler>(heap_object);
+        Tagged<UnionOf<Smi, Code>> smi_handler = handler->smi_handler();
+        if (IsSmi(smi_handler)) {
+          int value = smi_handler.ToSmi().value();
+          if (value == LoadHandler::KindBits::encode(
+                           LoadHandler::Kind::kConstantFromPrototype)) {
+            return Builtin::kLoadICConstantFromPrototypeBaseline;
+          }
+        }
+      } else if (IsCode(heap_object)) {
+        Tagged<Code> handler = UncheckedCast<Code>(heap_object);
+        if (handler->builtin_id() == Builtin::kLoadIC_StringLength) {
+          return Builtin::kLoadICStringLengthBaseline;
+        }
+      }
+    }
+  }
+
+  // ICs that are not specialized for a specific handler are considered generic.
+  return Builtin::kLoadICGenericBaseline;
+}
+
+Builtin FeedbackNexus::ic_handler() const {
+  DCHECK_EQ(kind(), FeedbackSlotKind::kLoadProperty);
+  return FeedbackNexus::ic_handler(GetFeedbackExtra(), kind());
+}
+
 void FeedbackNexus::ConfigurePropertyCellMode(DirectHandle<PropertyCell> cell) {
   DCHECK(IsGlobalICKind(kind()));
   SetFeedback(MakeWeak(*cell), UPDATE_WRITE_BARRIER, UninitializedSentinel(),
@@ -967,7 +941,7 @@ void FeedbackNexus::ConfigureHandlerMode(
     const MaybeObjectDirectHandle& handler) {
   DCHECK(IsGlobalICKind(kind()));
   DCHECK(IC::IsHandler(*handler));
-  SetFeedback(ClearedValue(config()->isolate()), UPDATE_WRITE_BARRIER, *handler,
+  SetFeedback(kClearedWeakValue, UPDATE_WRITE_BARRIER, *handler,
               UPDATE_WRITE_BARRIER);
 }
 
@@ -1012,7 +986,7 @@ void FeedbackNexus::ConfigureCloneObject(
         raw_array->set(1, GetFeedbackExtra());
         raw_array->set(2, MakeWeak(*source_map));
         raw_array->set(3, GetHandler());
-        SetFeedback(raw_array, UPDATE_WRITE_BARRIER, ClearedValue(isolate));
+        SetFeedback(raw_array, UPDATE_WRITE_BARRIER, kClearedWeakValue);
       }
       break;
     case InlineCacheState::POLYMORPHIC: {
@@ -1034,7 +1008,7 @@ void FeedbackNexus::ConfigureCloneObject(
         if (i == kMaxElements) {
           // Transition to MEGAMORPHIC.
           Tagged<MaybeObject> sentinel = MegamorphicSentinel();
-          SetFeedback(sentinel, SKIP_WRITE_BARRIER, ClearedValue(isolate));
+          SetFeedback(sentinel, SKIP_WRITE_BARRIER, kClearedWeakValue);
           break;
         }
 
@@ -1079,6 +1053,15 @@ void FeedbackNexus::SetSpeculationMode(SpeculationMode mode) {
   // but we don't to make WB verification happy.
   SetFeedback(feedback, UPDATE_WRITE_BARRIER, Smi::FromInt(count),
               SKIP_WRITE_BARRIER);
+}
+
+void FeedbackNexus::NextSpeculationMode(SpeculationMode mode) {
+  SpeculationMode cur = GetSpeculationMode();
+  if (cur == SpeculationMode::kAllowSpeculation) {
+    SetSpeculationMode(mode);
+  } else {
+    SetSpeculationMode(SpeculationMode::kDisallowSpeculation);
+  }
 }
 
 SpeculationMode FeedbackNexus::GetSpeculationMode() {
@@ -1134,8 +1117,19 @@ void FeedbackNexus::ConfigurePolymorphic(
   DCHECK_GT(receiver_count, 1);
   DirectHandle<WeakFixedArray> array = CreateArrayOfSize(receiver_count * 2);
 
-  for (int current = 0; current < receiver_count; ++current) {
+  int current = 0;
+
+  for (; current < receiver_count; ++current) {
     auto [map, handler] = maps_and_handlers[current];
+    if (map->is_deprecated()) continue;
+    array->set(current * 2, MakeWeak(*map));
+    DCHECK(IC::IsHandler(*handler));
+    array->set(current * 2 + 1, *handler);
+  }
+
+  for (; current < receiver_count; ++current) {
+    auto [map, handler] = maps_and_handlers[current];
+    if (!map->is_deprecated()) continue;
     array->set(current * 2, MakeWeak(*map));
     DCHECK(IC::IsHandler(*handler));
     array->set(current * 2 + 1, *handler);
@@ -1316,7 +1310,7 @@ KeyedAccessStoreMode FeedbackNexus::GetKeyedAccessStoreMode() const {
         if (!StoreModeIsInBounds(mode)) return mode;
         continue;
       } else {
-        Tagged<Code> code = Cast<Code>(data_handler->smi_handler());
+        Tagged<Code> code = TrustedCast<Code>(data_handler->smi_handler());
         builtin_handler = code->builtin_id();
       }
 
@@ -1335,7 +1329,7 @@ KeyedAccessStoreMode FeedbackNexus::GetKeyedAccessStoreMode() const {
       continue;
     } else {
       // Element store without prototype chain check.
-      Tagged<Code> code = Cast<Code>(*maybe_code_handler.object());
+      Tagged<Code> code = TrustedCast<Code>(*maybe_code_handler.object());
       builtin_handler = code->builtin_id();
     }
 
@@ -1350,6 +1344,25 @@ KeyedAccessStoreMode FeedbackNexus::GetKeyedAccessStoreMode() const {
   return mode;
 }
 
+bool FeedbackNexus::IsOneMapManyNames() const {
+  // "1 map, many names" mode is currently only used for Wasm maps, and
+  // {IsWasmObjectMap} is currently only defined for Wasm-enabled builds.
+#if V8_ENABLE_WEBASSEMBLY
+  if (!IsKeyedLoadICKind(kind()) && !IsKeyedStoreICKind(kind())) return false;
+  auto pair = GetFeedbackPair();
+  Tagged<HeapObject> heap_object;
+  if (!pair.first.GetHeapObjectIfWeak(&heap_object)) return false;
+  if (!IsMap(heap_object)) return false;
+  if (!IsWasmObjectMap(Cast<Map>(heap_object))) return false;
+  if (!IsSmi(pair.second)) return false;
+  Tagged<Smi> handler = pair.second.ToSmi();
+  return handler == LoadHandler::LoadGeneric() ||
+         handler == StoreHandler::StoreGeneric();
+#else
+  return false;
+#endif  // V8_ENABLE_WEBASSEMBLY
+}
+
 IcCheckType FeedbackNexus::GetKeyType() const {
   DCHECK(IsKeyedStoreICKind(kind()) || IsKeyedLoadICKind(kind()) ||
          IsStoreInArrayLiteralICKind(kind()) || IsKeyedHasICKind(kind()) ||
@@ -1359,6 +1372,9 @@ IcCheckType FeedbackNexus::GetKeyType() const {
   Tagged<MaybeObject> feedback = pair.first;
   if (feedback == MegamorphicSentinel()) {
     return static_cast<IcCheckType>(Smi::ToInt(Cast<Smi>(pair.second)));
+  }
+  if (IsOneMapManyNames()) {
+    return IcCheckType::kProperty;
   }
   Tagged<MaybeObject> maybe_name =
       IsDefineKeyedOwnPropertyInLiteralKind(kind()) ||
@@ -1370,7 +1386,8 @@ IcCheckType FeedbackNexus::GetKeyType() const {
 }
 
 BinaryOperationHint FeedbackNexus::GetBinaryOperationFeedback() const {
-  DCHECK_EQ(kind(), FeedbackSlotKind::kBinaryOp);
+  DCHECK(kind() == FeedbackSlotKind::kBinaryOp ||
+         kind() == FeedbackSlotKind::kStringAddAndInternalize);
   int feedback = GetFeedback().ToSmi().value();
   return BinaryOperationHintFromFeedback(feedback);
 }

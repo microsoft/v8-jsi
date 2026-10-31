@@ -44,6 +44,7 @@ Local<Function> WasmStreamingObject::Initialize(Environment* env) {
 void WasmStreamingObject::RegisterExternalReferences(
     ExternalReferenceRegistry* registry) {
   registry->Register(New);
+  registry->Register(SetURL);
   registry->Register(Push);
   registry->Register(Finish);
   registry->Register(Abort);
@@ -132,7 +133,7 @@ void WasmStreamingObject::Finish(const FunctionCallbackInfo<Value>& args) {
   CHECK(obj->streaming_);
 
   CHECK_EQ(args.Length(), 0);
-  obj->streaming_->Finish();
+  obj->streaming_->Finish(WasmStreaming::ModuleCachingCallback{});
 }
 
 void WasmStreamingObject::Abort(const FunctionCallbackInfo<Value>& args) {

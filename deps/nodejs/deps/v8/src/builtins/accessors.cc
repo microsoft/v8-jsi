@@ -4,6 +4,7 @@
 
 #include "src/builtins/accessors.h"
 
+#include "include/v8-function.h"
 #include "src/api/api-inl.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer/deoptimizer.h"
@@ -18,7 +19,10 @@
 #include "src/objects/contexts.h"
 #include "src/objects/field-index-inl.h"
 #include "src/objects/js-array-inl.h"
+#include "src/objects/js-function.h"
 #include "src/objects/js-shared-array-inl.h"
+#include "src/objects/literal-objects-inl.h"
+#include "src/objects/literal-objects.h"
 #include "src/objects/module-inl.h"
 #include "src/objects/property-details.h"
 #include "src/objects/prototype.h"
@@ -27,11 +31,11 @@ namespace v8 {
 namespace internal {
 
 DirectHandle<AccessorInfo> Accessors::MakeAccessor(
-    Isolate* isolate, DirectHandle<Name> name,
+    Isolate* isolate, DirectHandle<Name> name_for_cpu_profiler,
     AccessorNameGetterCallback getter,
     AccessorNameBooleanSetterCallback setter) {
   Factory* factory = isolate->factory();
-  name = factory->InternalizeName(name);
+  name_for_cpu_profiler = factory->InternalizeName(name_for_cpu_profiler);
   DirectHandle<AccessorInfo> info = factory->NewAccessorInfo();
   {
     DisallowGarbageCollection no_gc;
@@ -40,7 +44,7 @@ DirectHandle<AccessorInfo> Accessors::MakeAccessor(
     raw->set_replace_on_access(false);
     raw->set_getter_side_effect_type(SideEffectType::kHasSideEffect);
     raw->set_setter_side_effect_type(SideEffectType::kHasSideEffect);
-    raw->set_name(*name);
+    raw->set_name(*name_for_cpu_profiler);
     raw->set_getter(isolate, reinterpret_cast<Address>(getter));
     if (setter == nullptr) setter = &ReconfigureToDataProperty;
     raw->set_setter(isolate, reinterpret_cast<Address>(setter));
@@ -86,11 +90,10 @@ bool Accessors::IsJSObjectFieldAccessor(Isolate* isolate, DirectHandle<Map> map,
 
 V8_WARN_UNUSED_RESULT MaybeDirectHandle<Object>
 Accessors::ReplaceAccessorWithDataProperty(Isolate* isolate,
-                                           DirectHandle<JSAny> receiver,
                                            DirectHandle<JSObject> holder,
                                            DirectHandle<Name> name,
                                            DirectHandle<Object> value) {
-  LookupIterator it(isolate, receiver, PropertyKey(isolate, name), holder,
+  LookupIterator it(isolate, holder, PropertyKey(isolate, name), holder,
                     LookupIterator::OWN_SKIP_INTERCEPTOR);
   // Skip any access checks we might hit. This accessor should never hit in a
   // situation where the caller does not have access.
@@ -98,15 +101,13 @@ Accessors::ReplaceAccessorWithDataProperty(Isolate* isolate,
     CHECK(it.HasAccess());
     it.Next();
   }
-  DCHECK(holder.is_identical_to(it.GetHolder<JSObject>()));
+  DCHECK(holder.is_identical_to(it.GetHolder<JSObject>()) ||
+         (IsJSGlobalProxy(*holder) &&
+          holder->map()->prototype() == *it.GetHolder<JSObject>()));
   CHECK_EQ(LookupIterator::ACCESSOR, it.state());
   it.ReconfigureDataProperty(value, it.property_attributes());
   return value;
 }
-
-// Allow usages of v8::PropertyCallbackInfo<T>::Holder() for now.
-// TODO(https://crbug.com/333672197): remove.
-START_ALLOW_USE_DEPRECATED()
 
 //
 // Accessors::ReconfigureToDataProperty
@@ -117,13 +118,12 @@ void Accessors::ReconfigureToDataProperty(
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kReconfigureToDataProperty);
   HandleScope scope(isolate);
-  DirectHandle<JSReceiver> receiver = Utils::OpenDirectHandle(*info.This());
   DirectHandle<JSObject> holder =
-      Cast<JSObject>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSObject>(Utils::OpenDirectHandle(*info.HolderV2()));
   DirectHandle<Name> name = Utils::OpenDirectHandle(*key);
   DirectHandle<Object> value = Utils::OpenDirectHandle(*val);
-  MaybeDirectHandle<Object> result = Accessors::ReplaceAccessorWithDataProperty(
-      isolate, receiver, holder, name, value);
+  MaybeDirectHandle<Object> result =
+      Accessors::ReplaceAccessorWithDataProperty(isolate, holder, name, value);
   if (!result.is_null()) {
     info.GetReturnValue().Set(true);
   }
@@ -160,7 +160,7 @@ void Accessors::ArrayLengthGetter(
   DisallowGarbageCollection no_gc;
   HandleScope scope(isolate);
   Tagged<JSArray> holder =
-      Cast<JSArray>(*Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSArray>(*Utils::OpenDirectHandle(*info.HolderV2()));
   Tagged<Object> result = holder->length();
   info.GetReturnValue().Set(
       Utils::ToLocal(DirectHandle<Object>(result, isolate)));
@@ -176,7 +176,7 @@ void Accessors::ArrayLengthSetter(
   DCHECK(Object::SameValue(*Utils::OpenDirectHandle(*name),
                            ReadOnlyRoots(isolate).length_string()));
 
-  DirectHandle<JSReceiver> object = Utils::OpenDirectHandle(*info.Holder());
+  DirectHandle<JSReceiver> object = Utils::OpenDirectHandle(*info.HolderV2());
   DirectHandle<JSArray> array = Cast<JSArray>(object);
   DirectHandle<Object> length_obj = Utils::OpenDirectHandle(*val);
 
@@ -206,7 +206,7 @@ void Accessors::ArrayLengthSetter(
     return;
   }
 
-  if (JSArray::SetLength(array, length).IsNothing()) {
+  if (JSArray::SetLength(isolate, array, length).IsNothing()) {
     // TODO(victorgomes): AccessorNameBooleanSetterCallback does not handle
     // exceptions.
     FATAL("Fatal JavaScript invalid array length %u", length);
@@ -220,7 +220,7 @@ void Accessors::ArrayLengthSetter(
     if (info.ShouldThrowOnError()) {
       Factory* factory = isolate->factory();
       isolate->Throw(*factory->NewTypeError(
-          MessageTemplate::kStrictDeleteProperty,
+          MessageTemplate::kStrictCannotDeleteProperty,
           factory->NewNumberFromUint(actual_new_len - 1), array));
     } else {
       info.GetReturnValue().Set(false);
@@ -244,7 +244,7 @@ void Accessors::ModuleNamespaceEntryGetter(
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   HandleScope scope(isolate);
   Tagged<JSModuleNamespace> holder =
-      Cast<JSModuleNamespace>(*Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSModuleNamespace>(*Utils::OpenDirectHandle(*info.HolderV2()));
   DirectHandle<Object> result;
   if (holder->GetExport(isolate, Cast<String>(Utils::OpenDirectHandle(*name)))
           .ToHandle(&result)) {
@@ -259,7 +259,7 @@ void Accessors::ModuleNamespaceEntrySetter(
   HandleScope scope(isolate);
   Factory* factory = isolate->factory();
   DirectHandle<JSModuleNamespace> holder =
-      Cast<JSModuleNamespace>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSModuleNamespace>(Utils::OpenDirectHandle(*info.HolderV2()));
 
   if (info.ShouldThrowOnError()) {
     isolate->Throw(
@@ -272,9 +272,9 @@ void Accessors::ModuleNamespaceEntrySetter(
 }
 
 DirectHandle<AccessorInfo> Accessors::MakeModuleNamespaceEntryInfo(
-    Isolate* isolate, DirectHandle<String> name) {
-  return MakeAccessor(isolate, name, &ModuleNamespaceEntryGetter,
-                      &ModuleNamespaceEntrySetter);
+    Isolate* isolate) {
+  return MakeAccessor(isolate, isolate->factory()->empty_string(),
+                      &ModuleNamespaceEntryGetter, &ModuleNamespaceEntrySetter);
 }
 
 //
@@ -285,25 +285,14 @@ void Accessors::StringLengthGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kStringLengthGetter);
+  USE(isolate);
   DisallowGarbageCollection no_gc;
-  HandleScope scope(isolate);
-
-  // We have a slight impedance mismatch between the external API and the way we
-  // use callbacks internally: Externally, callbacks can only be used with
-  // v8::Object, but internally we have callbacks on entities which are higher
-  // in the hierarchy, in this case for String values.
 
   Tagged<Object> value =
-      *Utils::OpenDirectHandle(*v8::Local<v8::Value>(info.This()));
-  if (!IsString(value)) {
-    // Not a string value. That means that we either got a String wrapper or
-    // a Value with a String wrapper in its prototype chain.
-    value = Cast<JSPrimitiveWrapper>(*Utils::OpenDirectHandle(*info.Holder()))
-                ->value();
-  }
-  Tagged<Object> result = Smi::FromInt(Cast<String>(value)->length());
-  info.GetReturnValue().Set(
-      Utils::ToLocal(DirectHandle<Object>(result, isolate)));
+      Cast<JSPrimitiveWrapper>(*Utils::OpenDirectHandle(*info.HolderV2()))
+          ->value();
+  int length = Cast<String>(value)->length();
+  info.GetReturnValue().Set(length);
 }
 
 DirectHandle<AccessorInfo> Accessors::MakeStringLengthInfo(Isolate* isolate) {
@@ -315,31 +304,16 @@ DirectHandle<AccessorInfo> Accessors::MakeStringLengthInfo(Isolate* isolate) {
 // Accessors::FunctionPrototype
 //
 
-static DirectHandle<Object> GetFunctionPrototype(
-    Isolate* isolate, DirectHandle<JSFunction> function) {
-  if (!function->has_prototype()) {
-    // We lazily allocate .prototype for functions, which confuses debug
-    // evaluate which assumes we can write to temporary objects we allocated
-    // during evaluation. We err on the side of caution here and prevent the
-    // newly allocated prototype from going into the temporary objects set,
-    // which means writes to it will be considered a side effect.
-    DisableTemporaryObjectTracking no_temp_tracking(isolate->debug());
-    DirectHandle<JSObject> proto =
-        isolate->factory()->NewFunctionPrototype(function);
-    JSFunction::SetPrototype(function, proto);
-  }
-  return DirectHandle<Object>(function->prototype(), isolate);
-}
-
 void Accessors::FunctionPrototypeGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kFunctionPrototypeGetter);
   HandleScope scope(isolate);
   DirectHandle<JSFunction> function =
-      Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   DCHECK(function->has_prototype_property());
-  DirectHandle<Object> result = GetFunctionPrototype(isolate, function);
+  DirectHandle<Object> result =
+      JSFunction::GetFunctionPrototype(isolate, function);
   info.GetReturnValue().Set(Utils::ToLocal(result));
 }
 
@@ -351,9 +325,9 @@ void Accessors::FunctionPrototypeSetter(
   HandleScope scope(isolate);
   DirectHandle<Object> value = Utils::OpenDirectHandle(*val);
   DirectHandle<JSFunction> object =
-      Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   DCHECK(object->has_prototype_property());
-  JSFunction::SetPrototype(object, value);
+  JSFunction::SetPrototype(isolate, object, value);
   info.GetReturnValue().Set(true);
 }
 
@@ -371,11 +345,10 @@ void Accessors::FunctionLengthGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kFunctionLengthGetter);
-  HandleScope scope(isolate);
-  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+  USE(isolate);
+  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   int length = function->length();
-  DirectHandle<Object> result(Smi::FromInt(length), isolate);
-  info.GetReturnValue().Set(Utils::ToLocal(result));
+  info.GetReturnValue().Set(length);
 }
 
 DirectHandle<AccessorInfo> Accessors::MakeFunctionLengthInfo(Isolate* isolate) {
@@ -391,7 +364,7 @@ void Accessors::FunctionNameGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   HandleScope scope(isolate);
-  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   DirectHandle<Object> result = JSFunction::GetName(isolate, function);
   info.GetReturnValue().Set(Utils::ToLocal(result));
 }
@@ -530,12 +503,9 @@ Handle<JSObject> Accessors::FunctionGetArguments(JavaScriptFrame* frame,
   UNREACHABLE();  // Requested frame not found.
 }
 
-void Accessors::FunctionArgumentsGetter(
-    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
-  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
-  isolate->CountUsage(v8::Isolate::kFunctionPrototypeArguments);
-  HandleScope scope(isolate);
-  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+// static
+DirectHandle<Object> Accessors::GetLegacyFunctionArguments(
+    Isolate* isolate, DirectHandle<JSFunction> function) {
   DirectHandle<Object> result = isolate->factory()->null_value();
   if (!function->shared()->native()) {
     // Find the top invocation of the function by traversing frames.
@@ -548,6 +518,19 @@ void Accessors::FunctionArgumentsGetter(
       }
     }
   }
+  return result;
+}
+
+#ifdef V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
+
+void Accessors::FunctionArgumentsGetter(
+    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
+  RCS_SCOPE(isolate, RuntimeCallCounterId::kFunctionArgumentsGetter);
+  isolate->CountUsage(v8::Isolate::kFunctionPrototypeArguments);
+  HandleScope scope(isolate);
+  auto function = Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
+  DirectHandle<Object> result = GetLegacyFunctionArguments(isolate, function);
   info.GetReturnValue().Set(Utils::ToLocal(result));
 }
 
@@ -556,6 +539,8 @@ DirectHandle<AccessorInfo> Accessors::MakeFunctionArgumentsInfo(
   return MakeAccessor(isolate, isolate->factory()->arguments_string(),
                       &FunctionArgumentsGetter, nullptr);
 }
+
+#endif  // V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
 
 //
 // Accessors::FunctionCaller
@@ -657,6 +642,7 @@ class FrameFunctionIterator {
   int inlined_frame_index_;
 };
 
+namespace {
 MaybeDirectHandle<JSFunction> FindCaller(Isolate* isolate,
                                          DirectHandle<JSFunction> function) {
   FrameFunctionIterator it(isolate);
@@ -693,14 +679,11 @@ MaybeDirectHandle<JSFunction> FindCaller(Isolate* isolate,
   }
   return caller;
 }
+}  // namespace
 
-void Accessors::FunctionCallerGetter(
-    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
-  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
-  isolate->CountUsage(v8::Isolate::kFunctionPrototypeCaller);
-  HandleScope scope(isolate);
-  DirectHandle<JSFunction> function =
-      Cast<JSFunction>(Utils::OpenDirectHandle(*info.Holder()));
+// static
+DirectHandle<Object> Accessors::GetLegacyFunctionCaller(
+    Isolate* isolate, DirectHandle<JSFunction> function) {
   DirectHandle<Object> result;
   MaybeDirectHandle<JSFunction> maybe_caller;
   maybe_caller = FindCaller(isolate, function);
@@ -712,6 +695,20 @@ void Accessors::FunctionCallerGetter(
   } else {
     result = isolate->factory()->null_value();
   }
+  return result;
+}
+
+#ifdef V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
+
+void Accessors::FunctionCallerGetter(
+    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
+  RCS_SCOPE(isolate, RuntimeCallCounterId::kFunctionCallerGetter);
+  isolate->CountUsage(v8::Isolate::kFunctionPrototypeCaller);
+  HandleScope scope(isolate);
+  DirectHandle<JSFunction> function =
+      Cast<JSFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
+  DirectHandle<Object> result = GetLegacyFunctionCaller(isolate, function);
   info.GetReturnValue().Set(Utils::ToLocal(result));
 }
 
@@ -719,6 +716,8 @@ DirectHandle<AccessorInfo> Accessors::MakeFunctionCallerInfo(Isolate* isolate) {
   return MakeAccessor(isolate, isolate->factory()->caller_string(),
                       &FunctionCallerGetter, nullptr);
 }
+
+#endif  // V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS
 
 //
 // Accessors::BoundFunctionLength
@@ -728,16 +727,14 @@ void Accessors::BoundFunctionLengthGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kBoundFunctionLengthGetter);
-  HandleScope scope(isolate);
   DirectHandle<JSBoundFunction> function =
-      Cast<JSBoundFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSBoundFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
 
   int length = 0;
   if (!JSBoundFunction::GetLength(isolate, function).To(&length)) {
     return;
   }
-  DirectHandle<Object> result(Smi::FromInt(length), isolate);
-  info.GetReturnValue().Set(Utils::ToLocal(result));
+  info.GetReturnValue().Set(length);
 }
 
 DirectHandle<AccessorInfo> Accessors::MakeBoundFunctionLengthInfo(
@@ -756,7 +753,7 @@ void Accessors::BoundFunctionNameGetter(
   RCS_SCOPE(isolate, RuntimeCallCounterId::kBoundFunctionNameGetter);
   HandleScope scope(isolate);
   DirectHandle<JSBoundFunction> function =
-      Cast<JSBoundFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSBoundFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   DirectHandle<Object> result;
   if (!JSBoundFunction::GetName(isolate, function).ToHandle(&result)) {
     return;
@@ -778,22 +775,78 @@ void Accessors::WrappedFunctionLengthGetter(
     v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
   i::Isolate* isolate = reinterpret_cast<i::Isolate*>(info.GetIsolate());
   RCS_SCOPE(isolate, RuntimeCallCounterId::kBoundFunctionLengthGetter);
-  HandleScope scope(isolate);
   auto function =
-      Cast<JSWrappedFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSWrappedFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
 
   int length = 0;
   if (!JSWrappedFunction::GetLength(isolate, function).To(&length)) {
     return;
   }
-  DirectHandle<Object> result(Smi::FromInt(length), isolate);
-  info.GetReturnValue().Set(Utils::ToLocal(result));
+  info.GetReturnValue().Set(length);
 }
 
 DirectHandle<AccessorInfo> Accessors::MakeWrappedFunctionLengthInfo(
     Isolate* isolate) {
   return MakeAccessor(isolate, isolate->factory()->length_string(),
                       &WrappedFunctionLengthGetter, &ReconfigureToDataProperty);
+}
+
+//
+// Accessors::InstantiateLazyFunction
+//
+
+void Accessors::InstantiateLazyClosureGetter(
+    v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info) {
+  Isolate* isolate = reinterpret_cast<Isolate*>(info.GetIsolate());
+  HandleScope scope(isolate);
+  DirectHandle<JSReceiver> holder = Utils::OpenDirectHandle(*info.HolderV2());
+  DirectHandle<Name> property_name = Utils::OpenDirectHandle(*name);
+
+  DCHECK(holder->map()->is_prototype_map());
+  Tagged<PrototypeSharedClosureInfo> infos;
+  if (!holder->map()->TryGetPrototypeSharedClosureInfo(&infos)) {
+    UNREACHABLE();
+  }
+
+  DirectHandle<ObjectBoilerplateDescription> description(
+      infos->boilerplate_description(), isolate);
+
+  DirectHandle<SharedFunctionInfo> sfi;
+  bool found = false;
+  int properties_count = description->boilerplate_properties_count();
+
+  for (int i = 0; i < properties_count; ++i) {
+    if (description->name(i) == *property_name) {
+      Tagged<Object> value = description->value(i);
+      sfi = direct_handle(Cast<SharedFunctionInfo>(value), isolate);
+      found = true;
+      break;
+    }
+  }
+  CHECK(found);
+
+  DirectHandle<FeedbackCell> feedback_cell(
+      infos->closure_feedback_cell_array()->get(sfi->feedback_slot()), isolate);
+
+  DirectHandle<JSFunction> value =
+      Factory::JSFunctionBuilder{isolate, sfi,
+                                 direct_handle(infos->context(), isolate)}
+          .set_feedback_cell(feedback_cell)
+          .set_allocation_type(AllocationType::kYoung)
+          .Build();
+
+  info.GetReturnValue().Set(v8::Utils::ToLocal(value));
+}
+
+DirectHandle<AccessorInfo> Accessors::MakeInstantiateLazyClosureInfo(
+    Isolate* isolate) {
+  DirectHandle<AccessorInfo> info =
+      MakeAccessor(isolate, isolate->factory()->empty_string(),
+                   &InstantiateLazyClosureGetter, nullptr);
+  info->set_getter_side_effect_type(SideEffectType::kHasNoSideEffect);
+  info->set_replace_on_access(true);
+
+  return info;
 }
 
 //
@@ -825,7 +878,7 @@ void Accessors::WrappedFunctionNameGetter(
   RCS_SCOPE(isolate, RuntimeCallCounterId::kWrappedFunctionNameGetter);
   HandleScope scope(isolate);
   auto function =
-      Cast<JSWrappedFunction>(Utils::OpenDirectHandle(*info.Holder()));
+      Cast<JSWrappedFunction>(Utils::OpenDirectHandle(*info.HolderV2()));
   DirectHandle<Object> result;
   if (!JSWrappedFunction::GetName(isolate, function).ToHandle(&result)) {
     return;
@@ -838,10 +891,6 @@ DirectHandle<AccessorInfo> Accessors::MakeWrappedFunctionNameInfo(
   return MakeAccessor(isolate, isolate->factory()->name_string(),
                       &WrappedFunctionNameGetter, &ReconfigureToDataProperty);
 }
-
-// Allow usages of v8::PropertyCallbackInfo<T>::Holder() for now.
-// TODO(https://crbug.com/333672197): remove.
-END_ALLOW_USE_DEPRECATED()
 
 //
 // Accessors::ErrorStack

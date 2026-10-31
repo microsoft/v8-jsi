@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  ArrayIsArray,
   ArrayPrototypeForEach,
   ArrayPrototypeMap,
   ArrayPrototypePush,
@@ -12,6 +13,7 @@ const {
   ObjectEntries,
   Promise,
   PromiseResolve,
+  PromiseWithResolvers,
   ReflectApply,
   RegExpPrototypeExec,
   SafeArrayIterator,
@@ -28,10 +30,6 @@ const {
 const EventEmitter = require('events');
 const assert = require('internal/assert');
 const path = require('path');
-const {
-  internalEventLoopUtilization,
-} = require('internal/perf/event_loop_utilization');
-
 const errorCodes = require('internal/errors').codes;
 const {
   ERR_WORKER_NOT_RUNNING,
@@ -58,13 +56,17 @@ const {
   WritableWorkerStdio,
 } = workerIo;
 const { createMainThreadPort, destroyMainThreadPort } = require('internal/worker/messaging');
-const { deserializeError } = require('internal/error_serdes');
 const { fileURLToPath, isURL, pathToFileURL } = require('internal/url');
 const {
   constructSharedArrayBuffer,
   kEmptyObject,
 } = require('internal/util');
-const { validateArray, validateString, validateObject, validateNumber } = require('internal/validators');
+const {
+  validateArray,
+  validateString,
+  validateObject,
+  validateNumber,
+} = require('internal/validators');
 const {
   throwIfBuildingSnapshot,
 } = require('internal/v8/startup_snapshot');
@@ -94,6 +96,7 @@ const kParentSideStdio = Symbol('kParentSideStdio');
 const kLoopStartTime = Symbol('kLoopStartTime');
 const kIsInternal = Symbol('kIsInternal');
 const kIsOnline = Symbol('kIsOnline');
+const kWebWorkerData = Symbol('kWebWorkerData');
 
 const SHARE_ENV = SymbolFor('nodejs.worker_threads.SHARE_ENV');
 let debug = require('internal/util/debuglog').debuglog('worker', (fn) => {
@@ -104,6 +107,8 @@ const dc = require('diagnostics_channel');
 const workerThreadsChannel = dc.channel('worker_threads');
 
 let cwdCounter;
+let normalizeHeapProfileOptions;
+let normalizeCpuProfileOptions;
 
 const environmentData = new SafeMap();
 
@@ -329,9 +334,28 @@ class Worker extends EventEmitter {
 
     this[kPublicPort] = publicPortToParent;
     ArrayPrototypeForEach(['message', 'messageerror'], (event) => {
-      this[kPublicPort].on(event, (message) => this.emit(event, message));
+      this[kPublicPort].on(event, (message) => {
+        // Extract watch messages first if needed and relay events from worker thread to watcher
+        if (
+          event === 'message' &&
+          process.env.WATCH_REPORT_DEPENDENCIES &&
+          process.send
+        ) {
+          const { isMainThread } = internalBinding('worker');
+          if (isMainThread) {
+            if (ArrayIsArray(message?.['watch:require'])) {
+              process.send({ 'watch:require': message['watch:require'] });
+            }
+            if (ArrayIsArray(message?.['watch:import'])) {
+              process.send({ 'watch:import': message['watch:import'] });
+            }
+          }
+        }
+        this.emit(event, message);
+      });
     });
     setupPortReferencing(this[kPublicPort], this, 'message');
+
     this[kPort].postMessage({
       argv,
       type: messageTypes.LOAD_SCRIPT,
@@ -340,6 +364,7 @@ class Worker extends EventEmitter {
       isInternal,
       cwdCounter: cwdCounter || workerIo.sharedCwdCounter,
       workerData: options.workerData,
+      webWorkerData: options[kWebWorkerData],
       environmentData,
       hasStdin: !!options.stdin,
       publicPort: publicPortToWorker,
@@ -368,7 +393,7 @@ class Worker extends EventEmitter {
     drainMessagePort(this[kPort]);
     destroyMainThreadPort(this.threadId);
     this.removeAllListeners('message');
-    this.removeAllListeners('messageerrors');
+    this.removeAllListeners('messageerror');
     this[kPublicPort].unref();
     this[kPort].unref();
     this[kDispose]();
@@ -387,6 +412,7 @@ class Worker extends EventEmitter {
 
   [kOnErrorMessage](serialized) {
     // This is what is called for uncaught exceptions.
+    const { deserializeError } = require('internal/error_serdes');
     const error = deserializeError(serialized);
     this.emit('error', error);
   }
@@ -445,19 +471,10 @@ class Worker extends EventEmitter {
     ReflectApply(this[kPublicPort].postMessage, this[kPublicPort], args);
   }
 
-  terminate(callback) {
+  terminate() {
     debug(`[${threadId}] terminates Worker with ID ${this.threadId}`);
 
     this.ref();
-
-    if (typeof callback === 'function') {
-      process.emitWarning(
-        'Passing a callback to worker.terminate() is deprecated. ' +
-        'It returns a Promise instead.',
-        'DeprecationWarning', 'DEP0132');
-      if (this[kHandle] === null) return PromiseResolve();
-      this.once('exit', (exitCode) => callback(null, exitCode));
-    }
 
     if (this[kHandle] === null) return PromiseResolve();
 
@@ -466,9 +483,9 @@ class Worker extends EventEmitter {
     // Do not use events.once() here, because the 'exit' event will always be
     // emitted regardless of any errors, and the point is to only resolve
     // once the thread has actually stopped.
-    return new Promise((resolve) => {
-      this.once('exit', resolve);
-    });
+    const { promise, resolve } = PromiseWithResolvers();
+    this.once('exit', resolve);
+    return promise;
   }
 
   async [SymbolAsyncDispose]() {
@@ -576,9 +593,16 @@ class Worker extends EventEmitter {
     });
   }
 
-  // TODO(theanarkh): add options, such as sample_interval, CpuProfilingMode
-  startCpuProfile() {
-    const startTaker = this[kHandle]?.startCpuProfile();
+  startCpuProfile(options) {
+    normalizeCpuProfileOptions ??=
+      require('internal/v8/cpu_profiler').normalizeCpuProfileOptions;
+    const {
+      samplingIntervalMicros,
+      maxSamples,
+    } = normalizeCpuProfileOptions(options);
+    const startTaker = this[kHandle]?.startCpuProfile(
+      samplingIntervalMicros,
+      maxSamples);
     return new Promise((resolve, reject) => {
       if (!startTaker) return reject(new ERR_WORKER_NOT_RUNNING());
       startTaker.ondone = (err, id) => {
@@ -590,8 +614,22 @@ class Worker extends EventEmitter {
     });
   }
 
-  startHeapProfile() {
-    const startTaker = this[kHandle]?.startHeapProfile();
+  /**
+   * @param {object} [options]
+   * @param {number} [options.sampleInterval]
+   * @param {number} [options.stackDepth]
+   * @param {boolean} [options.forceGC]
+   * @param {boolean} [options.includeObjectsCollectedByMajorGC]
+   * @param {boolean} [options.includeObjectsCollectedByMinorGC]
+   * @returns {Promise}
+   */
+  startHeapProfile(options) {
+    normalizeHeapProfileOptions ??=
+      require('internal/v8/heap_profile').normalizeHeapProfileOptions;
+    const { sampleInterval, stackDepth, flags } =
+      normalizeHeapProfileOptions(options);
+    const startTaker = this[kHandle]?.startHeapProfile(
+      sampleInterval, stackDepth, flags);
     return new Promise((resolve, reject) => {
       if (!startTaker) return reject(new ERR_WORKER_NOT_RUNNING());
       startTaker.ondone = (err) => {
@@ -657,6 +695,7 @@ function makeResourceLimits(float64arr) {
 }
 
 function eventLoopUtilization(util1, util2) {
+  const { internalEventLoopUtilization } = require('internal/perf/event_loop_utilization');
   // TODO(trevnorris): Works to solve the thread-safe read/write issue of
   // loopTime, but has the drawback that it can't be set until the event loop
   // has had a chance to turn. So it will be impossible to read the ELU of
@@ -695,4 +734,6 @@ module.exports = {
   threadName,
   InternalWorker,
   Worker,
+  kPublicPort,
+  kWebWorkerData,
 };

@@ -21,6 +21,7 @@
 #include "src/objects/call-site-info-inl.h"
 #include "src/objects/cell-inl.h"
 #include "src/objects/code-inl.h"
+#include "src/objects/contexts.h"
 #include "src/objects/data-handler-inl.h"
 #include "src/objects/debug-objects-inl.h"
 #include "src/objects/elements.h"
@@ -71,11 +72,13 @@
 #include "src/objects/js-segmenter-inl.h"
 #include "src/objects/js-segments-inl.h"
 #endif  // V8_INTL_SUPPORT
-#include "src/objects/hole-inl.h"
+#include "src/objects/hole.h"
 #include "src/objects/js-raw-json-inl.h"
 #include "src/objects/js-shared-array-inl.h"
 #include "src/objects/js-struct-inl.h"
+#ifdef V8_TEMPORAL_SUPPORT
 #include "src/objects/js-temporal-objects-inl.h"
+#endif  // V8_TEMPORAL_SUPPORT
 #include "src/objects/js-weak-refs-inl.h"
 #include "src/objects/literal-objects-inl.h"
 #include "src/objects/maybe-object.h"
@@ -85,6 +88,7 @@
 #include "src/objects/oddball-inl.h"
 #include "src/objects/promise-inl.h"
 #include "src/objects/property-descriptor-object-inl.h"
+#include "src/objects/string-forwarding-table-inl.h"
 #include "src/objects/struct-inl.h"
 #include "src/objects/swiss-name-dictionary-inl.h"
 #include "src/objects/synthetic-module-inl.h"
@@ -99,6 +103,7 @@
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/base/strings.h"
 #include "src/debug/debug-wasm-objects-inl.h"
+#include "src/wasm/canonical-types.h"
 #include "src/wasm/wasm-objects-inl.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
 
@@ -177,7 +182,7 @@ void Object::VerifyMaybeObjectPointer(Isolate* isolate, Tagged<MaybeObject> p) {
 
 // static
 void Smi::SmiVerify(Tagged<Smi> obj, Isolate* isolate) {
-  CHECK(IsSmi(obj));
+  CHECK(IsSmi(Tagged<Object>(obj)));
   CHECK(!IsCallable(obj));
   CHECK(!IsConstructor(obj));
 }
@@ -189,6 +194,7 @@ void TaggedIndex::TaggedIndexVerify(Tagged<TaggedIndex> obj, Isolate* isolate) {
 
 void HeapObject::HeapObjectVerify(Isolate* isolate) {
   CHECK(IsHeapObject(*this));
+
   PtrComprCageBase cage_base(isolate);
   Object::VerifyPointer(isolate, map(cage_base));
   CHECK(IsMap(map(cage_base), cage_base));
@@ -197,7 +203,7 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
 
   // Only TrustedObjects live in trusted space. See also TrustedObjectVerify.
   CHECK_IMPLIES(!IsTrustedObject(*this) && !IsFreeSpaceOrFiller(*this),
-                !HeapLayout::InTrustedSpace(*this));
+                !TrustedHeapLayout::InTrustedSpace(*this));
 
   switch (map(cage_base)->instance_type()) {
 #define STRING_TYPE_CASE(TYPE, size, name, CamelName) case TYPE:
@@ -227,6 +233,7 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
     case NAME_DICTIONARY_TYPE:
     case GLOBAL_DICTIONARY_TYPE:
     case NUMBER_DICTIONARY_TYPE:
+    case SIMPLE_NAME_DICTIONARY_TYPE:
     case SIMPLE_NUMBER_DICTIONARY_TYPE:
     case EPHEMERON_HASH_TABLE_TYPE:
       Cast<FixedArray>(*this)->FixedArrayVerify(isolate);
@@ -253,7 +260,7 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
       break;
 
     case INSTRUCTION_STREAM_TYPE:
-      Cast<InstructionStream>(*this)->InstructionStreamVerify(isolate);
+      TrustedCast<InstructionStream>(*this)->InstructionStreamVerify(isolate);
       break;
     case JS_API_OBJECT_TYPE:
     case JS_ARRAY_ITERATOR_PROTOTYPE_TYPE:
@@ -273,11 +280,15 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
       break;
 #if V8_ENABLE_WEBASSEMBLY
     case WASM_TRUSTED_INSTANCE_DATA_TYPE:
-      Cast<WasmTrustedInstanceData>(*this)->WasmTrustedInstanceDataVerify(
-          isolate);
+      TrustedCast<WasmTrustedInstanceData>(*this)
+          ->WasmTrustedInstanceDataVerify(isolate);
       break;
     case WASM_DISPATCH_TABLE_TYPE:
-      Cast<WasmDispatchTable>(*this)->WasmDispatchTableVerify(isolate);
+      TrustedCast<WasmDispatchTable>(*this)->WasmDispatchTableVerify(isolate);
+      break;
+    case WASM_DISPATCH_TABLE_FOR_IMPORTS_TYPE:
+      TrustedCast<WasmDispatchTableForImports>(*this)
+          ->WasmDispatchTableForImportsVerify(isolate);
       break;
     case WASM_VALUE_OBJECT_TYPE:
       Cast<WasmValueObject>(*this)->WasmValueObjectVerify(isolate);
@@ -298,21 +309,40 @@ void HeapObject::HeapObjectVerify(Isolate* isolate) {
     case FILLER_TYPE:
       break;
     case CODE_TYPE:
-      Cast<Code>(*this)->CodeVerify(isolate);
+      TrustedCast<Code>(*this)->CodeVerify(isolate);
       break;
     case CODE_WRAPPER_TYPE:
       Cast<CodeWrapper>(*this)->CodeWrapperVerify(isolate);
       break;
+    case DOUBLE_STRING_CACHE_TYPE:
+      Cast<DoubleStringCache>(*this)->DoubleStringCacheVerify(isolate);
+      break;
 
-#define MAKE_TORQUE_CASE(Name, TYPE)          \
-  case TYPE:                                  \
-    Cast<Name>(*this)->Name##Verify(isolate); \
+#define MAKE_TORQUE_CASE(Name, TYPE)                 \
+  case TYPE:                                         \
+    TrustedCast<Name>(*this)->Name##Verify(isolate); \
     break;
       // Every class that has its fields defined in a .tq file and corresponds
       // to exactly one InstanceType value is included in the following list.
       TORQUE_INSTANCE_CHECKERS_SINGLE_FULLY_DEFINED(MAKE_TORQUE_CASE)
       TORQUE_INSTANCE_CHECKERS_MULTIPLE_FULLY_DEFINED(MAKE_TORQUE_CASE)
 #undef MAKE_TORQUE_CASE
+
+    case HOLE_TYPE:
+      Cast<Hole>(*this)->HoleVerify(isolate);
+      break;
+
+    case TUPLE2_TYPE:
+      Cast<Tuple2>(*this)->Tuple2Verify(isolate);
+      break;
+
+    case CLASS_POSITIONS_TYPE:
+      Cast<ClassPositions>(*this)->ClassPositionsVerify(isolate);
+      break;
+
+    case ACCESSOR_PAIR_TYPE:
+      Cast<AccessorPair>(*this)->AccessorPairVerify(isolate);
+      break;
 
     case ALLOCATION_SITE_TYPE:
       Cast<AllocationSite>(*this)->AllocationSiteVerify(isolate);
@@ -387,8 +417,8 @@ void Symbol::SymbolVerify(Isolate* isolate) {
   CHECK(has_hash);
   CHECK_GT(hash, 0);
   CHECK(IsUndefined(description(), isolate) || IsString(description()));
-  CHECK_IMPLIES(IsPrivateName(), IsPrivate());
-  CHECK_IMPLIES(IsPrivateBrand(), IsPrivateName());
+  CHECK_IMPLIES(IsAnyPrivateName(), IsAnyPrivate());
+  CHECK_IMPLIES(IsPrivateBrand(), IsAnyPrivateName());
 }
 
 void BytecodeArray::BytecodeArrayVerify(Isolate* isolate) {
@@ -413,8 +443,10 @@ void BytecodeArray::BytecodeArrayVerify(Isolate* isolate) {
     auto o = wrapper();
     Object::VerifyPointer(isolate, o);
     CHECK(IsBytecodeWrapper(o));
-    // Our wrapper must point back to us.
-    CHECK_EQ(o->bytecode(isolate), *this);
+    if (o->has_bytecode()) {
+      // If the wrapper is fully initialized, it must point back to us.
+      CHECK_EQ(o->bytecode(isolate), *this);
+    }
   }
   {
     // Use the raw accessor here as source positions may not be available.
@@ -520,7 +552,7 @@ void JSObject::JSObjectVerify(Isolate* isolate) {
         }
         Tagged<Object> value = RawFastPropertyAt(index);
         CHECK_IMPLIES(r.IsDouble(), IsHeapNumber(value));
-        if (IsUninitialized(value, isolate)) continue;
+        if (IsUninitializedHole(value, isolate)) continue;
         CHECK_IMPLIES(r.IsSmi(), IsSmi(value));
         CHECK_IMPLIES(r.IsHeapObject(), IsHeapObject(value));
         Tagged<FieldType> field_type = descriptors->GetFieldType(i);
@@ -575,6 +607,11 @@ void Map::MapVerify(Isolate* isolate) {
   CHECK(instance_size() == kVariableSizeSentinel ||
         (kTaggedSize <= instance_size() &&
          static_cast<size_t>(instance_size()) < heap->Capacity()));
+#if V8_ENABLE_WEBASSEMBLY
+  bool is_wasm_struct = InstanceTypeChecker::IsWasmStruct(instance_type());
+#else
+  constexpr bool is_wasm_struct = false;
+#endif  // V8_ENABLE_WEBASSEMBLY
   if (IsContextMap(*this)) {
     // The map for the NativeContext is allocated before the NativeContext
     // itself, so it may happen that during a GC the native_context() is still
@@ -585,10 +622,12 @@ void Map::MapVerify(Isolate* isolate) {
     CHECK_EQ(native_context_or_null(), map()->native_context_or_null());
   } else {
     if (IsUndefined(GetBackPointer(), isolate)) {
-      // Root maps must not have descriptors in the descriptor array that do not
-      // belong to the map.
-      CHECK_EQ(NumberOfOwnDescriptors(),
-               instance_descriptors(isolate)->number_of_descriptors());
+      if (!is_wasm_struct) {
+        // Root maps must not have descriptors in the descriptor array that do
+        // not belong to the map.
+        CHECK_EQ(NumberOfOwnDescriptors(),
+                 instance_descriptors(isolate)->number_of_descriptors());
+      }
     } else {
       // If there is a parent map it must be non-stable.
       Tagged<Map> parent = Cast<Map>(GetBackPointer());
@@ -616,7 +655,9 @@ void Map::MapVerify(Isolate* isolate) {
       }
     }
   }
-  SLOW_DCHECK(instance_descriptors(isolate)->IsSortedNoDuplicates());
+  if (!is_wasm_struct) {
+    SLOW_DCHECK(instance_descriptors(isolate)->IsSortedNoDuplicates());
+  }
   SLOW_DCHECK(TransitionsAccessor(isolate, *this).IsSortedNoDuplicates());
   SLOW_DCHECK(
       TransitionsAccessor(isolate, *this).IsConsistentWithBackPointers());
@@ -653,6 +694,34 @@ void Map::MapVerify(Isolate* isolate) {
     // Shared objects' maps must use the RO meta map.
     CHECK_EQ(map(), GetReadOnlyRoots().meta_map());
   }
+
+#if V8_ENABLE_WEBASSEMBLY
+  if (instance_type() == WASM_STRUCT_TYPE ||
+      instance_type() == WASM_ARRAY_TYPE) {
+    // Wasm structs are sometimes shared. In this case, the meta map of this map
+    // has to be the context-free RO meta map.
+    if (HeapLayout::InAnySharedSpace(*this)) {
+      CHECK_EQ(map(), GetReadOnlyRoots().meta_map());
+    }
+    // Wasm maps must have a WasmTypeInfo, which must contain all of their
+    // supertype maps.
+    CHECK(IsWasmTypeInfo(wasm_type_info()));
+    wasm::CanonicalTypeIndex index = wasm_type_info()->type_index();
+    wasm::TypeCanonicalizer* types = wasm::GetTypeCanonicalizer();
+    uint8_t subtyping_depth = types->GetSubtypingDepth_Slow(index);
+    CHECK_GE(wasm_type_info()->supertypes_length(), subtyping_depth);
+    // Wasm maps with custom descriptors additionally cache their immediate
+    // supertype.
+    // Note: for each static type that has a descriptor, there is also a
+    // canonical RTT that does not have one (and is not used by any actual
+    // objects).
+    if (types->has_descriptor(index) && IsWasmStruct(custom_descriptor())) {
+      CHECK_GT(wasm_type_info()->supertypes_length(), subtyping_depth);
+      CHECK_EQ(immediate_supertype_map(),
+               wasm_type_info()->supertypes(subtyping_depth));
+    }
+  }
+#endif
 
   if (IsJSObjectMap(*this)) {
     int header_end_offset = JSObject::GetHeaderSize(*this);
@@ -711,12 +780,12 @@ void Map::MapVerify(Isolate* isolate) {
       CHECK(IsJSFunction(maybe_constructor) ||
             IsFunctionTemplateInfo(maybe_constructor) ||
             // The above check might fail until empty function setup is done.
-            IsUndefined(isolate->raw_native_context()->get(
+            IsUndefined(isolate->raw_native_context()->GetNoCell(
                 Context::EMPTY_FUNCTION_INDEX)));
     }
   }
 
-  if (!may_have_interesting_properties()) {
+  if (!may_have_interesting_properties() && !is_wasm_struct) {
     CHECK(!has_named_interceptor());
     CHECK(!is_dictionary_map());
     CHECK(!is_access_check_needed());
@@ -737,7 +806,9 @@ void Map::MapVerify(Isolate* isolate) {
           IsSharedArrayElementsKind(elements_kind()));
   CHECK_IMPLIES(is_deprecated(), !is_stable());
   if (is_prototype_map()) {
-    CHECK(prototype_info() == Smi::zero() || IsPrototypeInfo(prototype_info()));
+    CHECK(prototype_info() == Smi::zero() ||
+          IsPrototypeInfo(prototype_info()) ||
+          IsPrototypeSharedClosureInfo(prototype_info()));
   }
 }
 
@@ -817,17 +888,15 @@ void FeedbackCell::FeedbackCellVerify(Isolate* isolate) {
   Object::VerifyPointer(isolate, v);
   CHECK(IsUndefined(v) || IsClosureFeedbackCellArray(v) || IsFeedbackVector(v));
 
-#ifdef V8_ENABLE_LEAPTIERING
   JSDispatchHandle handle = dispatch_handle();
   if (handle == kNullJSDispatchHandle) return;
 
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
-  Tagged<Code> code = jdt->GetCode(handle);
+  JSDispatchTable& jdt = isolate->js_dispatch_table();
+  Tagged<Code> code = jdt.GetCode(handle);
   CodeKind kind = code->kind();
-  CHECK(kind == CodeKind::FOR_TESTING || kind == CodeKind::BUILTIN ||
+  CHECK(kind == CodeKind::FOR_TESTING_JS || kind == CodeKind::BUILTIN ||
         kind == CodeKind::INTERPRETED_FUNCTION || kind == CodeKind::BASELINE ||
         kind == CodeKind::MAGLEV || kind == CodeKind::TURBOFAN_JS);
-#endif
 }
 
 void ClosureFeedbackCellArray::ClosureFeedbackCellArrayVerify(
@@ -917,7 +986,11 @@ void TrustedByteArray::TrustedByteArrayVerify(Isolate* isolate) {
 
 void FixedDoubleArray::FixedDoubleArrayVerify(Isolate* isolate) {
   for (int i = 0; i < length(); i++) {
-    if (!is_the_hole(i)) {
+    if (!is_the_hole(i)
+#ifdef V8_ENABLE_UNDEFINED_DOUBLE
+        && !is_undefined(i)
+#endif  // V8_ENABLE_UNDEFINED_DOUBLE
+    ) {
       uint64_t value = get_representation(i);
       uint64_t unexpected =
           base::bit_cast<uint64_t>(std::numeric_limits<double>::quiet_NaN()) &
@@ -936,28 +1009,6 @@ void Context::ContextVerify(Isolate* isolate) {
   for (int i = 0; i < length(); i++) {
     VerifyObjectField(isolate, OffsetOfElementAt(i));
   }
-  if (IsScriptContext()) {
-    Tagged<Object> side_data = get(CONTEXT_SIDE_TABLE_PROPERTY_INDEX);
-    CHECK(IsFixedArray(side_data));
-    Tagged<FixedArray> side_data_array = Cast<FixedArray>(side_data);
-    // The array might not be empty if the script context is deserialized from
-    // snapshot. However, as long as the flags are enabled the feedback slots
-    // must be initialized properly.
-    if (v8_flags.script_context_mutable_heap_number ||
-        v8_flags.const_tracking_let) {
-      for (int i = 0; i < side_data_array->length(); i++) {
-        Tagged<Object> element = side_data_array->get(i);
-        if (IsSmi(element)) {
-          int value = element.ToSmi().value();
-          CHECK(ContextSidePropertyCell::kOther <= value);
-          CHECK(value <= ContextSidePropertyCell::kMutableHeapNumber);
-        } else {
-          // The slot contains `undefined` before the variable is initialized.
-          CHECK(IsUndefined(element) || IsContextSidePropertyCell(element));
-        }
-      }
-    }
-  }
 }
 
 void NativeContext::NativeContextVerify(Isolate* isolate) {
@@ -967,11 +1018,29 @@ void NativeContext::NativeContextVerify(Isolate* isolate) {
   CHECK_EQ(kVariableSizeSentinel, map()->instance_size());
 }
 
+void ContextCell::ContextCellVerify(Isolate* isolate) {
+  Tagged<Object> dep_code = dependent_code();
+  Tagged<JSAny> tagged = tagged_value();
+  int state_as_int = static_cast<int>(state());
+  CHECK_GE(state_as_int, static_cast<int>(kConst));
+  CHECK_LE(state_as_int, static_cast<int>(kDetached));
+  CHECK(IsDependentCode(dep_code));
+  Object::VerifyPointer(isolate, dep_code);
+  Object::VerifyPointer(isolate, tagged);
+}
+
+void DoubleStringCache::DoubleStringCacheVerify(Isolate* isolate) {
+  for (auto& e : *this) {
+    Object::VerifyPointer(isolate, e.value_.load());
+  }
+}
+
 void FeedbackMetadata::FeedbackMetadataVerify(Isolate* isolate) {
   if (slot_count() == 0 && create_closure_slot_count() == 0) {
     CHECK_EQ(ReadOnlyRoots(isolate).empty_feedback_metadata(), *this);
   } else {
-    FeedbackMetadataIterator iter(*this);
+    DisallowGarbageCollection no_gc;
+    FeedbackMetadataIterator iter(*this, no_gc);
     while (iter.HasNext()) {
       iter.Next();
       FeedbackSlotKind kind = iter.kind();
@@ -1003,7 +1072,7 @@ void DescriptorArray::DescriptorArrayVerify(Isolate* isolate) {
       // written during descriptor array construction.
       if (IsUndefined(key, isolate)) continue;
       PropertyDetails details = GetDetails(descriptor);
-      if (Cast<Name>(key)->IsPrivate()) {
+      if (Cast<Name>(key)->IsAnyPrivate()) {
         CHECK_NE(details.attributes() & DONT_ENUM, 0);
       }
       Tagged<MaybeObject> value = GetValue(descriptor);
@@ -1046,16 +1115,12 @@ void TransitionArray::TransitionArrayVerify(Isolate* isolate) {
       Tagged<MaybeObject> maybe_target = proto_trans->get(index);
       Tagged<HeapObject> target;
       if (maybe_target.GetHeapObjectIfWeak(&target)) {
-        if (v8_flags.move_prototype_transitions_first) {
-          Tagged<Map> parent =
-              Cast<Map>(Cast<Map>(target)->constructor_or_back_pointer());
-          if (owner.is_null()) {
-            parent = Cast<Map>(target);
-          } else {
-            CHECK_EQ(parent, owner);
-          }
+        Tagged<Map> parent =
+            Cast<Map>(Cast<Map>(target)->constructor_or_back_pointer());
+        if (owner.is_null()) {
+          parent = Cast<Map>(target);
         } else {
-          CHECK(IsUndefined(Cast<Map>(target)->GetBackPointer()));
+          CHECK_EQ(parent, owner);
         }
       }
     }
@@ -1109,34 +1174,43 @@ void SloppyArgumentsElementsVerify(Isolate* isolate,
   } else {
     accessor = ElementsAccessor::ForKind(DICTIONARY_ELEMENTS);
   }
-  int nofMappedParameters = 0;
-  int maxMappedIndex = 0;
-  for (int i = 0; i < nofMappedParameters; i++) {
+  // The value of elements->length() can be overshooted during optimization,
+  // for fast sloppy arguments take the minimum between the elements length and
+  // the argument count as done in the built-in NewSloppyArgumentsElements.
+  uint32_t mapped_elements_length =
+      is_fast ? std::min(elements->ulength(), arg_elements->ulength())
+              : elements->ulength();
+  uint32_t nofMappedParameters = 0;
+  for (uint32_t i = 0; i < mapped_elements_length; i++) {
     // Verify that each context-mapped argument is either the hole or a valid
     // Smi within context length range.
     Tagged<Object> mapped = elements->mapped_entries(i, kRelaxedLoad);
     if (IsTheHole(mapped, isolate)) {
-      // Slow sloppy arguments can be holey.
-      if (!is_fast) continue;
-      // Fast sloppy arguments elements are never holey. Either the element is
-      // context-mapped or present in the arguments elements.
-      CHECK(accessor->HasElement(holder, i, arg_elements));
+      // Both slow and fast sloppy arguments can be holey. Ensure that the fixed
+      // array backing the fast sloppy arguments is large enough.
+      CHECK(!is_fast || i < arg_elements->ulength());
       continue;
     }
     int mappedIndex = Smi::ToInt(mapped);
     nofMappedParameters++;
-    CHECK_LE(maxMappedIndex, mappedIndex);
-    maxMappedIndex = mappedIndex;
-    Tagged<Object> value = context_object->get(mappedIndex);
+    CHECK_LT(mappedIndex, context_object->length());
+    Tagged<Object> value = context_object->GetNoCell(mappedIndex);
     CHECK(IsObject(value));
     // None of the context-mapped entries should exist in the arguments
     // elements.
-    CHECK(!accessor->HasElement(holder, i, arg_elements));
+    CHECK(!accessor->HasElement(isolate, holder, i, arg_elements));
   }
-  CHECK_LE(nofMappedParameters, context_object->length());
-  CHECK_LE(nofMappedParameters, arg_elements->length());
-  CHECK_LE(maxMappedIndex, context_object->length());
-  CHECK_LE(maxMappedIndex, arg_elements->length());
+  for (uint32_t i = mapped_elements_length; i < elements->ulength(); ++i) {
+    // Ensure that any overshooted element is the hole
+    CHECK(IsTheHole(elements->mapped_entries(i, kRelaxedLoad), isolate));
+  }
+  CHECK_LE(nofMappedParameters,
+           static_cast<uint32_t>(context_object->length()));
+  if (is_fast) {
+    CHECK_LE(nofMappedParameters, arg_elements->ulength());
+  } else {
+    CHECK(IsNumberDictionary(elements->arguments()));
+  }
 }
 }  // namespace
 
@@ -1147,13 +1221,15 @@ void JSArgumentsObject::JSArgumentsObjectVerify(Isolate* isolate) {
         isolate, Cast<SloppyArgumentsElements>(elements()), *this);
   }
   Tagged<NativeContext> native_context = map()->map()->native_context();
-  if (map() == native_context->get(Context::SLOPPY_ARGUMENTS_MAP_INDEX) ||
-      map() == native_context->get(Context::SLOW_ALIASED_ARGUMENTS_MAP_INDEX) ||
-      map() == native_context->get(Context::FAST_ALIASED_ARGUMENTS_MAP_INDEX)) {
+  if (map() == native_context->GetNoCell(Context::SLOPPY_ARGUMENTS_MAP_INDEX) ||
+      map() == native_context->GetNoCell(
+                   Context::SLOW_ALIASED_ARGUMENTS_MAP_INDEX) ||
+      map() == native_context->GetNoCell(
+                   Context::FAST_ALIASED_ARGUMENTS_MAP_INDEX)) {
     VerifyObjectField(isolate, JSSloppyArgumentsObject::kLengthOffset);
     VerifyObjectField(isolate, JSSloppyArgumentsObject::kCalleeOffset);
   } else if (map() ==
-             native_context->get(Context::STRICT_ARGUMENTS_MAP_INDEX)) {
+             native_context->GetNoCell(Context::STRICT_ARGUMENTS_MAP_INDEX)) {
     VerifyObjectField(isolate, JSStrictArgumentsObject::kLengthOffset);
   }
 }
@@ -1194,8 +1270,8 @@ void JSDate::JSDateVerify(Isolate* isolate) {
     CHECK(0 <= weekday && weekday <= 6);
   }
   if (IsSmi(cache_stamp())) {
-    CHECK(Smi::ToInt(cache_stamp()) <=
-          Smi::ToInt(isolate->date_cache()->stamp()));
+    CHECK_LE(Smi::ToInt(cache_stamp()),
+             Smi::ToInt(isolate->date_cache_stamp()));
   }
 }
 
@@ -1207,6 +1283,12 @@ void String::StringVerify(Isolate* isolate) {
   if (IsInternalizedString(this)) {
     CHECK(HasHashCode());
     CHECK(!HeapLayout::InYoungGeneration(this));
+  }
+  const uint32_t raw_hash = raw_hash_field();
+  if (IsForwardingIndex(raw_hash)) {
+    const int forwarding_index =
+        Name::ForwardingIndexValueBits::decode(raw_hash);
+    CHECK_LT(forwarding_index, isolate->string_forwarding_table()->size());
   }
 }
 
@@ -1256,9 +1338,6 @@ void JSBoundFunction::JSBoundFunctionVerify(Isolate* isolate) {
   TorqueGeneratedClassVerifiers::JSBoundFunctionVerify(*this, isolate);
   CHECK(IsCallable(*this));
   CHECK_EQ(IsConstructor(*this), IsConstructor(bound_target_function()));
-  // Ensure that the function's meta map belongs to the same native context
-  // as the target function (i.e. meta maps are the same).
-  CHECK_EQ(map()->map(), bound_target_function()->map()->map());
 }
 
 void JSFunction::JSFunctionVerify(Isolate* isolate) {
@@ -1285,14 +1364,13 @@ void JSFunction::JSFunctionVerify(Isolate* isolate) {
   // Ensure that the function's meta map belongs to the same native context.
   CHECK_EQ(map()->map()->native_context_or_null(), native_context());
 
-#ifdef V8_ENABLE_LEAPTIERING
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
+  JSDispatchTable& jdt = isolate->js_dispatch_table();
   JSDispatchHandle handle = dispatch_handle();
   CHECK_NE(handle, kNullJSDispatchHandle);
-  uint16_t parameter_count = jdt->GetParameterCount(handle);
+  uint16_t parameter_count = jdt.GetParameterCount(handle);
   CHECK_EQ(parameter_count,
            shared(isolate)->internal_formal_parameter_count_with_receiver());
-  Tagged<Code> code_from_table = jdt->GetCode(handle);
+  Tagged<Code> code_from_table = jdt.GetCode(handle);
   CHECK(code_from_table->parameter_count() == kDontAdaptArgumentsSentinel ||
         code_from_table->parameter_count() == parameter_count);
   CHECK(!code_from_table->marked_for_deoptimization());
@@ -1315,14 +1393,13 @@ void JSFunction::JSFunctionVerify(Isolate* isolate) {
   }
 
   // Verify the entrypoint corresponds to the code or a tiering builtin.
-  Address entrypoint = jdt->GetEntrypoint(handle);
+  Address entrypoint = jdt.GetEntrypoint(handle);
 #define CASE(name, ...) \
   entrypoint == BUILTIN_CODE(isolate, name)->instruction_start() ||
   CHECK(BUILTIN_LIST_BASE_TIERING(CASE)
             entrypoint == code_from_table->instruction_start());
 #undef CASE
 
-#endif  // V8_ENABLE_LEAPTIERING
 
   DirectHandle<JSFunction> function(*this, isolate);
   LookupIterator it(isolate, function, isolate->factory()->prototype_string(),
@@ -1374,6 +1451,12 @@ bool ShouldVerifySharedFunctionInfoFunctionIndex(
 void SharedFunctionInfo::SharedFunctionInfoVerify(LocalIsolate* isolate) {
   ReadOnlyRoots roots(isolate);
 
+  // As we're iterating the heap, we might see inconsistent (and unreachable)
+  // SFIs that reference unpublished trusted objects. This can for example
+  // happen in case Wasm module instantiation fails, in which case we
+  // "unpublish" the trusted objects as they'd be inconsistent.
+  if (HasUnpublishedTrustedData(isolate)) return;
+
   Tagged<Object> value = name_or_scope_info(kAcquireLoad);
   if (IsScopeInfo(value)) {
     CHECK(!Cast<ScopeInfo>(value)->IsEmpty());
@@ -1381,15 +1464,15 @@ void SharedFunctionInfo::SharedFunctionInfoVerify(LocalIsolate* isolate) {
   }
 
 #if V8_ENABLE_WEBASSEMBLY
-  bool is_wasm = HasWasmExportedFunctionData() || HasAsmWasmData() ||
-                 HasWasmJSFunctionData() || HasWasmCapiFunctionData() ||
-                 HasWasmResumeData();
+  bool is_wasm = HasWasmExportedFunctionData(isolate) || HasAsmWasmData() ||
+                 HasWasmJSFunctionData(isolate) ||
+                 HasWasmCapiFunctionData(isolate) || HasWasmResumeData();
 #else
   bool is_wasm = false;
 #endif  // V8_ENABLE_WEBASSEMBLY
   CHECK(is_wasm || IsApiFunction() || HasBytecodeArray() || HasBuiltinId() ||
-        HasUncompiledDataWithPreparseData() ||
-        HasUncompiledDataWithoutPreparseData());
+        HasUncompiledDataWithPreparseData(isolate) ||
+        HasUncompiledDataWithoutPreparseData(isolate));
 
   {
     Tagged<HeapObject> script = this->script(kAcquireLoad);
@@ -1398,13 +1481,12 @@ void SharedFunctionInfo::SharedFunctionInfoVerify(LocalIsolate* isolate) {
 
   if (!is_compiled()) {
     CHECK(!HasFeedbackMetadata());
-    CHECK(IsScopeInfo(outer_scope_info()) ||
-          IsTheHole(outer_scope_info(), roots));
+    CHECK(IsTheHole(outer_scope_info()) || IsScopeInfo(outer_scope_info()));
   } else if (HasBytecodeArray() && HasFeedbackMetadata()) {
     CHECK(IsFeedbackMetadata(feedback_metadata()));
   }
 
-  if (HasBytecodeArray() && !IsDontAdaptArguments()) {
+  if (HasBytecodeArray()) {
     CHECK_EQ(GetBytecodeArray(isolate)->parameter_count(),
              internal_formal_parameter_count_with_receiver());
   }
@@ -1447,6 +1529,10 @@ void SharedFunctionInfo::SharedFunctionInfoVerify(Isolate* isolate) {
 void SharedFunctionInfoWrapper::SharedFunctionInfoWrapperVerify(
     Isolate* isolate) {
   Object::VerifyPointer(isolate, shared_info());
+}
+
+void InterpreterData::InterpreterDataVerify(Isolate* isolate) {
+  CHECK(IsInterpreterData(this, isolate));
 }
 
 void JSGlobalProxy::JSGlobalProxyVerify(Isolate* isolate) {
@@ -1495,7 +1581,8 @@ void Oddball::OddballVerify(Isolate* isolate) {
   CHECK(IsSmi(number) || IsHeapNumber(number));
   if (IsHeapObject(number)) {
     CHECK(number == ReadOnlyRoots(heap).nan_value() ||
-          number == ReadOnlyRoots(heap).hole_nan_value());
+          number == ReadOnlyRoots(heap).hole_nan_value() ||
+          number == ReadOnlyRoots(heap).undefined_nan_value());
   } else {
     CHECK(IsSmi(number));
     int value = Smi::ToInt(number);
@@ -1522,7 +1609,7 @@ void Hole::HoleVerify(Isolate* isolate) {
   CHECK_EQ(map(), roots.hole_map());
 
 #define COMPARE_ROOTS_VALUE(_, Value, __) \
-  if (*this == roots.Value()) {           \
+  if (this == roots.Value()) {            \
     return;                               \
   }
   HOLE_LIST(COMPARE_ROOTS_VALUE);
@@ -1537,15 +1624,11 @@ void PropertyCell::PropertyCellVerify(Isolate* isolate) {
   CheckDataIsCompatible(property_details(), value());
 }
 
-void ContextSidePropertyCell::ContextSidePropertyCellVerify(Isolate* isolate) {
-  TorqueGeneratedClassVerifiers::ContextSidePropertyCellVerify(*this, isolate);
-}
-
 void TrustedObject::TrustedObjectVerify(Isolate* isolate) {
 #if defined(V8_ENABLE_SANDBOX)
   // All trusted objects must live in trusted space.
   // TODO(saelo): Some objects are trusted but do not yet live in trusted space.
-  CHECK(HeapLayout::InTrustedSpace(*this) || IsCode(*this));
+  CHECK(TrustedHeapLayout::InTrustedSpace(*this) || IsCode(*this));
 #endif
 }
 
@@ -1558,8 +1641,14 @@ void ExposedTrustedObject::ExposedTrustedObjectVerify(Isolate* isolate) {
 #if defined(V8_ENABLE_SANDBOX)
   // Check that the self indirect pointer is consistent, i.e. points back to
   // this object.
-  InstanceType instance_type = map()->instance_type();
-  IndirectPointerTag tag = IndirectPointerTagFromInstanceType(instance_type);
+  IndirectPointerTag tag;
+  if (IsPublished(isolate)) {
+    InstanceType instance_type = map()->instance_type();
+    bool shared = HeapLayout::InAnySharedSpace(*this);
+    tag = IndirectPointerTagFromInstanceType(instance_type, shared);
+  } else {
+    tag = kUnpublishedIndirectPointerTag;
+  }
   // We can't use ReadIndirectPointerField here because the tag is not a
   // compile-time constant.
   IndirectPointerSlot slot =
@@ -1651,12 +1740,14 @@ void InstructionStream::InstructionStreamVerify(Isolate* isolate) {
 
   Object::ObjectVerify(relocation_info(), isolate);
 
-  for (RelocIterator it(code); !it.done(); it.next()) {
-    it.rinfo()->Verify(isolate);
-    // Ensure that GC will not iterate twice over the same pointer.
-    if (RelocInfo::IsGCRelocMode(it.rinfo()->rmode())) {
-      CHECK(it.rinfo()->pc() != last_gc_pc);
-      last_gc_pc = it.rinfo()->pc();
+  if (!code->marked_for_deoptimization()) {
+    for (RelocIterator it(code); !it.done(); it.next()) {
+      it.rinfo()->Verify(isolate);
+      // Ensure that GC will not iterate twice over the same pointer.
+      if (RelocInfo::IsGCRelocMode(it.rinfo()->rmode())) {
+        CHECK(it.rinfo()->pc() != last_gc_pc);
+        last_gc_pc = it.rinfo()->pc();
+      }
     }
   }
 }
@@ -1853,19 +1944,23 @@ void JSIteratorFlatMapHelper::JSIteratorFlatMapHelperVerify(Isolate* isolate) {
   CHECK_GE(Object::NumberValue(counter()), 0);
 }
 
+void JSIteratorConcatHelper::JSIteratorConcatHelperVerify(Isolate* isolate) {
+  TorqueGeneratedClassVerifiers::JSIteratorConcatHelperVerify(*this, isolate);
+}
+
 void WeakCell::WeakCellVerify(Isolate* isolate) {
-  CHECK(IsWeakCell(*this));
+  CHECK(IsWeakCell(this));
 
   CHECK(IsUndefined(target(), isolate) || Object::CanBeHeldWeakly(target()));
 
   CHECK(IsWeakCell(prev()) || IsUndefined(prev(), isolate));
   if (IsWeakCell(prev())) {
-    CHECK_EQ(Cast<WeakCell>(prev())->next(), *this);
+    CHECK_EQ(Cast<WeakCell>(prev())->next(), this);
   }
 
   CHECK(IsWeakCell(next()) || IsUndefined(next(), isolate));
   if (IsWeakCell(next())) {
-    CHECK_EQ(Cast<WeakCell>(next())->prev(), *this);
+    CHECK_EQ(Cast<WeakCell>(next())->prev(), this);
   }
 
   CHECK_IMPLIES(IsUndefined(unregister_token(), isolate),
@@ -1897,9 +1992,21 @@ void JSFinalizationRegistry::JSFinalizationRegistryVerify(Isolate* isolate) {
   }
 }
 
+void AccessCheckInfo::AccessCheckInfoVerify(Isolate* isolate) {
+  Object::VerifyPointer(isolate, callback());
+  Object::VerifyPointer(isolate, named_interceptor());
+  Object::VerifyPointer(isolate, indexed_interceptor());
+  Object::VerifyPointer(isolate, data());
+}
+
 void JSWeakMap::JSWeakMapVerify(Isolate* isolate) {
   TorqueGeneratedClassVerifiers::JSWeakMapVerify(*this, isolate);
   CHECK(IsEphemeronHashTable(table()) || IsUndefined(table(), isolate));
+}
+
+void ScriptOrModule::ScriptOrModuleVerify(Isolate* isolate) {
+  Object::VerifyPointer(isolate, resource_name());
+  Object::VerifyPointer(isolate, host_defined_options());
 }
 
 void JSArrayIterator::JSArrayIteratorVerify(Isolate* isolate) {
@@ -1910,8 +2017,7 @@ void JSArrayIterator::JSArrayIteratorVerify(Isolate* isolate) {
 
   if (IsJSTypedArray(iterated_object())) {
     // JSTypedArray::length is limited to Smi range.
-    CHECK(IsSmi(next_index()));
-    CHECK_LE(Object::NumberValue(next_index()), Smi::kMaxValue);
+    CHECK_LE(Object::NumberValue(next_index()), kMaxSafeInteger);
   } else if (IsJSArray(iterated_object())) {
     // JSArray::length is limited to Uint32 range.
     CHECK_LE(Object::NumberValue(next_index()), kMaxUInt32);
@@ -1929,9 +2035,65 @@ void JSWeakSet::JSWeakSetVerify(Isolate* isolate) {
   CHECK(IsEphemeronHashTable(table()) || IsUndefined(table(), isolate));
 }
 
+void CallbackTask::CallbackTaskVerify(Isolate* isolate) {
+  MicrotaskVerify(isolate);
+  Object::VerifyPointer(isolate, callback());
+  Object::VerifyPointer(isolate, data());
+}
+
 void CallableTask::CallableTaskVerify(Isolate* isolate) {
-  TorqueGeneratedClassVerifiers::CallableTaskVerify(*this, isolate);
-  CHECK(IsCallable(callable()));
+  MicrotaskVerify(isolate);
+  Object::VerifyPointer(isolate, callable());
+  Object::VerifyPointer(isolate, context());
+}
+
+void Microtask::MicrotaskVerify(Isolate* isolate) {
+#ifdef V8_ENABLE_CONTINUATION_PRESERVED_EMBEDDER_DATA
+  Object::VerifyPointer(isolate, continuation_preserved_embedder_data());
+#endif
+}
+
+void PromiseReactionJobTask::PromiseReactionJobTaskVerify(Isolate* isolate) {
+  MicrotaskVerify(isolate);
+  Object::VerifyPointer(isolate, argument());
+  Object::VerifyPointer(isolate, context());
+  Object::VerifyPointer(isolate, handler());
+  Object::VerifyPointer(isolate, promise_or_capability());
+}
+
+void PromiseFulfillReactionJobTask::PromiseFulfillReactionJobTaskVerify(
+    Isolate* isolate) {
+  PromiseReactionJobTaskVerify(isolate);
+}
+
+void PromiseRejectReactionJobTask::PromiseRejectReactionJobTaskVerify(
+    Isolate* isolate) {
+  PromiseReactionJobTaskVerify(isolate);
+}
+
+void PromiseResolveThenableJobTask::PromiseResolveThenableJobTaskVerify(
+    Isolate* isolate) {
+  MicrotaskVerify(isolate);
+  Object::VerifyPointer(isolate, context());
+  Object::VerifyPointer(isolate, promise_to_resolve());
+  Object::VerifyPointer(isolate, thenable());
+  Object::VerifyPointer(isolate, then());
+}
+
+void PromiseCapability::PromiseCapabilityVerify(Isolate* isolate) {
+  Object::VerifyPointer(isolate, promise());
+  Object::VerifyPointer(isolate, resolve());
+  Object::VerifyPointer(isolate, reject());
+}
+
+void PromiseReaction::PromiseReactionVerify(Isolate* isolate) {
+#ifdef V8_ENABLE_CONTINUATION_PRESERVED_EMBEDDER_DATA
+  Object::VerifyPointer(isolate, continuation_preserved_embedder_data());
+#endif
+  Object::VerifyPointer(isolate, next());
+  Object::VerifyPointer(isolate, reject_handler());
+  Object::VerifyPointer(isolate, fulfill_handler());
+  Object::VerifyPointer(isolate, promise_or_capability());
 }
 
 void JSPromise::JSPromiseVerify(Isolate* isolate) {
@@ -2171,6 +2333,7 @@ void IrRegExpData::IrRegExpDataVerify(Isolate* isolate) {
       CHECK_EQ(max_register_count(), JSRegExp::kUninitializedValue);
       CHECK_EQ(ticks_until_tier_up(), JSRegExp::kUninitializedValue);
       CHECK_EQ(backtrack_limit(), JSRegExp::kUninitializedValue);
+      CHECK_EQ(bit_field(), 0);
 
       break;
     }
@@ -2226,6 +2389,15 @@ void JSArrayBuffer::JSArrayBufferVerify(Isolate* isolate) {
     CHECK_EQ(0,
              *reinterpret_cast<uint32_t*>(address() + kOptionalPaddingOffset));
   }
+  Tagged<MaybeObject> v = views_or_detach_key();
+  if (is_shared() || !v8_flags.track_array_buffer_views) {
+    CHECK(has_detach_key() || v == kNoView);
+  } else {
+    CHECK_EQ(!v.IsWeak() && !v.IsSmi() && !v.IsCleared(), has_detach_key());
+    CHECK(v == kNoView || v == kManyViews || (v.IsStrong() && Is<Cell>(v)) ||
+          (v.IsWeak() && IsJSArrayBufferView(v.GetHeapObjectAssumeWeak())) ||
+          v.IsCleared());
+  }
 }
 
 void JSArrayBufferView::JSArrayBufferViewVerify(Isolate* isolate) {
@@ -2234,9 +2406,46 @@ void JSArrayBufferView::JSArrayBufferViewVerify(Isolate* isolate) {
   CHECK_LE(byte_offset(), JSArrayBuffer::kMaxByteLength);
 }
 
+void JSDetachedTypedArray::JSDetachedTypedArrayVerify(Isolate* isolate) {
+  TorqueGeneratedClassVerifiers::JSTypedArrayVerify(*this, isolate);
+  CHECK_LE(GetLength(), 0);
+  CHECK(WasDetached());
+}
+
+namespace {
+
+template <typename View>
+void CheckArrayBufferViewTrackingConsistency(Tagged<JSArrayBuffer> ab,
+                                             View view, Isolate* isolate) {
+  if (ab->is_shared()) return;
+  Tagged<MaybeObject> views = ab->views_or_detach_key();
+  CHECK(!view.IsCleared());
+  if (!IsUndefined(ab->DetachKey(isolate))) {
+    CHECK_EQ(ab->views(), JSArrayBuffer::kManyViews);
+    CHECK(!views.IsSmi() && views.IsStrong() && Is<Cell>(views));
+    return;
+  }
+  if (!v8_flags.track_array_buffer_views) {
+    CHECK_EQ(views, Smi::zero());
+    return;
+  }
+  if (views == JSArrayBuffer::kNoView) {
+    CHECK(view->WasDetached());
+  } else if (views != JSArrayBuffer::kManyViews) {
+    CHECK_EQ(views.GetHeapObjectAssumeWeak(), view);
+    CHECK(Is<JSArrayBufferView>(views.GetHeapObjectAssumeWeak()));
+  }
+}
+
+}  // namespace
+
 void JSTypedArray::JSTypedArrayVerify(Isolate* isolate) {
   TorqueGeneratedClassVerifiers::JSTypedArrayVerify(*this, isolate);
   CHECK_LE(GetLength(), JSTypedArray::kMaxByteLength / element_size());
+  if (IsJSArrayBuffer(buffer())) {
+    Tagged<JSArrayBuffer> ab = Cast<JSArrayBuffer>(buffer());
+    CheckArrayBufferViewTrackingConsistency(ab, *this, isolate);
+  }
 }
 
 void JSDataView::JSDataViewVerify(Isolate* isolate) {
@@ -2248,6 +2457,11 @@ void JSDataView::JSDataViewVerify(Isolate* isolate) {
                  byte_offset(),
              data_pointer());
   }
+
+  if (IsJSArrayBuffer(buffer())) {
+    Tagged<JSArrayBuffer> ab = Cast<JSArrayBuffer>(buffer());
+    CheckArrayBufferViewTrackingConsistency(ab, *this, isolate);
+  }
 }
 
 void JSRabGsabDataView::JSRabGsabDataViewVerify(Isolate* isolate) {
@@ -2258,6 +2472,11 @@ void JSRabGsabDataView::JSRabGsabDataViewVerify(Isolate* isolate) {
                  Cast<JSArrayBuffer>(buffer())->backing_store()) +
                  byte_offset(),
              data_pointer());
+  }
+
+  if (IsJSArrayBuffer(buffer())) {
+    Tagged<JSArrayBuffer> ab = Cast<JSArrayBuffer>(buffer());
+    CheckArrayBufferViewTrackingConsistency(ab, *this, isolate);
   }
 }
 
@@ -2286,11 +2505,16 @@ void Module::ModuleVerify(Isolate* isolate) {
 
   CHECK_EQ(status() == Module::kErrored, !IsTheHole(exception(), isolate));
 
-  CHECK(IsUndefined(module_namespace(), isolate) ||
-        IsJSModuleNamespace(module_namespace()));
-  if (IsJSModuleNamespace(module_namespace())) {
-    CHECK_LE(Module::kLinking, status());
-    CHECK_EQ(Cast<JSModuleNamespace>(module_namespace())->module(), *this);
+  CHECK(IsUndefined(module_namespace(), isolate) || IsCell(module_namespace()));
+  if (IsCell(module_namespace())) {
+    // Technically kLinking should be the correct check, however we can end up
+    // here in SourceTextModule::FinishInstantiate before updating the status.
+    CHECK_LE(Module::kPreLinking, status());
+    auto cell = Cast<Cell>(module_namespace());
+    CHECK(IsJSModuleNamespace(cell->value()) || IsUndefined(cell->value()));
+    if (IsJSModuleNamespace(cell->value())) {
+      CHECK_EQ(Cast<JSModuleNamespace>(cell->value())->module(), *this);
+    }
   }
 
   if (!(status() == kErrored || status() == kEvaluating ||
@@ -2348,6 +2572,12 @@ void SyntheticModule::SyntheticModuleVerify(Isolate* isolate) {
   }
 }
 
+void PrototypeSharedClosureInfo::PrototypeSharedClosureInfoVerify(
+    Isolate* isolate) {
+  TorqueGeneratedClassVerifiers::PrototypeSharedClosureInfoVerify(*this,
+                                                                  isolate);
+}
+
 void PrototypeInfo::PrototypeInfoVerify(Isolate* isolate) {
   TorqueGeneratedClassVerifiers::PrototypeInfoVerify(*this, isolate);
   if (IsWeakArrayList(prototype_users())) {
@@ -2398,11 +2628,13 @@ void PrototypeUsers::Verify(Tagged<WeakArrayList> array) {
 }
 
 void EnumCache::EnumCacheVerify(Isolate* isolate) {
-  TorqueGeneratedClassVerifiers::EnumCacheVerify(*this, isolate);
-  Heap* heap = isolate->heap();
-  if (*this == ReadOnlyRoots(heap).empty_enum_cache()) {
-    CHECK_EQ(ReadOnlyRoots(heap).empty_fixed_array(), keys());
-    CHECK_EQ(ReadOnlyRoots(heap).empty_fixed_array(), indices());
+  Object::VerifyPointer(isolate, keys());
+  Object::VerifyPointer(isolate, indices());
+
+  ReadOnlyRoots roots(isolate);
+  if (this == roots.empty_enum_cache()) {
+    CHECK_EQ(roots.empty_fixed_array(), keys());
+    CHECK_EQ(roots.empty_fixed_array(), indices());
   }
 }
 
@@ -2417,16 +2649,39 @@ void ObjectBoilerplateDescription::ObjectBoilerplateDescriptionVerify(
   }
 }
 
+void ArrayBoilerplateDescription::ArrayBoilerplateDescriptionVerify(
+    Isolate* isolate) {
+  CHECK(IsSmi(flags_.load()));
+  CHECK(IsFixedArrayBase(constant_elements_.load()));
+  Object::VerifyPointer(isolate, constant_elements_.load());
+}
+
 void ClassBoilerplate::ClassBoilerplateVerify(Isolate* isolate) {
-  CHECK(IsSmi(TaggedField<Object>::load(*this, kArgumentsCountOffset)));
-  Object::VerifyPointer(isolate, static_properties_template());
-  Object::VerifyPointer(isolate, static_elements_template());
-  Object::VerifyPointer(isolate, static_computed_properties());
-  CHECK(IsFixedArray(static_computed_properties()));
-  Object::VerifyPointer(isolate, instance_properties_template());
-  Object::VerifyPointer(isolate, instance_elements_template());
-  Object::VerifyPointer(isolate, instance_computed_properties());
-  CHECK(IsFixedArray(instance_computed_properties()));
+  CHECK(IsSmi(arguments_count_.load()));
+  Object::VerifyPointer(isolate, static_properties_template_.load());
+  Object::VerifyPointer(isolate, static_elements_template_.load());
+  Object::VerifyPointer(isolate, static_computed_properties_.load());
+  CHECK(IsFixedArray(static_computed_properties_.load()));
+  Object::VerifyPointer(isolate, instance_properties_template_.load());
+  Object::VerifyPointer(isolate, instance_elements_template_.load());
+  Object::VerifyPointer(isolate, instance_computed_properties_.load());
+  CHECK(IsFixedArray(instance_computed_properties_.load()));
+}
+
+void PropertyDescriptorObject::PropertyDescriptorObjectVerify(
+    Isolate* isolate) {
+  CHECK(IsSmi(flags_.load()));
+  Object::VerifyPointer(isolate, value_.load());
+  Object::VerifyPointer(isolate, get_.load());
+  Object::VerifyPointer(isolate, set_.load());
+}
+
+void TemplateObjectDescription::TemplateObjectDescriptionVerify(
+    Isolate* isolate) {
+  Object::VerifyPointer(isolate, raw_strings_.load());
+  CHECK(IsFixedArray(raw_strings_.load()));
+  Object::VerifyPointer(isolate, cooked_strings_.load());
+  CHECK(IsFixedArray(cooked_strings_.load()));
 }
 
 void RegExpBoilerplateDescription::RegExpBoilerplateDescriptionVerify(
@@ -2441,7 +2696,7 @@ void RegExpBoilerplateDescription::RegExpBoilerplateDescriptionVerify(
     Object::VerifyPointer(isolate, o);
     CHECK(IsString(o));
   }
-  CHECK(IsSmi(TaggedField<Object>::load(*this, kFlagsOffset)));
+  CHECK(IsSmi(flags_.load()));
 }
 
 #if V8_ENABLE_WEBASSEMBLY
@@ -2500,6 +2755,23 @@ void WasmDispatchTable::WasmDispatchTableVerify(Isolate* isolate) {
   }
 }
 
+void WasmDispatchTableForImports::WasmDispatchTableForImportsVerify(
+    Isolate* isolate) {
+  TrustedObjectVerify(isolate);
+
+  int len = length();
+  for (int i = 0; i < len; ++i) {
+    Tagged<Object> arg = implicit_arg(i);
+    Object::VerifyPointer(isolate, arg);
+    CHECK(IsWasmTrustedInstanceData(arg) || IsWasmImportData(arg) ||
+          arg == Smi::zero());
+    if (!v8_flags.wasm_jitless) {
+      // call_target always null with the interpreter.
+      CHECK_EQ(arg == Smi::zero(), target(i) == wasm::kInvalidWasmCodePointer);
+    }
+  }
+}
+
 void WasmTableObject::WasmTableObjectVerify(Isolate* isolate) {
   TorqueGeneratedClassVerifiers::WasmTableObjectVerify(*this, isolate);
   if (has_trusted_dispatch_table() &&
@@ -2536,30 +2808,41 @@ void WasmExportedFunctionData::WasmExportedFunctionDataVerify(
 
 #endif  // V8_ENABLE_WEBASSEMBLY
 
-void DataHandler::DataHandlerVerify(Isolate* isolate) {
-  // Don't call TorqueGeneratedClassVerifiers::DataHandlerVerify because the
-  // Torque definition of this class includes all of the optional fields.
+void StructLayout::StructVerify(Isolate* isolate) {
+  Cast<Struct>(this)->StructVerify(isolate);
+}
 
-  // This assertion exists to encourage updating this verification function if
-  // new fields are added in the Torque class layout definition.
-  static_assert(DataHandler::kHeaderSize == 6 * kTaggedSize);
-
+void Tuple2::Tuple2Verify(Isolate* isolate) {
   StructVerify(isolate);
-  CHECK(IsDataHandler(*this));
-  Object::VerifyPointer(isolate, smi_handler(isolate));
+  CHECK(IsTuple2(this));
+  Object::VerifyPointer(isolate, value1_.load());
+  Object::VerifyPointer(isolate, value2_.load());
+}
+
+void AccessorPair::AccessorPairVerify(Isolate* isolate) {
+  StructVerify(isolate);
+  CHECK(IsAccessorPair(this));
+  Object::VerifyPointer(isolate, getter_.load());
+  Object::VerifyPointer(isolate, setter_.load());
+}
+
+void ClassPositions::ClassPositionsVerify(Isolate* isolate) {
+  StructVerify(isolate);
+  CHECK(IsClassPositions(this));
+  CHECK(IsSmi(Tagged<Object>(start_.load())));
+  CHECK(IsSmi(Tagged<Object>(end_.load())));
+}
+
+void DataHandler::DataHandlerVerify(Isolate* isolate) {
+  StructVerify(isolate);
+  CHECK(IsDataHandler(this));
+  Object::VerifyPointer(isolate, smi_handler());
   CHECK_IMPLIES(!IsSmi(smi_handler()),
-                IsStoreHandler(*this) && IsCode(smi_handler()));
-  Object::VerifyPointer(isolate, validity_cell(isolate));
+                IsStoreHandler(this) && IsCode(smi_handler()));
+  Object::VerifyPointer(isolate, validity_cell());
   CHECK(IsSmi(validity_cell()) || IsCell(validity_cell()));
-  int data_count = data_field_count();
-  if (data_count >= 1) {
-    VerifyMaybeObjectField(isolate, kData1Offset);
-  }
-  if (data_count >= 2) {
-    VerifyMaybeObjectField(isolate, kData2Offset);
-  }
-  if (data_count >= 3) {
-    VerifyMaybeObjectField(isolate, kData3Offset);
+  for (int i = 0; i < data_field_count(); ++i) {
+    Object::VerifyMaybeObjectPointer(isolate, data()[i].load());
   }
 }
 
@@ -2574,11 +2857,20 @@ void StoreHandler::StoreHandlerVerify(Isolate* isolate) {
 }
 
 void AllocationSite::AllocationSiteVerify(Isolate* isolate) {
-  CHECK(IsAllocationSite(*this));
+  CHECK(IsAllocationSite(this));
   CHECK(IsDependentCode(dependent_code()));
-  CHECK(IsSmi(transition_info_or_boilerplate()) ||
-        IsJSObject(transition_info_or_boilerplate()));
+  if (PointsToLiteral()) {
+    CHECK(IsJSObject(transition_info_or_boilerplate_.load()));
+  } else {
+    CHECK(IsSmi(transition_info_or_boilerplate_.load()));
+  }
   CHECK(IsAllocationSite(nested_site()) || nested_site() == Smi::zero());
+}
+
+void AllocationMemento::AllocationMementoVerify(Isolate* isolate) {
+  StructVerify(isolate);
+  CHECK(IsAllocationMemento(this));
+  CHECK(IsAllocationSite(allocation_site_.load()));
 }
 
 void Script::ScriptVerify(Isolate* isolate) {
@@ -2619,19 +2911,65 @@ void NormalizedMapCache::NormalizedMapCacheVerify(Isolate* isolate) {
 }
 
 void PreparseData::PreparseDataVerify(Isolate* isolate) {
-  TorqueGeneratedClassVerifiers::PreparseDataVerify(*this, isolate);
+  CHECK(IsPreparseData(this));
   CHECK_LE(0, data_length());
   CHECK_LE(0, children_length());
 
   for (int i = 0; i < children_length(); ++i) {
-    Tagged<Object> child = get_child_raw(i);
+    Tagged<Object> child = children()[i].Relaxed_Load();
+    // Preparse data is created recursively, depth first, so if there is a heap
+    // verification during preparse data tree creation, it will observe a
+    // partially initialized preparse data with null values.
     CHECK(IsNull(child) || IsPreparseData(child));
     Object::VerifyPointer(isolate, child);
   }
 }
 
+void UncompiledData::UncompiledDataVerify(Isolate* isolate) {
+  CHECK(IsUncompiledData(this, isolate));
+  {
+    Tagged<Object> inferred_name = this->inferred_name();
+    Object::VerifyPointer(isolate, inferred_name);
+    CHECK(IsString(inferred_name));
+  }
+}
+void UncompiledDataWithoutPreparseData::UncompiledDataWithoutPreparseDataVerify(
+    Isolate* isolate) {
+  UncompiledDataVerify(isolate);
+  CHECK(IsUncompiledDataWithoutPreparseData(this, isolate));
+}
+void UncompiledDataWithPreparseData::UncompiledDataWithPreparseDataVerify(
+    Isolate* isolate) {
+  UncompiledDataVerify(isolate);
+  CHECK(IsUncompiledDataWithPreparseData(this, isolate));
+  {
+    Tagged<Object> preparse_data = this->preparse_data();
+    Object::VerifyPointer(isolate, preparse_data);
+    CHECK(IsPreparseData(preparse_data));
+  }
+}
+void UncompiledDataWithoutPreparseDataWithJob::
+    UncompiledDataWithoutPreparseDataWithJobVerify(Isolate* isolate) {
+  UncompiledDataWithoutPreparseDataVerify(isolate);
+  CHECK(IsUncompiledDataWithoutPreparseDataWithJob(this, isolate));
+}
+void UncompiledDataWithPreparseDataAndJob::
+    UncompiledDataWithPreparseDataAndJobVerify(Isolate* isolate) {
+  UncompiledDataWithPreparseDataVerify(isolate);
+  CHECK(IsUncompiledDataWithPreparseDataAndJob(this, isolate));
+}
+
 void CallSiteInfo::CallSiteInfoVerify(Isolate* isolate) {
-  TorqueGeneratedClassVerifiers::CallSiteInfoVerify(*this, isolate);
+  CHECK(IsSmi(flags_.load()));
+  CHECK(IsSmi(code_offset_or_source_position_.load()));
+  Object::VerifyPointer(isolate, receiver_or_instance_.load());
+  Object::VerifyPointer(isolate, function_.load());
+  Object::VerifyPointer(isolate, parameters_.load());
+  CHECK(IsFixedArray(parameters_.load()));
+
+  Tagged<Object> code = code_object_.load_maybe_empty(isolate, kAcquireLoad);
+  CHECK(IsCode(code) || IsBytecodeArray(code) || code == Smi::zero());
+
 #if V8_ENABLE_WEBASSEMBLY
   CHECK_IMPLIES(IsAsmJsWasm(), IsWasm());
   CHECK_IMPLIES(IsWasm(), IsWasmInstanceObject(receiver_or_instance()));
@@ -2687,9 +3025,9 @@ class StringTableVerifier : public RootVisitor {
                          FullObjectSlot start, FullObjectSlot end) override {
     UNREACHABLE();
   }
-  void VisitRootPointers(Root root, const char* description,
-                         OffHeapObjectSlot start,
-                         OffHeapObjectSlot end) override {
+  void VisitCompressedRootPointers(Root root, const char* description,
+                                   OffHeapObjectSlot start,
+                                   OffHeapObjectSlot end) override {
     // Visit all HeapObject pointers in [start, end).
     for (OffHeapObjectSlot p = start; p < end; ++p) {
       Tagged<Object> o = p.load(isolate_);
@@ -2698,6 +3036,12 @@ class StringTableVerifier : public RootVisitor {
         Tagged<HeapObject> object = Cast<HeapObject>(o);
         // Check that the string is actually internalized.
         CHECK(IsInternalizedString(object));
+        CHECK_IMPLIES(v8_flags.shared_string_table,
+                      HeapLayout::InAnySharedSpace(object));
+        // Internalized forwarding indices are never allowed in the string
+        // table.
+        uint32_t raw_hash = Cast<Name>(object)->raw_hash_field();
+        CHECK(!Name::IsInternalizedForwardingIndex(raw_hash));
       }
     }
   }
@@ -2834,6 +3178,8 @@ void JSObject::SpillInformation::Print() {
 }
 
 bool DescriptorArray::IsSortedNoDuplicates() {
+  // Up to the linear search limit the array is not sorted and that's fine.
+  if (number_of_descriptors() <= kMaxElementsForLinearSearch) return true;
   Tagged<Name> current_key;
   uint32_t current = 0;
   for (int i = 0; i < number_of_descriptors(); i++) {
@@ -2856,6 +3202,8 @@ bool DescriptorArray::IsSortedNoDuplicates() {
 }
 
 bool TransitionArray::IsSortedNoDuplicates() {
+  // Up to the linear search limit the array is not sorted and that's fine.
+  if (number_of_transitions() <= kMaxElementsForLinearSearch) return true;
   Tagged<Name> prev_key;
   PropertyKind prev_kind = PropertyKind::kData;
   PropertyAttributes prev_attributes = NONE;
@@ -2927,11 +3275,6 @@ bool TransitionsAccessor::IsConsistentWithBackPointers() {
       };
   ForEachTransition(
       &no_gc, [&](Tagged<Map> target) { CheckTarget(target); },
-      [&](Tagged<Map> proto_target) {
-        if (v8_flags.move_prototype_transitions_first) {
-          CheckTarget(proto_target);
-        }
-      },
       [&](Tagged<Object> side_step) {
         if (!side_step.IsSmi()) {
           DCHECK_EQ(Cast<Map>(side_step)->map(), map_->map());

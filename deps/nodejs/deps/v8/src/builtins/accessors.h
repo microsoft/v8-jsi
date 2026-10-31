@@ -22,35 +22,43 @@ class JavaScriptFrame;
 // The list of accessor descriptors. This is a second-order macro
 // taking a macro to be applied to all accessor descriptor names.
 // V(accessor_name, AccessorName, GetterSideEffectType, SetterSideEffectType)
-#define ACCESSOR_INFO_LIST_GENERATOR(V, _)                                    \
-  V(_, arguments_iterator, ArgumentsIterator, kHasNoSideEffect,               \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, array_length, ArrayLength, kHasNoSideEffect, kHasSideEffectToReceiver) \
-  V(_, bound_function_length, BoundFunctionLength, kHasNoSideEffect,          \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, bound_function_name, BoundFunctionName, kHasNoSideEffect,              \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, function_arguments, FunctionArguments, kHasNoSideEffect,               \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, function_caller, FunctionCaller, kHasNoSideEffect,                     \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, function_name, FunctionName, kHasNoSideEffect,                         \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, function_length, FunctionLength, kHasNoSideEffect,                     \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, function_prototype, FunctionPrototype, kHasNoSideEffect,               \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, string_length, StringLength, kHasNoSideEffect,                         \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, value_unavailable, ValueUnavailable, kHasNoSideEffect,                 \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, wrapped_function_length, WrappedFunctionLength, kHasNoSideEffect,      \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, wrapped_function_name, WrappedFunctionName, kHasNoSideEffect,          \
+#define ACCESSOR_INFO_LIST_GENERATOR(V, _)                                     \
+  V(_, arguments_iterator, ArgumentsIterator, kHasNoSideEffect,                \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, array_length, ArrayLength, kHasNoSideEffect, kHasSideEffectToReceiver)  \
+  V(_, bound_function_length, BoundFunctionLength, kHasNoSideEffect,           \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, bound_function_name, BoundFunctionName, kHasNoSideEffect,               \
+    kHasSideEffectToReceiver)                                                  \
+  IF_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS(                                  \
+      V, _, function_arguments, FunctionArguments, kHasNoSideEffect,           \
+      kHasSideEffectToReceiver)                                                \
+  IF_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS(V, _, function_caller,            \
+                                             FunctionCaller, kHasNoSideEffect, \
+                                             kHasSideEffectToReceiver)         \
+  V(_, function_name, FunctionName, kHasNoSideEffect,                          \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, function_length, FunctionLength, kHasNoSideEffect,                      \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, function_prototype, FunctionPrototype, kHasNoSideEffect,                \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, module_namespace_property, ModuleNamespaceEntry, kHasNoSideEffect,      \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, string_length, StringLength, kHasNoSideEffect,                          \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, value_unavailable, ValueUnavailable, kHasNoSideEffect,                  \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, wrapped_function_length, WrappedFunctionLength, kHasNoSideEffect,       \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, wrapped_function_name, WrappedFunctionName, kHasNoSideEffect,           \
+    kHasSideEffectToReceiver)                                                  \
+  V(_, lazy_closure, InstantiateLazyClosure, kHasNoSideEffect,                 \
     kHasSideEffectToReceiver)
 
-#define ACCESSOR_GETTER_LIST(V) V(ModuleNamespaceEntryGetter)
+// The list of getters not mentioned in ACCESSOR_INFO_LIST_GENERATOR.
+#define ACCESSOR_GETTER_LIST(V) /* The list is currently empty. */
 
+// The list of all setters.
 #define ACCESSOR_SETTER_LIST(V) \
   V(ArrayLengthSetter)          \
   V(FunctionPrototypeSetter)    \
@@ -96,23 +104,29 @@ class Accessors : public AllStatic {
       ACCESSOR_INFO_LIST_GENERATOR(COUNT_ACCESSOR, /* not used */);
 
   static constexpr int kAccessorGetterCount =
-      ACCESSOR_GETTER_LIST(COUNT_ACCESSOR);
+      0 ACCESSOR_GETTER_LIST(COUNT_ACCESSOR);
 
   static constexpr int kAccessorSetterCount =
-      ACCESSOR_SETTER_LIST(COUNT_ACCESSOR);
+      0 ACCESSOR_SETTER_LIST(COUNT_ACCESSOR);
 
   static constexpr int kAccessorCallbackCount =
       ACCESSOR_CALLBACK_LIST_GENERATOR(COUNT_ACCESSOR, /* not used */);
 #undef COUNT_ACCESSOR
-
-  static DirectHandle<AccessorInfo> MakeModuleNamespaceEntryInfo(
-      Isolate* isolate, DirectHandle<String> name);
 
   // Accessor function called directly from the runtime system. Returns the
   // newly materialized arguments object for the given {frame}. Note that for
   // optimized frames it is possible to specify an {inlined_jsframe_index}.
   static Handle<JSObject> FunctionGetArguments(JavaScriptFrame* frame,
                                                int inlined_jsframe_index);
+
+  // Used to implement legacy .arguments and .caller.
+  //
+  // TODO(syg): Move these out of accessors once
+  // V8_FUNCTION_ARGUMENTS_CALLER_ARE_OWN_PROPS is removed.
+  static DirectHandle<Object> GetLegacyFunctionArguments(
+      Isolate* isolate, DirectHandle<JSFunction> function);
+  static DirectHandle<Object> GetLegacyFunctionCaller(
+      Isolate* isolate, DirectHandle<JSFunction> function);
 
   // Returns true for properties that are accessors to object fields.
   // If true, the matching FieldIndex is returned through |field_index|.
@@ -121,8 +135,7 @@ class Accessors : public AllStatic {
                                       FieldIndex* field_index);
 
   static MaybeDirectHandle<Object> ReplaceAccessorWithDataProperty(
-      Isolate* isolate, DirectHandle<JSAny> receiver,
-      DirectHandle<JSObject> holder, DirectHandle<Name> name,
+      Isolate* isolate, DirectHandle<JSObject> holder, DirectHandle<Name> name,
       DirectHandle<Object> value);
 
   // Create an AccessorInfo. The setter is optional (can be nullptr).
@@ -138,7 +151,7 @@ class Accessors : public AllStatic {
                const PropertyCallbackInfo<v8::Boolean>& info);
 
   V8_EXPORT_PRIVATE static DirectHandle<AccessorInfo> MakeAccessor(
-      Isolate* isolate, DirectHandle<Name> name,
+      Isolate* isolate, DirectHandle<Name> name_for_cpu_profiler,
       AccessorNameGetterCallback getter,
       AccessorNameBooleanSetterCallback setter);
 

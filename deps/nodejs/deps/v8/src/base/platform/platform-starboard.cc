@@ -78,8 +78,7 @@ const int kStackSize = 1;
 
 }  // namespace
 
-void OS::Initialize(AbortMode abort_mode, const char* const gc_fake_mmap) {
-  g_abort_mode = abort_mode;
+void OS::Initialize(const char* const gc_fake_mmap) {
   // This is only used on Posix, we don't need to use it for anything.
 }
 
@@ -97,8 +96,6 @@ int OS::ActivationFrameAlignment() {
 #if V8_TARGET_ARCH_ARM
   // On EABI ARM targets this is required for fp correctness in the
   // runtime system.
-  return 8;
-#elif V8_TARGET_ARCH_MIPS
   return 8;
 #elif V8_TARGET_ARCH_S390X
   return 8;
@@ -391,8 +388,7 @@ static void* ThreadEntry(void* arg) {
   { LockGuard<Mutex> lock_guard(&thread->data()->thread_creation_mutex_); }
   SetThreadName(thread->name());
   // DCHECK_NE(thread->data()->thread_, kNoThread);
-  thread->NotifyStartedAndRun();
-
+  thread->NotifyStartedAndDispatch();
   return nullptr;
 }
 

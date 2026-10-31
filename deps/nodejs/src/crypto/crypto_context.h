@@ -10,6 +10,10 @@
 #include "memory_tracker.h"
 #include "v8.h"
 
+#ifdef NODE_OPENSSL_HAS_CERT_COMP
+#include <vector>
+#endif
+
 namespace node {
 namespace crypto {
 // A maxVersion of 0 means "any", but OpenSSL may support TLS versions that
@@ -19,9 +23,15 @@ constexpr int kMaxSupportedVersion = TLS1_3_VERSION;
 void GetRootCertificates(
     const v8::FunctionCallbackInfo<v8::Value>& args);
 
-X509_STORE* NewRootCertStore();
+X509_STORE* NewRootCertStore(Environment* env);
 
-X509_STORE* GetOrCreateRootCertStore();
+X509_STORE* GetOrCreateRootCertStore(Environment* env);
+
+// Installs the certificate verification callback that applies the SPKI
+// blocklist (and, on OpenSSL 4.1+, the CN name-constraint handling) to every
+// chain verified through `ctx`. Must be called for every SSL_CTX Node.js
+// creates, since SSL_CTX_set_cert_verify_callback replaces any earlier hook.
+void InstallCertVerifyCallback(SSL_CTX* ctx);
 
 ncrypto::BIOPointer LoadBIO(Environment* env, v8::Local<v8::Value> v);
 
@@ -47,6 +57,27 @@ class SecureContext final : public BaseObject {
   // the SecureContext.
   ncrypto::SSLCtxPointer& ctx() { return ctx_; }
 
+#ifdef NODE_OPENSSL_HAS_CERT_COMP
+  bool HasCertCompression() const {
+    return cert_comp_prefs_len_ > 0;
+  }
+  int* CertCompPrefs() {
+    return cert_comp_prefs_;
+  }
+  size_t CertCompPrefsLen() const {
+    return cert_comp_prefs_len_;
+  }
+
+  struct CompressedCertData {
+    int algorithm;
+    std::vector<unsigned char> data;
+    size_t orig_length;
+  };
+  const std::vector<CompressedCertData>& CompressedCerts() const {
+    return compressed_certs_;
+  }
+#endif
+
   ncrypto::SSLPointer CreateSSL();
 
   void SetGetSessionCallback(GetSessionCb cb);
@@ -67,8 +98,7 @@ class SecureContext final : public BaseObject {
   void SetX509StoreFlag(unsigned long flags);  // NOLINT(runtime/int)
   X509_STORE* GetCertStoreOwnedByThisSecureContext();
 
-  // TODO(joyeecheung): track the memory used by OpenSSL types
-  SET_NO_MEMORY_INFO()
+  void MemoryInfo(MemoryTracker* tracker) const override;
   SET_MEMORY_INFO_NAME(SecureContext)
   SET_SELF_SIZE(SecureContext)
 
@@ -107,6 +137,10 @@ class SecureContext final : public BaseObject {
       const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetSessionTimeout(
       const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void SetCertificateCompression(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void GetCertificateCompressionAlgorithms(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetMinProto(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void SetMaxProto(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void GetMinProto(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -126,18 +160,35 @@ class SecureContext final : public BaseObject {
   template <bool primary>
   static void GetCertificate(const v8::FunctionCallbackInfo<v8::Value>& args);
 
+  // Test-only hooks for the SPKI blocklist that every SSL_CTX applies
+  // during certificate verification. Reachable through
+  // internalBinding('crypto') with --expose-internals. The argument is the
+  // SHA-256 of a DER-encoded SubjectPublicKeyInfo.
+  static void AddBlockedSPKIForTesting(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void ClearBlockedSPKIsForTesting(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+
   static int TicketKeyCallback(SSL* ssl,
                                unsigned char* name,
                                unsigned char* iv,
                                EVP_CIPHER_CTX* ectx,
+#if NCRYPTO_USE_OPENSSL3_PROVIDER
+                               EVP_MAC_CTX* hctx,
+#else
                                HMAC_CTX* hctx,
+#endif
                                int enc);
 
   static int TicketCompatibilityCallback(SSL* ssl,
                                          unsigned char* name,
                                          unsigned char* iv,
                                          EVP_CIPHER_CTX* ectx,
+#if NCRYPTO_USE_OPENSSL3_PROVIDER
+                                         EVP_MAC_CTX* hctx,
+#else
                                          HMAC_CTX* hctx,
+#endif
                                          int enc);
 
   SecureContext(Environment* env, v8::Local<v8::Object> wrap);
@@ -157,12 +208,13 @@ class SecureContext final : public BaseObject {
   unsigned char ticket_key_name_[16];
   unsigned char ticket_key_aes_[16];
   unsigned char ticket_key_hmac_[16];
-};
 
-int SSL_CTX_use_certificate_chain(SSL_CTX* ctx,
-                                  ncrypto::BIOPointer&& in,
-                                  ncrypto::X509Pointer* cert,
-                                  ncrypto::X509Pointer* issuer);
+#ifdef NODE_OPENSSL_HAS_CERT_COMP
+  int cert_comp_prefs_[TLSEXT_comp_cert_limit] = {};
+  size_t cert_comp_prefs_len_ = 0;
+  std::vector<CompressedCertData> compressed_certs_;
+#endif
+};
 
 }  // namespace crypto
 }  // namespace node

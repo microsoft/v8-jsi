@@ -20,6 +20,7 @@ const {
   BigUint64Array,
   DataView,
   Error,
+  Float16Array,
   Float32Array,
   Float64Array,
   Int16Array,
@@ -32,16 +33,13 @@ const {
   Uint32Array,
   Uint8Array,
   Uint8ClampedArray,
-  globalThis: {
-    Float16Array,
-  },
 } = primordials;
 
 const { Buffer } = require('buffer');
 const {
   validateString,
-  validateUint32,
   validateOneOf,
+  validateUint32,
 } = require('internal/validators');
 const {
   Serializer,
@@ -50,6 +48,12 @@ const {
 const {
   namespace: startupSnapshot,
 } = require('internal/v8/startup_snapshot');
+const {
+  normalizeHeapProfileOptions,
+} = require('internal/v8/heap_profile');
+const {
+  normalizeCpuProfileOptions,
+} = require('internal/v8/cpu_profiler');
 
 let profiler = {};
 if (internalBinding('config').hasInspector) {
@@ -115,11 +119,14 @@ const {
   setFlagsFromString: _setFlagsFromString,
   startCpuProfile: _startCpuProfile,
   stopCpuProfile: _stopCpuProfile,
+  startHeapProfile: _startHeapProfile,
+  stopHeapProfile: _stopHeapProfile,
   isStringOneByteRepresentation: _isStringOneByteRepresentation,
   updateHeapStatisticsBuffer,
   updateHeapSpaceStatisticsBuffer,
   updateHeapCodeStatisticsBuffer,
   setHeapSnapshotNearHeapLimit: _setHeapSnapshotNearHeapLimit,
+  setHeapProfileNearHeapLimit: _setHeapProfileNearHeapLimit,
 
   // Properties for heap statistics buffer extraction.
   kTotalHeapSizeIndex,
@@ -136,6 +143,7 @@ const {
   kTotalGlobalHandlesSizeIndex,
   kUsedGlobalHandlesSizeIndex,
   kExternalMemoryIndex,
+  kTotalAllocatedBytes,
 
   // Properties for heap spaces statistics buffer extraction.
   kHeapSpaces,
@@ -190,13 +198,53 @@ class SyncCPUProfileHandle {
   }
 }
 
+class SyncHeapProfileHandle {
+  #stopped = false;
+
+  stop() {
+    if (this.#stopped) {
+      return;
+    }
+    this.#stopped = true;
+    return _stopHeapProfile();
+  };
+
+  [SymbolDispose]() {
+    this.stop();
+  }
+}
+
 /**
  * Starting CPU Profile.
+ * @param {object} [options]
+ * @param {number} [options.sampleInterval]
+ * @param {number} [options.maxBufferSize]
  * @returns {SyncCPUProfileHandle}
  */
-function startCpuProfile() {
-  const id = _startCpuProfile();
+function startCpuProfile(options) {
+  const {
+    samplingIntervalMicros,
+    maxSamples,
+  } = normalizeCpuProfileOptions(options);
+  const id = _startCpuProfile(samplingIntervalMicros, maxSamples);
   return new SyncCPUProfileHandle(id);
+}
+
+/**
+ * Starting Heap Profile.
+ * @param {object} [options]
+ * @param {number} [options.sampleInterval]
+ * @param {number} [options.stackDepth]
+ * @param {boolean} [options.forceGC]
+ * @param {boolean} [options.includeObjectsCollectedByMajorGC]
+ * @param {boolean} [options.includeObjectsCollectedByMinorGC]
+ * @returns {SyncHeapProfileHandle}
+ */
+function startHeapProfile(options) {
+  const { sampleInterval, stackDepth, flags } =
+    normalizeHeapProfileOptions(options);
+  _startHeapProfile(sampleInterval, stackDepth, flags);
+  return new SyncHeapProfileHandle();
 }
 
 /**
@@ -246,6 +294,7 @@ function getHeapStatistics() {
     total_global_handles_size: buffer[kTotalGlobalHandlesSizeIndex],
     used_global_handles_size: buffer[kUsedGlobalHandlesSizeIndex],
     external_memory: buffer[kExternalMemoryIndex],
+    total_allocated_bytes: buffer[kTotalAllocatedBytes],
   };
 }
 
@@ -308,6 +357,16 @@ function setHeapSnapshotNearHeapLimit(limit) {
   }
   heapSnapshotNearHeapLimitCallbackAdded = true;
   _setHeapSnapshotNearHeapLimit(limit);
+}
+
+let heapProfileNearHeapLimitAdded = false;
+function setHeapProfileNearHeapLimit(limit) {
+  validateUint32(limit, 'limit', true);
+  if (heapProfileNearHeapLimitAdded) {
+    return;
+  }
+  _setHeapProfileNearHeapLimit(limit);
+  heapProfileNearHeapLimitAdded = true;
 }
 
 const detailLevelDict = {
@@ -513,7 +572,9 @@ module.exports = {
   queryObjects,
   startupSnapshot,
   setHeapSnapshotNearHeapLimit,
+  setHeapProfileNearHeapLimit,
   GCProfiler,
   isStringOneByteRepresentation,
   startCpuProfile,
+  startHeapProfile,
 };

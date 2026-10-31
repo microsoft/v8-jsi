@@ -26,6 +26,8 @@
 #include "memory_tracker-inl.h"
 #include "node.h"
 #include "node_external_reference.h"
+#include "node_profiling.h"
+#include "permission/permission.h"
 #include "util-inl.h"
 #include "v8-profiler.h"
 #include "v8.h"
@@ -73,7 +75,8 @@ using v8::Value;
   V(10, number_of_detached_contexts, kNumberOfDetachedContextsIndex)           \
   V(11, total_global_handles_size, kTotalGlobalHandlesSizeIndex)               \
   V(12, used_global_handles_size, kUsedGlobalHandlesSizeIndex)                 \
-  V(13, external_memory, kExternalMemoryIndex)
+  V(13, external_memory, kExternalMemoryIndex)                                 \
+  V(14, total_allocated_bytes, kTotalAllocatedBytes)
 
 #define V(a, b, c) +1
 static constexpr size_t kHeapStatisticsPropertiesCount =
@@ -163,7 +166,7 @@ void BindingData::Deserialize(Local<Context> context,
                               int index,
                               InternalFieldInfoBase* info) {
   DCHECK_IS_SNAPSHOT_SLOT(index);
-  HandleScope scope(context->GetIsolate());
+  HandleScope scope(Isolate::GetCurrent());
   Realm* realm = Realm::GetCurrent(context);
   // Recreate the buffer in the constructor.
   InternalFieldInfo* casted_info = static_cast<InternalFieldInfo*>(info);
@@ -198,8 +201,33 @@ void SetHeapSnapshotNearHeapLimit(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   uint32_t limit = args[0].As<v8::Uint32>()->Value();
   CHECK_GT(limit, 0);
+
+  std::string dir = env->options()->diagnostic_dir;
+  if (dir.empty()) {
+    dir = Environment::GetCwd(env->exec_path());
+  }
+  THROW_IF_INSUFFICIENT_PERMISSIONS(
+      env, permission::PermissionScope::kFileSystemWrite, dir);
+
   env->AddHeapSnapshotNearHeapLimitCallback();
   env->set_heap_snapshot_near_heap_limit(limit);
+}
+
+void SetHeapProfileNearHeapLimit(const FunctionCallbackInfo<Value>& args) {
+  CHECK(args[0]->IsUint32());
+  Environment* env = Environment::GetCurrent(args);
+  uint32_t limit = args[0].As<v8::Uint32>()->Value();
+  CHECK_GT(limit, 0);
+
+  std::string dir = env->options()->diagnostic_dir;
+  if (dir.empty()) {
+    dir = Environment::GetCwd(env->exec_path());
+  }
+  THROW_IF_INSUFFICIENT_PERMISSIONS(
+      env, permission::PermissionScope::kFileSystemWrite, dir);
+
+  env->AddHeapProfileNearHeapLimitCallback();
+  env->set_heap_profile_near_heap_limit(limit);
 }
 
 void UpdateHeapStatisticsBuffer(const FunctionCallbackInfo<Value>& args) {
@@ -249,7 +277,8 @@ void SetFlagsFromString(const FunctionCallbackInfo<Value>& args) {
 void StartCpuProfile(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   Isolate* isolate = env->isolate();
-  CpuProfilingResult result = env->StartCpuProfile();
+  CpuProfileOptions options = ParseCpuProfileOptions(args);
+  CpuProfilingResult result = env->StartCpuProfile(options);
   if (result.status == CpuProfilingStatus::kErrorTooManyProfilers) {
     return THROW_ERR_CPU_PROFILE_TOO_MANY(isolate,
                                           "There are too many CPU profiles");
@@ -276,6 +305,34 @@ void StopCpuProfile(const FunctionCallbackInfo<Value>& args) {
   if (ToV8Value(env->context(), json_out_stream->out_stream().str(), isolate)
           .ToLocal(&ret)) {
     args.GetReturnValue().Set(ret);
+  }
+}
+
+void StartHeapProfile(const FunctionCallbackInfo<Value>& args) {
+  Isolate* isolate = args.GetIsolate();
+  auto options = ParseHeapProfileOptions(args);
+
+  if (isolate->GetHeapProfiler()->StartSamplingHeapProfiler(
+          options.sample_interval, options.stack_depth, options.flags)) {
+    return;
+  }
+  THROW_ERR_HEAP_PROFILE_HAVE_BEEN_STARTED(isolate,
+                                           "Heap profile has been started");
+}
+
+void StopHeapProfile(const FunctionCallbackInfo<Value>& args) {
+  Environment* env = Environment::GetCurrent(args);
+  Isolate* isolate = env->isolate();
+  std::ostringstream out_stream;
+  bool success = node::SerializeHeapProfile(isolate, out_stream);
+  if (success) {
+    isolate->GetHeapProfiler()->StopSamplingHeapProfiler();
+    Local<Value> result;
+    if (ToV8Value(env->context(), out_stream.str(), isolate).ToLocal(&result)) {
+      args.GetReturnValue().Set(result);
+    }
+  } else {
+    THROW_ERR_HEAP_PROFILE_NOT_STARTED(isolate, "heap profile not started");
   }
 }
 
@@ -306,6 +363,8 @@ static const char* GetGCTypeName(v8::GCType gc_type) {
   switch (gc_type) {
     case v8::GCType::kGCTypeScavenge:
       return "Scavenge";
+    case v8::GCType::kGCTypeMinorMarkSweep:
+      return "MinorMarkSweep";
     case v8::GCType::kGCTypeMarkSweepCompact:
       return "MarkSweepCompact";
     case v8::GCType::kGCTypeIncrementalMarking:
@@ -689,6 +748,10 @@ void Initialize(Local<Object> target,
                         SetHeapSnapshotNearHeapLimit);
   SetMethod(context,
             target,
+            "setHeapProfileNearHeapLimit",
+            SetHeapProfileNearHeapLimit);
+  SetMethod(context,
+            target,
             "updateHeapStatisticsBuffer",
             UpdateHeapStatisticsBuffer);
 
@@ -704,17 +767,17 @@ void Initialize(Local<Object> target,
   // Heap space names are extracted once and exposed to JavaScript to
   // avoid excessive creation of heap space name Strings.
   HeapSpaceStatistics s;
-  MaybeStackBuffer<Local<Value>, 16> heap_spaces(number_of_heap_spaces);
+  MaybeStackBuffer<Value, 16> heap_spaces(env->isolate(),
+                                          number_of_heap_spaces);
   for (size_t i = 0; i < number_of_heap_spaces; i++) {
     env->isolate()->GetHeapSpaceStatistics(&s, i);
     heap_spaces[i] = String::NewFromUtf8(env->isolate(), s.space_name())
                                              .ToLocalChecked();
   }
   target
-      ->Set(
-          context,
-          FIXED_ONE_BYTE_STRING(env->isolate(), "kHeapSpaces"),
-          Array::New(env->isolate(), heap_spaces.out(), number_of_heap_spaces))
+      ->Set(context,
+            FIXED_ONE_BYTE_STRING(env->isolate(), "kHeapSpaces"),
+            heap_spaces.ToArray())
       .Check();
 
   SetMethod(context,
@@ -739,6 +802,26 @@ void Initialize(Local<Object> target,
 
   SetMethod(context, target, "startCpuProfile", StartCpuProfile);
   SetMethod(context, target, "stopCpuProfile", StopCpuProfile);
+  SetMethod(context, target, "startHeapProfile", StartHeapProfile);
+  SetMethod(context, target, "stopHeapProfile", StopHeapProfile);
+
+  {
+    constexpr uint32_t kSamplingNoFlags = static_cast<uint32_t>(
+        v8::HeapProfiler::SamplingFlags::kSamplingNoFlags);
+    constexpr uint32_t kSamplingForceGC = static_cast<uint32_t>(
+        v8::HeapProfiler::SamplingFlags::kSamplingForceGC);
+    constexpr uint32_t kSamplingIncludeObjectsCollectedByMajorGC =
+        static_cast<uint32_t>(v8::HeapProfiler::SamplingFlags::
+                                  kSamplingIncludeObjectsCollectedByMajorGC);
+    constexpr uint32_t kSamplingIncludeObjectsCollectedByMinorGC =
+        static_cast<uint32_t>(v8::HeapProfiler::SamplingFlags::
+                                  kSamplingIncludeObjectsCollectedByMinorGC);
+
+    NODE_DEFINE_CONSTANT(target, kSamplingNoFlags);
+    NODE_DEFINE_CONSTANT(target, kSamplingForceGC);
+    NODE_DEFINE_CONSTANT(target, kSamplingIncludeObjectsCollectedByMajorGC);
+    NODE_DEFINE_CONSTANT(target, kSamplingIncludeObjectsCollectedByMinorGC);
+  }
 
   // Export symbols used by v8.isStringOneByteRepresentation()
   SetFastMethodNoSideEffect(context,
@@ -778,6 +861,7 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(SetFlagsFromString);
   registry->Register(GetHashSeed);
   registry->Register(SetHeapSnapshotNearHeapLimit);
+  registry->Register(SetHeapProfileNearHeapLimit);
   registry->Register(GCProfiler::New);
   registry->Register(GCProfiler::Start);
   registry->Register(GCProfiler::Stop);
@@ -786,6 +870,8 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(fast_is_string_one_byte_representation_);
   registry->Register(StartCpuProfile);
   registry->Register(StopCpuProfile);
+  registry->Register(StartHeapProfile);
+  registry->Register(StopHeapProfile);
 }
 
 }  // namespace v8_utils

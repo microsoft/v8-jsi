@@ -201,12 +201,29 @@ Local<Array> AddrTTLToArray(
     Environment* env,
     const T* addrttls,
     size_t naddrttls) {
-  MaybeStackBuffer<Local<Value>, 8> ttls(naddrttls);
+  MaybeStackBuffer<Value, 8> ttls(env->isolate(), naddrttls);
   for (size_t i = 0; i < naddrttls; i++) {
     ttls[i] = Integer::NewFromUnsigned(env->isolate(), addrttls[i].ttl);
   }
 
-  return Array::New(env->isolate(), ttls.out(), naddrttls);
+  return ttls.ToArray();
+}
+
+int GetAnswerCountForTTLBuffer(const unsigned char* buf, int len) {
+  static constexpr int kDNSAnswerCountOffset = 6;
+  static constexpr int kAresDefaultTTLBufferLength = 256;
+  if (len <= kDNSAnswerCountOffset + 1) {
+    return kAresDefaultTTLBufferLength;
+  }
+
+  const int answer_count = (static_cast<int>(buf[kDNSAnswerCountOffset]) << 8) |
+                           static_cast<int>(buf[kDNSAnswerCountOffset + 1]);
+  return answer_count == 0 ? 1 : answer_count;
+}
+
+template <typename T>
+std::vector<T> MakeAddrTTLBuffer(const unsigned char* buf, int len) {
+  return std::vector<T>(GetAnswerCountForTTLBuffer(buf, len));
 }
 
 Maybe<int> ParseGeneralReply(Environment* env,
@@ -871,7 +888,7 @@ void NodeAresTask::MemoryInfo(MemoryTracker* tracker) const {
 
 /* Allocates and returns a new NodeAresTask */
 NodeAresTask* NodeAresTask::Create(ChannelWrap* channel, ares_socket_t sock) {
-  auto task = new NodeAresTask();
+  auto task = std::make_unique<NodeAresTask>();
 
   task->channel = channel;
   task->sock = sock;
@@ -879,11 +896,10 @@ NodeAresTask* NodeAresTask::Create(ChannelWrap* channel, ares_socket_t sock) {
   if (uv_poll_init_socket(channel->env()->event_loop(),
                           &task->poll_watcher, sock) < 0) {
     /* This should never happen. */
-    delete task;
     return nullptr;
   }
 
-  return task;
+  return task.release();
 }
 
 void ChannelWrap::Setup() {
@@ -1105,11 +1121,12 @@ Maybe<int> AnyTraits::Parse(QueryAnyWrap* wrap,
   int type, status, old_count;
 
   /* Parse A records or CNAME records */
-  ares_addrttl addrttls[256];
-  int naddrttls = arraysize(addrttls);
+  std::vector<ares_addrttl> addrttls =
+      MakeAddrTTLBuffer<ares_addrttl>(buf, len);
+  int naddrttls = static_cast<int>(addrttls.size());
 
   type = ns_t_cname_or_a;
-  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls, &naddrttls)
+  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls.data(), &naddrttls)
            .To(&status)) {
     return Nothing<int>();
   }
@@ -1182,11 +1199,13 @@ Maybe<int> AnyTraits::Parse(QueryAnyWrap* wrap,
   }
 
   /* Parse AAAA records */
-  ares_addr6ttl addr6ttls[256];
-  int naddr6ttls = arraysize(addr6ttls);
+  std::vector<ares_addr6ttl> addr6ttls =
+      MakeAddrTTLBuffer<ares_addr6ttl>(buf, len);
+  int naddr6ttls = static_cast<int>(addr6ttls.size());
 
   type = ns_t_aaaa;
-  if (!ParseGeneralReply(env, buf, len, &type, ret, addr6ttls, &naddr6ttls)
+  if (!ParseGeneralReply(
+           env, buf, len, &type, ret, addr6ttls.data(), &naddr6ttls)
            .To(&status)) {
     return Nothing<int>();
   }
@@ -1374,12 +1393,13 @@ Maybe<int> ATraits::Parse(QueryAWrap* wrap,
   HandleScope handle_scope(env->isolate());
   Context::Scope context_scope(env->context());
 
-  ares_addrttl addrttls[256];
-  int naddrttls = arraysize(addrttls), status;
+  std::vector<ares_addrttl> addrttls =
+      MakeAddrTTLBuffer<ares_addrttl>(buf, len);
+  int naddrttls = static_cast<int>(addrttls.size()), status;
   Local<Array> ret = Array::New(env->isolate());
 
   int type = ns_t_a;
-  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls, &naddrttls)
+  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls.data(), &naddrttls)
            .To(&status)) {
     return Nothing<int>();
   }
@@ -1387,7 +1407,8 @@ Maybe<int> ATraits::Parse(QueryAWrap* wrap,
     return Just<int>(status);
   }
 
-  Local<Array> ttls = AddrTTLToArray<ares_addrttl>(env, addrttls, naddrttls);
+  Local<Array> ttls =
+      AddrTTLToArray<ares_addrttl>(env, addrttls.data(), naddrttls);
 
   wrap->CallOnComplete(ret, ttls);
   return Just<int>(ARES_SUCCESS);
@@ -1406,12 +1427,13 @@ Maybe<int> AaaaTraits::Parse(QueryAaaaWrap* wrap,
   HandleScope handle_scope(env->isolate());
   Context::Scope context_scope(env->context());
 
-  ares_addr6ttl addrttls[256];
-  int naddrttls = arraysize(addrttls), status;
+  std::vector<ares_addr6ttl> addrttls =
+      MakeAddrTTLBuffer<ares_addr6ttl>(buf, len);
+  int naddrttls = static_cast<int>(addrttls.size()), status;
   Local<Array> ret = Array::New(env->isolate());
 
   int type = ns_t_aaaa;
-  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls, &naddrttls)
+  if (!ParseGeneralReply(env, buf, len, &type, ret, addrttls.data(), &naddrttls)
            .To(&status)) {
     return Nothing<int>();
   }
@@ -1419,7 +1441,8 @@ Maybe<int> AaaaTraits::Parse(QueryAaaaWrap* wrap,
     return Just<int>(status);
   }
 
-  Local<Array> ttls = AddrTTLToArray<ares_addr6ttl>(env, addrttls, naddrttls);
+  Local<Array> ttls =
+      AddrTTLToArray<ares_addr6ttl>(env, addrttls.data(), naddrttls);
 
   wrap->CallOnComplete(ret, ttls);
   return Just<int>(ARES_SUCCESS);
@@ -1709,6 +1732,16 @@ Maybe<int> SoaTraits::Parse(QuerySoaWrap* wrap,
 }
 
 int ReverseTraits::Send(QueryReverseWrap* wrap, const char* name) {
+  permission::PermissionScope scope = permission::PermissionScope::kNet;
+  Environment* env_holder = wrap->env();
+
+  if (!env_holder->permission()->is_granted(env_holder, scope, name))
+      [[unlikely]] {
+    wrap->QueuePermissionModelResponseCallback(name);
+    // Error will be returned in the callback
+    return ARES_SUCCESS;
+  }
+
   int length, family;
   char address_buffer[sizeof(struct in6_addr)];
 
@@ -1949,6 +1982,10 @@ void GetAddrInfo(const FunctionCallbackInfo<Value>& args) {
   CHECK(args[4]->IsUint32());
   Local<Object> req_wrap_obj = args[0].As<Object>();
   node::Utf8Value hostname(env->isolate(), args[1]);
+
+  ERR_ACCESS_DENIED_IF_INSUFFICIENT_PERMISSIONS(
+      env, permission::PermissionScope::kNet, hostname.ToStringView(), args);
+
   std::string ascii_hostname = ada::idna::to_ascii(hostname.ToStringView());
 
   int32_t flags = 0;
@@ -2023,10 +2060,18 @@ void GetNameInfo(const FunctionCallbackInfo<Value>& args) {
       TRACING_CATEGORY_NODE2(dns, native), "lookupService", req_wrap.get(),
       "ip", TRACE_STR_COPY(*ip), "port", port);
 
-  int err = req_wrap->Dispatch(uv_getnameinfo,
-                               AfterGetNameInfo,
-                               reinterpret_cast<struct sockaddr*>(&addr),
-                               NI_NAMEREQD);
+  int err = 0;
+  if (!env->permission()->is_granted(
+          env, permission::PermissionScope::kNet, ip.ToStringView()))
+      [[unlikely]] {
+    req_wrap->InsufficientPermissionError(*ip);
+  } else {
+    err = req_wrap->Dispatch(uv_getnameinfo,
+                             AfterGetNameInfo,
+                             reinterpret_cast<struct sockaddr*>(&addr),
+                             NI_NAMEREQD);
+  }
+
   if (err == 0)
     // Release ownership of the pointer allowing the ownership to be transferred
     USE(req_wrap.release());
@@ -2113,13 +2158,13 @@ void SetServers(const FunctionCallbackInfo<Value>& args) {
     if (!elm->Get(env->context(), 1).ToLocal(&ipValue)) return;
     if (!elm->Get(env->context(), 2).ToLocal(&portValue)) return;
 
-    CHECK(familyValue->Int32Value(env->context()).FromJust());
+    CHECK(familyValue->IsInt32());
     CHECK(ipValue->IsString());
-    CHECK(portValue->Int32Value(env->context()).FromJust());
+    CHECK(portValue->IsInt32());
 
-    int fam = familyValue->Int32Value(env->context()).FromJust();
+    int32_t fam = familyValue.As<Int32>()->Value();
     node::Utf8Value ip(env->isolate(), ipValue);
-    int port = portValue->Int32Value(env->context()).FromJust();
+    int32_t port = portValue.As<Int32>()->Value();
 
     ares_addr_port_node* cur = &servers[i];
 

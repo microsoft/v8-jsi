@@ -32,7 +32,7 @@ V8_INLINE Address ReadCppHeapPointerField(
   CppHeapPointerHandle handle = slot.Relaxed_LoadHandle();
   return isolate.GetCppHeapPointerTable().Get(handle, tag_range);
 #else   // !V8_COMPRESS_POINTERS
-  return slot.try_load(isolate, tag_range);
+  return slot.load();
 #endif  // !V8_COMPRESS_POINTERS
 }
 
@@ -49,30 +49,7 @@ V8_INLINE Address ReadCppHeapPointerField(Address field_address,
   CppHeapPointerHandle handle = slot.Relaxed_LoadHandle();
   return isolate.GetCppHeapPointerTable().Get(handle, tag_range);
 #else   // !V8_COMPRESS_POINTERS
-  return slot.try_load(isolate, tag_range);
-#endif  // !V8_COMPRESS_POINTERS
-}
-
-template <CppHeapPointerTag tag>
-V8_INLINE void WriteLazilyInitializedCppHeapPointerField(
-    Address field_address, IsolateForPointerCompression isolate,
-    Address value) {
-  CppHeapPointerSlot slot(field_address);
-#ifdef V8_COMPRESS_POINTERS
-  static_assert(tag != CppHeapPointerTag::kNullTag);
-  // See comment above for why this uses a Relaxed_Load and Release_Store.
-  CppHeapPointerTable& table = isolate.GetCppHeapPointerTable();
-  const CppHeapPointerHandle handle = slot.Relaxed_LoadHandle();
-  if (handle == kNullCppHeapPointerHandle) {
-    // Field has not been initialized yet.
-    const CppHeapPointerHandle new_handle = table.AllocateAndInitializeEntry(
-        isolate.GetCppHeapPointerTableSpace(), value, tag);
-    slot.Release_StoreHandle(new_handle);
-  } else {
-    table.Set(handle, value, tag);
-  }
-#else   // !V8_COMPRESS_POINTERS
-  slot.store(isolate, value, tag);
+  return slot.load();
 #endif  // !V8_COMPRESS_POINTERS
 }
 
@@ -94,7 +71,7 @@ V8_INLINE void WriteLazilyInitializedCppHeapPointerField(
     table.Set(handle, value, tag);
   }
 #else   // !V8_COMPRESS_POINTERS
-  slot.store(isolate, value, tag);
+  slot.store(value);
 #endif  // !V8_COMPRESS_POINTERS
 }
 

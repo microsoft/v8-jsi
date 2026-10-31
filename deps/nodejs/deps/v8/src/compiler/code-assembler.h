@@ -119,6 +119,11 @@ struct ObjectTypeOf {};
   struct ObjectTypeOf<Name> {                                 \
     static constexpr ObjectType value = ObjectType::kOddball; \
   };
+#define OBJECT_TYPE_HOLE_CASE(Name, ...)                   \
+  template <>                                              \
+  struct ObjectTypeOf<Name> {                              \
+    static constexpr ObjectType value = ObjectType::kHole; \
+  };
 OBJECT_TYPE_CASE(Object)
 OBJECT_TYPE_CASE(Smi)
 OBJECT_TYPE_CASE(TaggedIndex)
@@ -134,6 +139,7 @@ OBJECT_TYPE_ODDBALL_CASE(Null)
 OBJECT_TYPE_ODDBALL_CASE(Undefined)
 OBJECT_TYPE_ODDBALL_CASE(True)
 OBJECT_TYPE_ODDBALL_CASE(False)
+HOLE_LIST(OBJECT_TYPE_HOLE_CASE)
 #undef OBJECT_TYPE_CASE
 #undef OBJECT_TYPE_STRUCT_CASE
 #undef OBJECT_TYPE_TEMPLATE_CASE
@@ -490,19 +496,18 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
     template <class A>
     operator TNode<A>() {
-      static_assert(!std::is_same<A, Tagged<MaybeObject>>::value,
+      static_assert(!std::is_same_v<A, Tagged<MaybeObject>>,
                     "Can't cast to Tagged<MaybeObject>, use explicit "
                     "conversion functions. ");
 
       static_assert(types_have_common_values<A, PreviousType>::value,
                     "Incompatible types: this cast can never succeed.");
-      static_assert(std::is_convertible<TNode<A>, TNode<MaybeObject>>::value ||
-                        std::is_convertible<TNode<A>, TNode<Object>>::value,
+      static_assert(std::is_convertible_v<TNode<A>, TNode<MaybeObject>> ||
+                        std::is_convertible_v<TNode<A>, TNode<Object>>,
                     "Coercion to untagged values cannot be "
                     "checked.");
       static_assert(
-          !FromTyped ||
-              !std::is_convertible<TNode<PreviousType>, TNode<A>>::value,
+          !FromTyped || !std::is_convertible_v<TNode<PreviousType>, TNode<A>>,
           "Unnecessary CAST: types are convertible.");
 #ifdef DEBUG
       if (v8_flags.slow_debug_code) {
@@ -610,7 +615,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<Smi> SmiConstant(int value);
   template <typename E>
   TNode<Smi> SmiConstant(E value)
-    requires std::is_enum<E>::value
+    requires std::is_enum_v<E>
   {
     static_assert(sizeof(E) <= sizeof(int));
     return SmiConstant(static_cast<int>(value));
@@ -638,6 +643,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   TNode<ExternalReference> IsolateField(IsolateFieldId id);
   TNode<Float32T> Float32Constant(double value);
   TNode<Float64T> Float64Constant(double value);
+  TNode<Float64T> Float64Constant(Float64 value);
   TNode<BoolT> Int32TrueConstant() {
     return ReinterpretCast<BoolT>(Int32Constant(1));
   }
@@ -697,15 +703,13 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   template <class T>
   TNode<T> Parameter(int value,
-                     const SourceLocation& loc = SourceLocation::Current()) {
+                     SourceLocation loc = SourceLocation::Current()) {
     static_assert(
-        std::is_convertible<TNode<T>, TNode<Object>>::value,
+        std::is_convertible_v<TNode<T>, TNode<Object>>,
         "Parameter is only for tagged types. Use UncheckedParameter instead.");
     std::stringstream message;
     message << "Parameter " << value;
-    if (loc.FileName()) {
-      message << " at " << loc.FileName() << ":" << loc.Line();
-    }
+    if (loc) message << " at " << loc.FileName() << ":" << loc.Line();
     size_t buf_size = message.str().size() + 1;
     char* message_dup = zone()->AllocateArray<char>(buf_size);
     snprintf(message_dup, buf_size, "%s", message.str().c_str());
@@ -743,16 +747,20 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void DebugBreak();
   void Unreachable();
 
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  void ExitSandbox();
+  void EnterSandbox();
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+
   // Hack for supporting SourceLocation alongside template packs.
   struct MessageWithSourceLocation {
     const char* message;
-    const SourceLocation& loc;
+    SourceLocation loc;
 
     // Allow implicit construction, necessary for the hack.
     // NOLINTNEXTLINE
-    MessageWithSourceLocation(
-        const char* message,
-        const SourceLocation& loc = SourceLocation::Current())
+    MessageWithSourceLocation(const char* message,
+                              SourceLocation loc = SourceLocation::Current())
         : message(message), loc(loc) {}
   };
   template <class... Args>
@@ -760,9 +768,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
     if (!v8_flags.code_comments) return;
     std::ostringstream s;
     USE(s << message.message, (s << std::forward<Args>(args))...);
-    if (message.loc.FileName()) {
-      s << " - " << message.loc.ToString();
-    }
+    if (message.loc) s << " - " << message.loc.ToString();
     EmitComment(std::move(s).str());
   }
 
@@ -843,6 +849,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   void Switch(Node* index, Label* default_label, const int32_t* case_values,
               Label** case_labels, size_t case_count);
+  template <typename Value>
+  void Switch(Node* index, Label* default_label,
+              const std::initializer_list<std::pair<Value, Label*>>& cases);
 
   // Access to the frame pointer.
   TNode<RawPtrT> LoadFramePointer();
@@ -855,6 +864,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void SetStackPointer(TNode<RawPtrT> ptr);
 #endif  // V8_ENABLE_WEBASSEMBLY
 
+  TNode<Object> LoadTaggedFromRootRegister(TNode<IntPtrT> offset);
   TNode<RawPtrT> LoadPointerFromRootRegister(TNode<IntPtrT> offset);
   TNode<Uint8T> LoadUint8FromRootRegister(TNode<IntPtrT> offset);
 
@@ -911,6 +921,17 @@ class V8_EXPORT_PRIVATE CodeAssembler {
     return UncheckedCast<Type>(UnalignedLoad(mt, base, offset));
   }
 
+  template <typename Type>
+  TNode<Type> UnalignedLoad(TNode<BytecodeArray> base, TNode<IntPtrT> offset) {
+    MachineType type = MachineTypeOf<Type>::value;
+    if (UnalignedLoadSupported(type.representation())) {
+      return UncheckedCast<Type>(Load(type, base, offset));
+    } else {
+      TNode<RawPtrT> base_raw = BitcastTaggedToWord(base);
+      return UncheckedCast<Type>(UnalignedLoad(type, base_raw, offset));
+    }
+  }
+
   // Store value to raw memory location.
   void Store(Node* base, Node* value);
   void Store(Node* base, Node* offset, Node* value);
@@ -918,6 +939,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* value);
   void StoreNoWriteBarrier(MachineRepresentation rep, Node* base, Node* offset,
                            Node* value);
+  void UnalignedStoreNoWriteBarrier(MachineRepresentation rep,
+                                    TNode<BytecodeArray> base,
+                                    TNode<IntPtrT> offset, Node* value);
   void UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
                                  Node* value);
   void UnsafeStoreNoWriteBarrier(MachineRepresentation rep, Node* base,
@@ -1297,10 +1321,9 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 
   // Projections
   template <int index, class T1, class T2>
-  TNode<typename std::tuple_element<index, std::tuple<T1, T2>>::type>
-  Projection(TNode<PairT<T1, T2>> value) {
-    return UncheckedCast<
-        typename std::tuple_element<index, std::tuple<T1, T2>>::type>(
+  TNode<std::tuple_element_t<index, std::tuple<T1, T2>>> Projection(
+      TNode<PairT<T1, T2>> value) {
+    return UncheckedCast<std::tuple_element_t<index, std::tuple<T1, T2>>>(
         Projection(index, value));
   }
 
@@ -1380,6 +1403,13 @@ class V8_EXPORT_PRIVATE CodeAssembler {
   void TailCallBuiltin(Builtin id, TNode<Object> context, TArgs... args) {
     DCHECK_WITH_MSG(!Builtins::HasJSLinkage(id),
                     "Use TailCallJSBuiltin instead");
+#if V8_ENABLE_WEBASSEMBLY
+    // Tail calling from a wasm builtin to a non-wasm builtin is not supported
+    // because of stack switching. Use a call instead so that we switch to the
+    // central stack and back if needed.
+    DCHECK(!wasm::BuiltinLookup::IsWasmBuiltinId(builtin()) ||
+           wasm::BuiltinLookup::IsWasmBuiltinId(id));
+#endif
     Callable callable = Builtins::CallableFor(isolate(), id);
     TNode<Code> target = HeapConstantNoHole(callable.code());
     TailCallStub(callable.descriptor(), target, context, args...);
@@ -1433,6 +1463,12 @@ class V8_EXPORT_PRIVATE CodeAssembler {
     DCHECK(Builtins::HasJSLinkage(builtin));
     // The receiver is also passed on the stack so needs to be included.
     DCHECK_EQ(Builtins::GetStackParameterCount(builtin), 1 + sizeof...(args));
+#if V8_ENABLE_WEBASSEMBLY
+    // Unimplemented. Add code for switching to the central stack here if
+    // needed. See {CallBuiltin} for example.
+    DCHECK(!wasm::BuiltinLookup::IsWasmBuiltinId(this->builtin()) ||
+           wasm::BuiltinLookup::IsWasmBuiltinId(builtin));
+#endif
     Callable callable = Builtins::CallableFor(isolate(), builtin);
     int argc = JSParameterCount(static_cast<int>(sizeof...(args)));
     TNode<Int32T> arity = Int32Constant(argc);
@@ -1451,6 +1487,13 @@ class V8_EXPORT_PRIVATE CodeAssembler {
                          TNode<Int32T> arg_count,
                          TNode<JSDispatchHandleT> dispatch_handle) {
     DCHECK(Builtins::HasJSLinkage(id));
+#if V8_ENABLE_WEBASSEMBLY
+    // Tail calling from a wasm builtin to a JS builtin is not supported because
+    // of stack switching. Use a call instead so that we switch to the central
+    // stack and back if needed.
+    DCHECK(!wasm::BuiltinLookup::IsWasmBuiltinId(builtin()) ||
+           wasm::BuiltinLookup::IsWasmBuiltinId(id));
+#endif
     Callable callable = Builtins::CallableFor(isolate(), id);
     TNode<Code> target = HeapConstantNoHole(callable.code());
 #ifdef V8_JS_LINKAGE_INCLUDES_DISPATCH_HANDLE
@@ -1462,12 +1505,19 @@ class V8_EXPORT_PRIVATE CodeAssembler {
 #endif
   }
 
+  // LINT.IfChange
   // Call the given JavaScript callable through one of the JS Call builtins.
   template <class... TArgs>
   TNode<JSAny> CallJS(Builtin builtin, TNode<Context> context,
                       TNode<Object> function, TNode<JSAny> receiver,
                       TArgs... args) {
     DCHECK(Builtins::IsAnyCall(builtin));
+#if V8_ENABLE_WEBASSEMBLY
+    // Unimplemented. Add code for switching to the central stack here if
+    // needed. See {CallBuiltin} for example.
+    DCHECK(!wasm::BuiltinLookup::IsWasmBuiltinId(this->builtin()) ||
+           wasm::BuiltinLookup::IsWasmBuiltinId(builtin));
+#endif
     Callable callable = Builtins::CallableFor(isolate(), builtin);
     int argc = JSParameterCount(static_cast<int>(sizeof...(args)));
     TNode<Int32T> arity = Int32Constant(argc);
@@ -1476,6 +1526,7 @@ class V8_EXPORT_PRIVATE CodeAssembler {
                                std::nullopt, arity, std::nullopt,
                                {receiver, args...}));
   }
+  // LINT.ThenChange(/src/codegen/turboshaft-builtins-assembler-inl.h)
 
   // Construct the given JavaScript callable through a JS Construct builtin.
   template <class... TArgs>

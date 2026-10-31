@@ -33,13 +33,7 @@ class V8_NODISCARD MaglevCompilationHandleScope final {
  public:
   MaglevCompilationHandleScope(Isolate* isolate,
                                maglev::MaglevCompilationInfo* info)
-      : info_(info),
-        persistent_(isolate)
-#ifdef V8_ENABLE_MAGLEV
-        ,
-        exported_info_(info)
-#endif
-  {
+      : info_(info), persistent_(isolate) {
     info->ReopenAndCanonicalizeHandlesInNewScope(isolate);
   }
 
@@ -50,9 +44,6 @@ class V8_NODISCARD MaglevCompilationHandleScope final {
  private:
   maglev::MaglevCompilationInfo* const info_;
   PersistentHandlesScope persistent_;
-#ifdef V8_ENABLE_MAGLEV
-  ExportedMaglevCompilationInfo exported_info_;
-#endif
 };
 
 static bool SpecializeToFunctionContext(
@@ -76,8 +67,7 @@ static bool SpecializeToFunctionContext(
 MaglevCompilationInfo::MaglevCompilationInfo(
     Isolate* isolate, IndirectHandle<JSFunction> function,
     BytecodeOffset osr_offset, std::optional<compiler::JSHeapBroker*> js_broker,
-    std::optional<bool> specialize_to_function_context,
-    bool for_turboshaft_frontend)
+    std::optional<bool> specialize_to_function_context, bool is_turbolev)
     : zone_(isolate->allocator(), kMaglevZoneName),
       broker_(js_broker.has_value()
                   ? js_broker.value()
@@ -87,11 +77,9 @@ MaglevCompilationInfo::MaglevCompilationInfo(
       toplevel_function_(function),
       osr_offset_(osr_offset),
       owns_broker_(!js_broker.has_value()),
-      is_turbolev_(for_turboshaft_frontend)
-#define V(Name) , Name##_(v8_flags.Name)
-          MAGLEV_COMPILATION_FLAG_LIST(V)
-#undef V
-      ,
+      is_turbolev_(is_turbolev),
+      flags_(is_turbolev ? CompilationFlags::ForTurbolev()
+                         : CompilationFlags::ForMaglev()),
       specialize_to_function_context_(SpecializeToFunctionContext(
           isolate, osr_offset, function, specialize_to_function_context)) {
   if (owns_broker_) {
@@ -121,6 +109,12 @@ MaglevCompilationInfo::MaglevCompilationInfo(
   } else {
     toplevel_compilation_unit_ =
         MaglevCompilationUnit::New(zone(), this, function);
+  }
+
+  if (FlagsMightEnableMaglevTracing()) {
+    is_tracing_enabled_ = toplevel_compilation_unit_->shared_function_info()
+                              .object()
+                              ->PassesFilter(v8_flags.maglev_print_filter);
   }
 
   collect_source_positions_ = isolate->NeedsDetailedOptimizedCodeLineInfo();
@@ -185,7 +179,7 @@ void MaglevCompilationInfo::set_canonical_handles(
 }
 
 bool MaglevCompilationInfo::is_detached() {
-  return toplevel_function_->context()->IsDetached();
+  return toplevel_function_->native_context()->IsDetached();
 }
 
 std::unique_ptr<CanonicalHandlesMap>

@@ -34,6 +34,9 @@ class BaselineAssembler {
   V8_INLINE void RecordComment(const char* string);
   inline void Trap();
   inline void DebugBreak();
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  inline void AssertInSandboxedExecutionMode();
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
 
   template <typename Field>
   inline void DecodeField(Register reg);
@@ -92,6 +95,14 @@ class BaselineAssembler {
   inline void JumpIfTagged(Condition cc, MemOperand operand, Register value,
                            Label* target,
                            Label::Distance distance = Label::kFar);
+#ifdef V8_STATIC_ROOTS
+  // Jumps to the true or false target if the value is a static root known to by
+  // truthy/falsy, fallthrough otherwise.
+  inline void JumpIfStaticRootToBoolean(Register value, Label* true_target,
+                                        Label::Distance true_distance,
+                                        Label* false_target,
+                                        Label::Distance false_distance);
+#endif
   inline void JumpIfByte(Condition cc, Register value, int32_t byte,
                          Label* target, Label::Distance distance = Label::kFar);
 
@@ -208,11 +219,11 @@ class BaselineAssembler {
     kDefault,
     kForceDecompression,
   };
-  inline void LdaContextSlot(
+  inline void LdaContextSlotNoCell(
       Register context, uint32_t index, uint32_t depth,
       CompressionMode compression_mode = CompressionMode::kDefault);
-  inline void StaContextSlot(Register context, Register value, uint32_t index,
-                             uint32_t depth);
+  inline void StaContextSlotNoCell(Register context, Register value,
+                                   uint32_t index, uint32_t depth);
   inline void LdaModuleVariable(Register context, int cell_index,
                                 uint32_t depth);
   inline void StaModuleVariable(Register context, Register value,

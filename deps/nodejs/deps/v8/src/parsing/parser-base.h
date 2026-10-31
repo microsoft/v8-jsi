@@ -310,7 +310,10 @@ class ParserBase {
 
   void SkipInfos(int delta) { info_id_ += delta; }
 
-  void ResetInfoId() { info_id_ = 0; }
+  void ResetInfoId(int id) {
+    DCHECK_LE(0, id);
+    info_id_ = id;
+  }
 
   // The Zone where the parsing outputs are stored.
   Zone* main_zone() const { return ast_value_factory()->single_parse_zone(); }
@@ -628,8 +631,11 @@ class ParserBase {
     DeclarationScope* EnsureStaticElementsScope(ParserBase* parser, int beg_pos,
                                                 int info_id) {
       if (!has_static_elements()) {
-        static_elements_scope = parser->NewFunctionScope(
-            FunctionKind::kClassStaticInitializerFunction);
+        FunctionKind kind =
+            has_instance_members()
+                ? FunctionKind::kClassStaticInitializerFunctionPrecededByMember
+                : FunctionKind::kClassStaticInitializerFunction;
+        static_elements_scope = parser->NewFunctionScope(kind);
         static_elements_scope->SetLanguageMode(LanguageMode::kStrict);
         static_elements_scope->set_start_position(beg_pos);
         static_elements_function_id = info_id;
@@ -643,8 +649,11 @@ class ParserBase {
     DeclarationScope* EnsureInstanceMembersScope(ParserBase* parser,
                                                  int beg_pos, int info_id) {
       if (!has_instance_members()) {
-        instance_members_scope = parser->NewFunctionScope(
-            FunctionKind::kClassMembersInitializerFunction);
+        FunctionKind kind =
+            has_static_elements()
+                ? FunctionKind::kClassMembersInitializerFunctionPrecededByStatic
+                : FunctionKind::kClassMembersInitializerFunction;
+        instance_members_scope = parser->NewFunctionScope(kind);
         instance_members_scope->SetLanguageMode(LanguageMode::kStrict);
         instance_members_scope->set_start_position(beg_pos);
         instance_members_function_id = info_id;
@@ -1290,7 +1299,7 @@ class ParserBase {
       // receiver_scope. Mark through the ExpressionScope for now.
       expression_scope()->RecordThisUse();
     } else {
-      closure_scope->set_has_this_reference();
+      closure_scope->set_has_this_reference(true);
       var->ForceContextAllocation();
     }
   }
@@ -2274,7 +2283,7 @@ ParserBase<Impl>::ParsePrimaryExpression() {
       return ParseTemplateLiteral(impl()->NullExpression(), beg_pos, false);
 
     case Token::kMod:
-      if (flags().allow_natives_syntax() || impl()->ParsingExtension()) {
+      if (flags().allow_natives_syntax()) {
         return ParseV8Intrinsic();
       }
       break;
@@ -3383,6 +3392,9 @@ ParserBase<Impl>::ParseAssignmentExpressionCoverGrammarContinuation(
     // Otherwise we'll probably overestimate the number of properties.
     if (impl()->IsThisProperty(expression)) function_state_->AddProperty();
   } else {
+    if (Token::IsLogicalAssignmentOp(op)) {
+      impl()->CountUsage(v8::Isolate::kLogicalAssignment);
+    }
     // Only initializers (i.e. no compound assignments) are allowed in patterns.
     expression_scope()->RecordPatternError(
         Scanner::Location(lhs_beg_pos, end_position()),
@@ -3516,6 +3528,7 @@ ParserBase<Impl>::ParseCoalesceExpression(ExpressionT expression) {
       y = ParseBinaryExpression(6);
     }
     if (first_nullish) {
+      impl()->CountUsage(v8::Isolate::kNullishCoalescing);
       expression =
           factory()->NewBinaryOperation(Token::kNullish, expression, y, pos);
       impl()->RecordBinaryOperationSourceRange(expression, right_range);
@@ -3778,6 +3791,10 @@ ParserBase<Impl>::ParseUnaryOrPrefixExpression() {
 template <typename Impl>
 typename ParserBase<Impl>::ExpressionT
 ParserBase<Impl>::ParseAwaitExpression() {
+  if (IsModule(function_state_->kind())) {
+    impl()->CountUsage(v8::Isolate::kTopLevelAwait);
+  }
+
   expression_scope()->RecordParameterInitializerError(
       scanner()->peek_location(),
       MessageTemplate::kAwaitExpressionFormalParameter);
@@ -3997,6 +4014,10 @@ ParserBase<Impl>::ParseLeftHandSideContinuation(ExpressionT result) {
         int eval_scope_info_index = 0;
         if (CheckPossibleEvalCall(result, is_optional, scope())) {
           eval_scope_info_index = GetNextInfoId();
+          if (!Call::EvalScopeInfoIndexField::is_valid(eval_scope_info_index)) {
+            ReportMessage(MessageTemplate::kTooManyEvals);
+            return impl()->FailureExpression();
+          }
         }
 
         result = factory()->NewCall(result, args, pos, has_spread,
@@ -4168,6 +4189,7 @@ ParserBase<Impl>::ParseImportExpressions() {
   // ImportCall[Yield, Await] :
   //   import ( AssignmentExpression[+In, ?Yield, ?Await] )
   //   import . source ( AssignmentExpression[+In, ?Yield, ?Await] )
+  //   import . defer ( AssignmentExpression[+In, ?Yield, ?Await] )
   //
   // ImportMeta : import . meta
 
@@ -4181,6 +4203,9 @@ ParserBase<Impl>::ParseImportExpressions() {
     if (v8_flags.js_source_phase_imports &&
         CheckContextualKeyword(ast_value_factory()->source_string())) {
       phase = ModuleImportPhase::kSource;
+    } else if (v8_flags.js_defer_import_eval &&
+               CheckContextualKeyword(ast_value_factory()->defer_string())) {
+      phase = ModuleImportPhase::kDefer;
     } else {
       ExpectContextualKeyword(ast_value_factory()->meta_string(), "import.meta",
                               pos);
@@ -4218,7 +4243,7 @@ ParserBase<Impl>::ParseImportExpressions() {
   // TODO(42204365): Enable import attributes with source phase import once
   // specified.
   if (v8_flags.harmony_import_attributes &&
-      phase == ModuleImportPhase::kEvaluation && Check(Token::kComma)) {
+      phase != ModuleImportPhase::kSource && Check(Token::kComma)) {
     if (Check(Token::kRightParen)) {
       // A trailing comma allowed after the specifier.
       return factory()->NewImportCallExpression(specifier, phase, pos);
@@ -5102,9 +5127,10 @@ ParserBase<Impl>::ParseArrowFunctionLiteral(
         int dummy_function_length = -1;
         DCHECK(IsArrowFunction(kind));
         bool did_preparse_successfully = impl()->SkipFunction(
-            nullptr, kind, FunctionSyntaxKind::kAnonymousExpression,
-            formal_parameters.scope, &dummy_num_parameters,
-            &dummy_function_length, &produced_preparse_data);
+            function_literal_id, nullptr, kind,
+            FunctionSyntaxKind::kAnonymousExpression, formal_parameters.scope,
+            &dummy_num_parameters, &dummy_function_length,
+            &produced_preparse_data);
 
         DCHECK_NULL(produced_preparse_data);
 
@@ -5288,12 +5314,11 @@ typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseClassLiteral(
         class_scope->DeclareStaticHomeObjectVariable(ast_value_factory());
   }
 
-  bool should_save_class_variable_index =
-      class_scope->should_save_class_variable_index();
-  if (!class_info.is_anonymous || should_save_class_variable_index) {
+  bool should_save_class_variable = class_scope->should_save_class_variable();
+  if (!class_info.is_anonymous || should_save_class_variable) {
     impl()->DeclareClassVariable(class_scope, name, &class_info,
                                  class_token_pos);
-    if (should_save_class_variable_index) {
+    if (should_save_class_variable) {
       class_scope->class_variable()->set_is_used();
       class_scope->class_variable()->ForceContextAllocation();
     }
@@ -5682,7 +5707,8 @@ void ParserBase<Impl>::ParseStatementList(StatementListT* body,
       if (!scope()->HasSimpleParameters()) {
         // TC39 deemed "use strict" directives to be an error when occurring
         // in the body of a function with non-simple parameter list, on
-        // 29/7/2015. https://goo.gl/ueA7Ln
+        // 29/7/2015. See:
+        // https://github.com/tc39/notes/blob/main/meetings/2015-07/july-29.md#conclusionresolution
         impl()->ReportMessageAt(token_loc,
                                 MessageTemplate::kIllegalLanguageModeDirective,
                                 "use strict");
@@ -6248,6 +6274,7 @@ typename ParserBase<Impl>::StatementT ParserBase<Impl>::ParseWithStatement(
     ReportMessage(MessageTemplate::kStrictWith);
     return impl()->NullStatement();
   }
+  impl()->CountUsage(v8::Isolate::kWithStatement);
 
   Expect(Token::kLeftParen);
   ExpressionT expr = ParseExpression();

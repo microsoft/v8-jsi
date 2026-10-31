@@ -124,12 +124,11 @@ namespace internal {
 RegExpMacroAssemblerMIPS::RegExpMacroAssemblerMIPS(Isolate* isolate, Zone* zone,
                                                    Mode mode,
                                                    int registers_to_save)
-    : NativeRegExpMacroAssembler(isolate, zone),
+    : NativeRegExpMacroAssembler(isolate, zone, mode),
       masm_(std::make_unique<MacroAssembler>(
           isolate, CodeObjectRequired::kYes,
           NewAssemblerBuffer(kInitialBufferSize))),
       no_root_array_scope_(masm_.get()),
-      mode_(mode),
       num_registers_(registers_to_save),
       num_saved_registers_(registers_to_save),
       entry_label_(),
@@ -159,10 +158,6 @@ RegExpMacroAssemblerMIPS::~RegExpMacroAssemblerMIPS() {
   stack_overflow_label_.Unuse();
   internal_failure_label_.Unuse();
   fallback_label_.Unuse();
-}
-
-int RegExpMacroAssemblerMIPS::stack_limit_slack_slot_count() {
-  return RegExpStack::kStackLimitSlackSlotCount;
 }
 
 void RegExpMacroAssemblerMIPS::AdvanceCurrentPosition(int by) {
@@ -278,7 +273,7 @@ void RegExpMacroAssemblerMIPS::CheckNotBackReferenceIgnoreCase(
     BranchOrBacktrack(on_no_match, gt, t1, Operand(zero_reg));
   }
 
-  if (mode_ == LATIN1) {
+  if (mode() == LATIN1) {
     Label success;
     Label fail;
     Label loop_check;
@@ -335,7 +330,7 @@ void RegExpMacroAssemblerMIPS::CheckNotBackReferenceIgnoreCase(
       __ Dsubu(current_input_offset(), current_input_offset(), Operand(a2));
     }
   } else {
-    DCHECK(mode_ == UC16);
+    DCHECK(mode() == UC16);
 
     int argument_count = 4;
     __ PrepareCallCFunction(argument_count, a2);
@@ -421,13 +416,13 @@ void RegExpMacroAssemblerMIPS::CheckNotBackReference(int start_reg,
 
   Label loop;
   __ bind(&loop);
-  if (mode_ == LATIN1) {
+  if (mode() == LATIN1) {
     __ Lbu(a3, MemOperand(a0, 0));
     __ daddiu(a0, a0, char_size());
     __ Lbu(a4, MemOperand(a2, 0));
     __ daddiu(a2, a2, char_size());
   } else {
-    DCHECK(mode_ == UC16);
+    DCHECK(mode() == UC16);
     __ Lhu(a3, MemOperand(a0, 0));
     __ daddiu(a0, a0, char_size());
     __ Lhu(a4, MemOperand(a2, 0));
@@ -531,7 +526,7 @@ void RegExpMacroAssemblerMIPS::CheckBitInTable(
     Handle<ByteArray> table,
     Label* on_bit_set) {
   __ li(a0, Operand(table));
-  if (mode_ != LATIN1 || kTableMask != String::kMaxOneByteCharCode) {
+  if (mode() != LATIN1 || kTableMask != String::kMaxOneByteCharCode) {
     __ And(a1, current_character(), Operand(kTableSize - 1));
     __ Daddu(a0, a0, a1);
   } else {
@@ -544,72 +539,70 @@ void RegExpMacroAssemblerMIPS::CheckBitInTable(
 
 void RegExpMacroAssemblerMIPS::SkipUntilBitInTable(
     int cp_offset, Handle<ByteArray> table, Handle<ByteArray> nibble_table,
-    int advance_by) {
+    int advance_by, Label* on_match, Label* on_no_match) {
   // TODO(pthier): Optimize. Table can be loaded outside of the loop.
-  Label cont, again;
+  Label again;
   Bind(&again);
-  LoadCurrentCharacter(cp_offset, &cont, true);
-  CheckBitInTable(table, &cont);
+  LoadCurrentCharacter(cp_offset, on_no_match, true);
+  CheckBitInTable(table, on_match);
   AdvanceCurrentPosition(advance_by);
   GoTo(&again);
-  Bind(&cont);
 }
 
-bool RegExpMacroAssemblerMIPS::CheckSpecialClassRanges(
+void RegExpMacroAssemblerMIPS::CheckSpecialClassRanges(
     StandardCharacterSet type, Label* on_no_match) {
+  DCHECK(CanOptimizeSpecialClassRanges(type));
   // Range checks (c in min..max) are generally implemented by an unsigned
   // (c - min) <= (max - min) check.
   // TODO(jgruber): No custom implementation (yet): s(UC16), S(UC16).
   switch (type) {
-    case StandardCharacterSet::kWhitespace:
+    case StandardCharacterSet::kWhitespace: {
       // Match space-characters.
-      if (mode_ == LATIN1) {
-        // One byte space characters are '\t'..'\r', ' ' and \u00a0.
-        Label success;
-        __ Branch(&success, eq, current_character(), Operand(' '));
-        // Check range 0x09..0x0D.
-        __ Dsubu(a0, current_character(), Operand('\t'));
-        __ Branch(&success, ls, a0, Operand('\r' - '\t'));
-        // \u00a0 (NBSP).
-        BranchOrBacktrack(on_no_match, ne, a0, Operand(0x00A0 - '\t'));
-        __ bind(&success);
-        return true;
-      }
-      return false;
+      DCHECK_EQ(mode(), LATIN1);
+      // One byte space characters are '\t'..'\r', ' ' and \u00a0.
+      Label success;
+      __ Branch(&success, eq, current_character(), Operand(' '));
+      // Check range 0x09..0x0D.
+      __ Dsubu(a0, current_character(), Operand('\t'));
+      __ Branch(&success, ls, a0, Operand('\r' - '\t'));
+      // \u00a0 (NBSP).
+      BranchOrBacktrack(on_no_match, ne, a0, Operand(0x00A0 - '\t'));
+      __ bind(&success);
+      break;
+    }
     case StandardCharacterSet::kNotWhitespace:
-      // The emitted code for generic character classes is good enough.
-      return false;
+      UNREACHABLE();
     case StandardCharacterSet::kDigit:
       // Match Latin1 digits ('0'..'9').
       __ Dsubu(a0, current_character(), Operand('0'));
       BranchOrBacktrack(on_no_match, hi, a0, Operand('9' - '0'));
-      return true;
+      break;
     case StandardCharacterSet::kNotDigit:
       // Match non Latin1-digits.
       __ Dsubu(a0, current_character(), Operand('0'));
       BranchOrBacktrack(on_no_match, ls, a0, Operand('9' - '0'));
-      return true;
+      break;
     case StandardCharacterSet::kNotLineTerminator: {
       // Match non-newlines (not 0x0A('\n'), 0x0D('\r'), 0x2028 and 0x2029).
       __ Xor(a0, current_character(), Operand(0x01));
       // See if current character is '\n'^1 or '\r'^1, i.e., 0x0B or 0x0C.
       __ Dsubu(a0, a0, Operand(0x0B));
       BranchOrBacktrack(on_no_match, ls, a0, Operand(0x0C - 0x0B));
-      if (mode_ == UC16) {
+      if (mode() == UC16) {
         // Compare original value to 0x2028 and 0x2029, using the already
         // computed (current_char ^ 0x01 - 0x0B). I.e., check for
         // 0x201D (0x2028 - 0x0B) or 0x201E.
         __ Dsubu(a0, a0, Operand(0x2028 - 0x0B));
         BranchOrBacktrack(on_no_match, ls, a0, Operand(1));
       }
-      return true;
+      break;
     }
     case StandardCharacterSet::kLineTerminator: {
       // Match newlines (0x0A('\n'), 0x0D('\r'), 0x2028 and 0x2029).
       __ Xor(a0, current_character(), Operand(0x01));
       // See if current character is '\n'^1 or '\r'^1, i.e., 0x0B or 0x0C.
       __ Dsubu(a0, a0, Operand(0x0B));
-      if (mode_ == LATIN1) {
+      if (mode() == LATIN1) {
         BranchOrBacktrack(on_no_match, hi, a0, Operand(0x0C - 0x0B));
       } else {
         Label done;
@@ -621,10 +614,10 @@ bool RegExpMacroAssemblerMIPS::CheckSpecialClassRanges(
         BranchOrBacktrack(on_no_match, hi, a0, Operand(1));
         __ bind(&done);
       }
-      return true;
+      break;
     }
     case StandardCharacterSet::kWord: {
-      if (mode_ != LATIN1) {
+      if (mode() != LATIN1) {
         // Table is 256 entries, so all Latin1 characters can be tested.
         BranchOrBacktrack(on_no_match, hi, current_character(), Operand('z'));
       }
@@ -633,11 +626,11 @@ bool RegExpMacroAssemblerMIPS::CheckSpecialClassRanges(
       __ Daddu(a0, a0, current_character());
       __ Lbu(a0, MemOperand(a0, 0));
       BranchOrBacktrack(on_no_match, eq, a0, Operand(zero_reg));
-      return true;
+      break;
     }
     case StandardCharacterSet::kNotWord: {
       Label done;
-      if (mode_ != LATIN1) {
+      if (mode() != LATIN1) {
         // Table is 256 entries, so all Latin1 characters can be tested.
         __ Branch(&done, hi, current_character(), Operand('z'));
       }
@@ -646,14 +639,14 @@ bool RegExpMacroAssemblerMIPS::CheckSpecialClassRanges(
       __ Daddu(a0, a0, current_character());
       __ Lbu(a0, MemOperand(a0, 0));
       BranchOrBacktrack(on_no_match, ne, a0, Operand(zero_reg));
-      if (mode_ != LATIN1) {
+      if (mode() != LATIN1) {
         __ bind(&done);
       }
-      return true;
+      break;
     }
     case StandardCharacterSet::kEverything:
       // Match any character.
-      return true;
+      break;
   }
 }
 
@@ -813,7 +806,7 @@ DirectHandle<HeapObject> RegExpMacroAssemblerMIPS::GetCode(
     // (effectively string position -1).
     __ Ld(a1, MemOperand(frame_pointer(), kStartIndexOffset));
     __ Dsubu(a0, current_input_offset(), Operand(char_size()));
-    __ dsll(t1, a1, (mode_ == UC16) ? 1 : 0);
+    __ dsll(t1, a1, (mode() == UC16) ? 1 : 0);
     __ Dsubu(a0, a0, t1);
     // Store this value in a local variable, for use when clearing
     // position registers.
@@ -870,7 +863,7 @@ DirectHandle<HeapObject> RegExpMacroAssemblerMIPS::GetCode(
         __ Ld(a2, MemOperand(frame_pointer(), kStartIndexOffset));
         __ Dsubu(a1, end_of_input_address(), a1);
         // a1 is length of input in bytes.
-        if (mode_ == UC16) {
+        if (mode() == UC16) {
           __ dsrl(a1, a1, 1);
         }
         // a1 is length of input in characters.
@@ -888,7 +881,7 @@ DirectHandle<HeapObject> RegExpMacroAssemblerMIPS::GetCode(
             // Keep capture start in a4 for the zero-length check later.
             __ mov(t3, a2);
           }
-          if (mode_ == UC16) {
+          if (mode() == UC16) {
             __ dsra(a2, a2, 1);
             __ Daddu(a2, a2, a1);
             __ dsra(a3, a3, 1);
@@ -944,7 +937,7 @@ DirectHandle<HeapObject> RegExpMacroAssemblerMIPS::GetCode(
           Label advance;
           __ bind(&advance);
           __ Daddu(current_input_offset(), current_input_offset(),
-                   Operand((mode_ == UC16) ? 2 : 1));
+                   Operand((mode() == UC16) ? 2 : 1));
           if (global_unicode()) CheckNotInSurrogatePair(0, &advance);
         }
 
@@ -1125,7 +1118,7 @@ void RegExpMacroAssemblerMIPS::PushRegister(int register_index,
                                             StackCheckFlag check_stack_limit) {
   __ Ld(a0, register_location(register_index));
   Push(a0);
-  if (check_stack_limit) {
+  if (check_stack_limit == StackCheckFlag::kCheckStackLimit) {
     CheckStackLimit();
   } else if (V8_UNLIKELY(v8_flags.slow_debug_code)) {
     AssertAboveStackLimitMinusSlack();
@@ -1197,8 +1190,6 @@ void RegExpMacroAssemblerMIPS::ClearRegisters(int reg_from, int reg_to) {
   }
 }
 
-bool RegExpMacroAssemblerMIPS::CanReadUnaligned() const { return false; }
-
 // Private methods:
 
 void RegExpMacroAssemblerMIPS::CallCheckStackGuardState(Register scratch,
@@ -1260,7 +1251,7 @@ int64_t RegExpMacroAssemblerMIPS::CheckStackGuardState(Address* return_address,
                                                        Address re_frame,
                                                        uintptr_t extra_space) {
   Tagged<InstructionStream> re_code =
-      Cast<InstructionStream>(Tagged<Object>(raw_code));
+      SbxCast<InstructionStream>(Tagged<Object>(raw_code));
   return NativeRegExpMacroAssembler::CheckStackGuardState(
       frame_entry<Isolate*>(re_frame, kIsolateOffset),
       static_cast<int>(frame_entry<int64_t>(re_frame, kStartIndexOffset)),
@@ -1413,10 +1404,10 @@ void RegExpMacroAssemblerMIPS::LoadCurrentCharacterUnchecked(int cp_offset,
   // must only be used to load a single character at a time.
   DCHECK_EQ(1, characters);
   __ Daddu(t1, end_of_input_address(), Operand(offset));
-  if (mode_ == LATIN1) {
+  if (mode() == LATIN1) {
     __ Lbu(current_character(), MemOperand(t1, 0));
   } else {
-    DCHECK(mode_ == UC16);
+    DCHECK(mode() == UC16);
     __ Lhu(current_character(), MemOperand(t1, 0));
   }
 }

@@ -202,7 +202,11 @@ void URLPattern::New(const FunctionCallbackInfo<Value>& args) {
   // - new URLPattern(input, baseURL)
   // - new URLPattern(input, options)
   // - new URLPattern(input, baseURL, options)
-  if (args[0]->IsString()) {
+  // Per WebIDL, null/undefined for a union type including a dictionary
+  // uses the default value (empty init).
+  if (args[0]->IsNullOrUndefined()) {
+    init = ada::url_pattern_init{};
+  } else if (args[0]->IsString()) {
     BufferValue input_buffer(env->isolate(), args[0]);
     CHECK_NOT_NULL(*input_buffer);
     input = input_buffer.ToString();
@@ -217,41 +221,55 @@ void URLPattern::New(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  // The next argument can be baseURL or options.
-  if (args.Length() > 1) {
+  // Per WebIDL overload resolution:
+  // With 3+ args, it's always overload 1: (input, baseURL, options)
+  // With 2 args, if arg1 is string, it is overload 1 (baseURL),
+  //   otherwise overload 2 (options)
+  if (args.Length() >= 3) {
+    // arg1 is baseURL. Per WebIDL, null/undefined are stringified for
+    // USVString ("null"/"undefined"), which will be rejected as invalid
+    // URLs by ada downstream.
     if (args[1]->IsString()) {
       BufferValue base_url_buffer(env->isolate(), args[1]);
       CHECK_NOT_NULL(*base_url_buffer);
       base_url = base_url_buffer.ToString();
-    } else if (args[1]->IsObject()) {
-      CHECK(!options.has_value());
-      options = URLPatternOptions::FromJsObject(env, args[1].As<Object>());
-      if (!options) {
-        // If options does not have a value, we assume an error was
-        // thrown and scheduled on the isolate. Return early to
-        // propagate it.
-        return;
-      }
+    } else if (args[1]->IsNull()) {
+      base_url = std::string("null");
+    } else if (args[1]->IsUndefined()) {
+      base_url = std::string("undefined");
     } else {
-      THROW_ERR_INVALID_ARG_TYPE(env,
-                                 "second argument must be a string or object");
+      THROW_ERR_INVALID_ARG_TYPE(env, "second argument must be a string");
       return;
     }
 
-    // Only remaining argument can be options.
-    if (args.Length() > 2) {
+    // arg2 is options. Per WebIDL, null/undefined for a dictionary
+    // uses the default value (empty dict).
+    if (!args[2]->IsNullOrUndefined()) {
       if (!args[2]->IsObject()) {
         THROW_ERR_INVALID_ARG_TYPE(env, "options must be an object");
         return;
       }
       CHECK(!options.has_value());
       options = URLPatternOptions::FromJsObject(env, args[2].As<Object>());
-      if (!options) {
-        // If options does not have a value, we assume an error was
-        // thrown and scheduled on the isolate. Return early to
-        // propagate it.
-        return;
-      }
+      if (!options) return;
+    }
+  } else if (args.Length() == 2) {
+    // Overload resolution: string is overload 1 (baseURL),
+    // otherwise overload 2 (options).
+    if (args[1]->IsString()) {
+      BufferValue base_url_buffer(env->isolate(), args[1]);
+      CHECK_NOT_NULL(*base_url_buffer);
+      base_url = base_url_buffer.ToString();
+    } else if (args[1]->IsNullOrUndefined()) {
+      // Overload 2, options uses default.
+    } else if (args[1]->IsObject()) {
+      CHECK(!options.has_value());
+      options = URLPatternOptions::FromJsObject(env, args[1].As<Object>());
+      if (!options) return;
+    } else {
+      THROW_ERR_INVALID_ARG_TYPE(env,
+                                 "second argument must be a string or object");
+      return;
     }
   }
 
@@ -289,32 +307,21 @@ MaybeLocal<Value> URLPattern::URLPatternInit::ToJsObject(
   auto tmpl = env->urlpatterninit_template();
   if (tmpl.IsEmpty()) {
     static constexpr std::string_view namesVec[] = {
-        "protocol",
-        "username",
-        "password",
-        "hostname",
-        "port",
-        "pathname",
-        "search",
-        "hash",
         "baseURL",
+        "hash",
+        "hostname",
+        "password",
+        "pathname",
+        "port",
+        "protocol",
+        "search",
+        "username",
     };
     tmpl = DictionaryTemplate::New(isolate, namesVec);
     env->set_urlpatterninit_template(tmpl);
   }
 
-  MaybeLocal<Value> values[] = {
-      Undefined(isolate),  // protocol
-      Undefined(isolate),  // username
-      Undefined(isolate),  // password
-      Undefined(isolate),  // hostname
-      Undefined(isolate),  // port
-      Undefined(isolate),  // pathname
-      Undefined(isolate),  // search
-      Undefined(isolate),  // hash
-      Undefined(isolate),  // baseURL
-  };
-
+  MaybeLocal<Value> values[9];
   int idx = 0;
   Local<Value> temp;
   const auto trySet = [&](const std::optional<std::string>& val) {
@@ -328,28 +335,28 @@ MaybeLocal<Value> URLPattern::URLPatternInit::ToJsObject(
     return true;
   };
 
-  if (!trySet(init.protocol) || !trySet(init.username) ||
-      !trySet(init.password) || !trySet(init.hostname) || !trySet(init.port) ||
-      !trySet(init.pathname) || !trySet(init.search) || !trySet(init.hash) ||
-      !trySet(init.base_url)) {
+  if (!trySet(init.base_url) || !trySet(init.hash) || !trySet(init.hostname) ||
+      !trySet(init.password) || !trySet(init.pathname) || !trySet(init.port) ||
+      !trySet(init.protocol) || !trySet(init.search) ||
+      !trySet(init.username)) {
     return {};
   }
-  return NewDictionaryInstance(env->context(), tmpl, values);
+  return tmpl->NewInstance(context, values);
 }
 
 std::optional<ada::url_pattern_init> URLPattern::URLPatternInit::FromJsObject(
     Environment* env, Local<Object> obj) {
   ada::url_pattern_init init{};
   Local<String> components[] = {
-      env->protocol_string(),
-      env->username_string(),
-      env->password_string(),
-      env->hostname_string(),
-      env->port_string(),
-      env->pathname_string(),
-      env->search_string(),
-      env->hash_string(),
       env->base_url_string(),
+      env->hash_string(),
+      env->hostname_string(),
+      env->password_string(),
+      env->pathname_string(),
+      env->port_string(),
+      env->protocol_string(),
+      env->search_string(),
+      env->username_string(),
   };
   auto isolate = env->isolate();
   const auto set_parameter = [&](std::string_view key, std::string_view value) {
@@ -428,13 +435,13 @@ MaybeLocal<Object> URLPattern::URLPatternComponentResult::ToJSObject(
   auto tmpl = env->urlpatterncomponentresult_template();
   if (tmpl.IsEmpty()) {
     static constexpr std::string_view namesVec[] = {
-        "input",
         "groups",
+        "input",
     };
     tmpl = DictionaryTemplate::New(isolate, namesVec);
     env->set_urlpatterncomponentresult_template(tmpl);
   }
-  MaybeLocal<Value> values[] = {input, parsed_group};
+  MaybeLocal<Value> values[] = {parsed_group, input};
   return NewDictionaryInstance(env->context(), tmpl, values);
 }
 
@@ -445,15 +452,15 @@ MaybeLocal<Value> URLPattern::URLPatternResult::ToJSValue(
   auto tmpl = env->urlpatternresult_template();
   if (tmpl.IsEmpty()) {
     static constexpr std::string_view namesVec[] = {
-        "inputs",
-        "protocol",
-        "username",
-        "password",
-        "hostname",
-        "port",
-        "pathname",
-        "search",
         "hash",
+        "hostname",
+        "inputs",
+        "password",
+        "pathname",
+        "port",
+        "protocol",
+        "search",
+        "username",
     };
     tmpl = DictionaryTemplate::New(isolate, namesVec);
     env->set_urlpatternresult_template(tmpl);
@@ -461,6 +468,8 @@ MaybeLocal<Value> URLPattern::URLPatternResult::ToJSValue(
 
   size_t index = 0;
   MaybeLocal<Value> vals[] = {
+      URLPatternComponentResult::ToJSObject(env, result.hash),
+      URLPatternComponentResult::ToJSObject(env, result.hostname),
       Array::New(env->context(),
                  result.inputs.size(),
                  [&index, &inputs = result.inputs, env]() {
@@ -475,14 +484,12 @@ MaybeLocal<Value> URLPattern::URLPatternResult::ToJSValue(
                      return URLPatternInit::ToJsObject(env, init);
                    }
                  }),
-      URLPatternComponentResult::ToJSObject(env, result.protocol),
-      URLPatternComponentResult::ToJSObject(env, result.username),
       URLPatternComponentResult::ToJSObject(env, result.password),
-      URLPatternComponentResult::ToJSObject(env, result.hostname),
-      URLPatternComponentResult::ToJSObject(env, result.port),
       URLPatternComponentResult::ToJSObject(env, result.pathname),
+      URLPatternComponentResult::ToJSObject(env, result.port),
+      URLPatternComponentResult::ToJSObject(env, result.protocol),
       URLPatternComponentResult::ToJSObject(env, result.search),
-      URLPatternComponentResult::ToJSObject(env, result.hash)};
+      URLPatternComponentResult::ToJSObject(env, result.username)};
   return NewDictionaryInstanceNullProto(env->context(), tmpl, vals);
 }
 
@@ -493,11 +500,8 @@ URLPattern::URLPatternOptions::FromJsObject(Environment* env,
   Local<Value> ignore_case;
   if (obj->Get(env->context(), env->ignore_case_string())
           .ToLocal(&ignore_case)) {
-    if (!ignore_case->IsBoolean()) {
-      THROW_ERR_INVALID_ARG_TYPE(env, "options.ignoreCase must be a boolean");
-      return std::nullopt;
-    }
-    options.ignore_case = ignore_case->IsTrue();
+    // Per WebIDL, boolean dictionary members are coerced (not type-checked).
+    options.ignore_case = ignore_case->BooleanValue(env->isolate());
   } else {
     // If ToLocal returns false, the assumption is that getting the
     // ignore_case_string threw an error, let's propagate that now
@@ -564,7 +568,7 @@ void URLPattern::Exec(const FunctionCallbackInfo<Value>& args) {
   ada::url_pattern_input input;
   std::optional<std::string> baseURL{};
   std::string input_base;
-  if (args.Length() == 0) {
+  if (args.Length() == 0 || args[0]->IsNullOrUndefined()) {
     input = ada::url_pattern_init{};
   } else if (args[0]->IsString()) {
     Utf8Value input_value(env->isolate(), args[0].As<String>());
@@ -580,13 +584,16 @@ void URLPattern::Exec(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  if (args.Length() > 1) {
-    if (!args[1]->IsString()) {
+  if (args.Length() > 1 && !args[1]->IsUndefined()) {
+    if (args[1]->IsNull()) {
+      baseURL = std::string("null");
+    } else if (args[1]->IsString()) {
+      Utf8Value base_url_value(env->isolate(), args[1].As<String>());
+      baseURL = base_url_value.ToStringView();
+    } else {
       THROW_ERR_INVALID_ARG_TYPE(env, "baseURL must be a string");
       return;
     }
-    Utf8Value base_url_value(env->isolate(), args[1].As<String>());
-    baseURL = base_url_value.ToStringView();
   }
 
   Local<Value> result;
@@ -607,7 +614,7 @@ void URLPattern::Test(const FunctionCallbackInfo<Value>& args) {
   ada::url_pattern_input input;
   std::optional<std::string> baseURL{};
   std::string input_base;
-  if (args.Length() == 0) {
+  if (args.Length() == 0 || args[0]->IsNullOrUndefined()) {
     input = ada::url_pattern_init{};
   } else if (args[0]->IsString()) {
     Utf8Value input_value(env->isolate(), args[0].As<String>());
@@ -623,13 +630,16 @@ void URLPattern::Test(const FunctionCallbackInfo<Value>& args) {
     return;
   }
 
-  if (args.Length() > 1) {
-    if (!args[1]->IsString()) {
+  if (args.Length() > 1 && !args[1]->IsUndefined()) {
+    if (args[1]->IsNull()) {
+      baseURL = std::string("null");
+    } else if (args[1]->IsString()) {
+      Utf8Value base_url_value(env->isolate(), args[1].As<String>());
+      baseURL = base_url_value.ToStringView();
+    } else {
       THROW_ERR_INVALID_ARG_TYPE(env, "baseURL must be a string");
       return;
     }
-    Utf8Value base_url_value(env->isolate(), args[1].As<String>());
-    baseURL = base_url_value.ToStringView();
   }
 
   std::optional<std::string_view> baseURL_opt =
@@ -676,7 +686,13 @@ static void Initialize(Local<Object> target,
   auto ctor_tmpl = NewFunctionTemplate(isolate, URLPattern::New);
   auto instance_template = ctor_tmpl->InstanceTemplate();
   auto prototype_template = ctor_tmpl->PrototypeTemplate();
-  ctor_tmpl->SetClassName(FIXED_ONE_BYTE_STRING(isolate, "URLPattern"));
+  Local<String> url_pattern_string =
+      FIXED_ONE_BYTE_STRING(isolate, "URLPattern");
+  ctor_tmpl->SetClassName(url_pattern_string);
+  prototype_template->Set(
+      v8::Symbol::GetToStringTag(isolate),
+      url_pattern_string,
+      static_cast<PropertyAttribute>(ReadOnly | v8::DontEnum));
 
   // The signature is used to prevent the property accessors from being
   // called on the wrong receiver object (`this`)

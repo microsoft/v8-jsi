@@ -184,6 +184,7 @@ enum GCCallbackFlags {
   kGCCallbackFlagCollectAllAvailableGarbage = 1 << 4,
   kGCCallbackFlagCollectAllExternalMemory = 1 << 5,
   kGCCallbackScheduleIdleGarbageCollection = 1 << 6,
+  kGCCallbackFlagLastResort = 1 << 7,
 };
 
 using GCCallback = void (*)(GCType type, GCCallbackFlags flags);
@@ -232,6 +233,10 @@ struct OOMDetails {
 using OOMErrorCallback = void (*)(const char* location,
                                   const OOMDetails& details);
 
+using OOMErrorCallbackWithData = void (*)(const char* location,
+                                          const OOMDetails& details,
+                                          void* data);
+
 using MessageCallback = void (*)(Local<Message> message, Local<Value> data);
 
 // --- Tracing ---
@@ -254,6 +259,15 @@ enum class CrashKeyId {
 };
 
 using AddCrashKeyCallback = void (*)(CrashKeyId id, const std::string& value);
+
+// --- CrashKeyString Callbacks ---
+using CrashKey = void*;
+enum class CrashKeySize { Size32, Size64, Size256, Size1024 };
+
+using AllocateCrashKeyStringCallback =
+    std::function<CrashKey(const char key[], CrashKeySize size)>;
+using SetCrashKeyStringCallback =
+    std::function<void(CrashKey key, const std::string_view value)>;
 
 // --- Enter/Leave Script Callback ---
 using BeforeCallEnteredCallback = void (*)(Isolate*);
@@ -321,25 +335,19 @@ using WasmAsyncResolvePromiseCallback = void (*)(
 using WasmLoadSourceMapCallback = Local<String> (*)(Isolate* isolate,
                                                     const char* name);
 
-// --- Callback for checking if WebAssembly imported strings are enabled ---
-using WasmImportedStringsEnabledCallback = bool (*)(Local<Context> context);
+// --- Callback for checking if WebAssembly Custom Descriptors are enabled ---
+using WasmCustomDescriptorsEnabledCallback = bool (*)(Local<Context> context);
 
 // --- Callback for checking if the SharedArrayBuffer constructor is enabled ---
 using SharedArrayBufferConstructorEnabledCallback =
     bool (*)(Local<Context> context);
-
-// --- Callback for checking if the compile hints magic comments are enabled ---
-using JavaScriptCompileHintsMagicEnabledCallback =
-    bool (*)(Local<Context> context);
-
-// --- Callback for checking if WebAssembly JSPI is enabled ---
-using WasmJSPIEnabledCallback = bool (*)(Local<Context> context);
 
 /**
  * Import phases in import requests.
  */
 enum class ModuleImportPhase {
   kSource,
+  kDefer,
   kEvaluation,
 };
 

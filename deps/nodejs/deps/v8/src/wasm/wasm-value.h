@@ -77,13 +77,13 @@ class WasmValue {
       : type_(type), bit_pattern_{} {
     static_assert(sizeof(DirectHandle<Object>) <= sizeof(bit_pattern_),
                   "bit_pattern_ must be large enough to fit a Handle");
-    DCHECK(type.is_reference());
+    DCHECK(type.is_ref());
     base::WriteUnalignedValue<DirectHandle<Object>>(
         reinterpret_cast<Address>(bit_pattern_), ref);
   }
 
   DirectHandle<Object> to_ref() const {
-    DCHECK(type_.is_reference());
+    DCHECK(type_.is_ref());
     return base::ReadUnalignedValue<DirectHandle<Object>>(
         reinterpret_cast<Address>(bit_pattern_));
   }
@@ -96,8 +96,8 @@ class WasmValue {
   bool operator==(const WasmValue& other) const {
     return type_ == other.type_ &&
            !memcmp(bit_pattern_, other.bit_pattern_,
-                   type_.is_reference() ? sizeof(DirectHandle<Object>)
-                                        : type_.value_kind_size());
+                   type_.is_ref() ? sizeof(DirectHandle<Object>)
+                                  : type_.value_kind_size());
   }
 
   void CopyTo(uint8_t* to) const {
@@ -129,7 +129,7 @@ class WasmValue {
 
   static WasmValue ForUintPtr(uintptr_t value) {
     using type =
-        std::conditional<kSystemPointerSize == 8, uint64_t, uint32_t>::type;
+        std::conditional_t<kSystemPointerSize == 8, uint64_t, uint32_t>;
     return WasmValue{type{value}};
   }
 
@@ -152,9 +152,14 @@ class WasmValue {
       case kS128: {
         std::stringstream stream;
         stream << "0x" << std::hex;
-        for (int8_t uint8_t : bit_pattern_) {
-          if (!(uint8_t & 0xf0)) stream << '0';
-          stream << uint8_t;
+        std::vector<uint8_t> native_pattern(
+            bit_pattern_, bit_pattern_ + arraysize(bit_pattern_));
+#if V8_TARGET_LITTLE_ENDIAN
+        std::reverse(native_pattern.begin(), native_pattern.end());
+#endif
+        for (uint8_t byte : native_pattern) {
+          if (!(byte & 0xf0)) stream << '0';
+          stream << static_cast<uint32_t>(byte);
         }
         return stream.str();
       }

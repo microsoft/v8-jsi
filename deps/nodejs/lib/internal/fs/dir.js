@@ -31,6 +31,7 @@ const {
   getDirent,
   getOptions,
   getValidatedPath,
+  vfsState,
 } = require('internal/fs/utils');
 const {
   validateFunction,
@@ -90,7 +91,7 @@ class Dir {
       );
 
       if (result !== null) {
-        this.processReadResult(path, result);
+        this.#processReadResult(path, result);
         if (result.length > 0) {
           ArrayPrototypePush(this.#handlerQueue, handler);
         }
@@ -133,7 +134,7 @@ class Dir {
         const dirent = ArrayPrototypeShift(this.#bufferedEntries);
 
         if (this.#options.recursive && dirent.isDirectory()) {
-          this.readSyncRecursive(dirent);
+          this.#readSyncRecursive(dirent);
         }
 
         if (maybeSync)
@@ -159,10 +160,10 @@ class Dir {
       }
 
       try {
-        this.processReadResult(this.#path, result);
+        this.#processReadResult(this.#path, result);
         const dirent = ArrayPrototypeShift(this.#bufferedEntries);
         if (this.#options.recursive && dirent.isDirectory()) {
-          this.readSyncRecursive(dirent);
+          this.#readSyncRecursive(dirent);
         }
         callback(null, dirent);
       } catch (error) {
@@ -178,7 +179,7 @@ class Dir {
     );
   }
 
-  processReadResult(path, result) {
+  #processReadResult(path, result) {
     for (let i = 0; i < result.length; i += 2) {
       ArrayPrototypePush(
         this.#bufferedEntries,
@@ -191,7 +192,7 @@ class Dir {
     }
   }
 
-  readSyncRecursive(dirent) {
+  #readSyncRecursive(dirent) {
     const path = pathModule.join(dirent.parentPath, dirent.name);
     const handle = dirBinding.opendir(
       path,
@@ -217,7 +218,7 @@ class Dir {
     if (this.#processHandlerQueue()) {
       const dirent = ArrayPrototypeShift(this.#bufferedEntries);
       if (this.#options.recursive && dirent.isDirectory()) {
-        this.readSyncRecursive(dirent);
+        this.#readSyncRecursive(dirent);
       }
       return dirent;
     }
@@ -231,11 +232,11 @@ class Dir {
       return result;
     }
 
-    this.processReadResult(this.#path, result);
+    this.#processReadResult(this.#path, result);
 
     const dirent = ArrayPrototypeShift(this.#bufferedEntries);
     if (this.#options.recursive && dirent.isDirectory()) {
-      this.readSyncRecursive(dirent);
+      this.#readSyncRecursive(dirent);
     }
     return dirent;
   }
@@ -330,6 +331,20 @@ function opendir(path, options, callback) {
   callback = typeof options === 'function' ? options : callback;
   validateFunction(callback, 'callback');
 
+  const h = vfsState.handlers;
+  if (h !== null) {
+    try {
+      const result = h.opendirSync(path, options);
+      if (result !== undefined) {
+        process.nextTick(callback, null, result);
+        return;
+      }
+    } catch (err) {
+      process.nextTick(callback, err);
+      return;
+    }
+  }
+
   path = getValidatedPath(path);
   options = getOptions(options, {
     encoding: 'utf8',
@@ -354,6 +369,12 @@ function opendir(path, options, callback) {
 }
 
 function opendirSync(path, options) {
+  const h = vfsState.handlers;
+  if (h !== null) {
+    const result = h.opendirSync(path, options);
+    if (result !== undefined) return result;
+  }
+
   path = getValidatedPath(path);
   options = getOptions(options, { encoding: 'utf8' });
 

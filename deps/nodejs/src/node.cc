@@ -49,7 +49,15 @@
 
 #if HAVE_OPENSSL
 #include "ncrypto.h"
+#if OPENSSL_VERSION_MAJOR >= 3
+#include <openssl/provider.h>
+#endif
 #include "node_crypto.h"
+#if OPENSSL_VERSION_MAJOR >= 3 && !defined(CONF_MFLAGS_IGNORE_MISSING_FILE)
+// OpenSSL hides this deprecated macro under OPENSSL_NO_DEPRECATED, but the
+// non-deprecated OPENSSL_INIT settings API still accepts the flag value.
+#define CONF_MFLAGS_IGNORE_MISSING_FILE 0x10
+#endif
 #endif
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
@@ -75,8 +83,6 @@
 #ifdef NODE_ENABLE_VTUNE_PROFILING
 #include "../deps/v8/third_party/vtune/v8-vtune.h"
 #endif
-
-#include "large_pages/node_large_page.h"
 
 #if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
 #define NODE_USE_V8_WASM_TRAP_HANDLER 1
@@ -324,7 +330,7 @@ MaybeLocal<Value> StartExecution(Environment* env,
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
   // Snapshot in SEA is only loaded for the main thread.
   if (sea::IsSingleExecutable() && env->is_main_thread()) {
-    sea::SeaResource sea = sea::FindSingleExecutableResource();
+    const sea::SeaResource& sea = sea::FindSingleExecutableResource();
     // The SEA preparation blob building process should already enforce this,
     // this check is just here to guard against the unlikely case where
     // the SEA preparation blob has been manually modified by someone.
@@ -381,6 +387,10 @@ MaybeLocal<Value> StartExecution(Environment* env,
     return StartExecution(env, "internal/main/check_syntax");
   }
 
+  if (env->options()->bench_runner) {
+    return StartExecution(env, "internal/main/bench_runner");
+  }
+
   if (env->options()->test_runner) {
     return StartExecution(env, "internal/main/test_runner");
   }
@@ -389,7 +399,10 @@ MaybeLocal<Value> StartExecution(Environment* env,
     return StartExecution(env, "internal/main/watch_mode");
   }
 
-  if (!first_argv.empty() && first_argv != "-") {
+  // --vfs-load takes the entry point from the source it names, mounted in
+  // prepareExecution(), so route to run_main_module even with no positional
+  // argument rather than falling through to the REPL/stdin.
+  if ((!first_argv.empty() && first_argv != "-") || env->options()->vfs_load) {
     return StartExecution(env, "internal/main/run_main_module");
   }
 
@@ -503,7 +516,7 @@ void ResetSignalHandlers() {
       // The only bad handler value we can inherit from before exec is SIG_IGN
       // (any actual function pointer is reset to SIG_DFL during exec).
       // If that's the case, we want to reset it back to SIG_DFL.
-      // However, it's also possible that an embeder (or an LD_PRELOAD-ed
+      // However, it's also possible that an embedder (or an LD_PRELOAD-ed
       // library) has set up own signal handler for own purposes
       // (e.g. profiling). If that's the case, we want to keep it intact.
       struct sigaction old;
@@ -718,6 +731,22 @@ void ResetStdio() {
 #endif  // __POSIX__
 }
 
+// Validates the benchmark runner options of the global (per-process) options
+// once every option source has been parsed. See
+// EnvironmentOptions::CheckBenchOptions().
+static void CheckGlobalBenchOptions(std::vector<std::string>* errors) {
+  Mutex::ScopedLock lock(per_process::cli_options_mutex);
+  per_process::cli_options->per_isolate->per_env->CheckBenchOptions(errors);
+}
+
+// Validates the options that conflict with --process-timeout once every option
+// source has been parsed. See PerProcessOptions::CheckProcessTimeoutOptions().
+static void CheckGlobalProcessTimeoutOptions(
+    const std::vector<std::string>& argv, std::vector<std::string>* errors) {
+  Mutex::ScopedLock lock(per_process::cli_options_mutex);
+  per_process::cli_options->CheckProcessTimeoutOptions(errors, argv);
+}
+
 static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
                                           std::vector<std::string>* exec_args,
                                           std::vector<std::string>* errors,
@@ -781,6 +810,20 @@ static ExitCode ProcessGlobalArgsInternal(std::vector<std::string>* args,
     v8_args.emplace_back("--js-source-phase-imports");
   }
 
+  // V8 aborts the process when external memory grows by more than
+  // --external-memory-max-reasonable-size gigabytes in a single step. That
+  // limit is a Chromium-oriented sanity check; allocating a buffer larger
+  // than it is a legitimate thing to do in Node, and should raise a
+  // RangeError rather than crash. Disable the check unless the user asked
+  // for a specific limit.
+  // Refs: https://github.com/nodejs/node/issues/65534
+  if (std::ranges::none_of(v8_args, [](const std::string& arg) {
+        return arg.starts_with("--external-memory-max-reasonable-size") ||
+               arg.starts_with("--external_memory_max_reasonable_size");
+      })) {
+    v8_args.emplace_back("--external-memory-max-reasonable-size=0");
+  }
+
 #ifdef __POSIX__
   // Block SIGPROF signals when sleeping in epoll_wait/kevent/etc.  Avoids the
   // performance penalty of frequent EINTR wakeups when the profiler is running.
@@ -813,8 +856,16 @@ int ProcessGlobalArgs(std::vector<std::string>* args,
                       std::vector<std::string>* exec_args,
                       std::vector<std::string>* errors,
                       OptionEnvvarSettings settings) {
-  return static_cast<int>(
-      ProcessGlobalArgsInternal(args, exec_args, errors, settings));
+  const ExitCode exit_code =
+      ProcessGlobalArgsInternal(args, exec_args, errors, settings);
+  if (exit_code != ExitCode::kNoFailure) return static_cast<int>(exit_code);
+  // Embedders parse every option source in a single pass, so the benchmark
+  // options can be validated right away.
+  CheckGlobalBenchOptions(errors);
+  if (!errors->empty()) {
+    return static_cast<int>(ExitCode::kInvalidCommandLineArgument);
+  }
+  return static_cast<int>(ExitCode::kNoFailure);
 }
 
 static std::atomic_bool init_called{false};
@@ -826,7 +877,7 @@ static ExitCode InitializeNodeWithArgsInternal(
     std::vector<std::string>* exec_argv,
     std::vector<std::string>* errors,
     ProcessInitializationFlags::Flags flags) {
-  // Make sure InitializeNodeWithArgs() is called only once.
+  // Make sure InitializeNodeWithArgsInternal() is called only once.
   CHECK(!init_called.exchange(true));
 
   // Initialize node_start_time to get relative uptime.
@@ -867,18 +918,10 @@ static ExitCode InitializeNodeWithArgsInternal(
   // default value.
   V8::SetFlagsFromString("--rehash-snapshot");
 
-#if HAVE_OPENSSL
-  // TODO(joyeecheung): make this a per-env option and move the normalization
-  // into HandleEnvOptions.
-  std::string use_system_ca;
-  if (credentials::SafeGetenv("NODE_USE_SYSTEM_CA", &use_system_ca) &&
-      use_system_ca == "1") {
-    per_process::cli_options->use_system_ca = true;
-  }
-#endif  // HAVE_OPENSSL
   HandleEnvOptions(per_process::cli_options->per_isolate->per_env);
 
   std::string node_options;
+  std::string node_options_from_dotenv;
   auto env_files = node::Dotenv::GetDataFromArgs(*argv);
 
   if (!env_files.empty()) {
@@ -905,19 +948,26 @@ static ExitCode InitializeNodeWithArgsInternal(
       }
     }
 
-    per_process::dotenv_file.AssignNodeOptionsIfAvailable(&node_options);
+    per_process::dotenv_file.AssignNodeOptionsIfAvailable(
+        &node_options_from_dotenv);
   }
 
   std::string node_options_from_config;
-  if (auto path = per_process::config_reader.GetDataFromArgs(*argv)) {
-    switch (per_process::config_reader.ParseConfig(*path)) {
+  auto config_path = per_process::config_reader.GetDataFromArgs(argv);
+  if (per_process::config_reader.HasInvalidDefaultConfigFileArgument()) {
+    errors->push_back("--experimental-default-config-file does not take an "
+                      "argument");
+    return ExitCode::kInvalidCommandLineArgument;
+  }
+  if (config_path) {
+    switch (per_process::config_reader.ParseConfig(*config_path)) {
       case ParseResult::Valid:
         break;
       case ParseResult::InvalidContent:
-        errors->push_back(std::string(*path) + ": invalid content");
+        errors->push_back(std::string(*config_path) + ": invalid content");
         break;
       case ParseResult::FileError:
-        errors->push_back(std::string(*path) + ": not found");
+        errors->push_back(std::string(*config_path) + ": not found");
         break;
       default:
         UNREACHABLE();
@@ -935,15 +985,16 @@ static ExitCode InitializeNodeWithArgsInternal(
       errors->emplace_back("The number of NODE_OPTIONS doesn't match "
                            "the number of flags in the config file");
     }
-    node_options += node_options_from_config;
   }
+
+  node_options = node_options_from_config + node_options_from_dotenv;
 
 #if !defined(NODE_WITHOUT_NODE_OPTIONS)
   bool should_parse_node_options =
       !(flags & ProcessInitializationFlags::kDisableNodeOptionsEnv);
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
   if (sea::IsSingleExecutable()) {
-    sea::SeaResource sea_resource = sea::FindSingleExecutableResource();
+    const sea::SeaResource& sea_resource = sea::FindSingleExecutableResource();
     if (sea_resource.exec_argv_extension != sea::SeaExecArgvExtension::kEnv) {
       should_parse_node_options = false;
     }
@@ -993,6 +1044,34 @@ static ExitCode InitializeNodeWithArgsInternal(
     exit_code =
         ProcessGlobalArgsInternal(argv, exec_argv, errors, kDisallowedInEnvvar);
     if (exit_code != ExitCode::kNoFailure) return exit_code;
+  }
+
+  // Every option source has now been parsed, so cross-source option
+  // constraints can finally be validated.
+  CheckGlobalBenchOptions(errors);
+  CheckGlobalProcessTimeoutOptions(*argv, errors);
+  if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
+
+  // Checked here, once every source of options has been parsed, because the
+  // count below needs the arguments the command line itself gave.
+  {
+    auto* env_options = per_process::cli_options->per_isolate->per_env.get();
+    if (!env_options->experimental_vfs && env_options->vfs_load) {
+      errors->push_back("--vfs-load requires --experimental-vfs");
+    }
+    // A second --vfs-load would silently replace the first, and the option
+    // itself cannot say how often it was given; count it in the node options
+    // the command line yielded.
+    if (env_options->vfs_load && exec_argv != nullptr) {
+      size_t seen = 0;
+      for (const std::string& arg : *exec_argv) {
+        if (arg == "--vfs-load" || arg.starts_with("--vfs-load=")) seen++;
+      }
+      if (seen > 1) {
+        errors->push_back("--vfs-load may only be given once");
+      }
+    }
+    if (!errors->empty()) return ExitCode::kInvalidCommandLineArgument;
   }
 
   // Set the process.title immediately after processing argv if --title is set.
@@ -1055,13 +1134,44 @@ static ExitCode InitializeNodeWithArgsInternal(
   return ExitCode::kNoFailure;
 }
 
-int InitializeNodeWithArgs(std::vector<std::string>* argv,
-                           std::vector<std::string>* exec_argv,
-                           std::vector<std::string>* errors,
-                           ProcessInitializationFlags::Flags flags) {
-  return static_cast<int>(
-      InitializeNodeWithArgsInternal(argv, exec_argv, errors, flags));
+#if NODE_USE_V8_WASM_TRAP_HANDLER
+bool CanEnableWebAssemblyTrapHandler() {
+// On POSIX, the machine may have a limit on the amount of virtual memory
+// available, if it's not enough to allocate at least one cage for WASM,
+// then the trap-handler-based bound checks cannot be used.
+#ifdef __POSIX__
+  struct rlimit lim;
+  if (getrlimit(RLIMIT_AS, &lim) != 0 || lim.rlim_cur == RLIM_INFINITY) {
+    // Can't get the limit or there's no limit, assume trap handler can be
+    // enabled.
+    return true;
+  }
+  uint64_t virtual_memory_available = static_cast<uint64_t>(lim.rlim_cur);
+
+  size_t byte_capacity = 64 * 1024;  // 64KB, the minimum size of a WASM memory.
+  uint64_t cage_size_needed_32 = V8::GetWasmMemoryReservationSizeInBytes(
+      V8::WasmMemoryType::kMemory32, byte_capacity);
+  uint64_t cage_size_needed_64 = V8::GetWasmMemoryReservationSizeInBytes(
+      V8::WasmMemoryType::kMemory64, byte_capacity);
+  uint64_t cage_size_needed =
+      std::max(cage_size_needed_32, cage_size_needed_64);
+  bool can_enable = virtual_memory_available >= cage_size_needed;
+  per_process::Debug(DebugCategory::BOOTSTRAP,
+                     "Virtual memory available: %" PRIu64 " bytes,\n"
+                     "cage size needed for 32-bit: %" PRIu64 " bytes,\n"
+                     "cage size needed for 64-bit: %" PRIu64 " bytes,\n"
+                     "Can%senable WASM trap handler\n",
+                     virtual_memory_available,
+                     cage_size_needed_32,
+                     cage_size_needed_64,
+                     can_enable ? " " : " not ");
+
+  return can_enable;
+#else
+  return true;
+#endif  // __POSIX__
 }
+#endif  // NODE_USE_V8_WASM_TRAP_HANDLER
 
 static std::shared_ptr<InitializationResultImpl>
 InitializeOncePerProcessInternal(const std::vector<std::string>& args,
@@ -1089,15 +1199,12 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   }
 
   if (!(flags & ProcessInitializationFlags::kNoUseLargePages) &&
-      (per_process::cli_options->use_largepages == "on" ||
-       per_process::cli_options->use_largepages == "silent")) {
-    int lp_result = node::MapStaticCodeToLargePages();
-    if (per_process::cli_options->use_largepages == "on" && lp_result != 0) {
-      result->errors_.emplace_back(node::LargePagesError(lp_result));
-    }
+      (per_process::cli_options->use_largepages == "on")) {
+    result->errors_.emplace_back("--use-largepages is no longer supported.");
   }
 
-  if (!per_process::cli_options->run.empty()) {
+  // A bare `--run` (empty value) lists the available scripts; a value runs it.
+  if (per_process::cli_options->has_run) {
     auto positional_args = task_runner::GetPositionalArgs(args);
     result->early_return_ = true;
     task_runner::RunTask(
@@ -1132,6 +1239,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   if (!(flags & ProcessInitializationFlags::kNoInitOpenSSL)) {
 #if HAVE_OPENSSL
 #ifndef OPENSSL_IS_BORINGSSL
+#if OPENSSL_VERSION_MAJOR >= 3
     auto GetOpenSSLErrorString = []() -> std::string {
       std::string ret;
       ERR_print_errors_cb(
@@ -1147,7 +1255,6 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
 
     // In the case of FIPS builds we should make sure
     // the random source is properly initialized first.
-#if OPENSSL_VERSION_MAJOR >= 3
     // Call OPENSSL_init_crypto to initialize OPENSSL_INIT_LOAD_CONFIG to
     // avoid the default behavior where errors raised during the parsing of the
     // OpenSSL configuration file are not propagated and cannot be detected.
@@ -1185,6 +1292,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
     }
 
     OPENSSL_INIT_SETTINGS* settings = OPENSSL_INIT_new();
+    CHECK_NOT_NULL(settings);
     OPENSSL_INIT_set_config_filename(settings, conf_file);
     OPENSSL_INIT_set_config_appname(settings, conf_section_name);
     OPENSSL_INIT_set_config_file_flags(settings,
@@ -1208,24 +1316,44 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
       OPENSSL_init();
     }
 #endif
-    if (!crypto::ProcessFipsOptions()) {
+    if (auto fips_error = crypto::ProcessFipsOptions()) {
       result->exit_code_ = ExitCode::kGenericUserError;
       result->early_return_ = true;
-      result->errors_.emplace_back(
-          "OpenSSL error when trying to enable FIPS:\n" +
-          GetOpenSSLErrorString());
+      result->errors_.emplace_back(std::move(*fips_error));
       return result;
     }
+    crypto::InstallFipsIndicatorCallback();
 
-    // Ensure CSPRNG is properly seeded.
-    CHECK(ncrypto::CSPRNG(nullptr, 0));
+    // Activating the default provider here keeps --openssl-legacy-provider
+    // working. Its explicit load disables OpenSSL's fallback, and the eager
+    // CSPRNG check used to activate the provider as a side effect. Only
+    // check the seeding when that provider is missing or FIPS is on, so a
+    // configuration without a DRBG still aborts at startup instead of
+    // hanging at the first crypto call. Otherwise the DRBG is instantiated
+    // on first use.
+#if OPENSSL_VERSION_MAJOR >= 3
+    const bool check_csprng = ncrypto::isFipsEnabled() ||
+                              !OSSL_PROVIDER_available(nullptr, "default");
+#else
+    const bool check_csprng = true;
+#endif
+    if (check_csprng) {
+      CHECK(ncrypto::CSPRNG(nullptr, 0));
+    }
 
+    // V8 uses the entropy for hash seeds, ASLR and Math.random(), none of
+    // it cryptographic. Going through OpenSSL would instantiate the DRBG
+    // and build the default provider's algorithm tables on every startup.
+    // V8 falls back to very weak entropy when the source fails, so abort
+    // instead.
     V8::SetEntropySource([](unsigned char* buffer, size_t length) {
-      // V8 falls back to very weak entropy when this function fails
-      // and /dev/urandom isn't available. That wouldn't be so bad if
-      // the entropy was only used for Math.random() but it's also used for
-      // hash table and address space layout randomization. Better to abort.
+#ifdef _AIX
+      // uv_random() reads /dev/random on AIX, which blocks. OpenSSL seeds
+      // from /dev/urandom there.
       CHECK(ncrypto::CSPRNG(buffer, length));
+#else
+      CHECK_EQ(uv_random(nullptr, nullptr, buffer, length, 0, nullptr), 0);
+#endif
       return true;
     });
 #endif  // !defined(OPENSSL_IS_BORINGSSL)
@@ -1238,7 +1366,7 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   }
 
   if (!(flags & ProcessInitializationFlags::kNoInitializeNodeV8Platform)) {
-    uv_thread_setname("MainThread");
+    uv_thread_setname("node-MainThread");
     per_process::v8_platform.Initialize(
         static_cast<int>(per_process::cli_options->v8_thread_pool_size));
     result->platform_ = per_process::v8_platform.Platform();
@@ -1250,6 +1378,10 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
       allocator = result->platform_->GetPageAllocator();
     }
     cppgc::InitializeProcess(allocator);
+  }
+
+  if (flags & ProcessInitializationFlags::kNoHarvestBuiltinCodeCache) {
+    builtins::BuiltinLoader::SetHarvestCodeCache(false);
   }
 
   if (!(flags & ProcessInitializationFlags::kNoInitializeV8)) {
@@ -1265,7 +1397,9 @@ InitializeOncePerProcessInternal(const std::vector<std::string>& args,
   bool use_wasm_trap_handler =
       !per_process::cli_options->disable_wasm_trap_handler;
   if (!(flags & ProcessInitializationFlags::kNoDefaultSignalHandling) &&
-      use_wasm_trap_handler) {
+      use_wasm_trap_handler && CanEnableWebAssemblyTrapHandler()) {
+    per_process::Debug(DebugCategory::BOOTSTRAP,
+                       "Enabling WebAssembly trap handler for bounds checks\n");
 #if defined(_WIN32)
     constexpr ULONG first = TRUE;
     per_process::old_vectored_exception_handler =
@@ -1469,12 +1603,16 @@ bool LoadSnapshotData(const SnapshotData** snapshot_data_ptr) {
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
   if (sea::IsSingleExecutable()) {
     is_sea = true;
-    sea::SeaResource sea = sea::FindSingleExecutableResource();
+    const sea::SeaResource& sea = sea::FindSingleExecutableResource();
     if (sea.use_snapshot()) {
       std::unique_ptr<SnapshotData> read_data =
           std::make_unique<SnapshotData>();
       std::string_view snapshot = sea.main_code_or_snapshot;
-      if (SnapshotData::FromBlob(read_data.get(), snapshot)) {
+      // The SEA resource remains mapped for the process lifetime, so V8 can
+      // consume the startup data directly from the executable image.
+      if (SnapshotData::FromBlob(read_data.get(),
+                                 snapshot,
+                                 SnapshotData::DataOwnership::kNotOwned)) {
         *snapshot_data_ptr = read_data.release();
         return true;
       } else {
@@ -1554,14 +1692,21 @@ static ExitCode StartInternal(int argc, char** argv) {
   uv_loop_configure(uv_default_loop(), UV_METRICS_IDLE_TIME);
   std::string sea_config = per_process::cli_options->experimental_sea_config;
   if (!sea_config.empty()) {
-#if !defined(DISABLE_SINGLE_EXECUTABLE_APPLICATION)
-    return sea::BuildSingleExecutableBlob(
-        sea_config, result->args(), result->exec_args());
-#else
+#if defined(DISABLE_SINGLE_EXECUTABLE_APPLICATION)
     fprintf(stderr, "Single executable application is disabled.\n");
     return ExitCode::kGenericUserError;
-#endif  // !defined(DISABLE_SINGLE_EXECUTABLE_APPLICATION)
+#else
+    return sea::WriteSingleExecutableBlob(
+        sea_config, result->args(), result->exec_args());
+#endif
   }
+
+  sea_config = per_process::cli_options->build_sea;
+  if (!sea_config.empty()) {
+    return sea::BuildSingleExecutable(
+        sea_config, result->args(), result->exec_args());
+  }
+
   // --build-snapshot indicates that we are in snapshot building mode.
   if (per_process::cli_options->per_isolate->build_snapshot) {
     if (per_process::cli_options->per_isolate->build_snapshot_config.empty() &&
@@ -1588,7 +1733,14 @@ static ExitCode StartInternal(int argc, char** argv) {
 
 int Start(int argc, char** argv) {
 #ifndef DISABLE_SINGLE_EXECUTABLE_APPLICATION
-  std::tie(argc, argv) = sea::FixupArgsForSEA(argc, argv);
+  std::vector<std::string> errors;
+  std::tie(argc, argv) = sea::FixupArgsForSEA(argc, argv, &errors);
+  if (!errors.empty()) {
+    for (const std::string& error : errors) {
+      FPrintF(stderr, "%s: %s\n", argv[0], error);
+    }
+    return static_cast<int>(ExitCode::kInvalidCommandLineArgument);
+  }
 #endif
   return static_cast<int>(StartInternal(argc, argv));
 }

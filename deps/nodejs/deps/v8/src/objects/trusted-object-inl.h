@@ -8,8 +8,10 @@
 #include "src/objects/trusted-object.h"
 // Include the non-inl header before the rest of the headers.
 
+#include "src/heap/heap-write-barrier-inl.h"
 #include "src/objects/heap-object-inl.h"
 #include "src/objects/instance-type-inl.h"
+#include "src/sandbox/indirect-pointer-inl.h"
 #include "src/sandbox/sandbox.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -20,17 +22,16 @@ namespace internal {
 
 OBJECT_CONSTRUCTORS_IMPL(TrustedObject, HeapObject)
 
-Tagged<TrustedObject> TrustedObject::ReadProtectedPointerField(
-    int offset) const {
-  return TaggedField<TrustedObject, 0, TrustedSpaceCompressionScheme>::load(
-      *this, offset);
+template <typename T>
+Tagged<T> TrustedObject::ReadProtectedPointerField(int offset) const {
+  return TaggedField<T, 0, TrustedSpaceCompressionScheme>::load(*this, offset);
 }
 
-Tagged<TrustedObject> TrustedObject::ReadProtectedPointerField(
-    int offset, AcquireLoadTag) const {
-  return TaggedField<TrustedObject, 0,
-                     TrustedSpaceCompressionScheme>::Acquire_Load(*this,
-                                                                  offset);
+template <typename T>
+Tagged<T> TrustedObject::ReadProtectedPointerField(int offset,
+                                                   AcquireLoadTag) const {
+  return TaggedField<T, 0, TrustedSpaceCompressionScheme>::Acquire_Load(*this,
+                                                                        offset);
 }
 
 void TrustedObject::WriteProtectedPointerField(int offset,
@@ -85,14 +86,14 @@ void TrustedObject::VerifyProtectedPointerField(Isolate* isolate, int offset) {
 
 OBJECT_CONSTRUCTORS_IMPL(ExposedTrustedObject, TrustedObject)
 
-void ExposedTrustedObject::init_self_indirect_pointer(Isolate* isolate) {
+void ExposedTrustedObject::InitAndPublish(Isolate* isolate) {
 #ifdef V8_ENABLE_SANDBOX
   InitSelfIndirectPointerField(kSelfIndirectPointerOffset, isolate,
                                isolate->trusted_pointer_publishing_scope());
 #endif
 }
 
-void ExposedTrustedObject::init_self_indirect_pointer(LocalIsolate* isolate) {
+void ExposedTrustedObject::InitAndPublish(LocalIsolate* isolate) {
 #ifdef V8_ENABLE_SANDBOX
   // Background threads using LocalIsolates don't use
   // TrustedPointerPublishingScopes.
@@ -100,10 +101,77 @@ void ExposedTrustedObject::init_self_indirect_pointer(LocalIsolate* isolate) {
 #endif
 }
 
+void ExposedTrustedObject::InitDontPublish(Isolate* isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  InitSelfIndirectPointerFieldWithoutPublishing(kSelfIndirectPointerOffset,
+                                                isolate);
+#endif
+}
+
+void ExposedTrustedObject::InitDontPublish(LocalIsolate* isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  InitSelfIndirectPointerFieldWithoutPublishing(kSelfIndirectPointerOffset,
+                                                isolate);
+#endif
+}
+
+void ExposedTrustedObject::Publish(IsolateForSandbox isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  DCHECK(!IsPublished(isolate));
+  // Currently only non-shared objects can be unpublished. We could change that
+  // in the future, which would probably require a new shared+unpublished tag.
+  DCHECK(!HeapLayout::InAnySharedSpace(*this));
+
+  InstanceType instance_type = map()->instance_type();
+  IndirectPointerTag tag =
+      IndirectPointerTagFromInstanceType(instance_type, false);
+  IndirectPointerHandle handle =
+      ACQUIRE_READ_UINT32_FIELD(*this, kSelfIndirectPointerOffset);
+  TrustedPointerTable& table = isolate.GetTrustedPointerTableFor(tag);
+  return table.Publish(handle, tag);
+#endif
+}
+
+bool ExposedTrustedObject::IsPublished(IsolateForSandbox isolate) const {
+#ifdef V8_ENABLE_SANDBOX
+  InstanceType instance_type = map()->instance_type();
+  IndirectPointerTag tag =
+      IndirectPointerTagFromInstanceType(instance_type, false);
+  return !IsTrustedPointerFieldUnpublished(kSelfIndirectPointerOffset, tag,
+                                           isolate);
+#else
+  return true;
+#endif
+}
+
 IndirectPointerHandle ExposedTrustedObject::self_indirect_pointer_handle()
     const {
 #ifdef V8_ENABLE_SANDBOX
   return Relaxed_ReadField<IndirectPointerHandle>(kSelfIndirectPointerOffset);
+#else
+  UNREACHABLE();
+#endif
+}
+
+void ExposedTrustedObjectLayout::InitAndPublish(Isolate* isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  InitSelfIndirectPointerField(&self_indirect_pointer_, isolate,
+                               isolate->trusted_pointer_publishing_scope());
+#endif
+}
+
+void ExposedTrustedObjectLayout::InitAndPublish(LocalIsolate* isolate) {
+#ifdef V8_ENABLE_SANDBOX
+  // Background threads using LocalIsolates don't use
+  // TrustedPointerPublishingScopes.
+  InitSelfIndirectPointerField(&self_indirect_pointer_, isolate, nullptr);
+#endif
+}
+
+IndirectPointerHandle ExposedTrustedObjectLayout::self_indirect_pointer_handle()
+    const {
+#ifdef V8_ENABLE_SANDBOX
+  return self_indirect_pointer_.load(std::memory_order::relaxed);
 #else
   UNREACHABLE();
 #endif

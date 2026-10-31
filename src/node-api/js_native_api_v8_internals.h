@@ -53,8 +53,8 @@
 
 #define NAPI_ARRAYSIZE(array) node::arraysize((array))
 
-#define NAPI_PRIVATE_KEY(context, suffix)                                      \
-  (v8runtime::V8Runtime::GetCurrent((context))->napi_##suffix())
+#define NAPI_PRIVATE_KEY(env, suffix)                                          \
+  (v8runtime::V8Runtime::GetCurrent((env)->context())->napi_##suffix())
 
 namespace v8impl {
 

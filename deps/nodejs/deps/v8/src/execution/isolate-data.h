@@ -8,6 +8,7 @@
 #include "src/builtins/builtins.h"
 #include "src/codegen/constants-arch.h"
 #include "src/codegen/external-reference-table.h"
+#include "src/execution/isolate-data-fields.h"
 #include "src/execution/stack-guard.h"
 #include "src/execution/thread-local-top.h"
 #include "src/heap/linear-allocation-area.h"
@@ -26,40 +27,12 @@ namespace internal {
 class Isolate;
 class TrustedPointerPublishingScope;
 
-#if V8_HOST_ARCH_64_BIT
-// In kSystemPointerSize.
-static constexpr int kFastCCallAlignmentPaddingCount = 5;
-#else
-static constexpr int kFastCCallAlignmentPaddingCount = 1;
-#endif
-
-#if V8_HOST_ARCH_64_BIT
-#define ISOLATE_DATA_FAST_C_CALL_PADDING(V)              \
-  V(kFastCCallAlignmentPaddingOffset,                    \
-    kFastCCallAlignmentPaddingCount* kSystemPointerSize, \
-    fast_c_call_alignment_padding)
-#else
-#define ISOLATE_DATA_FAST_C_CALL_PADDING(V)              \
-  V(kFastCCallAlignmentPaddingOffset,                    \
-    kFastCCallAlignmentPaddingCount* kSystemPointerSize, \
-    fast_c_call_alignment_padding)
-#endif  // V8_HOST_ARCH_64_BIT
-
-#ifdef V8_ENABLE_LEAPTIERING
+namespace wasm {
+class StackMemory;
+}
 
 #define BUILTINS_WITH_DISPATCH_ADAPTER(V, CamelName, underscore_name, ...) \
   V(CamelName, CamelName##SharedFun)
-
-// If we have predictable builtins then dispatch handles of builtins are
-// stored in the read only segment of the JSDispatchTable. Otherwise,
-// we need a table of per-isolate dispatch handles of builtins.
-#if V8_ENABLE_LEAPTIERING_BOOL
-#if V8_STATIC_ROOTS_BOOL
-#define V8_STATIC_DISPATCH_HANDLES_BOOL true
-#else
-#define V8_STATIC_DISPATCH_HANDLES_BOOL false
-#endif  // V8_STATIC_ROOTS_BOOL
-#endif  // V8_ENABLE_LEAPTIERING_BOOL
 
 #define BUILTINS_WITH_DISPATCH_LIST(V) \
   BUILTINS_WITH_SFI_LIST_GENERATOR(BUILTINS_WITH_DISPATCH_ADAPTER, V)
@@ -109,111 +82,6 @@ struct JSBuiltinDispatchHandleRoot {
   }
 };
 
-#endif  // V8_ENABLE_LEAPTIERING
-
-// IsolateData fields, defined as: V(CamelName, Size, hacker_name)
-#define ISOLATE_DATA_FIELDS(V)                                                 \
-  /* Misc. fields. */                                                          \
-  V(CageBase, kSystemPointerSize, cage_base)                                   \
-  V(StackGuard, StackGuard::kSizeInBytes, stack_guard)                         \
-  V(IsMarkingFlag, kUInt8Size, is_marking_flag)                                \
-  V(IsMinorMarkingFlag, kUInt8Size, is_minor_marking_flag)                     \
-  V(IsSharedSpaceIsolateFlag, kUInt8Size, is_shared_space_isolate_flag)        \
-  V(UsesSharedHeapFlag, kUInt8Size, uses_shared_heap_flag)                     \
-  V(ExecutionMode, kUInt8Size, execution_mode)                                 \
-  V(StackIsIterable, kUInt8Size, stack_is_iterable)                            \
-  V(ErrorMessageParam, kUInt8Size, error_message_param)                        \
-  V(TablesAlignmentPadding, 1, tables_alignment_padding)                       \
-  V(RegExpStaticResultOffsetsVector, kSystemPointerSize,                       \
-    regexp_static_result_offsets_vector)                                       \
-  /* Tier 0 tables (small but fast access). */                                 \
-  V(BuiltinTier0EntryTable, Builtins::kBuiltinTier0Count* kSystemPointerSize,  \
-    builtin_tier0_entry_table)                                                 \
-  V(BuiltinsTier0Table, Builtins::kBuiltinTier0Count* kSystemPointerSize,      \
-    builtin_tier0_table)                                                       \
-  /* Misc. fields. */                                                          \
-  V(NewAllocationInfo, LinearAllocationArea::kSize, new_allocation_info)       \
-  V(OldAllocationInfo, LinearAllocationArea::kSize, old_allocation_info)       \
-  ISOLATE_DATA_FAST_C_CALL_PADDING(V)                                          \
-  V(FastCCallCallerPC, kSystemPointerSize, fast_c_call_caller_pc)              \
-  V(FastCCallCallerFP, kSystemPointerSize, fast_c_call_caller_fp)              \
-  V(FastApiCallTarget, kSystemPointerSize, fast_api_call_target)               \
-  V(LongTaskStatsCounter, kSizetSize, long_task_stats_counter)                 \
-  V(ThreadLocalTop, ThreadLocalTop::kSizeInBytes, thread_local_top)            \
-  V(HandleScopeData, HandleScopeData::kSizeInBytes, handle_scope_data)         \
-  V(EmbedderData, Internals::kNumIsolateDataSlots* kSystemPointerSize,         \
-    embedder_data)                                                             \
-  ISOLATE_DATA_FIELDS_POINTER_COMPRESSION(V)                                   \
-  ISOLATE_DATA_FIELDS_SANDBOX(V)                                               \
-  V(ApiCallbackThunkArgument, kSystemPointerSize, api_callback_thunk_argument) \
-  V(RegexpExecVectorArgument, kSystemPointerSize, regexp_exec_vector_argument) \
-  V(ContinuationPreservedEmbedderData, kSystemPointerSize,                     \
-    continuation_preserved_embedder_data)                                      \
-  /* Full tables (arbitrary size, potentially slower access). */               \
-  V(RootsTable, RootsTable::kEntriesCount* kSystemPointerSize, roots_table)    \
-  V(ExternalReferenceTable, ExternalReferenceTable::kSizeInBytes,              \
-    external_reference_table)                                                  \
-  V(BuiltinEntryTable, Builtins::kBuiltinCount* kSystemPointerSize,            \
-    builtin_entry_table)                                                       \
-  V(BuiltinTable, Builtins::kBuiltinCount* kSystemPointerSize, builtin_table)  \
-  ISOLATE_DATA_FIELDS_LEAPTIERING(V)
-
-#ifdef V8_COMPRESS_POINTERS
-#define ISOLATE_DATA_FIELDS_POINTER_COMPRESSION(V)      \
-  V(ExternalPointerTable, sizeof(ExternalPointerTable), \
-    external_pointer_table)                             \
-  V(SharedExternalPointerTable, kSystemPointerSize,     \
-    shared_external_pointer_table)                      \
-  V(CppHeapPointerTable, sizeof(CppHeapPointerTable), cpp_heap_pointer_table)
-#else
-#define ISOLATE_DATA_FIELDS_POINTER_COMPRESSION(V)
-#endif  // V8_COMPRESS_POINTERS
-
-#ifdef V8_ENABLE_SANDBOX
-#define ISOLATE_DATA_FIELDS_SANDBOX(V)                                       \
-  V(TrustedCageBase, kSystemPointerSize, trusted_cage_base)                  \
-  V(TrustedPointerTable, sizeof(TrustedPointerTable), trusted_pointer_table) \
-  V(SharedTrustedPointerTable, kSystemPointerSize,                           \
-    shared_trusted_pointer_table)                                            \
-  V(TrustedPointerPublishingScope, kSystemPointerSize,                       \
-    trusted_pointer_publishing_scope)                                        \
-  V(CodePointerTableBaseAddress, kSystemPointerSize,                         \
-    code_pointer_table_base_address)
-#else
-#define ISOLATE_DATA_FIELDS_SANDBOX(V)
-#endif  // V8_ENABLE_SANDBOX
-
-#if V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
-
-#define ISOLATE_DATA_FIELDS_LEAPTIERING(V)                                \
-  V(BuiltinDispatchTable,                                                 \
-    (JSBuiltinDispatchHandleRoot::kTableSize) * sizeof(JSDispatchHandle), \
-    builtin_dispatch_table)
-#else
-
-#define ISOLATE_DATA_FIELDS_LEAPTIERING(V)
-
-#endif  // V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
-
-#define EXTERNAL_REFERENCE_LIST_ISOLATE_FIELDS(V)       \
-  V(isolate_address, "isolate address", IsolateAddress) \
-  V(jslimit_address, "jslimit address", JsLimitAddress)
-
-constexpr uint8_t kNumIsolateFieldIds = 0
-#define PLUS_1(...) +1
-    EXTERNAL_REFERENCE_LIST_ISOLATE_FIELDS(PLUS_1) ISOLATE_DATA_FIELDS(PLUS_1);
-#undef PLUS_1
-
-enum class IsolateFieldId : uint8_t {
-  kUnknown = 0,
-#define FIELD(name, comment, camel) k##camel,
-  EXTERNAL_REFERENCE_LIST_ISOLATE_FIELDS(FIELD)
-#undef FIELD
-#define FIELD(camel, ...) k##camel,
-      ISOLATE_DATA_FIELDS(FIELD)
-#undef FIELD
-};
-
 // This class contains a collection of data accessible from both C++ runtime
 // and compiled code (including builtins, interpreter bytecode handlers and
 // optimized code). The compiled code accesses the isolate data fields
@@ -246,12 +114,29 @@ class IsolateData final {
   }
 
   // Root-register-relative offsets.
+  static constexpr int isolate_data_offset() { return -kIsolateRootBias; }
+  Address isolate_data_address() const {
+    return reinterpret_cast<Address>(this);
+  }
 
-#define V(CamelName, Size, hacker_name)             \
-  static constexpr int hacker_name##_offset() {     \
-    return k##CamelName##Offset - kIsolateRootBias; \
+#define V(CamelName, Size, hacker_name)                \
+  static constexpr int hacker_name##_offset() {        \
+    return k##CamelName##Offset - kIsolateRootBias;    \
+  }                                                    \
+  Address hacker_name##_address() const {              \
+    return reinterpret_cast<Address>(&hacker_name##_); \
   }
   ISOLATE_DATA_FIELDS(V)
+#undef V
+
+#define V(CamelName, hacker_name, holder_field_name, FieldOffset) \
+  static constexpr int hacker_name##_offset() {                   \
+    return holder_field_name##_offset() + FieldOffset;            \
+  }                                                               \
+  Address hacker_name##_address() const {                         \
+    return holder_field_name##_address() + FieldOffset;           \
+  }
+  ISOLATE_DATA_SUBFIELDS(V)
 #undef V
 
   static constexpr int root_slot_offset(RootIndex root_index) {
@@ -274,26 +159,12 @@ class IsolateData final {
            Builtins::ToInt(id) * kSystemPointerSize;
   }
 
-  static constexpr int jslimit_offset() {
-    return stack_guard_offset() + StackGuard::jslimit_offset();
-  }
-
-  static constexpr int real_jslimit_offset() {
-    return stack_guard_offset() + StackGuard::real_jslimit_offset();
-  }
-
-#define V(Offset, Size, Name) \
-  Address Name##_address() const { return reinterpret_cast<Address>(&Name##_); }
-  ISOLATE_DATA_FIELDS(V)
-#undef V
+  LinearAllocationArea& new_allocation_info() { return new_allocation_info_; }
+  LinearAllocationArea& old_allocation_info() { return old_allocation_info_; }
 
   Address fast_c_call_caller_fp() const { return fast_c_call_caller_fp_; }
   Address fast_c_call_caller_pc() const { return fast_c_call_caller_pc_; }
   Address fast_api_call_target() const { return fast_api_call_target_; }
-
-  static constexpr int exception_offset() {
-    return thread_local_top_offset() + ThreadLocalTop::exception_offset();
-  }
 
   // The value of kPointerCageBaseRegister.
   Address cage_base() const { return cage_base_; }
@@ -327,12 +198,32 @@ class IsolateData final {
   ThreadLocalTop const& thread_local_top() const { return thread_local_top_; }
   Address* builtin_entry_table() { return builtin_entry_table_; }
   Address* builtin_table() { return builtin_table_; }
-#if V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
+#if V8_ENABLE_WEBASSEMBLY
+  wasm::StackMemory* active_stack() { return active_stack_; }
+  void set_active_stack(wasm::StackMemory* stack) { active_stack_ = stack; }
+  Tagged<WasmSuspenderObject> active_suspender() { return active_suspender_; }
+  void set_active_suspender(Tagged<WasmSuspenderObject> v) {
+    active_suspender_ = v;
+  }
+#endif
+#if !V8_STATIC_DISPATCH_HANDLES_BOOL
   JSDispatchHandle builtin_dispatch_handle(Builtin builtin) {
     return builtin_dispatch_table_[JSBuiltinDispatchHandleRoot::to_idx(
         builtin)];
   }
-#endif  // V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
+#endif  // !V8_STATIC_DISPATCH_HANDLES_BOOL
+
+  // Accessors for storage of raw arguments for runtime functions.
+  template <typename T>
+    requires(std::is_integral_v<T> || std::is_floating_point_v<T>)
+  T GetRawArgument(uint32_t index) const {
+    static_assert(sizeof(T) <= kDoubleSize);
+    DCHECK_LT(index, GetRawArgumentCount());
+    return *reinterpret_cast<const T*>(&raw_arguments_[index].storage_);
+  }
+  static constexpr uint32_t GetRawArgumentCount() {
+    return arraysize(raw_arguments_);
+  }
 
   bool stack_is_iterable() const {
     DCHECK(stack_is_iterable_ == 0 || stack_is_iterable_ == 1);
@@ -344,35 +235,39 @@ class IsolateData final {
   // it's the case then the value can be accessed indirectly through the root
   // register.
   bool contains(Address address) const {
-    static_assert(std::is_unsigned<Address>::value);
+    static_assert(std::is_unsigned_v<Address>);
     Address start = reinterpret_cast<Address>(this);
     return (address - start) < sizeof(*this);
   }
 
-// Offset of a ThreadLocalTop member from {isolate_root()}.
-#define THREAD_LOCAL_TOP_MEMBER_OFFSET(Name)                              \
-  static constexpr uint32_t Name##_offset() {                             \
-    return static_cast<uint32_t>(IsolateData::thread_local_top_offset() + \
-                                 OFFSET_OF(ThreadLocalTop, Name##_));     \
+  static constexpr int32_t GetOffset(IsolateFieldId id) {
+    switch (id) {
+#define CASE(CamelName, size, name)  \
+  case IsolateFieldId::k##CamelName: \
+    return name##_offset();
+      ISOLATE_DATA_FIELDS(CASE)
+#undef CASE
+#define CASE(CamelName, hacker_name, ...) \
+  case IsolateFieldId::k##CamelName:      \
+    return hacker_name##_offset();
+      ISOLATE_DATA_SUBFIELDS(CASE)
+#undef CASE
+      default:
+        UNREACHABLE();
+    }
   }
 
-  THREAD_LOCAL_TOP_MEMBER_OFFSET(topmost_script_having_context)
-  THREAD_LOCAL_TOP_MEMBER_OFFSET(is_on_central_stack_flag)
-  THREAD_LOCAL_TOP_MEMBER_OFFSET(context)
-#undef THREAD_LOCAL_TOP_MEMBER_OFFSET
-
-  static constexpr intptr_t GetOffset(IsolateFieldId id) {
+  Address GetAddress(IsolateFieldId id) const {
     switch (id) {
-      case IsolateFieldId::kUnknown:
-        UNREACHABLE();
-      case IsolateFieldId::kIsolateAddress:
-        return -kIsolateRootBias;
-      case IsolateFieldId::kJsLimitAddress:
-        return IsolateData::jslimit_offset();
-#define CASE(camel, size, name)  \
-  case IsolateFieldId::k##camel: \
-    return IsolateData::name##_offset();
-        ISOLATE_DATA_FIELDS(CASE)
+#define CASE(CamelName, size, name)  \
+  case IsolateFieldId::k##CamelName: \
+    return name##_address();
+      ISOLATE_DATA_FIELDS(CASE)
+#undef CASE
+#define CASE(CamelName, hacker_name, ...) \
+  case IsolateFieldId::k##CamelName:      \
+    return hacker_name##_address();
+      ISOLATE_DATA_SUBFIELDS(CASE)
 #undef CASE
       default:
         UNREACHABLE();
@@ -387,12 +282,11 @@ class IsolateData final {
   // cheaper it is to access them. See also: https://crbug.com/993264.
   // The recommended guideline is to put frequently-accessed fields close to
   // the beginning of IsolateData.
-#define FIELDS(V)                                                      \
-  ISOLATE_DATA_FIELDS(V)                                               \
-  /* This padding aligns IsolateData size by 8 bytes. */               \
-  V(Padding,                                                           \
-    8 + RoundUp<8>(static_cast<int>(kPaddingOffset)) - kPaddingOffset) \
-  /* Total size. */                                                    \
+#define FIELDS(V)                                        \
+  ISOLATE_DATA_FIELDS(V)                                 \
+  /* This padding aligns IsolateData size by 8 bytes. */ \
+  PADDING_FIELD(8, V, TrailingPadding, trailing_padding) \
+  /* Total size. */                                      \
   V(Size, 0)
 
   DEFINE_FIELD_OFFSET_CONSTANTS_WITH_PURE_NAME(0, FIELDS)
@@ -435,9 +329,12 @@ class IsolateData final {
   // case of an error.
   uint8_t error_message_param_;
 
+  // Whether we are using SetPrototypeProperties together with LazyClosures.
+  uint8_t has_lazy_closures_ = 0;
+
   // Ensure the following tables are kSystemPointerSize-byte aligned.
-  static_assert(FIELD_SIZE(kTablesAlignmentPaddingOffset) > 0);
-  uint8_t tables_alignment_padding_[FIELD_SIZE(kTablesAlignmentPaddingOffset)];
+  V8_NO_UNIQUE_ADDRESS uint8_t
+      tables_alignment_padding_[kTablesAlignmentPaddingSize];
 
   // A pointer to the static offsets vector (used to pass results from the
   // irregexp engine to the rest of V8), or nullptr if the static offsets
@@ -450,6 +347,8 @@ class IsolateData final {
 
   LinearAllocationArea new_allocation_info_;
   LinearAllocationArea old_allocation_info_;
+
+  Address last_young_allocation_;
 
   // Aligns fast_c_call_XXX fields so that they stay in the same CPU cache line.
   Address fast_c_call_alignment_padding_[kFastCCallAlignmentPaddingCount];
@@ -500,6 +399,8 @@ class IsolateData final {
   const Address code_pointer_table_base_address_;
 #endif  // V8_ENABLE_SANDBOX
 
+  JSDispatchTable js_dispatch_table_;
+
   // This is a storage for an additional argument for the Api callback thunk
   // functions, see InvokeAccessorGetterCallback and InvokeFunctionCallback.
   Address api_callback_thunk_argument_ = kNullAddress;
@@ -524,21 +425,41 @@ class IsolateData final {
   // The entries in this array are tagged pointers to Code objects.
   Address builtin_table_[Builtins::kBuiltinCount] = {};
 
-#if V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
+#if V8_ENABLE_WEBASSEMBLY
+  wasm::StackMemory* active_stack_ = nullptr;
+  Tagged<WasmSuspenderObject> active_suspender_;
+#endif
+
+  // Stamp value which is increased on every
+  // v8::Isolate::DateTimeConfigurationChangeNotification(..).
+  int32_t date_cache_stamp_ = 0;
+  // Boolean value indicating that DateCache is used (i.e. JSDate instances
+  // were created in this Isolate).
+  uint8_t is_date_cache_used_ = false;
+
+  // Padding for aligning raw_arguments_.
+  V8_NO_UNIQUE_ADDRESS uint8_t raw_arguments_padding_[kRawArgumentsPaddingSize];
+
+  // Storage for raw values passed from CSA/Torque to runtime functions.
+  struct RawArgument {
+    uint8_t storage_[kDoubleSize];
+  } raw_arguments_[2] = {};
+
+  // Counts deopt points if deopt_every_n_times is enabled.
+  uint64_t stress_deopt_count_ = 0;
+
+#if !V8_STATIC_DISPATCH_HANDLES_BOOL
   // The entries in this array are dispatch handles for builtins with SFI's.
   JSDispatchHandle* builtin_dispatch_table() { return builtin_dispatch_table_; }
   JSDispatchHandle
       builtin_dispatch_table_[JSBuiltinDispatchHandleRoot::kTableSize] = {};
-#endif  // V8_ENABLE_LEAPTIERING_BOOL && !V8_STATIC_DISPATCH_HANDLES_BOOL
+#endif  // !V8_STATIC_DISPATCH_HANDLES_BOOL
 
   // Ensure the size is 8-byte aligned in order to make alignment of the field
   // following the IsolateData field predictable. This solves the issue with
   // C++ compilers for 32-bit platforms which are not consistent at aligning
   // int64_t fields.
-  // In order to avoid dealing with zero-size arrays the padding size is always
-  // in the range [8, 15).
-  static_assert(kPaddingOffsetEnd + 1 - kPaddingOffset >= 8);
-  char padding_[kPaddingOffsetEnd + 1 - kPaddingOffset];
+  V8_NO_UNIQUE_ADDRESS uint8_t trailing_padding_[kTrailingPaddingSize];
 
   V8_INLINE static void AssertPredictableLayout();
 
@@ -553,15 +474,14 @@ class IsolateData final {
 // issues because of different compilers used for snapshot generator and
 // actual V8 code.
 void IsolateData::AssertPredictableLayout() {
-  static_assert(std::is_standard_layout<StackGuard>::value);
-  static_assert(std::is_standard_layout<RootsTable>::value);
-  static_assert(std::is_standard_layout<ThreadLocalTop>::value);
-  static_assert(std::is_standard_layout<ExternalReferenceTable>::value);
-  static_assert(std::is_standard_layout<IsolateData>::value);
-  static_assert(std::is_standard_layout<LinearAllocationArea>::value);
-#define V(PureName, Size, Name)                                        \
-  static_assert(                                                       \
-      std::is_standard_layout<decltype(IsolateData::Name##_)>::value); \
+  static_assert(std::is_standard_layout_v<StackGuard>);
+  static_assert(std::is_standard_layout_v<RootsTable>);
+  static_assert(std::is_standard_layout_v<ThreadLocalTop>);
+  static_assert(std::is_standard_layout_v<ExternalReferenceTable>);
+  static_assert(std::is_standard_layout_v<IsolateData>);
+  static_assert(std::is_standard_layout_v<LinearAllocationArea>);
+#define V(PureName, Size, Name)                                             \
+  static_assert(std::is_standard_layout_v<decltype(IsolateData::Name##_)>); \
   static_assert(offsetof(IsolateData, Name##_) == k##PureName##Offset);
   ISOLATE_DATA_FIELDS(V)
 #undef V

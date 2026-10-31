@@ -1,4 +1,6 @@
 #include "node_builtins.h"
+#include <atomic>
+#include <cstring>
 #include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "module_wrap.h"
@@ -6,12 +8,12 @@
 #include "node_external_reference.h"
 #include "node_internals.h"
 #include "node_threadsafe_cow-inl.h"
+#include "quic/guard.h"
 #include "simdutf.h"
 #include "util-inl.h"
 #include "v8-value.h"
 
 namespace node {
-namespace builtins {
 
 using loader::HostDefinedOptions;
 using v8::Boolean;
@@ -42,6 +44,16 @@ using v8::String;
 using v8::TryCatch;
 using v8::Undefined;
 using v8::Value;
+
+namespace builtins {
+
+namespace {
+std::atomic<bool> harvest_code_cache{true};
+}  // namespace
+
+void BuiltinLoader::SetHarvestCodeCache(bool on) {
+  harvest_code_cache = on;
+}
 
 BuiltinLoader::BuiltinLoader()
     : config_(GetConfig()), code_cache_(std::make_shared<BuiltinCodeCache>()) {
@@ -74,7 +86,7 @@ const BuiltinSource* BuiltinLoader::AddFromDisk(const char* id,
                                                 const UnionBytes& source) {
   BuiltinSourceType type = GetBuiltinSourceType(id, filename);
   auto result =
-    source_.write()->insert_or_assign(id, BuiltinSource{id, source, type});
+      source_.write()->insert_or_assign(id, BuiltinSource{id, source, type});
   return &(result.first->second);
 }
 
@@ -121,6 +133,7 @@ BuiltinLoader::BuiltinCategories BuiltinLoader::GetBuiltinCategories() const {
         "internal/inspector/network", "internal/inspector/network_http",
         "internal/inspector/network_http2", "internal/inspector/network_undici",
         "internal/inspector_async_hook", "internal/inspector_network_tracking",
+        "internal/inspector/webstorage",
 #endif  // !HAVE_INSPECTOR
 
 #if !NODE_USE_V8_PLATFORM || !defined(NODE_HAVE_I18N_SUPPORT)
@@ -133,17 +146,32 @@ BuiltinLoader::BuiltinCategories BuiltinLoader::GetBuiltinCategories() const {
         "internal/tls/wrap", "internal/tls/secure-context",
         "internal/http2/core", "internal/http2/compat",
         "internal/streams/lazy_transform",
-#endif           // !HAVE_OPENSSL
-#if !NODE_OPENSSL_HAS_QUIC
+#endif  // !HAVE_OPENSSL
+#ifndef OPENSSL_NO_QUIC
         "internal/quic/quic", "internal/quic/symbols", "internal/quic/stats",
         "internal/quic/state",
-#endif             // !NODE_OPENSSL_HAS_QUIC
-        "quic",    // Experimental.
-        "sqlite",  // Experimental.
-        "sys",     // Deprecated.
-        "wasi",    // Experimental.
+#endif  // !OPENSSL_NO_QUIC
+#if HAVE_DTLS
+        "internal/dtls/dtls", "internal/dtls/symbols", "internal/dtls/stats",
+        "internal/dtls/state",
+#endif  // HAVE_DTLS
+#if !HAVE_FFI
+        "internal/ffi-shared-buffer", "internal/ffi/fast-api",
+#endif                  // !HAVE_FFI
+        "bench",        // Experimental.
+        "bench/reporters",  // Experimental.
+        "dtls",             // Experimental.
+        "ffi",              // Experimental.
+        "quic",             // Experimental.
+        "sqlite",           // Experimental.
+        "stream/iter",      // Experimental.
+        "sys",              // Deprecated.
+        "vfs",              // Experimental.
+        "wasi",             // Experimental.
+        "zlib/iter",        // Experimental.
 #if !HAVE_SQLITE
         "internal/webstorage",  // Experimental.
+        "internal/inspector/webstorage",
 #endif
         "internal/test/binding", "internal/v8_prof_polyfill",
   };
@@ -273,7 +301,7 @@ MaybeLocal<Data> BuiltinLoader::LookupAndCompile(
     Local<Context> context,
     const BuiltinSource* builtin_source,
     Realm* optional_realm) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   EscapableHandleScope scope(isolate);
 
   BuiltinCodeCacheData cached_data{};
@@ -407,6 +435,7 @@ MaybeLocal<Data> BuiltinLoader::LookupAndCompile(
   }
 
   if (result == Result::kWithoutCache && optional_realm != nullptr &&
+      harvest_code_cache &&
       !optional_realm->env()->isolate_data()->is_building_snapshot()) {
     // We failed to accept this cache, maybe because it was rejected, maybe
     // because it wasn't present. Either way, we'll attempt to replace this
@@ -427,7 +456,7 @@ void BuiltinLoader::SaveCodeCache(const std::string& id, Local<Data> data) {
     new_cached_data.reset(
         ScriptCompiler::CreateCodeCache(mod->GetUnboundModuleScript()));
   } else {
-    Local<Function> fun = data.As<Function>();
+    Local<Function> fun = data.As<Value>().As<Function>();
     new_cached_data.reset(ScriptCompiler::CreateCodeCacheForFunction(fun));
   }
   CHECK_NOT_NULL(new_cached_data);
@@ -441,7 +470,7 @@ void BuiltinLoader::SaveCodeCache(const std::string& id, Local<Data> data) {
 
 MaybeLocal<Function> BuiltinLoader::LookupAndCompileFunction(
     Local<Context> context, const char* id, Realm* optional_realm) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   LocalVector<String> parameters(isolate);
 
   Local<Data> data;
@@ -458,7 +487,7 @@ MaybeLocal<Function> BuiltinLoader::LookupAndCompileFunction(
 MaybeLocal<Value> BuiltinLoader::CompileAndCall(Local<Context> context,
                                                 const char* id,
                                                 Realm* realm) {
-  Isolate* isolate = context->GetIsolate();
+  Isolate* isolate = Isolate::GetCurrent();
   const BuiltinSource* builtin_source = LoadBuiltinSource(isolate, id);
   if (builtin_source == nullptr) {
     THROW_ERR_MODULE_NOT_FOUND(isolate, "Cannot find module %s", id);
@@ -530,7 +559,7 @@ MaybeLocal<Value> BuiltinLoader::CompileAndCallWith(Local<Context> context,
   if (!maybe_fn.ToLocal(&fn)) {
     return MaybeLocal<Value>();
   }
-  Local<Value> undefined = Undefined(context->GetIsolate());
+  Local<Value> undefined = Undefined(Isolate::GetCurrent());
   return fn->Call(context, undefined, argc, argv);
 }
 
@@ -547,21 +576,21 @@ bool BuiltinLoader::CompileAllBuiltinsAndCopyCodeCache(
       std::unordered_set(eager_builtins.begin(), eager_builtins.end());
 
   for (const auto& id : ids) {
-    // Eagerly compile primordials/boostrap/main scripts during code cache
+    // Eagerly compile primordials/bootstrap/main scripts during code cache
     // generation.
     if (id.starts_with(primordial_prefix) || id.starts_with(bootstrap_prefix) ||
         id.starts_with(main_prefix)) {
       to_eager_compile_.emplace(id);
     }
 
-    TryCatch bootstrapCatch(context->GetIsolate());
+    TryCatch bootstrapCatch(Isolate::GetCurrent());
     auto data = LookupAndCompile(context, id.data(), nullptr);
     if (bootstrapCatch.HasCaught()) {
       per_process::Debug(DebugCategory::CODE_CACHE,
                          "Failed to compile code cache for %s\n",
                          id);
       all_succeeded = false;
-      PrintCaughtException(context->GetIsolate(), context, bootstrapCatch);
+      PrintCaughtException(Isolate::GetCurrent(), context, bootstrapCatch);
     } else {
       // This is used by the snapshot builder, so save the code cache
       // unconditionally.
@@ -578,12 +607,13 @@ bool BuiltinLoader::CompileAllBuiltinsAndCopyCodeCache(
 
 void BuiltinLoader::RefreshCodeCache(const std::vector<CodeCacheInfo>& in) {
   RwLock::ScopedLock lock(code_cache_->mutex);
-  code_cache_->map.reserve(in.size());
-  DCHECK(code_cache_->map.empty());
+  // May be called more than once, e.g. first with the code cache carried by
+  // the snapshot and then by an embedder with caches it built for additional
+  // (or the same) builtin ids against this isolate: merge, and let the entry
+  // supplied last win for an id present in both.
+  code_cache_->map.reserve(code_cache_->map.size() + in.size());
   for (auto const& [id, data] : in) {
-    auto result = code_cache_->map.emplace(id, data);
-    USE(result.second);
-    DCHECK(result.second);
+    code_cache_->map.insert_or_assign(id, data);
   }
   code_cache_->has_code_cache = true;
 }
@@ -741,7 +771,7 @@ MaybeLocal<Module> BuiltinLoader::LoadBuiltinSourceTextModule(Realm* realm,
   // Pre-fetch all dependencies.
   if (requests->Length() > 0) {
     for (int i = 0; i < requests->Length(); i++) {
-      Local<ModuleRequest> req = requests->Get(context, i).As<ModuleRequest>();
+      Local<ModuleRequest> req = requests->Get(i).As<ModuleRequest>();
       std::string specifier =
           Utf8Value(isolate, req->GetSpecifier()).ToString();
       std::string resolved_id = ResolveRequestForBuiltin(specifier);
@@ -763,7 +793,7 @@ MaybeLocal<Value> BuiltinLoader::ImportBuiltinSourceTextModule(Realm* realm,
     return MaybeLocal<Value>();
   }
   Local<Context> context = realm->context();
-  if (!mod->InstantiateModule(context, ResolveModuleCallback).FromMaybe(true)) {
+  if (mod->InstantiateModule(context, ResolveModuleCallback).IsEmpty()) {
     return MaybeLocal<Value>();
   }
   Local<Value> promise;
@@ -903,6 +933,76 @@ void BuiltinLoader::RegisterExternalReferences(
 }
 
 }  // namespace builtins
+
+struct EmbedderBuiltinCodeCache::Impl {
+  std::vector<builtins::CodeCacheInfo> entries;
+};
+
+EmbedderBuiltinCodeCache::EmbedderBuiltinCodeCache(std::vector<Entry> entries)
+    : impl_(std::make_unique<Impl>()) {
+  impl_->entries.reserve(entries.size());
+  for (Entry& e : entries) {
+    impl_->entries.push_back(
+        {std::move(e.id),
+         builtins::BuiltinCodeCacheData(
+             std::shared_ptr<ScriptCompiler::CachedData>(std::move(e.data)))});
+  }
+}
+
+EmbedderBuiltinCodeCache::~EmbedderBuiltinCodeCache() = default;
+
+ScriptCompiler::CachedData::CompatibilityCheckResult
+EmbedderBuiltinCodeCache::CompatibilityCheck(Isolate* isolate) const {
+  for (const builtins::CodeCacheInfo& info : impl_->entries) {
+    ScriptCompiler::CachedData probe(
+        info.data.data,
+        static_cast<int>(info.data.length),
+        ScriptCompiler::CachedData::BufferNotOwned);
+    auto result = probe.CompatibilityCheck(isolate);
+    if (result != ScriptCompiler::CachedData::kSuccess) return result;
+  }
+  return ScriptCompiler::CachedData::kSuccess;
+}
+
+std::vector<EmbedderBuiltinCodeCache::Entry> EmbedderBuiltinCodeCache::Generate(
+    Local<Context> context) {
+  std::vector<Entry> out;
+  builtins::BuiltinLoader loader;
+  loader.SetEagerCompile();
+  std::vector<builtins::CodeCacheInfo> infos;
+  if (!loader.CompileAllBuiltinsAndCopyCodeCache(context, {}, &infos)) {
+    return out;
+  }
+  out.reserve(infos.size());
+  for (const builtins::CodeCacheInfo& info : infos) {
+    uint8_t* copy = new uint8_t[info.data.length];
+    memcpy(copy, info.data.data, info.data.length);
+    out.push_back({info.id,
+                   std::make_unique<ScriptCompiler::CachedData>(
+                       copy,
+                       static_cast<int>(info.data.length),
+                       ScriptCompiler::CachedData::BufferOwned)});
+  }
+  return out;
+}
+
+ScriptCompiler::CachedData::CompatibilityCheckResult SetBuiltinCodeCache(
+    IsolateData* isolate_data, const EmbedderBuiltinCodeCache* cache) {
+  if (cache == nullptr) {
+    isolate_data->set_builtin_code_cache({});
+    return ScriptCompiler::CachedData::kSuccess;
+  }
+  auto check = cache->CompatibilityCheck(isolate_data->isolate());
+  if (check == ScriptCompiler::CachedData::kSuccess) {
+    isolate_data->set_builtin_code_cache(cache->impl_->entries);
+  } else {
+    per_process::Debug(DebugCategory::CODE_CACHE,
+                       "EmbedderBuiltinCodeCache rejected: %d\n",
+                       static_cast<int>(check));
+  }
+  return check;
+}
+
 }  // namespace node
 
 NODE_BINDING_PER_ISOLATE_INIT(

@@ -12,6 +12,7 @@
 #include "src/common/globals.h"
 #include "src/execution/isolate.h"
 #include "src/execution/protectors.h"
+#include "src/heap/factory-inl.h"
 #include "src/objects/api-callbacks.h"
 #include "src/objects/arguments.h"
 #include "src/objects/property-cell.h"
@@ -79,6 +80,18 @@ void Builtins::Generate_CallApiCallbackOptimizedNoProfiling(
 
 void Builtins::Generate_CallApiCallbackOptimized(MacroAssembler* masm) {
   Generate_CallApiCallbackImpl(masm, CallApiCallbackMode::kOptimized);
+}
+
+void Builtins::Generate_CallApiGetter(MacroAssembler* masm) {
+  Generate_CallApiAccessorImpl(masm, false, false);
+}
+
+void Builtins::Generate_CallNamedInterceptorGetter(MacroAssembler* masm) {
+  Generate_CallApiAccessorImpl(masm, true, false);
+}
+
+void Builtins::Generate_CallNamedInterceptorSetter(MacroAssembler* masm) {
+  Generate_CallApiAccessorImpl(masm, true, true);
 }
 
 // TODO(cbruni): Try reusing code between builtin versions to avoid binary
@@ -179,7 +192,9 @@ void CallOrConstructBuiltinsAssembler::CallOrConstructWithArrayLike(
            &if_target_not_callable);
     BIND(&if_target_not_callable);
     {
-      CallRuntime(Runtime::kThrowApplyNonFunction, context, target);
+      CallRuntime(Runtime::kThrowTargetNonFunction, context, target,
+                  HeapConstantNoHole(
+                      isolate()->factory()->Function_prototype_apply_string()));
       Unreachable();
     }
     BIND(&if_target_callable);
@@ -217,11 +232,11 @@ void CallOrConstructBuiltinsAssembler::CallOrConstructWithArrayLike(
   TNode<NativeContext> native_context = LoadNativeContext(context);
 
   // Check if {arguments_list} is an (unmodified) arguments object.
-  TNode<Map> sloppy_arguments_map = CAST(
-      LoadContextElement(native_context, Context::SLOPPY_ARGUMENTS_MAP_INDEX));
+  TNode<Map> sloppy_arguments_map = CAST(LoadContextElementNoCell(
+      native_context, Context::SLOPPY_ARGUMENTS_MAP_INDEX));
   GotoIf(TaggedEqual(arguments_list_map, sloppy_arguments_map), &if_arguments);
-  TNode<Map> strict_arguments_map = CAST(
-      LoadContextElement(native_context, Context::STRICT_ARGUMENTS_MAP_INDEX));
+  TNode<Map> strict_arguments_map = CAST(LoadContextElementNoCell(
+      native_context, Context::STRICT_ARGUMENTS_MAP_INDEX));
   GotoIf(TaggedEqual(arguments_list_map, strict_arguments_map), &if_arguments);
 
   // Check if {arguments_list} is a fast JSArray.

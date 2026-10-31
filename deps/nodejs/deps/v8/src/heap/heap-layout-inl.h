@@ -77,24 +77,32 @@ bool HeapLayout::InAnySharedSpace(Tagged<HeapObject> object) {
 }
 
 // static
-bool HeapLayout::InCodeSpace(Tagged<HeapObject> object) {
-  return MemoryChunk::FromHeapObject(object)->InCodeSpace();
+bool HeapLayout::InAnyLargeSpace(Tagged<HeapObject> object) {
+  return MemoryChunk::FromHeapObject(object)->IsLargePage();
 }
 
 // static
-bool HeapLayout::InTrustedSpace(Tagged<HeapObject> object) {
-  return MemoryChunk::FromHeapObject(object)->InTrustedSpace();
-}
-
-bool HeapLayout::InBlackAllocatedPage(Tagged<HeapObject> object) {
-  DCHECK(v8_flags.black_allocated_pages);
-  return MemoryChunk::FromHeapObject(object)->GetFlags() &
-         MemoryChunk::BLACK_ALLOCATED;
+bool TrustedHeapLayout::InCodeSpace(Tagged<HeapObject> object) {
+  return MemoryChunk::FromHeapObject(object)
+      ->MetadataNoIsolateCheck()
+      ->is_executable();
 }
 
 // static
-bool HeapLayout::IsOwnedByAnyHeap(Tagged<HeapObject> object) {
-  return MemoryChunk::FromHeapObject(object)->GetHeap();
+bool TrustedHeapLayout::InTrustedSpace(Tagged<HeapObject> object) {
+  return MemoryChunk::FromHeapObject(object)
+      ->MetadataNoIsolateCheck()
+      ->is_trusted();
+}
+
+// static
+bool TrustedHeapLayout::IsOwnedByAnyHeap(Tagged<HeapObject> object) {
+  return MemoryChunk::FromHeapObject(object)->Metadata()->heap();
+}
+
+// static
+bool TrustedHeapLayout::InBlackAllocatedPage(Tagged<HeapObject> object) {
+  return MemoryChunk::FromHeapObject(object)->Metadata()->is_black_allocated();
 }
 
 }  // namespace v8::internal

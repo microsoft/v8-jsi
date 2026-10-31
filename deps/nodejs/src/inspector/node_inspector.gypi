@@ -24,8 +24,6 @@
       'src/inspector/protocol_helper.h',
       'src/inspector/runtime_agent.cc',
       'src/inspector/runtime_agent.h',
-      'src/inspector/tracing_agent.cc',
-      'src/inspector/tracing_agent.h',
       'src/inspector/worker_agent.cc',
       'src/inspector/worker_agent.h',
       'src/inspector/network_inspector.cc',
@@ -42,6 +40,18 @@
       'src/inspector/io_agent.h',
       'src/inspector/network_resource_manager.cc',
       'src/inspector/network_resource_manager.h',
+      'src/inspector/dom_storage_agent.cc',
+      'src/inspector/dom_storage_agent.h',
+      'src/inspector/inspector_object_utils.cc',
+      'src/inspector/inspector_object_utils.h',
+      'src/inspector/storage_agent.h',
+      'src/inspector/storage_agent.cc',
+      'src/inspector/notification_emitter.h',
+      'src/inspector/notification_emitter.cc',
+    ],
+    'node_inspector_without_perfetto_sources': [
+      'src/inspector/tracing_agent.cc',
+      'src/inspector/tracing_agent.h',
     ],
     'node_inspector_generated_sources': [
       '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/Forward.h',
@@ -59,6 +69,10 @@
       '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/Target.h',
       '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/IO.h',
       '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/IO.cpp',
+      '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/DOMStorage.h',
+      '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/DOMStorage.cpp',
+      '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/Storage.cpp',
+      '<(SHARED_INTERMEDIATE_DIR)/src/node/inspector/protocol/Storage.h',
     ],
     'node_protocol_files': [
       '<(protocol_tool_path)/lib/Forward_h.template',
@@ -82,6 +96,8 @@
       'domain_node_tracing.pdl',
       'domain_node_worker.pdl',
       'domain_target.pdl',
+      'domain_dom_storage.pdl',
+      'domain_storage.pdl',
     ],
   },
   'defines': [
@@ -170,5 +186,12 @@
         '<@(_outputs)',
       ],
     },
+  ],
+  'conditions': [
+    ['v8_use_perfetto!=1', {
+      'sources': [
+        '<@(node_inspector_without_perfetto_sources)',
+      ],
+    }],
   ],
 }

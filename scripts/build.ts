@@ -852,7 +852,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // produce 1 per-RID .nupkg; the aggregator job produces 4 (meta + 3).
   // ---------------------------------------------------------------------
   // The Node.js-source v8jsi NuGet (Microsoft.JavaScript.V8) versions on the
-  // Node.js-aligned 24.x.y scheme carried in config.json.v8jsi_version, which
+  // Node.js-aligned 26.x.y scheme carried in config.json.v8jsi_version, which
   // is distinct from config.json.version (the legacy ReactNative.V8Jsi.Windows
   // scheme that the old NuGet still ships on). Prefer v8jsi_version; an
   // explicit --semantic-version always wins, and config.json.version remains

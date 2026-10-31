@@ -7,6 +7,7 @@
 #include "src/base/bits.h"
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/objects/allocation-site-inl.h"
+#include "src/objects/contexts.h"
 #include "src/objects/dependent-code-inl.h"
 #include "src/objects/map.h"
 
@@ -14,22 +15,22 @@ namespace v8 {
 namespace internal {
 
 Tagged<DependentCode> DependentCode::GetDependentCode(
-    Tagged<HeapObject> object) {
+    Tagged<DependableObject> object) {
   if (IsMap(object)) {
     return Cast<Map>(object)->dependent_code();
   } else if (IsPropertyCell(object)) {
     return Cast<PropertyCell>(object)->dependent_code();
   } else if (IsAllocationSite(object)) {
     return Cast<AllocationSite>(object)->dependent_code();
-  } else if (IsContextSidePropertyCell(object)) {
-    return Cast<ContextSidePropertyCell>(object)->dependent_code();
+  } else if (IsContextCell(object)) {
+    return Cast<ContextCell>(object)->dependent_code();
   } else if (IsScopeInfo(object)) {
     return Cast<ScopeInfo>(object)->dependent_code();
   }
   UNREACHABLE();
 }
 
-void DependentCode::SetDependentCode(DirectHandle<HeapObject> object,
+void DependentCode::SetDependentCode(DirectHandle<DependableObject> object,
                                      DirectHandle<DependentCode> dep) {
   if (IsMap(*object)) {
     Cast<Map>(object)->set_dependent_code(*dep);
@@ -37,8 +38,8 @@ void DependentCode::SetDependentCode(DirectHandle<HeapObject> object,
     Cast<PropertyCell>(object)->set_dependent_code(*dep);
   } else if (IsAllocationSite(*object)) {
     Cast<AllocationSite>(object)->set_dependent_code(*dep);
-  } else if (IsContextSidePropertyCell(*object)) {
-    Cast<ContextSidePropertyCell>(object)->set_dependent_code(*dep);
+  } else if (IsContextCell(*object)) {
+    Cast<ContextCell>(object)->set_dependent_code(*dep);
   } else if (IsScopeInfo(*object)) {
     Cast<ScopeInfo>(object)->set_dependent_code(*dep);
   } else {
@@ -61,7 +62,7 @@ void PrintDependencyGroups(DependentCode::DependencyGroups groups) {
 }  // namespace
 
 void DependentCode::InstallDependency(Isolate* isolate, Handle<Code> code,
-                                      Handle<HeapObject> object,
+                                      Handle<DependableObject> object,
                                       DependencyGroups groups) {
   if (V8_UNLIKELY(v8_flags.trace_compilation_dependencies)) {
     StdoutStream{} << "Installing dependency of [" << code << "] on [" << object
@@ -164,8 +165,7 @@ int DependentCode::FillEntryFromBack(int index, int length) {
     if (obj.IsCleared()) continue;
 
     Set(index + kCodeSlotOffset, obj);
-    Set(index + kGroupsSlotOffset, Get(i + kGroupsSlotOffset),
-        SKIP_WRITE_BARRIER);
+    Set(index + kGroupsSlotOffset, Cast<Smi>(Get(i + kGroupsSlotOffset)));
     return i;
   }
   return index;  // No non-cleared entry found.
@@ -207,7 +207,7 @@ const char* DependentCode::DependencyGroupName(DependencyGroup group) {
       return "allocation-site-tenuring-changed";
     case kAllocationSiteTransitionChangedGroup:
       return "allocation-site-transition-changed";
-    case kScriptContextSlotPropertyChangedGroup:
+    case kContextCellChangedGroup:
       return "script-context-slot-property-changed";
     case kEmptyContextExtensionGroup:
       return "empty-context-extension";
@@ -236,8 +236,8 @@ LazyDeoptimizeReason DependentCode::DependencyGroupToLazyDeoptReason(
       return LazyDeoptimizeReason::kAllocationSiteTenuringChange;
     case kAllocationSiteTransitionChangedGroup:
       return LazyDeoptimizeReason::kAllocationSiteTransitionChange;
-    case kScriptContextSlotPropertyChangedGroup:
-      return LazyDeoptimizeReason::kScriptContextSlotPropertyChange;
+    case kContextCellChangedGroup:
+      return LazyDeoptimizeReason::kContextCellChange;
     case kEmptyContextExtensionGroup:
       return LazyDeoptimizeReason::kEmptyContextExtensionChange;
   }

@@ -25,6 +25,31 @@
 
 namespace v8::internal::compiler::turboshaft {
 
+#ifdef DEBUG
+class Block;
+namespace detail {
+// In general, `.value()` on OptionalOpIndex (or OptionalV) should only be used
+// after having checked `.valid()` before. However, when generating unreachable
+// operations, surprising things can happen, and OptionalOpIndex that should
+// "obviously" be valid can end up not being valid. For instance:
+//
+//      OptionalOpIndex idx;
+//      idx = __ Word32Add(...);
+//
+// After this, it's actually possible that `idx` is still Invalid if we were
+// generating unreachable operations. To avoid all callers of `.value()` to have
+// to check this, we use a global `current_assembler_block` variable, which is
+// set/unset in the Assembler constructor/destructor and points to the
+// `current_block_` of the current Assembler (if any), and can thus be used to
+// check if we are generating unreachable operations. If that's the case, then
+// we relax the DCHECK in `.value()`.
+inline thread_local Block** current_assembler_block = nullptr;
+inline bool generating_unreachable_operations() {
+  return current_assembler_block && !*current_assembler_block;
+}
+}  // namespace detail
+#endif
+
 // Operations are stored in possibly multiple sequential storage slots.
 using OperationStorageSlot = uint64_t;
 // Operations occupy at least 2 slots, therefore we assign one id per two slots.
@@ -47,7 +72,13 @@ class OpIndex {
   friend class OperationBuffer;
 
  public:
-  static constexpr OpIndex FromOffset(uint32_t offset) {
+  static constexpr OpIndex FromOffset(uint32_t offset,
+                                      uint32_t generation_bit) {
+#ifdef DEBUG
+    DCHECK(generation_bit == 0 || generation_bit == 1);
+    DCHECK_EQ(offset & kGenerationMask, 0);
+    offset |= (generation_bit << kGenerationMaskShift);
+#endif
     return OpIndex(offset);
   }
   constexpr OpIndex() : offset_(std::numeric_limits<uint32_t>::max()) {}
@@ -176,7 +207,7 @@ class OptionalOpIndex : protected OpIndex {
 
   constexpr bool has_value() const { return valid(); }
   constexpr OpIndex value() const {
-    DCHECK(has_value());
+    DCHECK(has_value() || detail::generating_unreachable_operations());
     return OpIndex(*this);
   }
   constexpr OpIndex value_or_invalid() const { return OpIndex(*this); }
@@ -367,6 +398,22 @@ struct v_traits<Float64> {
 };
 
 template <>
+struct v_traits<Smi> {
+  static constexpr bool is_abstract_tag = false;
+  using rep_type = RegisterRepresentation;
+  static constexpr auto rep = RegisterRepresentation::Tagged();
+  using constexpr_type = Tagged<Smi>;
+  static constexpr bool allows_representation(
+      RegisterRepresentation maybe_allowed_rep) {
+    return maybe_allowed_rep == RegisterRepresentation::Tagged();
+  }
+
+  template <typename U>
+  struct implicitly_constructible_from
+      : std::bool_constant<std::is_base_of_v<Smi, U>> {};
+};
+
+template <>
 struct v_traits<Simd128> {
   static constexpr bool is_abstract_tag = true;
   using rep_type = RegisterRepresentation;
@@ -544,7 +591,7 @@ using NumberOrUndefined = UnionOf<Number, Undefined>;
 using AnyFixedArray = UnionOf<FixedArray, FixedDoubleArray>;
 using NonBigIntPrimitive = UnionOf<Symbol, PlainPrimitive>;
 using Primitive = UnionOf<BigInt, NonBigIntPrimitive>;
-using CallTarget = UntaggedUnion<WordPtr, Code, JSFunction, Word32>;
+using CallTarget = UntaggedUnion<WordPtr, Code, JSFunction, Word32, BuiltinPtr>;
 using AnyOrNone = UntaggedUnion<Any, None>;
 using Word32Pair = Tuple<Word32, Word32>;
 
@@ -570,6 +617,9 @@ constexpr bool IsWord() {
   return std::is_same_v<T, Word32> || std::is_same_v<T, Word64> ||
          std::is_same_v<T, Word>;
 }
+
+template <typename T>
+concept IsWordT = IsWord<T>();
 
 template <typename T>
 constexpr bool IsValidTypeFor(RegisterRepresentation repr) {
@@ -675,7 +725,7 @@ class OptionalV : public OptionalOpIndex {
   static OptionalV Nullopt() { return OptionalV(OptionalOpIndex::Nullopt()); }
 
   constexpr V<T> value() const {
-    DCHECK(has_value());
+    DCHECK(has_value() || detail::generating_unreachable_operations());
     return V<T>::Cast(OptionalOpIndex::value());
   }
   constexpr V<T> value_or_invalid() const {
@@ -688,6 +738,11 @@ class OptionalV : public OptionalOpIndex {
   }
   static OptionalV<T> Cast(OptionalOpIndex index) {
     return OptionalV<T>(index);
+  }
+
+  static constexpr bool allows_representation(
+      RegisterRepresentation maybe_allowed_rep) {
+    return v_traits<T>::allows_representation(maybe_allowed_rep);
   }
 
 #if !defined(TURBOSHAFT_ALLOW_IMPLICIT_OPINDEX_INITIALIZATION_FOR_V)
@@ -703,6 +758,21 @@ class OptionalV : public OptionalOpIndex {
 // Deduction guide for `OptionalV`.
 template <typename T>
 OptionalV(V<T>) -> OptionalV<T>;
+
+template <typename T>
+struct is_optional_index : std::bool_constant<false> {};
+template <>
+struct is_optional_index<OptionalOpIndex> : std::bool_constant<true> {};
+template <typename T>
+struct is_optional_index<OptionalV<T>> : std::bool_constant<true> {};
+
+template <typename T>
+constexpr bool is_optional_index_v = is_optional_index<T>::value;
+
+static_assert(is_optional_index_v<OptionalOpIndex>);
+static_assert(is_optional_index_v<OptionalV<Word32>>);
+static_assert(!is_optional_index_v<OpIndex>);
+static_assert(!is_optional_index_v<V<Word32>>);
 
 // ConstOrV<> is a generalization of V<> that allows constexpr values
 // (constants) to be passed implicitly. This allows reducers to write things
@@ -725,6 +795,8 @@ class ConstOrV {
  public:
   using type = T;
   using constant_type = C;
+
+  ConstOrV() : constant_value_(), value_() {}
 
   ConstOrV(constant_type value)  // NOLINT(runtime/explicit)
       : constant_value_(value), value_() {}

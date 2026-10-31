@@ -32,6 +32,87 @@ void FunctionInStaticBinaryForAddressHint() {}
 
 }  // anonymous namespace
 
+void RedZones::Initialize(base::BoundedPageAllocator* allocator) {
+  allocator_ = allocator;
+}
+
+bool RedZones::TryAdd(base::AddressRegion region) {
+  if (!allocator_) {
+    return false;
+  }
+  const base::AddressRegion allocator_region(allocator_->begin(),
+                                             allocator_->size());
+  const base::AddressRegion overlap = allocator_region.GetOverlap(region);
+  if (overlap.size() == 0) {
+    return false;
+  }
+  // The region passed in here already needs to be sufficiently aligned to the
+  // allocator.
+  CHECK_EQ(0, overlap.size() % allocator_->AllocatePageSize());
+  red_zones_.emplace_back(overlap);
+  // TODO(429538831): Once better understood, turn this into a regular
+  // OOM.
+  CHECK(allocator_->AllocatePagesAt(overlap.begin(), overlap.size(),
+                                    PageAllocator::kNoAccess));
+  return true;
+}
+
+// Removes a `needle` from the red zones if it is contained (partially or
+// full) in the existing red zones. Returns true if `needle` was removed from
+// the existing red zones, and false otherwise.
+bool RedZones::TryRemove(base::AddressRegion needle) {
+  if (!allocator_) {
+    return false;
+  }
+  const size_t allocate_page_size = allocator_->AllocatePageSize();
+  bool did_remove_region = false;
+
+  std::vector<base::AddressRegion> new_red_zones;
+  for (auto it = red_zones_.begin(); it != red_zones_.end();) {
+    const base::AddressRegion red_zone_region = *it;
+    const base::AddressRegion overlap = red_zone_region.GetOverlap(needle);
+    if (overlap.size() == 0) {
+      ++it;
+      continue;
+    }
+    // We have an overlap. We cannot partially free the red zone here but
+    // have to return all of it and then conditonally re-add ranges
+    // manually. This is necessary as we still want the non-removed parts to
+    // be unavailable for allocation.
+    CHECK_EQ(0, overlap.size() % allocate_page_size);
+    allocator_->FreePages(reinterpret_cast<void*>(red_zone_region.begin()),
+                          red_zone_region.size());
+    it = red_zones_.erase(it);
+    did_remove_region = true;
+    // If the overlap was the whole region, we just need to remove the entry and
+    // we are done.
+    if (overlap.size() == red_zone_region.size()) {
+      continue;
+    }
+    const auto add_new_red_zone = [this, &new_red_zones, allocate_page_size](
+                                      Address red_zone_begin,
+                                      size_t red_zone_size) {
+      CHECK_EQ(0, red_zone_size % allocate_page_size);
+      CHECK(allocator_->AllocatePagesAt(red_zone_begin, red_zone_size,
+                                        PageAllocator::kNoAccess));
+      new_red_zones.emplace_back(red_zone_begin, red_zone_size);
+    };
+    if (red_zone_region.begin() != overlap.begin()) {
+      CHECK_GT(overlap.begin(), red_zone_region.begin());
+      add_new_red_zone(red_zone_region.begin(),
+                       overlap.begin() - red_zone_region.begin());
+    }
+    if (red_zone_region.end() != overlap.end()) {
+      CHECK_LT(overlap.end(), red_zone_region.end());
+      add_new_red_zone(overlap.end(), red_zone_region.end() - overlap.end());
+    }
+  }
+  // Add the new red zones.
+  red_zones_.insert(red_zones_.end(), new_red_zones.begin(),
+                    new_red_zones.end());
+  return did_remove_region;
+}
+
 Address CodeRangeAddressHint::GetAddressHint(size_t code_range_size,
                                              size_t allocate_page_size) {
   base::MutexGuard guard(&mutex_);
@@ -78,7 +159,7 @@ bool CodeRange::InitReservation(v8::PageAllocator* page_allocator,
     requested = kMinimumCodeRangeSize;
   }
 
-  const size_t kPageSize = MutablePageMetadata::kPageSize;
+  const size_t kPageSize = NormalPage::kPageSize;
   const size_t allocate_page_size = page_allocator->AllocatePageSize();
   CHECK(IsAligned(kPageSize, allocate_page_size));
 
@@ -103,10 +184,19 @@ bool CodeRange::InitReservation(v8::PageAllocator* page_allocator,
     params.page_freeing_mode = base::PageFreeingMode::kDiscard;
   }
 
-#if defined(V8_TARGET_OS_IOS)
+#if defined(V8_TARGET_OS_IOS) || defined(V8_TARGET_OS_CHROMEOS)
+  // iOS:
   // We only get one shot at doing MAP_JIT on iOS. So we need to make it
   // the least restrictive so it succeeds otherwise we will terminate the
   // process on the failed allocation.
+  // ChromeOS:
+  // Chrome on ChromeOS uses libgcc unwinding library which seems to work an
+  // order of magnitude slower if we allocate CodeRange closer to the binary.
+  // In non-official builds Chrome collects a lot of stack traces just in case,
+  // so the slowdown of a single backtrace() call results in a noticeable
+  // increase of test times. As a workaround, do a one shot allocation without
+  // providing a hint.
+  // TODO(https://crbug.com/40096218): investigate this ChromeOS issue.
   params.requested_start_hint = kNullAddress;
   if (!VirtualMemoryCage::InitReservation(params)) return false;
 #else
@@ -178,7 +268,13 @@ bool CodeRange::InitReservation(v8::PageAllocator* page_allocator,
     // We didn't manage to allocate the code range close enough.
     FATAL("Failed to allocate code range close to the .text section");
   }
-#endif  // defined(V8_TARGET_OS_IOS)
+#endif  // defined(V8_TARGET_OS_IOS) || defined(V8_TARGET_OS_CHROMEOS)
+
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  // Sandboxed code should never write to code space.
+  SandboxHardwareSupport::RegisterOutOfSandboxMemory(
+      base(), size(), PagePermissions::kNoAccess);
+#endif  // V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
 
   // On some platforms, specifically Win64, we need to reserve some pages at
   // the beginning of an executable space. See
@@ -222,6 +318,66 @@ bool CodeRange::InitReservation(v8::PageAllocator* page_allocator,
     }
 #endif  // V8_OS_WIN64
   }
+
+#if CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
+  red_zones_.Initialize(page_allocator_.get());
+  // Contiguous RO space supports checking for RO space objects via raw
+  // compressed addresses. In case the code range crosses a
+  // `kPtrComprCageBaseAlignment` (4GiB) boundary we need to add a
+  // corresponding red zone to the code range so that no compressed
+  // code pointers look like RO-space.
+  //
+  // Cases:
+  // - CR: code range
+  // - RZ: red zone aligned at 4G of size kContiguousReadOnlyReservationSize
+  //                       |--------- CR ---------|
+  //                |--- RZ ---|
+  //                             |--- RZ ---|
+  //                                           |--- RZ ---|
+
+  // The checks below only work when the code range is not fully contained
+  // within the aligned region.
+  CHECK_GE(size(), kContiguousReadOnlyReservationSize);
+  // Read-only red zone addresses repeat every kPtrComprCageBaseAlignment
+  // (4GiB), but there's at most one red zone region that overlaps with the
+  // code range. The code below can deal with multiple overlaps though.
+  CHECK_GE(kPtrComprCageBaseAlignment - kContiguousReadOnlyReservationSize,
+           size());
+  // To keep it simple and avoid computing various cases, we just loop over
+  // with a window of kPtrComprCageBaseAlignment-aligned possible starts and
+  // commit those that are contained in the code range.
+  // We add excluded_allocatable_area_size as that area is generally already
+  // reserved at the beginning of the code range.
+  CHECK_EQ(0, excluded_allocatable_area_size % allocate_page_size);
+  CHECK_EQ(0, kContiguousReadOnlyReservationSize % allocate_page_size);
+  const Address allocatable_begin =
+      page_allocator_->begin() + excluded_allocatable_area_size;
+  const Address allocatable_end =
+      page_allocator_->begin() + page_allocator_->size();
+  const Address window_begin =
+      RoundDown<kPtrComprCageBaseAlignment>(allocatable_begin);
+  const Address window_end =
+      RoundUp<kPtrComprCageBaseAlignment>(allocatable_end);
+  int number_of_red_zones = 0;
+  for (Address current = window_begin; current <= window_end;
+       current += kPtrComprCageBaseAlignment) {
+    const Address red_zone_start = std::max(current, allocatable_begin);
+    const Address red_zone_end =
+        std::min(current + kContiguousReadOnlyReservationSize, allocatable_end);
+    if (red_zone_start < red_zone_end) {
+      number_of_red_zones++;
+      const size_t red_zone_size = red_zone_end - red_zone_start;
+      // Sanity check until bug is resolved.
+      CHECK_LT(red_zone_size, size());
+      CHECK_GE(red_zone_start, base());
+      CHECK_LE(red_zone_end, base() + size());
+      CHECK(red_zones_.TryAdd(
+          base::AddressRegion(red_zone_start, red_zone_size)));
+    }
+  }
+  CHECK_LE(red_zones_.num_red_zones(), 1);
+  CHECK_LE(number_of_red_zones, 1);
+#endif  // CONTIGUOUS_COMPRESSED_READ_ONLY_SPACE_BOOL
 
 // Don't pre-commit the code cage on Windows since it uses memory and it's not
 // required for recommit.
@@ -359,49 +515,55 @@ uint8_t* CodeRange::RemapEmbeddedBuiltins(Isolate* isolate,
     return embedded_blob_code_copy;
   }
 
-  const size_t kAllocatePageSize = page_allocator()->AllocatePageSize();
-  const size_t kCommitPageSize = page_allocator()->CommitPageSize();
-  size_t allocate_code_size =
-      RoundUp(embedded_blob_code_size, kAllocatePageSize);
-
+  const size_t allocate_page_size = page_allocator()->AllocatePageSize();
+  const size_t allocate_code_size =
+      RoundUp(embedded_blob_code_size, allocate_page_size);
   // Allocate the re-embedded code blob in such a way that it will be reachable
   // by PC-relative addressing from biggest possible region.
   const size_t max_pc_relative_code_range = kMaxPCRelativeCodeRangeInMB * MB;
-  size_t hint_offset =
+  const size_t blob_offset =
       std::min(max_pc_relative_code_range, code_region.size()) -
       allocate_code_size;
-  void* hint = reinterpret_cast<void*>(code_region.begin() + hint_offset);
+  const Address blob_begin = code_region.begin() + blob_offset;
 
+  red_zones_.TryRemove(base::AddressRegion(blob_begin, allocate_code_size));
+  // TODO(429538831): This should be using AllocatePagesAt() which lacks support
+  // for kRecommitOnly though.
   embedded_blob_code_copy =
       reinterpret_cast<uint8_t*>(page_allocator()->AllocatePages(
-          hint, allocate_code_size, kAllocatePageSize,
-          PageAllocator::kNoAccessWillJitLater));
-
+          reinterpret_cast<void*>(blob_begin), allocate_code_size,
+          allocate_page_size, PageAllocator::kNoAccessWillJitLater));
   if (!embedded_blob_code_copy) {
     V8::FatalProcessOutOfMemory(
         isolate, "Can't allocate space for re-embedded builtins");
   }
-  CHECK_EQ(embedded_blob_code_copy, hint);
+  CHECK_EQ(embedded_blob_code_copy, reinterpret_cast<void*>(blob_begin));
 
   if (code_region.size() > max_pc_relative_code_range) {
     // The re-embedded code blob might not be reachable from the end part of
     // the code range, so ensure that code pages will never be allocated in
     // the "unreachable" area.
-    Address unreachable_start =
+    const Address unreachable_start =
         reinterpret_cast<Address>(embedded_blob_code_copy) +
         max_pc_relative_code_range;
-
     if (code_region.contains(unreachable_start)) {
-      size_t unreachable_size = code_region.end() - unreachable_start;
-
+      const size_t unreachable_size = code_region.end() - unreachable_start;
+      red_zones_.TryRemove(
+          base::AddressRegion(unreachable_start, unreachable_size));
+      // TODO(429538831): This should be using AllocatePagesAt() which lacks
+      // support for kRecommitOnly though.
       void* result = page_allocator()->AllocatePages(
           reinterpret_cast<void*>(unreachable_start), unreachable_size,
-          kAllocatePageSize, PageAllocator::kNoAccess);
+          allocate_page_size, PageAllocator::kNoAccess);
       CHECK_EQ(reinterpret_cast<Address>(result), unreachable_start);
     }
   }
 
-  size_t code_size = RoundUp(embedded_blob_code_size, kCommitPageSize);
+  // Clear the red zones to make them unusable.
+  red_zones_.Reset();
+
+  const size_t commit_page_size = page_allocator()->CommitPageSize();
+  size_t code_size = RoundUp(embedded_blob_code_size, commit_page_size);
   if constexpr (base::OS::IsRemapPageSupported()) {
     // By default, the embedded builtins are not remapped, but copied. This
     // costs memory, since builtins become private dirty anonymous memory,
@@ -414,7 +576,7 @@ uint8_t* CodeRange::RemapEmbeddedBuiltins(Isolate* isolate,
     // platform-embedded-file-writer-mac.cc. If it's not the case (e.g. if the
     // embedded builtins are not coming from the binary), fall back to copying.
     if (IsAligned(reinterpret_cast<uintptr_t>(embedded_blob_code),
-                  kCommitPageSize)) {
+                  commit_page_size)) {
       bool ok = base::OS::RemapPages(embedded_blob_code, code_size,
                                      embedded_blob_code_copy,
                                      base::OS::MemoryPermission::kReadExecute);

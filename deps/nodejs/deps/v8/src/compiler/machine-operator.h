@@ -437,6 +437,10 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
       return IsUnalignedSupported(unalignedStoreUnsupportedTypes_, rep);
     }
 
+    bool HasFullUnalignedSupport() const {
+      return unalignedSupport_ == kFullSupport;
+    }
+
     static AlignmentRequirements FullUnalignedAccessSupport() {
       return AlignmentRequirements(kFullSupport);
     }
@@ -494,6 +498,10 @@ class V8_EXPORT_PRIVATE MachineOperatorBuilder final
   const Operator* Comment(const char* msg);
   const Operator* AbortCSADcheck();
   const Operator* DebugBreak();
+
+#ifdef V8_ENABLE_SANDBOX_HARDWARE_SUPPORT
+  const Operator* SwitchSandboxMode(CodeSandboxingMode mode);
+#endif
 
   const Operator* Word32And();
   const Operator* Word32Or();

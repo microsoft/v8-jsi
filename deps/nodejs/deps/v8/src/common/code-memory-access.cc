@@ -31,13 +31,6 @@ bool RwxMemoryWriteScope::IsPKUWritable() {
          base::MemoryProtectionKey::kNoRestrictions;
 }
 
-void RwxMemoryWriteScope::SetDefaultPermissionsForSignalHandler() {
-  DCHECK(ThreadIsolation::initialized());
-  if (!RwxMemoryWriteScope::IsSupported()) return;
-  base::MemoryProtectionKey::SetPermissionsForKey(
-      ThreadIsolation::pkey(), base::MemoryProtectionKey::kDisableWrite);
-}
-
 #endif  // V8_HAS_PKU_JIT_WRITE_PROTECT
 
 RwxMemoryWriteScopeForTesting::RwxMemoryWriteScopeForTesting()
@@ -58,7 +51,7 @@ bool ThreadIsolation::Enabled() {
 template <typename T, typename... Args>
 void ThreadIsolation::ConstructNew(T** ptr, Args&&... args) {
   if (Enabled()) {
-    *ptr = reinterpret_cast<T*>(trusted_data_.allocator->Allocate(sizeof(T)));
+    *ptr = reinterpret_cast<T*>(trusted_data_.allocator_->Allocate(sizeof(T)));
     if (!*ptr) return;
     new (*ptr) T(std::forward<Args>(args)...);
   } else {
@@ -71,7 +64,7 @@ template <typename T>
 void ThreadIsolation::Delete(T* ptr) {
   if (Enabled()) {
     ptr->~T();
-    trusted_data_.allocator->Free(ptr);
+    trusted_data_.allocator_->Free(ptr);
   } else {
     delete ptr;
   }
@@ -80,15 +73,20 @@ void ThreadIsolation::Delete(T* ptr) {
 // static
 void ThreadIsolation::Initialize(
     ThreadIsolatedAllocator* thread_isolated_allocator) {
-#if DEBUG
-  trusted_data_.initialized = true;
-#endif
+  trusted_data_.initialized_ = true;
 
-  bool enable = thread_isolated_allocator != nullptr && !v8_flags.jitless;
+  bool enable = thread_isolated_allocator != nullptr;
+
+  if (v8_flags.jitless) {
+    enable = v8_flags.force_memory_protection_keys;
+  }
+
+  DCHECK_IMPLIES(v8_flags.force_memory_protection_keys,
+                 thread_isolated_allocator != nullptr);
 
 #ifdef THREAD_SANITIZER
   // TODO(sroettger): with TSAN enabled, we get crashes because
-  // SetDefaultPermissionsForSignalHandler gets called while a
+  // SetDefaultPermissionsForAllKeysInSignalHandler gets called while a
   // RwxMemoryWriteScope is active. It seems that tsan's ProcessPendingSignals
   // doesn't restore the pkru value after executing the signal handler.
   enable = false;
@@ -96,15 +94,26 @@ void ThreadIsolation::Initialize(
 
 #if V8_HAS_PKU_JIT_WRITE_PROTECT
   if (!v8_flags.memory_protection_keys ||
-      !base::MemoryProtectionKey::HasMemoryProtectionKeySupport()) {
+      !base::MemoryProtectionKey::HasMemoryProtectionKeyAPIs()) {
+    DCHECK_IMPLIES(v8_flags.force_memory_protection_keys,
+                   v8_flags.memory_protection_keys);
+    DCHECK_IMPLIES(v8_flags.force_memory_protection_keys,
+                   base::MemoryProtectionKey::HasMemoryProtectionKeyAPIs());
     enable = false;
   }
 #endif
 
   if (enable) {
-    trusted_data_.allocator = thread_isolated_allocator;
+    trusted_data_.allocator_ = thread_isolated_allocator;
 #if V8_HAS_PKU_JIT_WRITE_PROTECT
-    trusted_data_.pkey = trusted_data_.allocator->Pkey();
+    trusted_data_.pkey_ = trusted_data_.allocator_->Pkey();
+
+    // We need to inform our MemoryProtectionKey class that there was an
+    // externally-allocated pkey that we will be using. This is necessary for
+    // signal handlers to have access to memory protected with this key. For
+    // more details see https://crbug.com/416209124.
+    base::MemoryProtectionKey::RegisterExternallyAllocatedKey(
+        trusted_data_.pkey_);
 #endif
   }
 
@@ -115,6 +124,8 @@ void ThreadIsolation::Initialize(
     ConstructNew(&trusted_data_.jit_pages_mutex_);
     ConstructNew(&trusted_data_.jit_pages_);
   }
+
+  CHECK_IMPLIES(v8_flags.force_memory_protection_keys, enable);
 
   if (!enable) {
     return;
@@ -127,11 +138,29 @@ void ThreadIsolation::Initialize(
            GetPlatformPageAllocator()->CommitPageSize());
 
   // TODO(sroettger): make this immutable once there's OS support.
-  base::MemoryProtectionKey::SetPermissionsAndKey(
+  bool success = base::MemoryProtectionKey::SetPermissionsAndKey(
       {reinterpret_cast<Address>(&trusted_data_), sizeof(trusted_data_)},
-      v8::PageAllocator::Permission::kRead,
-      base::MemoryProtectionKey::kDefaultProtectionKey);
+      PagePermissions::kRead, base::MemoryProtectionKey::kDefaultProtectionKey);
+  CHECK_IMPLIES(v8_flags.force_memory_protection_keys, success);
 #endif
+}
+
+// static
+void ThreadIsolation::TearDown() {
+  CHECK(initialized());
+#if V8_HAS_PKU_JIT_WRITE_PROTECT
+  if (Enabled()) {
+    CHECK(base::MemoryProtectionKey::SetPermissionsAndKey(
+        {reinterpret_cast<Address>(&trusted_data_), sizeof(trusted_data_)},
+        PagePermissions::kReadWrite,
+        base::MemoryProtectionKey::kDefaultProtectionKey));
+  }
+#endif
+  CHECK_NOT_NULL(trusted_data_.jit_pages_);
+  CHECK(trusted_data_.jit_pages_->empty());
+  Delete(trusted_data_.jit_pages_);
+  CHECK_NOT_NULL(trusted_data_.jit_pages_mutex_);
+  Delete(trusted_data_.jit_pages_mutex_);
 }
 
 // static
@@ -464,7 +493,7 @@ bool ThreadIsolation::MakeExecutable(Address address, size_t size) {
 
 #if V8_HAS_PKU_JIT_WRITE_PROTECT
   return base::MemoryProtectionKey::SetPermissionsAndKey(
-      {address, size}, PageAllocator::Permission::kReadWriteExecute, pkey());
+      {address, size}, PagePermissions::kReadWriteExecute, pkey());
 #else   // V8_HAS_PKU_JIT_WRITE_PROTECT
   UNREACHABLE();
 #endif  // V8_HAS_PKU_JIT_WRITE_PROTECT
@@ -599,8 +628,7 @@ bool ThreadIsolation::WriteProtectMemory(
 
 #if V8_HEAP_USE_PKU_JIT_WRITE_PROTECT
   return base::MemoryProtectionKey::SetPermissionsAndKey(
-      {addr, size}, PageAllocator::Permission::kNoAccess,
-      ThreadIsolation::pkey());
+      {addr, size}, PagePermissions::kNoAccess, ThreadIsolation::pkey());
 #else
   UNREACHABLE();
 #endif
@@ -666,6 +694,14 @@ WritableJitAllocation WritableJitAllocation::ForInstructionStream(
 
 #ifdef V8_ENABLE_WEBASSEMBLY
 
+void WritableJitAllocation::UpdateWasmCodePointer(WasmCodePointer code_pointer,
+                                                  uint64_t signature_hash) {
+  std::optional<RwxMemoryWriteScope> write_scope =
+      WriteScopeForApiEnforcement();
+  wasm::GetProcessWideWasmCodePointerTable()->UpdateEntrypointUnlocked(
+      code_pointer, address_, signature_hash);
+}
+
 // static
 WritableJumpTablePair ThreadIsolation::LookupJumpTableAllocations(
     Address jump_table_address, size_t jump_table_size,
@@ -720,11 +756,6 @@ template void WritableFreeSpace::ClearTagged<2 * kTaggedSize>(
     size_t count) const;
 
 #if DEBUG
-
-// static
-void ThreadIsolation::CheckTrackedMemoryEmpty() {
-  DCHECK(trusted_data_.jit_pages_->empty());
-}
 
 #endif  // DEBUG
 

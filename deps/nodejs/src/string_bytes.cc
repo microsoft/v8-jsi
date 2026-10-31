@@ -60,7 +60,6 @@ class ExternString: public ResourceType {
   ~ExternString() override {
     free(const_cast<TypeName*>(data_));
     external_memory_accounter_->Decrease(isolate(), byte_length());
-    delete external_memory_accounter_;
   }
 
   const TypeName* data() const override {
@@ -126,7 +125,7 @@ class ExternString: public ResourceType {
  private:
   ExternString(Isolate* isolate, const TypeName* data, size_t length)
       : isolate_(isolate),
-        external_memory_accounter_(new ExternalMemoryAccounter()),
+        external_memory_accounter_(std::make_unique<ExternalMemoryAccounter>()),
         data_(data),
         length_(length) {
     external_memory_accounter_->Increase(isolate, byte_length());
@@ -140,17 +139,54 @@ class ExternString: public ResourceType {
                                              size_t length);
 
   Isolate* isolate_;
-  ExternalMemoryAccounter* external_memory_accounter_;
+  std::unique_ptr<ExternalMemoryAccounter> external_memory_accounter_;
   const TypeName* data_;
   size_t length_;
 };
 
+typedef ExternString<String::ExternalOneByteStringResource, char>
+    ExternOneByteString;
+typedef ExternString<String::ExternalStringResource, uint16_t>
+    ExternTwoByteString;
 
-typedef ExternString<String::ExternalOneByteStringResource,
-                     char> ExternOneByteString;
-typedef ExternString<String::ExternalStringResource,
-                     uint16_t> ExternTwoByteString;
+template <typename EncodeFn>
+static MaybeLocal<Value> EncodeOneByteString(Isolate* isolate,
+                                             size_t length,
+                                             EncodeFn encode) {
+  // 512B stack threshold: covers common small outputs (hex SHA-256/512, UUIDs).
+  // Larger thresholds were benchmarked
+  MaybeStackBuffer<char, 512> buf(length);
+  encode(buf.out());
+  // Copy stack-backed data, but release heap-backed storage to V8.
+  if (buf.IsAllocated()) {
+    char* data = buf.out();
+    buf.Release();
+    return ExternOneByteString::New(isolate, data, length);
+  }
+  return String::NewFromOneByte(isolate,
+                                reinterpret_cast<const uint8_t*>(buf.out()),
+                                v8::NewStringType::kNormal,
+                                static_cast<int>(length));
+}
 
+template <typename EncodeFn>
+static MaybeLocal<Value> EncodeTwoByteString(Isolate* isolate,
+                                             size_t char_length,
+                                             EncodeFn encode) {
+  // 256 uint16_t = 512 bytes on the stack, matching the one-byte
+  MaybeStackBuffer<uint16_t, 256> buf(char_length);
+  encode(buf.out());
+  // Copy stack-backed data, but release heap-backed storage to V8.
+  if (buf.IsAllocated()) {
+    uint16_t* data = buf.out();
+    buf.Release();
+    return ExternTwoByteString::New(isolate, data, char_length);
+  }
+  return String::NewFromTwoByte(isolate,
+                                buf.out(),
+                                v8::NewStringType::kNormal,
+                                static_cast<int>(char_length));
+}
 
 template <>
 MaybeLocal<Value> ExternOneByteString::NewExternal(
@@ -273,9 +309,37 @@ size_t StringBytes::Write(Isolate* isolate,
             input_view.length(),
             buf,
             buflen);
-      } else {
+      } else if (input_view.length() <= 32) {
+        // V8 is as fast for tiny strings (same threshold TextEncoder uses).
         nbytes = str->WriteUtf8V2(
             isolate, buf, buflen, String::WriteFlags::kReplaceInvalidUtf8);
+      } else {
+        // Use simdutf for two-byte strings as well whenever the UTF-8 form
+        // is guaranteed to fit; truncating writes (which must stop at a
+        // character boundary) keep going through V8 so that their output
+        // stays byte-for-byte identical.
+        const char16_t* data =
+            reinterpret_cast<const char16_t*>(input_view.data16());
+        const size_t length = input_view.length();
+        MaybeStackBuffer<char16_t, 1024> well_formed;
+        if (!simdutf::validate_utf16(data, length)) {
+          // Unpaired surrogates: encode a copy in which each of them has been
+          // replaced with U+FFFD, which is what kReplaceInvalidUtf8 produces.
+          well_formed.AllocateSufficientStorage(length);
+          simdutf::to_well_formed_utf16(data, length, well_formed.out());
+          data = well_formed.out();
+        }
+        // A UTF-16 code unit never expands to more than 3 UTF-8 bytes, so
+        // 3 * length is what StorageSize() hands most callers; only compute
+        // the exact length when the buffer is smaller than that.
+        if (buflen >= 3 * length ||
+            buflen >= simdutf::utf8_length_from_utf16(data, length)) {
+          nbytes = simdutf::convert_utf16_to_utf8(data, length, buf);
+        } else {
+          // Does not fit: let V8 truncate at a character boundary.
+          nbytes = str->WriteUtf8V2(
+              isolate, buf, buflen, String::WriteFlags::kReplaceInvalidUtf8);
+        }
       }
       break;
 
@@ -435,7 +499,6 @@ Maybe<size_t> StringBytes::StorageSize(Isolate* isolate,
       break;
 
     case HEX:
-      CHECK(view.length() % 2 == 0 && "invalid hex string length");
       data_size = view.length() / 2;
       break;
 
@@ -470,8 +533,10 @@ Maybe<size_t> StringBytes::Size(Isolate* isolate,
         return Just<size_t>(simdutf::utf8_length_from_latin1(
             reinterpret_cast<const char*>(view.data8()), view.length()));
       }
-      return Just<size_t>(simdutf::utf8_length_from_utf16(
-          reinterpret_cast<const char16_t*>(view.data16()), view.length()));
+      return Just<size_t>(
+          simdutf::utf8_length_from_utf16_with_replacement(
+              reinterpret_cast<const char16_t*>(view.data16()), view.length())
+              .count);
 
     case UCS2:
       return Just(view.length() * sizeof(uint16_t));
@@ -527,13 +592,10 @@ MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
       buflen = keep_buflen_in_range(buflen);
       if (simdutf::validate_ascii_with_errors(buf, buflen).error) {
         // The input contains non-ASCII bytes.
-        char* out = node::UncheckedMalloc(buflen);
-        if (out == nullptr) {
-          isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-          return MaybeLocal<Value>();
-        }
-        nbytes::ForceAscii(buf, out, buflen);
-        return ExternOneByteString::New(isolate, out, buflen);
+
+        return EncodeOneByteString(isolate, buflen, [buf, buflen](char* dst) {
+          nbytes::ForceAscii(buf, dst, buflen);
+        });
       } else {
         return ExternOneByteString::NewFromCopy(isolate, buf, buflen);
       }
@@ -548,23 +610,86 @@ MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
         return ExternOneByteString::NewFromCopy(isolate, buf, buflen);
       }
 
-      if (buflen >= 32 && simdutf::validate_utf8(buf, buflen)) {
-        // We know that we are non-ASCII (and are unlikely Latin1), use 2-byte
-        // In the most likely case of valid UTF-8, we can use this fast impl
-        // For very short input, it is slower, so we limit min size
-        size_t u16size = simdutf::utf16_length_from_utf8(buf, buflen);
-        if (u16size > static_cast<size_t>(v8::String::kMaxLength)) {
-          isolate->ThrowException(ERR_STRING_TOO_LONG(isolate));
-          return MaybeLocal<Value>();
+      // Latin1-fits fast path: one-byte V8 string, half the heap of UTF-16.
+      // Capped at 1 MiB (above that the prescan cost erases the win).
+      constexpr size_t kLatin1Max = 1u << 20;
+      if (buflen >= 256 && buflen <= kLatin1Max) {
+        // Skip the allocation when any byte >= 0xC4 (UTF-8 lead for a
+        // codepoint > U+FF). Inner loop has no early exit so clang
+        // vectorizes it.
+        constexpr size_t kChunk = 64;
+        bool maybe_latin1 = true;
+        size_t i = 0;
+        for (; i + kChunk <= buflen; i += kChunk) {
+          uint8_t acc = 0;
+          for (size_t j = 0; j < kChunk; j++) {
+            acc |= static_cast<uint8_t>(buf[i + j]) >= 0xC4 ? 1 : 0;
+          }
+          if (acc) {
+            maybe_latin1 = false;
+            break;
+          }
         }
-        uint16_t* dst = node::UncheckedMalloc<uint16_t>(u16size);
-        if (u16size != 0 && dst == nullptr) {
-          THROW_ERR_MEMORY_ALLOCATION_FAILED(isolate);
-          return MaybeLocal<Value>();
+        if (maybe_latin1) {
+          for (; i < buflen; i++) {
+            if (static_cast<uint8_t>(buf[i]) >= 0xC4) {
+              maybe_latin1 = false;
+              break;
+            }
+          }
         }
-        size_t utf16len = simdutf::convert_valid_utf8_to_utf16(
-            buf, buflen, reinterpret_cast<char16_t*>(dst));
-        return ExternTwoByteString::New(isolate, dst, utf16len);
+        if (maybe_latin1) {
+          MaybeStackBuffer<char, 4096> latin1;
+          latin1.AllocateSufficientStorage(buflen);
+          simdutf::result l1 = simdutf::convert_utf8_to_latin1_with_errors(
+              buf, buflen, latin1.out());
+          if (l1.error == simdutf::error_code::SUCCESS) {
+            return ExternOneByteString::NewFromCopy(
+                isolate, latin1.out(), l1.count);
+          }
+        }
+      }
+
+      if (buflen >= 32) {
+        // Single-pass UTF-16: over-allocate (1 char16_t per byte), then
+        // shrink. Above 1 MiB the exact-size 3-pass below is cheaper.
+        constexpr size_t kSinglePassMax = 1u << 20;
+        if (buflen <= kSinglePassMax) {
+          MaybeStackBuffer<uint16_t, 256> u16;
+          u16.AllocateSufficientStorage(buflen);
+          simdutf::result r = simdutf::convert_utf8_to_utf16_with_errors(
+              buf, buflen, reinterpret_cast<char16_t*>(u16.out()));
+          if (r.error == simdutf::error_code::SUCCESS) {
+            if (r.count > static_cast<size_t>(v8::String::kMaxLength)) {
+              isolate->ThrowException(ERR_STRING_TOO_LONG(isolate));
+              return MaybeLocal<Value>();
+            }
+            if (u16.IsAllocated()) {
+              uint16_t* data = u16.out();
+              u16.Release();
+              uint16_t* shrunk = static_cast<uint16_t*>(
+                  realloc(data, r.count * sizeof(uint16_t)));
+              if (shrunk == nullptr) shrunk = data;
+              return ExternTwoByteString::New(isolate, shrunk, r.count);
+            }
+            return String::NewFromTwoByte(isolate,
+                                          u16.out(),
+                                          v8::NewStringType::kNormal,
+                                          static_cast<int>(r.count));
+          }
+        } else if (simdutf::validate_utf8(buf, buflen)) {
+          size_t u16size = simdutf::utf16_length_from_utf8(buf, buflen);
+          if (u16size > static_cast<size_t>(v8::String::kMaxLength)) {
+            isolate->ThrowException(ERR_STRING_TOO_LONG(isolate));
+            return MaybeLocal<Value>();
+          }
+          return EncodeTwoByteString(
+              isolate, u16size, [buf, buflen, u16size](uint16_t* dst) {
+                size_t written = simdutf::convert_valid_utf8_to_utf16(
+                    buf, buflen, reinterpret_cast<char16_t*>(dst));
+                CHECK_EQ(written, u16size);
+              });
+        }
       }
 
       val =
@@ -583,77 +708,52 @@ MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
     case BASE64: {
       buflen = keep_buflen_in_range(buflen);
       size_t dlen = simdutf::base64_length_from_binary(buflen);
-      char* dst = node::UncheckedMalloc(dlen);
-      if (dst == nullptr) {
-        isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-        return MaybeLocal<Value>();
-      }
-
-      size_t written = simdutf::binary_to_base64(buf, buflen, dst);
-      CHECK_EQ(written, dlen);
-
-      return ExternOneByteString::New(isolate, dst, dlen);
+      return EncodeOneByteString(isolate, dlen, [buf, buflen, dlen](char* dst) {
+        size_t written = simdutf::binary_to_base64(buf, buflen, dst);
+        CHECK_EQ(written, dlen);
+      });
     }
 
     case BASE64URL: {
       buflen = keep_buflen_in_range(buflen);
       size_t dlen =
           simdutf::base64_length_from_binary(buflen, simdutf::base64_url);
-      char* dst = node::UncheckedMalloc(dlen);
-      if (dst == nullptr) {
-        isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-        return MaybeLocal<Value>();
-      }
-
-      size_t written =
-          simdutf::binary_to_base64(buf, buflen, dst, simdutf::base64_url);
-      CHECK_EQ(written, dlen);
-
-      return ExternOneByteString::New(isolate, dst, dlen);
+      return EncodeOneByteString(isolate, dlen, [buf, buflen, dlen](char* dst) {
+        size_t written =
+            simdutf::binary_to_base64(buf, buflen, dst, simdutf::base64_url);
+        CHECK_EQ(written, dlen);
+      });
     }
 
     case HEX: {
       buflen = keep_buflen_in_range(buflen);
       size_t dlen = buflen * 2;
-      char* dst = node::UncheckedMalloc(dlen);
-      if (dst == nullptr) {
-        isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-        return MaybeLocal<Value>();
-      }
-      size_t written = nbytes::HexEncode(buf, buflen, dst, dlen);
-      CHECK_EQ(written, dlen);
-
-      return ExternOneByteString::New(isolate, dst, dlen);
+      return EncodeOneByteString(isolate, dlen, [buf, buflen, dlen](char* dst) {
+        size_t written = nbytes::HexEncode(buf, buflen, dst, dlen);
+        CHECK_EQ(written, dlen);
+      });
     }
 
     case UCS2: {
       buflen = keep_buflen_in_range(buflen);
       size_t str_len = buflen / 2;
       if constexpr (IsBigEndian()) {
-        uint16_t* dst = node::UncheckedMalloc<uint16_t>(str_len);
-        if (str_len != 0 && dst == nullptr) {
-          isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-          return MaybeLocal<Value>();
-        }
-        for (size_t i = 0, k = 0; k < str_len; i += 2, k += 1) {
-          // The input is in *little endian*, because that's what Node.js
-          // expects, so the high byte comes after the low byte.
-          const uint8_t hi = static_cast<uint8_t>(buf[i + 1]);
-          const uint8_t lo = static_cast<uint8_t>(buf[i + 0]);
-          dst[k] = static_cast<uint16_t>(hi) << 8 | lo;
-        }
-        return ExternTwoByteString::New(isolate, dst, str_len);
+        return EncodeTwoByteString(
+            isolate, str_len, [buf, str_len](uint16_t* dst) {
+              for (size_t i = 0, k = 0; k < str_len; i += 2, k += 1) {
+                // The input is in *little endian*, because that's what Node.js
+                // expects, so the high byte comes after the low byte.
+                const uint8_t hi = static_cast<uint8_t>(buf[i + 1]);
+                const uint8_t lo = static_cast<uint8_t>(buf[i + 0]);
+                dst[k] = static_cast<uint16_t>(hi) << 8 | lo;
+              }
+            });
       }
       if (reinterpret_cast<uintptr_t>(buf) % 2 != 0) {
-        // Unaligned data still means we can't directly pass it to V8.
-        char* dst = node::UncheckedMalloc(buflen);
-        if (dst == nullptr) {
-          isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-          return MaybeLocal<Value>();
-        }
-        memcpy(dst, buf, buflen);
-        return ExternTwoByteString::New(
-            isolate, reinterpret_cast<uint16_t*>(dst), str_len);
+        return EncodeTwoByteString(
+            isolate, str_len, [buf, str_len](uint16_t* dst) {
+              memcpy(dst, buf, str_len * sizeof(*dst));
+            });
       }
       return ExternTwoByteString::NewFromCopy(
           isolate, reinterpret_cast<const uint16_t*>(buf), str_len);
@@ -662,6 +762,40 @@ MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
     default:
       UNREACHABLE("unknown encoding");
   }
+}
+
+MaybeLocal<Value> StringBytes::EncodeValidUtf8(Isolate* isolate,
+                                               const char* buf,
+                                               size_t buflen) {
+  CHECK_BUFLEN_IN_RANGE(buflen);
+  if (!buflen) return String::Empty(isolate);
+  buflen = keep_buflen_in_range(buflen);
+
+  // ASCII fast path
+  if (!simdutf::validate_ascii_with_errors(buf, buflen).error) {
+    return ExternOneByteString::NewFromCopy(isolate, buf, buflen);
+  }
+
+  if (buflen >= 32) {
+    size_t u16size = simdutf::utf16_length_from_utf8(buf, buflen);
+    if (u16size > static_cast<size_t>(v8::String::kMaxLength)) {
+      isolate->ThrowException(ERR_STRING_TOO_LONG(isolate));
+      return MaybeLocal<Value>();
+    }
+    return EncodeTwoByteString(
+        isolate, u16size, [buf, buflen, u16size](uint16_t* dst) {
+          size_t written = simdutf::convert_valid_utf8_to_utf16(
+              buf, buflen, reinterpret_cast<char16_t*>(dst));
+          CHECK_EQ(written, u16size);
+        });
+  }
+
+  Local<String> str;
+  if (!String::NewFromUtf8(isolate, buf, v8::NewStringType::kNormal, buflen)
+           .ToLocal(&str)) {
+    isolate->ThrowException(node::ERR_STRING_TOO_LONG(isolate));
+  }
+  return str;
 }
 
 MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
@@ -675,15 +809,11 @@ MaybeLocal<Value> StringBytes::Encode(Isolate* isolate,
   // https://nodejs.org/api/buffer.html regarding Node's "ucs2"
   // encoding specification
   if constexpr (IsBigEndian()) {
-    uint16_t* dst = node::UncheckedMalloc<uint16_t>(buflen);
-    if (dst == nullptr) {
-      isolate->ThrowException(node::ERR_MEMORY_ALLOCATION_FAILED(isolate));
-      return MaybeLocal<Value>();
-    }
-    size_t nbytes = buflen * sizeof(uint16_t);
-    memcpy(dst, buf, nbytes);
-    CHECK(nbytes::SwapBytes16(reinterpret_cast<char*>(dst), nbytes));
-    return ExternTwoByteString::New(isolate, dst, buflen);
+    return EncodeTwoByteString(isolate, buflen, [buf, buflen](uint16_t* dst) {
+      size_t nbytes = buflen * sizeof(uint16_t);
+      memcpy(dst, buf, nbytes);
+      CHECK(nbytes::SwapBytes16(reinterpret_cast<char*>(dst), nbytes));
+    });
   } else {
     return ExternTwoByteString::NewFromCopy(isolate, buf, buflen);
   }

@@ -43,6 +43,14 @@ declare_args() {
   # Build node with SQLite support.
   node_use_sqlite = true
 
+  # Build node with FFI support.
+  # Disabled in GN builds. The unofficial GN build does not support node:ffi.
+  node_use_ffi = false
+
+  # Link against a shared libffi when FFI support is enabled.
+  # Unsupported in GN builds.
+  node_shared_ffi = false
+
   # Use the specified path to system CA (PEM format) in addition to
   # the BoringSSL supplied CA store or compiled-in Mozilla CA copy.
   node_openssl_system_ca_path = ""
@@ -72,6 +80,20 @@ declare_args() {
 
   # Build with Amaro (TypeScript utils).
   node_use_amaro = true
+}
+
+# Link against shared copies of the bundled dependencies instead of building
+# them, like configure's --shared-* options. The libraries are looked up with
+# pkg-config, so these are meant for Linux distribution builds.
+declare_args() {
+  node_shared_brotli = false
+  node_shared_cares = false
+  node_shared_hdr_histogram = false
+  node_shared_http_parser = false
+  node_shared_libuv = false
+  node_shared_nghttp2 = false
+  node_shared_sqlite = false
+  node_shared_zstd = false
 }
 
 assert(!node_enable_inspector || node_use_openssl,

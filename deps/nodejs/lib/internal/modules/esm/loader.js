@@ -14,7 +14,8 @@ const {
   hardenRegExp,
 } = primordials;
 
-
+const { LoadCache, ResolveCache } = require('internal/modules/esm/module_map');
+const { ModuleJob, ModuleJobSync } = require('internal/modules/esm/module_job');
 // This is needed to avoid cycles in esm/resolve <-> cjs/loader
 const {
   kIsExecuting,
@@ -24,16 +25,20 @@ const { imported_cjs_symbol } = internalBinding('symbols');
 
 const assert = require('internal/assert');
 const {
-  ERR_REQUIRE_ASYNC_MODULE,
   ERR_REQUIRE_CYCLE_MODULE,
   ERR_REQUIRE_ESM,
+  ERR_REQUIRE_ESM_RACE_CONDITION,
   ERR_UNKNOWN_MODULE_FORMAT,
 } = require('internal/errors').codes;
 const { getOptionValue } = require('internal/options');
 const { isURL, pathToFileURL } = require('internal/url');
-const { kEmptyObject } = require('internal/util');
+const {
+  getDeprecationWarningEmitter,
+  kEmptyObject,
+} = require('internal/util');
 const {
   compileSourceTextModule,
+  SourceTextModuleTypes: { kUser },
   getDefaultConditions,
   shouldSpawnLoaderHookWorker,
   requestTypes: { kImportInRequiredESM, kRequireInImportedCJS, kImportInImportedESM },
@@ -48,9 +53,11 @@ const {
   kEvaluating,
   kEvaluationPhase,
   kInstantiated,
+  kUninstantiated,
   kErrored,
   kSourcePhase,
   throwIfPromiseRejected,
+  setImportMetaResolveInitializer,
 } = internalBinding('module_wrap');
 const {
   urlToFilename,
@@ -62,7 +69,6 @@ const {
   loadWithHooks: loadWithSyncHooks,
   validateLoadSloppy,
 } = require('internal/modules/customization_hooks');
-let importMetaInitializer;
 
 const { tracingChannel } = require('diagnostics_channel');
 const onImport = tracingChannel('module.import');
@@ -79,45 +85,9 @@ const { isPromise } = require('internal/util/types');
  * @typedef {import('url').URL} URL
  */
 
-/**
- * Lazy loads the module_map module and returns a new instance of ResolveCache.
- * @returns {import('./module_map.js').ResolveCache}
- */
-function newResolveCache() {
-  const { ResolveCache } = require('internal/modules/esm/module_map');
-  return new ResolveCache();
-}
-
-/**
- * Generate a load cache (to store the final result of a load-chain for a particular module).
- * @returns {import('./module_map.js').LoadCache}
- */
-function newLoadCache() {
-  const { LoadCache } = require('internal/modules/esm/module_map');
-  return new LoadCache();
-}
-
 const { translators } = require('internal/modules/esm/translators');
 const { defaultResolve } = require('internal/modules/esm/resolve');
 const { defaultLoadSync, throwUnknownModuleFormat } = require('internal/modules/esm/load');
-
-/**
- * Generate message about potential race condition caused by requiring a cached module that has started
- * async linking.
- * @param {string} filename Filename of the module being required.
- * @param {string|undefined} parentFilename Filename of the module calling require().
- * @param {boolean} isForAsyncLoaderHookWorker Whether this is for the async loader hook worker.
- * @returns {string} Error message.
- */
-function getRaceMessage(filename, parentFilename, isForAsyncLoaderHookWorker) {
-  let raceMessage = `Cannot require() ES Module ${filename} because it is not yet fully loaded.\n`;
-  raceMessage += 'This may be caused by a race condition if the module is simultaneously dynamically ';
-  raceMessage += 'import()-ed via Promise.all().\n';
-  raceMessage += 'Try await-ing the import() sequentially in a loop instead.\n';
-  raceMessage += ` (From ${parentFilename ? `${parentFilename} in ` : ' '}`;
-  raceMessage += `${isForAsyncLoaderHookWorker ? 'loader hook worker thread' : 'non-loader-hook thread'})`;
-  return raceMessage;
-}
 
 /**
  * @typedef {import('../cjs/loader.js').Module} CJSModule
@@ -128,7 +98,7 @@ function getRaceMessage(filename, parentFilename, isForAsyncLoaderHookWorker) {
  */
 
 /**
- * @typedef {'builtin'|'commonjs'|'json'|'module'|'wasm'} ModuleFormat
+ * @typedef {'builtin'|'commonjs'|'json'|'module'|'text'|'wasm'} ModuleFormat
  */
 
 /**
@@ -136,7 +106,19 @@ function getRaceMessage(filename, parentFilename, isForAsyncLoaderHookWorker) {
  */
 
 /**
- * @typedef {{ format: ModuleFormat, source: ModuleSource, translatorKey: string }} TranslateContext
+ * @typedef {{format: string, url: string, isResolvedBySyncHooks: boolean}} ResolveResult
+ */
+
+/**
+ * @typedef {{
+ *   url: string,
+ *   format: ModuleFormat,
+ *   source: ModuleSource,
+ *   responseURL?: string,
+ *   translatorKey: string,
+ *   isResolvedBySyncHooks: boolean,
+ *   isSourceLoadedSynchronously: boolean,
+ * }} TranslateContext
  */
 
 /**
@@ -161,12 +143,12 @@ class ModuleLoader {
   /**
    * Registry of resolved specifiers
    */
-  #resolveCache = newResolveCache();
+  #resolveCache = new ResolveCache();
 
   /**
    * Registry of loaded modules, akin to `require.cache`
    */
-  loadCache = newLoadCache();
+  loadCache = new LoadCache();
 
   /**
    * @see {AsyncLoaderHooks.isForAsyncLoaderHookWorker}
@@ -178,9 +160,10 @@ class ModuleLoader {
    * Asynchronous loader hooks to pass requests to.
    *
    * Note that this value _MUST_ be set with `#setAsyncLoaderHooks`
-   * because it needs to copy `#asyncLoaderHooks.allowImportMetaResolve`
-   *  to this property and failure to do so will cause undefined
-   * behavior when invoking `import.meta.resolve`.
+   * because it needs to copy `#asyncLoaderHooks.isForAsyncLoaderHookWorker`
+   * to this property.
+   * TODO(joyeecheung): this was a legacy of the previous setup of import.meta.resolve
+   * configuration; put this information in the environment directly instead.
    *
    * When the ModuleLoader is created on a loader hook thread, this is
    * {@link AsyncLoaderHooksOnLoaderHookWorker}, and its methods directly call out
@@ -212,10 +195,8 @@ class ModuleLoader {
   #setAsyncLoaderHooks(asyncLoaderHooks) {
     this.#asyncLoaderHooks = asyncLoaderHooks;
     if (asyncLoaderHooks) {
-      this.allowImportMetaResolve = asyncLoaderHooks.allowImportMetaResolve;
       this.isForAsyncLoaderHookWorker = asyncLoaderHooks.isForAsyncLoaderHookWorker;
     } else {
-      this.allowImportMetaResolve = true;
       this.isForAsyncLoaderHookWorker = false;
     }
   }
@@ -228,7 +209,7 @@ class ModuleLoader {
    * @returns {object} The module wrap object.
    */
   createModuleWrap(source, url, context = kEmptyObject) {
-    return compileSourceTextModule(url, source, this, context);
+    return compileSourceTextModule(url, source, kUser, context);
   }
 
   /**
@@ -239,7 +220,6 @@ class ModuleLoader {
    * @returns {Promise<object>} The module object.
    */
   async executeModuleJob(url, wrap, isEntryPoint = false) {
-    const { ModuleJob } = require('internal/modules/esm/module_job');
     const module = await onImport.tracePromise(async () => {
       const job = new ModuleJob(this, url, undefined, wrap, kEvaluationPhase, false, false, kImportInImportedESM);
       this.loadCache.set(url, undefined, job);
@@ -290,8 +270,8 @@ class ModuleLoader {
     let job = this.loadCache.get(url, kImplicitTypeAttribute);
     // This module job is already created:
     // 1. If it was loaded by `require()` before, at this point the instantiation
-    //    is already completed and we can check the whether it is in a cycle
-    //    (in that case the module status is kEvaluaing), and whether the
+    //    is already completed and we can check whether it is in a cycle
+    //    (in that case the module status is kEvaluating), and whether the
     //    required graph is synchronous.
     // 2. If it was loaded by `import` before, only allow it if it's already evaluated
     //    to forbid cycles.
@@ -299,20 +279,20 @@ class ModuleLoader {
     //    synchronously so that any previously imported synchronous graph is already
     //    evaluated at this point.
     // TODO(joyeecheung): add something similar to CJS loader's requireStack to help
-    // debugging the the problematic links in the graph for import.
+    // debugging the problematic links in the graph for import.
     debug('importSyncForRequire', parent?.filename, '->', filename, job);
     if (job !== undefined) {
       mod[kRequiredModuleSymbol] = job.module;
       const parentFilename = urlToFilename(parent?.filename);
       // This race should only be possible on the loader hook thread. See https://github.com/nodejs/node/issues/59666
       if (!job.module) {
-        assert.fail(getRaceMessage(filename, parentFilename), this.isForAsyncLoaderHookWorker);
+        throw new ERR_REQUIRE_ESM_RACE_CONDITION(filename, parentFilename, this.isForAsyncLoaderHookWorker);
       }
       const status = job.module.getStatus();
       debug('Module status', job, status);
       // hasAsyncGraph is available after module been instantiated.
-      if (status >= kInstantiated && job.module.hasAsyncGraph) {
-        throw new ERR_REQUIRE_ASYNC_MODULE(filename, parentFilename);
+      if (status >= kInstantiated) {
+        job.throwIfAsyncGraph(parent);
       }
       if (status === kEvaluated) {
         return { wrap: job.module, namespace: job.module.getNamespace() };
@@ -339,8 +319,13 @@ class ModuleLoader {
         throwIfPromiseRejected(job.instantiated);
       }
       if (status !== kEvaluating) {
-        assert.fail(`Unexpected module status ${status}. ` +
-                    getRaceMessage(filename, parentFilename));
+        assert(status === kUninstantiated, `Unexpected module status ${status}`);
+        // If we get here, either there's a race where the job is still being instantiated
+        // by an in-flight import(), or the cached module previously encountered an
+        // instantiation error during a prior load (e.g. due to a mismatched import).
+        // TODO(joyeecheung): the current check is too broad. We should attempt to
+        // get the potential instantiation error and throw it.
+        throw new ERR_REQUIRE_ESM_RACE_CONDITION(filename, parentFilename, false);
       }
       let message = `Cannot require() ES Module ${filename} in a cycle.`;
       if (parentFilename) {
@@ -355,10 +340,9 @@ class ModuleLoader {
     // TODO(joyeecheung): refactor this so that we pre-parse in C++ and hit the
     // cache here, or use a carrier object to carry the compiled module script
     // into the constructor to ensure cache hit.
-    const wrap = compileSourceTextModule(url, source, this);
+    const wrap = compileSourceTextModule(url, source, kUser);
     const inspectBrk = (isMain && getOptionValue('--inspect-brk'));
 
-    const { ModuleJobSync } = require('internal/modules/esm/module_job');
     job = new ModuleJobSync(this, url, kEmptyObject, wrap, kEvaluationPhase, isMain, inspectBrk,
                             kImportInRequiredESM);
     this.loadCache.set(url, kImplicitTypeAttribute, job);
@@ -376,7 +360,7 @@ class ModuleLoader {
   #checkCachedJobForRequireESM(specifier, url, parentURL, job) {
     // This race should only be possible on the loader hook thread. See https://github.com/nodejs/node/issues/59666
     if (!job.module) {
-      assert.fail(getRaceMessage(url, parentURL, this.isForAsyncLoaderHookWorker));
+      throw new ERR_REQUIRE_ESM_RACE_CONDITION(url, parentURL, this.isForAsyncLoaderHookWorker);
     }
     // This module is being evaluated, which means it's imported in a previous link
     // in a cycle.
@@ -391,26 +375,32 @@ class ModuleLoader {
 
     // Otherwise the module could be imported before but the evaluation may be already
     // completed (e.g. the require call is lazy) so it's okay. We will return the
-    // job and check asynchronicity of the entire graph later, after the
-    // graph is instantiated.
+    // job and check asynchronicity of the entire graph later, before the
+    // graph is evaluated.
   }
 
   /**
    * Load a module and translate it into a ModuleWrap for require(esm).
    * This is run synchronously, and the translator always return a ModuleWrap synchronously.
-   * @param {string} url URL of the module to be translated.
+   * @param {ResolveResult} resolveResult Result from the resolve step.
    * @param {object} loadContext See {@link load}
    * @param {string|undefined} parentURL URL of the parent module. Undefined if it's the entry point.
    * @param {ModuleRequest} request Module request.
    * @returns {ModuleWrap}
    */
-  loadAndTranslateForImportInRequiredESM(url, loadContext, parentURL, request) {
+  loadAndTranslateForImportInRequiredESM(resolveResult, loadContext, parentURL, request) {
+    const { url } = resolveResult;
     const loadResult = this.#loadSync(url, loadContext);
     // Use the synchronous commonjs translator which can deal with cycles.
     const formatFromLoad = loadResult.format;
     const translatorKey = (formatFromLoad === 'commonjs' || formatFromLoad === 'commonjs-typescript') ?
       'commonjs-sync' : formatFromLoad;
-    const translateContext = { ...loadResult, translatorKey, __proto__: null };
+    const translateContext = {
+      ...resolveResult,
+      ...loadResult,
+      translatorKey,
+      __proto__: null,
+    };
     const wrap = this.#translate(url, translateContext, parentURL);
     assert(wrap instanceof ModuleWrap, `Translator used for require(${url}) should not be async`);
 
@@ -459,12 +449,13 @@ class ModuleLoader {
   /**
    * Load a module and translate it into a ModuleWrap for require() in imported CJS.
    * This is run synchronously, and the translator always return a ModuleWrap synchronously.
-   * @param {string} url URL of the module to be translated.
+   * @param {ResolveResult} resolveResult Result from the resolve step.
    * @param {object} loadContext See {@link load}
    * @param {string|undefined} parentURL URL of the parent module. Undefined if it's the entry point.
    * @returns {ModuleWrap}
    */
-  loadAndTranslateForRequireInImportedCJS(url, loadContext, parentURL) {
+  loadAndTranslateForRequireInImportedCJS(resolveResult, loadContext, parentURL) {
+    const { url } = resolveResult;
     const loadResult = this.#loadSync(url, loadContext);
     const formatFromLoad = loadResult.format;
 
@@ -486,7 +477,12 @@ class ModuleLoader {
       translatorKey = 'require-commonjs-typescript';
     }
 
-    const translateContext = { ...loadResult, translatorKey, __proto__: null };
+    const translateContext = {
+      ...resolveResult,
+      ...loadResult,
+      translatorKey,
+      __proto__: null,
+    };
     const wrap = this.#translate(url, translateContext, parentURL);
     assert(wrap instanceof ModuleWrap, `Translator used for require(${url}) should not be async`);
     return wrap;
@@ -495,15 +491,21 @@ class ModuleLoader {
   /**
    * Load a module and translate it into a ModuleWrap for ordinary imported ESM.
    * This may be run asynchronously if there are asynchronous module loader hooks registered.
-   * @param {string} url URL of the module to be translated.
+   * @param {ResolveResult} resolveResult Result from the resolve step.
    * @param {object} loadContext See {@link load}
    * @param {string|undefined} parentURL URL of the parent module. Undefined if it's the entry point.
    * @returns {Promise<ModuleWrap>|ModuleWrap}
    */
-  loadAndTranslate(url, loadContext, parentURL) {
+  loadAndTranslate(resolveResult, loadContext, parentURL) {
+    const { url } = resolveResult;
     const maybePromise = this.load(url, loadContext);
     const afterLoad = (loadResult) => {
-      const translateContext = { ...loadResult, translatorKey: loadResult.format, __proto__: null };
+      const translateContext = {
+        ...resolveResult,
+        ...loadResult,
+        translatorKey: loadResult.format,
+        __proto__: null,
+      };
       return this.#translate(url, translateContext, parentURL);
     };
     if (isPromise(maybePromise)) {
@@ -519,7 +521,7 @@ class ModuleLoader {
    * the module should be linked by the time this returns. Otherwise it may still have
    * pending module requests.
    * @param {string} parentURL See {@link getOrCreateModuleJob}
-   * @param {{format: string, url: string}} resolveResult
+   * @param {ResolveResult} resolveResult
    * @param {ModuleRequest} request Module request.
    * @param {ModuleRequestType} requestType Type of the module request.
    * @returns {ModuleJobBase} The (possibly pending) module job
@@ -530,6 +532,16 @@ class ModuleLoader {
     if (process.env.WATCH_REPORT_DEPENDENCIES && process.send) {
       const type = requestType === kRequireInImportedCJS ? 'require' : 'import';
       process.send({ [`watch:${type}`]: [url] });
+    }
+    // Relay Events from worker to main thread
+    if (process.env.WATCH_REPORT_DEPENDENCIES && !process.send) {
+      const { isMainThread } = internalBinding('worker');
+      if (!isMainThread) {
+        const { parentPort } = require('worker_threads');
+        if (parentPort) {
+          parentPort.postMessage({ 'watch:import': [url] });
+        }
+      }
     }
 
     // TODO(joyeecheung): update the module requests to use importAttributes as property names.
@@ -548,11 +560,11 @@ class ModuleLoader {
 
     let moduleOrModulePromise;
     if (requestType === kRequireInImportedCJS) {
-      moduleOrModulePromise = this.loadAndTranslateForRequireInImportedCJS(url, context, parentURL);
+      moduleOrModulePromise = this.loadAndTranslateForRequireInImportedCJS(resolveResult, context, parentURL);
     } else if (requestType === kImportInRequiredESM) {
-      moduleOrModulePromise = this.loadAndTranslateForImportInRequiredESM(url, context, parentURL, request);
+      moduleOrModulePromise = this.loadAndTranslateForImportInRequiredESM(resolveResult, context, parentURL, request);
     } else {
-      moduleOrModulePromise = this.loadAndTranslate(url, context, parentURL);
+      moduleOrModulePromise = this.loadAndTranslate(resolveResult, context, parentURL);
     }
 
     if (requestType === kImportInRequiredESM || requestType === kRequireInImportedCJS ||
@@ -560,7 +572,6 @@ class ModuleLoader {
       assert(moduleOrModulePromise instanceof ModuleWrap, `Expected ModuleWrap for loading ${url}`);
     }
 
-    const { ModuleJob, ModuleJobSync } = require('internal/modules/esm/module_job');
     // TODO(joyeecheung): use ModuleJobSync for kRequireInImportedCJS too.
     const ModuleJobCtor = (requestType === kImportInRequiredESM ? ModuleJobSync : ModuleJob);
     const isMain = (parentURL === undefined);
@@ -666,7 +677,7 @@ class ModuleLoader {
    * @param {string} [parentURL] The URL of the module where the module request is initiated.
    *   It's undefined if it's from the root module.
    * @param {ModuleRequest} request Module request.
-   * @returns {Promise<{format: string, url: string}>|{format: string, url: string}}
+   * @returns {Promise<ResolveResult>|ResolveResult}
    */
   #resolve(parentURL, request) {
     if (this.isForAsyncLoaderHookWorker) {
@@ -702,15 +713,18 @@ class ModuleLoader {
   /**
    * This is the default resolve step for module.registerHooks(), which incorporates asynchronous hooks
    * from module.register() which are run in a blocking fashion for it to be synchronous.
+   * @param {{isResolvedByDefaultResolve: boolean}} out Output object to track whether the default resolve was used
+   *   without polluting the user-visible resolve result.
    * @param {string|URL} specifier See {@link resolveSync}.
    * @param {{ parentURL?: string, importAttributes: ImportAttributes, conditions?: string[]}} context
    *   See {@link resolveSync}.
    * @returns {{ format: string, url: string }}
    */
-  #resolveAndMaybeBlockOnLoaderThread(specifier, context) {
+  #resolveAndMaybeBlockOnLoaderThread(out, specifier, context) {
     if (this.#asyncLoaderHooks?.resolveSync) {
       return this.#asyncLoaderHooks.resolveSync(specifier, context.parentURL, context.importAttributes);
     }
+    out.isResolvedByDefaultResolve = true;
     return this.#cachedDefaultResolve(specifier, context);
   }
 
@@ -725,31 +739,45 @@ class ModuleLoader {
    * @param {boolean} [shouldSkipSyncHooks] Whether to skip the synchronous hooks registered by module.registerHooks().
    *   This is used to maintain compatibility for the re-invented require.resolve (in imported CJS customized
    *   by module.register()`) which invokes the CJS resolution separately from the hook chain.
-   * @returns {{ format: string, url: string }}
+   * @returns {ResolveResult}
    */
   resolveSync(parentURL, request, shouldSkipSyncHooks = false) {
     const specifier = `${request.specifier}`;
     const importAttributes = request.attributes ?? kEmptyObject;
+    // Use an output parameter to track the state and avoid polluting the user-visible resolve results.
+    const out = { isResolvedByDefaultResolve: false, __proto__: null };
 
+    let result;
+    let isResolvedBySyncHooks = false;
     if (!shouldSkipSyncHooks && syncResolveHooks.length) {
       // Has module.registerHooks() hooks, chain the asynchronous hooks in the default step.
-      return resolveWithSyncHooks(specifier, parentURL, importAttributes, this.#defaultConditions,
-                                  this.#resolveAndMaybeBlockOnLoaderThread.bind(this));
+      result = resolveWithSyncHooks(specifier, parentURL, importAttributes, this.#defaultConditions,
+                                    this.#resolveAndMaybeBlockOnLoaderThread.bind(this, out));
+      // If the default step ran, sync hooks did not short-circuit the resolution.
+      isResolvedBySyncHooks = !out.isResolvedByDefaultResolve;
+    } else {
+      const context = {
+        ...request,
+        conditions: this.#defaultConditions,
+        parentURL,
+        importAttributes,
+        __proto__: null,
+      };
+      result = this.#resolveAndMaybeBlockOnLoaderThread(out, specifier, context);
     }
-    const context = {
-      ...request,
-      conditions: this.#defaultConditions,
-      parentURL,
-      importAttributes,
-      __proto__: null,
-    };
-    return this.#resolveAndMaybeBlockOnLoaderThread(specifier, context);
+    result.isResolvedBySyncHooks = isResolvedBySyncHooks;
+    return result;
   }
 
   /**
    * Provide source that is understood by one of Node's translators. Handles customization hooks,
    * if any.
-   * @typedef { {format: ModuleFormat, source: ModuleSource }} LoadResult
+   * @typedef {{
+   *   format: ModuleFormat,
+   *   source: ModuleSource,
+   *   responseURL?: string,
+   *   isSourceLoadedSynchronously: boolean,
+   * }} LoadResult
    * @param {string} url The URL of the module to be loaded.
    * @param {object} context Metadata about the module
    * @returns {Promise<LoadResult> | LoadResult}}
@@ -765,14 +793,19 @@ class ModuleLoader {
   /**
    * This is the default load step for module.registerHooks(), which incorporates asynchronous hooks
    * from module.register() which are run in a blocking fashion for it to be synchronous.
+   * @param {{isSourceLoadedSynchronously: boolean}} out
+   *   Output object to track whether the source was loaded synchronously without polluting
+   *   the user-visible load result.
    * @param {string} url See {@link load}
    * @param {object} context See {@link load}
    * @returns {{ format: ModuleFormat, source: ModuleSource }}
    */
-  #loadAndMaybeBlockOnLoaderThread(url, context) {
+  #loadAndMaybeBlockOnLoaderThread(out, url, context) {
     if (this.#asyncLoaderHooks?.loadSync) {
+      out.isSourceLoadedSynchronously = false;
       return this.#asyncLoaderHooks.loadSync(url, context);
     }
+    out.isSourceLoadedSynchronously = true;
     return defaultLoadSync(url, context);
   }
 
@@ -783,32 +816,38 @@ class ModuleLoader {
    * This is here to support `require()` in imported CJS and `module.registerHooks()` hooks.
    * @param {string} url See {@link load}
    * @param {object} [context] See {@link load}
-   * @returns {{ format: ModuleFormat, source: ModuleSource }}
+   * @returns {LoadResult}
    */
   #loadSync(url, context) {
+    // Use an output parameter to track the state and avoid polluting the user-visible resolve results.
+    const out = {
+      isSourceLoadedSynchronously: true,
+      __proto__: null,
+    };
+    let result;
     if (syncLoadHooks.length) {
       // Has module.registerHooks() hooks, chain the asynchronous hooks in the default step.
       // TODO(joyeecheung): construct the ModuleLoadContext in the loaders directly instead
       // of converting them from plain objects in the hooks.
-      return loadWithSyncHooks(url, context.format, context.importAttributes, this.#defaultConditions,
-                               this.#loadAndMaybeBlockOnLoaderThread.bind(this), validateLoadSloppy);
+      result = loadWithSyncHooks(
+        url,
+        context.format,
+        context.importAttributes,
+        this.#defaultConditions,
+        this.#loadAndMaybeBlockOnLoaderThread.bind(this, out),
+        validateLoadSloppy,
+      );
+    } else {
+      result = this.#loadAndMaybeBlockOnLoaderThread(out, url, context);
     }
-    return this.#loadAndMaybeBlockOnLoaderThread(url, context);
+    result.isSourceLoadedSynchronously = out.isSourceLoadedSynchronously;
+    return result;
   }
 
   validateLoadResult(url, format) {
     if (format == null) {
       throwUnknownModuleFormat(url, format);
     }
-  }
-
-  importMetaInitialize(meta, context) {
-    if (this.#asyncLoaderHooks) {
-      return this.#asyncLoaderHooks.importMetaInitialize(meta, context, this);
-    }
-    importMetaInitializer ??= require('internal/modules/esm/initialize_import_meta').initializeImportMeta;
-    meta = importMetaInitializer(meta, context, this);
-    return meta;
   }
 
   /**
@@ -864,8 +903,47 @@ function createModuleLoader(asyncLoaderHooks) {
   return new ModuleLoader(asyncLoaderHooks);
 }
 
-let cascadedLoader;
+let allowImportMetaResolveParentURL;
+/**
+ * This is only called from the native ImportMetaObjectInitialize function to set up import.meta.resolve
+ * when import.meta.resolve is accessed for the first time in a module.
+ * @param {ModuleLoader} loader The cascaded loader to use. Bound when this function gets passed to native land.
+ * @param {string} moduleURL URL of the module accessing import.meta
+ * @returns {function(string, URL['href']=): string} The import.meta.resolve function
+ */
+function createImportMetaResolve(loader, moduleURL) {
+  /**
+   * @param {string} specifier The module specifier to resolve.
+   * @param {URL['href']} [parentURL] Optional parent URL to resolve against. Ignored unless
+   *   `--experimental-import-meta-resolve` is enabled.
+   * @returns {string}
+   */
+  return function resolve(specifier, parentURL) {
+    // The second argument is ignored unless --experimental-import-meta-resolve is enabled.
+    // Even then, if it's not provided, parentURL defaults to the url of the module accessing
+    // import.meta.resolve.
+    allowImportMetaResolveParentURL ??= getOptionValue('--experimental-import-meta-resolve');
+    parentURL = allowImportMetaResolveParentURL ? (parentURL ?? moduleURL) : moduleURL;
 
+    let url;
+    try {
+      ({ url } = loader.resolveSync(parentURL, { specifier, __proto__: null }));
+      return url;
+    } catch (error) {
+      switch (error?.code) {
+        case 'ERR_UNSUPPORTED_DIR_IMPORT':
+        case 'ERR_MODULE_NOT_FOUND':
+          ({ url } = error);
+          if (url) {
+            return url;
+          }
+      }
+      throw error;
+    }
+  };
+}
+
+let cascadedLoader;
 /**
  * This is a singleton ESM loader that integrates the loader hooks, if any.
  * It it used by other internal built-ins when they need to load user-land ESM code
@@ -879,7 +957,16 @@ let cascadedLoader;
  * @returns {ModuleLoader}
  */
 function getOrInitializeCascadedLoader(asyncLoaderHooks) {
-  cascadedLoader ??= createModuleLoader(asyncLoaderHooks);
+  if (!cascadedLoader) {
+    cascadedLoader = createModuleLoader(asyncLoaderHooks);
+    // import.meta.resolve is not allowed in the async loader hook worker thread.
+    // So only set up the import.meta.resolve initializer when we are initializing
+    // the non-loader-hook-thread cascaded loader. When the native land doesn't see it,
+    // it knows the loader is running on the loader hook thread.
+    if (!(asyncLoaderHooks?.isForAsyncLoaderHookWorker)) {
+      setImportMetaResolveInitializer(createImportMetaResolve.bind(null, cascadedLoader));
+    }
+  }
   return cascadedLoader;
 }
 
@@ -916,7 +1003,16 @@ function isCascadedLoaderInitialized() {
  * });
  * ```
  */
+const emitRegisterDeprecation = getDeprecationWarningEmitter(
+  'DEP0205',
+  '`module.register()` is deprecated. Use `module.registerHooks()` instead.',
+  undefined,
+  false,
+);
+
 function register(specifier, parentURL = undefined, options) {
+  emitRegisterDeprecation();
+
   if (parentURL != null && typeof parentURL === 'object' && !isURL(parentURL)) {
     options = parentURL;
     parentURL = options.parentURL;

@@ -141,7 +141,7 @@ namespace {
 void SetInstructionBitsInCodeSpace(Instruction* instr, Instr value,
                                    Heap* heap) {
   CodePageMemoryModificationScopeForDebugging scope(
-      MemoryChunkMetadata::FromAddress(reinterpret_cast<Address>(instr)));
+      BasePage::FromAddress(heap->isolate(), reinterpret_cast<Address>(instr)));
   instr->SetInstructionBits(value);
 }
 }  // namespace
@@ -167,9 +167,9 @@ void S390Debugger::RedoBreakpoint() {
 }
 
 void S390Debugger::Debug() {
-  if (v8_flags.correctness_fuzzer_suppressions) {
-    PrintF("Debugger disabled for differential fuzzing.\n");
-    return;
+  if (!v8_flags.simulator_debugger) {
+    // Debugger not enabled; crash instead.
+    UNREACHABLE();
   }
   intptr_t last_pc = -1;
   bool done = false;
@@ -1301,6 +1301,8 @@ void Simulator::EvalTableInit() {
   EvalTable[OGR] = &Simulator::Evaluate_OGR;
   EvalTable[XGR] = &Simulator::Evaluate_XGR;
   EvalTable[FLOGR] = &Simulator::Evaluate_FLOGR;
+  EvalTable[CLZG] = &Simulator::Evaluate_CLZG;
+  EvalTable[CTZG] = &Simulator::Evaluate_CTZG;
   EvalTable[LLGCR] = &Simulator::Evaluate_LLGCR;
   EvalTable[LLGHR] = &Simulator::Evaluate_LLGHR;
   EvalTable[MLGR] = &Simulator::Evaluate_MLGR;
@@ -1640,6 +1642,10 @@ Simulator* Simulator::current(Isolate* isolate) {
 // Sets the register in the architecture state.
 void Simulator::set_register(int reg, uint64_t value) {
   DCHECK((reg >= 0) && (reg < kNumGPRs));
+  if (InstructionTracingEnabled()) {
+    PrintF("%s <- 0x%08" V8PRIxPTR "\n",
+           i::RegisterName(i::Register::from_code(reg)), value);
+  }
   registers_[reg] = value;
 }
 
@@ -1728,6 +1734,10 @@ void Simulator::set_low_register(int reg, uint32_t value) {
   uint64_t shifted_val = static_cast<uint64_t>(value);
   uint64_t orig_val = static_cast<uint64_t>(registers_[reg]);
   uint64_t result = (orig_val >> 32 << 32) | shifted_val;
+  if (InstructionTracingEnabled()) {
+    PrintF("%s <- 0x%08" V8PRIxPTR "\n",
+           i::RegisterName(i::Register::from_code(reg)), result);
+  }
   registers_[reg] = result;
 }
 
@@ -1735,6 +1745,10 @@ void Simulator::set_high_register(int reg, uint32_t value) {
   uint64_t shifted_val = static_cast<uint64_t>(value) << 32;
   uint64_t orig_val = static_cast<uint64_t>(registers_[reg]);
   uint64_t result = (orig_val & 0xFFFFFFFF) | shifted_val;
+  if (InstructionTracingEnabled()) {
+    PrintF("%s <- 0x%08" V8PRIxPTR "\n",
+           i::RegisterName(i::Register::from_code(reg)), result);
+  }
   registers_[reg] = result;
 }
 
@@ -1989,8 +2003,13 @@ using SimulatorRuntimeFPTaggedCall = double (*)(int32_t arg0, int32_t arg1,
 // This signature supports direct call in to API function native callback
 // (refer to InvocationCallback in v8.h).
 using SimulatorRuntimeDirectApiCall = void (*)(intptr_t arg0);
-// This signature supports direct call to accessor getter callback.
-using SimulatorRuntimeDirectGetterCall = void (*)(intptr_t arg0, intptr_t arg1);
+// This signature supports direct call to accessor/interceptor getter callback.
+using SimulatorRuntimeDirectGetterCall = intptr_t (*)(intptr_t arg0,
+                                                      intptr_t arg1);
+// This signature supports direct call to accessor/interceptor setter callback.
+using SimulatorRuntimeDirectSetterCall = intptr_t (*)(intptr_t arg0,
+                                                      intptr_t arg1,
+                                                      intptr_t arg2);
 
 // Software interrupt instructions are used by the simulator to call into the
 // C-based V8 runtime.
@@ -2119,7 +2138,7 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
 #ifdef DEBUG
             TrashCallerSaveRegisters();
 #endif
-            set_register(r0, static_cast<int32_t>(iresult));
+            set_register(r2, static_cast<int32_t>(iresult));
             break;
           }
           default:
@@ -2182,7 +2201,8 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
       } else if (redirection->type() == ExternalReference::DIRECT_GETTER_CALL) {
         // See callers of MacroAssembler::CallApiFunctionAndReturn for
         // explanation of register usage.
-        // void f(v8::Local<String> property, v8::PropertyCallbackInfo& info)
+        // void f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&)
+        // v8::Intercepted f(v8::Local<v8::Name>, v8::PropertyCallbackInfo&)
         if (InstructionTracingEnabled() || !stack_aligned) {
           PrintF("Call to host function at %p args %08" V8PRIxPTR
                  " %08" V8PRIxPTR,
@@ -2199,7 +2219,37 @@ void Simulator::SoftwareInterrupt(Instruction* instr) {
         if (!ABI_PASSES_HANDLES_IN_REGS) {
           arg[0] = base::bit_cast<intptr_t>(arg[0]);
         }
-        target(arg[0], arg[1]);
+        intptr_t iresult = target(arg[0], arg[1]);
+        if (InstructionTracingEnabled()) {
+          PrintF("Returned %08" V8PRIxPTR "\n", iresult);
+        }
+        set_register(r2, iresult);
+      } else if (redirection->type() == ExternalReference::DIRECT_SETTER_CALL) {
+        // void f(v8::Local<Name>, v8::Local<v8::Value>,
+        //        v8::PropertyCallbackInfo&)
+        // v8::Intercepted f(v8::Local<Name>, v8::Local<v8::Value>,
+        //                   v8::PropertyCallbackInfo&)
+        if (InstructionTracingEnabled() || !stack_aligned) {
+          PrintF("Call to host function at %p args %08" V8PRIxPTR
+                 " %08" V8PRIxPTR " %08" V8PRIxPTR,
+                 reinterpret_cast<void*>(external), arg[0], arg[1], arg[2]);
+          if (!stack_aligned) {
+            PrintF(" with unaligned stack %08" V8PRIxPTR "\n",
+                   get_register(sp));
+          }
+          PrintF("\n");
+        }
+        CHECK(stack_aligned);
+        SimulatorRuntimeDirectSetterCall target =
+            reinterpret_cast<SimulatorRuntimeDirectSetterCall>(external);
+        intptr_t iresult = target(arg[0], arg[1], arg[2]);
+#ifdef DEBUG
+        TrashCallerSaveRegisters();
+#endif
+        if (InstructionTracingEnabled()) {
+          PrintF("Returned %08" V8PRIxPTR "\n", iresult);
+        }
+        set_register(r2, iresult);
       } else {
         // builtin call.
         if (InstructionTracingEnabled() || !stack_aligned) {
@@ -3448,14 +3498,17 @@ EVALUATE(VSUMG) {
 }
 #undef CASE
 
-#define VECTOR_MERGE(type, is_low_side)                                      \
-  constexpr size_t index_limit = (kSimd128Size / sizeof(type)) / 2;          \
-  for (size_t i = 0, source_index = is_low_side ? i + index_limit : i;       \
-       i < index_limit; i++, source_index++) {                               \
-    set_simd_register_by_lane<type>(                                         \
-        r1, 2 * i, get_simd_register_by_lane<type>(r2, source_index));       \
-    set_simd_register_by_lane<type>(                                         \
-        r1, (2 * i) + 1, get_simd_register_by_lane<type>(r3, source_index)); \
+#define VECTOR_MERGE(type, is_low_side)                                     \
+  constexpr size_t kItemCount = kSimd128Size / sizeof(type);                \
+  type temps[kItemCount] = {0};                                             \
+  constexpr size_t index_limit = kItemCount / 2;                            \
+  for (size_t i = 0, source_index = is_low_side ? i + index_limit : i;      \
+       i < index_limit; i++, source_index++) {                              \
+    temps[2 * i] = get_simd_register_by_lane<type>(r2, source_index);       \
+    temps[(2 * i) + 1] = get_simd_register_by_lane<type>(r3, source_index); \
+  }                                                                         \
+  for (size_t i = 0; i < kItemCount; i++) {                                 \
+    set_simd_register_by_lane<type>(r1, i, temps[i]);                       \
   }
 #define CASE(i, type, is_low_side)  \
   case i: {                         \
@@ -4580,14 +4633,14 @@ EVALUATE(VFI) {
       DCHECK(CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1));
       for (int i = 0; i < 4; i++) {
         float value = get_simd_register_by_lane<float>(r2, i);
-        float n = ComputeRounding<float>(value, m5);
+        float n = std::isnan(value) ? NAN : ComputeRounding<float>(value, m5);
         set_simd_register_by_lane<float>(r1, i, n);
       }
       break;
     case 3:
       for (int i = 0; i < 2; i++) {
         double value = get_simd_register_by_lane<double>(r2, i);
-        double n = ComputeRounding<double>(value, m5);
+        double n = std::isnan(value) ? NAN : ComputeRounding<double>(value, m5);
         set_simd_register_by_lane<double>(r1, i, n);
       }
       break;
@@ -7183,7 +7236,12 @@ EVALUATE(AEBR) {
   DECODE_RRE_INSTRUCTION(r1, r2);
   float fr1_val = get_fpr<float>(r1);
   float fr2_val = get_fpr<float>(r2);
-  fr1_val += fr2_val;
+  fr1_val = FPProcessNaNBinop<float, Float32, uint32_t>(
+      fr1_val, fr2_val, [](float lhs, float rhs) {
+        if (std::isinf(lhs) && std::isinf(rhs))
+          return lhs != rhs ? std::numeric_limits<float>::quiet_NaN() : lhs;
+        return lhs + rhs;
+      });
   set_fpr(r1, fr1_val);
   SetS390ConditionCode<float>(fr1_val, 0);
 
@@ -7195,7 +7253,12 @@ EVALUATE(SEBR) {
   DECODE_RRE_INSTRUCTION(r1, r2);
   float fr1_val = get_fpr<float>(r1);
   float fr2_val = get_fpr<float>(r2);
-  fr1_val -= fr2_val;
+  fr1_val = FPProcessNaNBinop<float, Float32, uint32_t>(
+      fr1_val, fr2_val, [](float lhs, float rhs) {
+        if (std::isinf(lhs) && std::isinf(rhs) && (lhs == rhs))
+          return std::numeric_limits<float>::quiet_NaN();
+        return lhs - rhs;
+      });
   set_fpr(r1, fr1_val);
   SetS390ConditionCode<float>(fr1_val, 0);
 
@@ -7213,7 +7276,18 @@ EVALUATE(DEBR) {
   DECODE_RRE_INSTRUCTION(r1, r2);
   float fr1_val = get_fpr<float>(r1);
   float fr2_val = get_fpr<float>(r2);
-  fr1_val /= fr2_val;
+  fr1_val = FPProcessNaNBinop<float, Float32, uint32_t>(
+      fr1_val, fr2_val, [](float lhs, float rhs) {
+        if (std::isinf(lhs) && std::isinf(rhs))
+          return std::numeric_limits<float>::quiet_NaN();
+        if (rhs == 0) {
+          if (lhs == 0) return std::numeric_limits<float>::quiet_NaN();
+          bool is_negative = signbit(lhs) ^ signbit(rhs);
+          float inf = std::numeric_limits<float>::infinity();
+          return is_negative ? -inf : inf;
+        }
+        return lhs / rhs;
+      });
   set_fpr(r1, fr1_val);
   return length;
 }
@@ -7312,7 +7386,14 @@ EVALUATE(MEEBR) {
   DECODE_RRE_INSTRUCTION(r1, r2);
   float fr1_val = get_fpr<float>(r1);
   float fr2_val = get_fpr<float>(r2);
-  fr1_val *= fr2_val;
+  fr1_val = FPProcessNaNBinop<float, Float32, uint32_t>(
+      fr1_val, fr2_val, [](float lhs, float rhs) {
+        if (lhs == 0 && std::isinf(rhs))
+          return std::numeric_limits<float>::quiet_NaN();
+        if (rhs == 0 && std::isinf(lhs))
+          return std::numeric_limits<float>::quiet_NaN();
+        return lhs * rhs;
+      });
   set_fpr(r1, fr1_val);
   return length;
 }
@@ -7645,7 +7726,9 @@ EVALUATE(FIEBRA) {
   DCHECK_EQ(m4, 0);
   USE(m4);
   float a = get_fpr<float>(r2);
-  float n = ComputeRounding<float>(a, m3);
+  float n = FPProcessNaNUnop<float, Float32, uint32_t>(
+      a, m3,
+      [](float input, int m3) { return ComputeRounding<float>(input, m3); });
   set_fpr(r1, n);
   return length;
 }
@@ -8668,6 +8751,20 @@ EVALUATE(FLOGR) {
   int64_t mask = ~(1 << (63 - i));
   set_register(r1, i);
   set_register(r1 + 1, r2_val & mask);
+  return length;
+}
+
+EVALUATE(CLZG) {
+  DCHECK_OPCODE(CLZG);
+  DECODE_RRE_INSTRUCTION(r1, r2);
+  set_register(r1, base::bits::CountLeadingZeros64(get_register(r2)));
+  return length;
+}
+
+EVALUATE(CTZG) {
+  DCHECK_OPCODE(CTZG);
+  DECODE_RRE_INSTRUCTION(r1, r2);
+  set_register(r1, base::bits::CountTrailingZeros64(get_register(r2)));
   return length;
 }
 
@@ -11038,7 +11135,18 @@ EVALUATE(DEB) {
   intptr_t d2_val = d2;
   float r1_val = get_fpr<float>(r1);
   float fval = ReadFloat(b2_val + x2_val + d2_val);
-  r1_val /= fval;
+  r1_val = FPProcessNaNBinop<float, Float32, uint32_t>(
+      r1_val, fval, [](float lhs, float rhs) {
+        if (std::isinf(lhs) && std::isinf(rhs))
+          return std::numeric_limits<float>::quiet_NaN();
+        if (rhs == 0) {
+          if (lhs == 0) return std::numeric_limits<float>::quiet_NaN();
+          bool is_negative = signbit(lhs) ^ signbit(rhs);
+          float inf = std::numeric_limits<float>::infinity();
+          return is_negative ? -inf : inf;
+        }
+        return lhs / rhs;
+      });
   set_fpr(r1, r1_val);
   return length;
 }

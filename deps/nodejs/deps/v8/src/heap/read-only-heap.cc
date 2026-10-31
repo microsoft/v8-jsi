@@ -9,9 +9,9 @@
 
 #include "src/common/globals.h"
 #include "src/common/ptr-compr-inl.h"
+#include "src/heap/base-page.h"
 #include "src/heap/heap-write-barrier-inl.h"
-#include "src/heap/memory-chunk-metadata.h"
-#include "src/heap/mutable-page-metadata.h"
+#include "src/heap/mutable-page.h"
 #include "src/heap/read-only-spaces.h"
 #include "src/init/isolate-group.h"
 #include "src/objects/heap-object-inl.h"
@@ -28,13 +28,6 @@ ReadOnlyHeap::~ReadOnlyHeap() {
 #ifdef V8_ENABLE_SANDBOX
   IsolateGroup::current()->code_pointer_table()->TearDownSpace(
       &code_pointer_space_);
-#endif
-#ifdef V8_ENABLE_LEAPTIERING
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
-#if V8_STATIC_DISPATCH_HANDLES_BOOL
-  jdt->DetachSpaceFromReadOnlySegment(&js_dispatch_table_space_);
-#endif  // V8_STATIC_DISPATCH_HANDLES_BOOL
-  jdt->TearDownSpace(&js_dispatch_table_space_);
 #endif
 }
 
@@ -62,9 +55,9 @@ void ReadOnlyHeap::SetUp(Isolate* isolate,
       isolate->external_pointer_table().SetUpFromReadOnlyArtifacts(
           isolate->heap()->read_only_external_pointer_space(), artifacts);
 #endif  // V8_COMPRESS_POINTERS
+      artifacts->read_only_heap()->InitializeIsolateRoots(isolate);
     }
     artifacts->VerifyChecksum(read_only_snapshot_data, read_only_heap_created);
-    artifacts->read_only_heap()->InitializeIsolateRoots(isolate);
   } else {
     // This path should only be taken in mksnapshot, should only be run once
     // before tearing down the Isolate that holds this ReadOnlyArtifacts and
@@ -115,7 +108,12 @@ void ReadOnlyHeap::OnCreateHeapObjectsComplete(Isolate* isolate) {
   // concurrently-running sweeper tasks. Ensure that sweeping has been
   // completed, i.e. no sweeper tasks are currently running.
   isolate->heap()->EnsureSweepingCompleted(
-      Heap::SweepingForcedFinalizationMode::kV8Only);
+      Heap::SweepingForcedFinalizationMode::kV8Only,
+      CompleteSweepingReason::kReadOnly);
+
+  // Fix the free space maps, for free spaces that were created before the map
+  // existed.
+  read_only_space()->RepairFreeSpacesBeforeSerialization();
 
   InitFromIsolate(isolate);
 
@@ -172,19 +170,6 @@ ReadOnlyHeap::ReadOnlyHeap(ReadOnlySpace* ro_space)
   IsolateGroup::current()->code_pointer_table()->InitializeSpace(
       &code_pointer_space_);
 #endif  // V8_ENABLE_SANDBOX
-#ifdef V8_ENABLE_LEAPTIERING
-  JSDispatchTable* jdt = IsolateGroup::current()->js_dispatch_table();
-  jdt->InitializeSpace(&js_dispatch_table_space_);
-  // To avoid marking trying to write to these read-only cells they are
-  // allocated black. Target code objects in the read-only dispatch table are
-  // read-only code objects.
-  js_dispatch_table_space_.set_allocate_black(true);
-#if V8_STATIC_DISPATCH_HANDLES_BOOL
-  jdt->AttachSpaceToReadOnlySegment(&js_dispatch_table_space_);
-  jdt->PreAllocateEntries(&js_dispatch_table_space_,
-                          JSBuiltinDispatchHandleRoot::kCount, true);
-#endif  // V8_STATIC_DISPATCH_HANDLES_BOOL
-#endif  // V8_ENABLE_LEAPTIERING
 }
 
 // static
@@ -249,14 +234,13 @@ Tagged<HeapObject> ReadOnlyHeapObjectIterator::Next() {
 }
 
 ReadOnlyPageObjectIterator::ReadOnlyPageObjectIterator(
-    const ReadOnlyPageMetadata* page,
-    SkipFreeSpaceOrFiller skip_free_space_or_filler)
+    const ReadOnlyPage* page, SkipFreeSpaceOrFiller skip_free_space_or_filler)
     : ReadOnlyPageObjectIterator(
           page, page == nullptr ? kNullAddress : page->GetAreaStart(),
           skip_free_space_or_filler) {}
 
 ReadOnlyPageObjectIterator::ReadOnlyPageObjectIterator(
-    const ReadOnlyPageMetadata* page, Address current_addr,
+    const ReadOnlyPage* page, Address current_addr,
     SkipFreeSpaceOrFiller skip_free_space_or_filler)
     : page_(page),
       current_addr_(current_addr),
@@ -282,12 +266,12 @@ Tagged<HeapObject> ReadOnlyPageObjectIterator::Next() {
       continue;
     }
 
-    DCHECK_OBJECT_SIZE(object_size);
+    DCHECK_VALID_REGULAR_OBJECT_SIZE(object_size);
     return object;
   }
 }
 
-void ReadOnlyPageObjectIterator::Reset(const ReadOnlyPageMetadata* page) {
+void ReadOnlyPageObjectIterator::Reset(const ReadOnlyPage* page) {
   page_ = page;
   current_addr_ = page->GetAreaStart();
 }

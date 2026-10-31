@@ -41,7 +41,6 @@
 #include "gtest/gtest.h"
 #include "absl/log/log.h"
 #include "absl/numeric/int128.h"
-#include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/strings/internal/numbers_test_common.h"
 #include "absl/strings/internal/ostringstream.h"
@@ -160,6 +159,8 @@ struct MyInteger {
 
 typedef MyInteger<int64_t> MyInt64;
 typedef MyInteger<uint64_t> MyUInt64;
+typedef MyInteger<absl::uint128> MyUInt128;
+typedef MyInteger<absl::int128> MyInt128;
 
 void CheckInt32(int32_t x) {
   char buffer[absl::numbers_internal::kFastToBufferSize];
@@ -213,6 +214,32 @@ void CheckUInt64(uint64_t x) {
   EXPECT_EQ(expected, std::string(&buffer[1], my_actual)) << " Input " << x;
 }
 
+void CheckUInt128(absl::uint128 x) {
+  char buffer[absl::numbers_internal::kFastToBuffer128Size];
+  char* actual = absl::numbers_internal::FastIntToBuffer(x, buffer);
+  std::string s;
+  absl::strings_internal::OStringStream strm(&s);
+  strm << x;
+  EXPECT_EQ(s, std::string(buffer, actual)) << " Input " << s;
+
+  char* my_actual =
+      absl::numbers_internal::FastIntToBuffer(MyUInt128(x), buffer);
+  EXPECT_EQ(s, std::string(buffer, my_actual)) << " Input " << s;
+}
+
+void CheckInt128(absl::int128 x) {
+  char buffer[absl::numbers_internal::kFastToBuffer128Size];
+  char* actual = absl::numbers_internal::FastIntToBuffer(x, buffer);
+  std::string s;
+  absl::strings_internal::OStringStream strm(&s);
+  strm << x;
+  EXPECT_EQ(s, std::string(buffer, actual)) << " Input " << s;
+
+  char* my_actual =
+      absl::numbers_internal::FastIntToBuffer(MyInt128(x), buffer);
+  EXPECT_EQ(s, std::string(buffer, my_actual)) << " Input " << s;
+}
+
 void CheckHex64(uint64_t v) {
   char expected[16 + 1];
   std::string actual = absl::StrCat(absl::Hex(v, absl::kZeroPad16));
@@ -252,6 +279,34 @@ TEST(Numbers, TestFastPrints) {
   CheckUInt64(uint64_t{1000000000000000000});
   CheckUInt64(uint64_t{1199999999999999999});
   CheckUInt64(std::numeric_limits<uint64_t>::max());
+  CheckUInt128(0);
+  CheckUInt128(1);
+  CheckUInt128(9);
+  CheckUInt128(10);
+  CheckUInt128(99);
+  CheckUInt128(100);
+  CheckUInt128(std::numeric_limits<uint64_t>::max());
+  CheckUInt128(absl::uint128(std::numeric_limits<uint64_t>::max()) + 1);
+  CheckUInt128(absl::MakeUint128(1, 0));
+  absl::uint128 k1e16 = 10000000000000000ULL;
+  CheckUInt128(k1e16 - 1);
+  CheckUInt128(k1e16);
+  CheckUInt128(k1e16 + 1);
+  CheckUInt128(k1e16 * k1e16 - 1);
+  CheckUInt128(k1e16 * k1e16);
+  CheckUInt128(k1e16 * k1e16 + 1);
+  CheckUInt128(absl::Uint128Max() - 1);
+  CheckUInt128(absl::Uint128Max());
+
+  CheckInt128(0);
+  CheckInt128(1);
+  CheckInt128(-1);
+  CheckInt128(10);
+  CheckInt128(-10);
+  CheckInt128(absl::Int128Max());
+  CheckInt128(absl::Int128Min());
+  CheckInt128(absl::MakeInt128(-1, 1));
+  CheckInt128(absl::MakeInt128(-1, std::numeric_limits<uint64_t>::max()));
 
   for (int i = 0; i < 10000; i++) {
     CheckHex64(i);
@@ -450,6 +505,20 @@ TEST(NumbersTest, Atoi) {
   VerifySimpleAtoiGood<uint64_t>(42, 42);
   VerifySimpleAtoiGood<size_t>(42, 42);
   VerifySimpleAtoiGood<std::string::size_type>(42, 42);
+}
+
+TEST(NumbersTest, AtodEmpty) {
+  double d;
+  EXPECT_FALSE(absl::SimpleAtod("", &d));
+  // Empty string_view takes a different code path from "".
+  EXPECT_FALSE(absl::SimpleAtod({}, &d));
+}
+
+TEST(NumbersTest, AtofEmpty) {
+  float f;
+  EXPECT_FALSE(absl::SimpleAtof("", &f));
+  // Empty string_view takes a different code path from "".
+  EXPECT_FALSE(absl::SimpleAtof({}, &f));
 }
 
 TEST(NumbersTest, Atod) {
@@ -1368,13 +1437,10 @@ TEST(stringtest, safe_strto64_leading_substring) {
 
 const size_t kNumRandomTests = 10000;
 
-template <typename IntType>
-void test_random_integer_parse_base(bool (*parse_func)(absl::string_view,
-                                                       IntType* value,
-                                                       int base)) {
-  using RandomEngine = std::minstd_rand0;
-  std::random_device rd;
-  RandomEngine rng(rd());
+template <typename IntType,
+          bool parse_func(absl::string_view, IntType* value, int base)>
+void test_random_integer_parse_base() {
+  absl::InsecureBitGen rng;
   std::uniform_int_distribution<IntType> random_int(
       std::numeric_limits<IntType>::min());
   std::uniform_int_distribution<int> random_base(2, 36);
@@ -1406,34 +1472,32 @@ void test_random_integer_parse_base(bool (*parse_func)(absl::string_view,
 }
 
 TEST(stringtest, safe_strto16_random) {
-  test_random_integer_parse_base<int16_t>(&safe_strto16_base);
+  test_random_integer_parse_base<int16_t, safe_strto16_base>();
 }
 TEST(stringtest, safe_strto32_random) {
-  test_random_integer_parse_base<int32_t>(&safe_strto32_base);
+  test_random_integer_parse_base<int32_t, safe_strto32_base>();
 }
 TEST(stringtest, safe_strto64_random) {
-  test_random_integer_parse_base<int64_t>(&safe_strto64_base);
+  test_random_integer_parse_base<int64_t, safe_strto64_base>();
 }
 TEST(stringtest, safe_strtou16_random) {
-  test_random_integer_parse_base<uint16_t>(&safe_strtou16_base);
+  test_random_integer_parse_base<uint16_t, safe_strtou16_base>();
 }
 TEST(stringtest, safe_strtou32_random) {
-  test_random_integer_parse_base<uint32_t>(&safe_strtou32_base);
+  test_random_integer_parse_base<uint32_t, safe_strtou32_base>();
 }
 TEST(stringtest, safe_strtou64_random) {
-  test_random_integer_parse_base<uint64_t>(&safe_strtou64_base);
+  test_random_integer_parse_base<uint64_t, safe_strtou64_base>();
 }
 TEST(stringtest, safe_strtou128_random) {
   // random number generators don't work for uint128 so this code must be custom
   // implemented for uint128, but is generally the same as what's above.
   // test_random_integer_parse_base<absl::uint128>(
   //     &absl::numbers_internal::safe_strtou128_base);
-  using RandomEngine = std::minstd_rand0;
   using IntType = absl::uint128;
   constexpr auto parse_func = &absl::numbers_internal::safe_strtou128_base;
 
-  std::random_device rd;
-  RandomEngine rng(rd());
+  absl::InsecureBitGen rng;
   std::uniform_int_distribution<uint64_t> random_uint64(
       std::numeric_limits<uint64_t>::min());
   std::uniform_int_distribution<int> random_base(2, 36);
@@ -1464,12 +1528,10 @@ TEST(stringtest, safe_strto128_random) {
   // implemented for int128, but is generally the same as what's above.
   // test_random_integer_parse_base<absl::int128>(
   //     &absl::numbers_internal::safe_strto128_base);
-  using RandomEngine = std::minstd_rand0;
   using IntType = absl::int128;
   constexpr auto parse_func = &absl::numbers_internal::safe_strto128_base;
 
-  std::random_device rd;
-  RandomEngine rng(rd());
+  absl::InsecureBitGen rng;
   std::uniform_int_distribution<int64_t> random_int64(
       std::numeric_limits<int64_t>::min());
   std::uniform_int_distribution<uint64_t> random_uint64(

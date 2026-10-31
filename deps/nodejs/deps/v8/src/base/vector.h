@@ -12,6 +12,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "src/base/algorithm.h"
 #include "src/base/hashing.h"
 #include "src/base/logging.h"
 #include "src/base/macros.h"
@@ -50,13 +51,13 @@ class Vector {
   template <class U>
   void OverwriteWith(Vector<U> other) {
     DCHECK_EQ(size(), other.size());
-    std::copy(other.begin(), other.end(), begin());
+    base::Copy(other.begin(), other.end(), begin());
   }
 
   template <class U, size_t n>
   void OverwriteWith(const std::array<U, n>& other) {
     DCHECK_EQ(size(), other.size());
-    std::copy(other.begin(), other.end(), begin());
+    base::Copy(other.begin(), other.end(), begin());
   }
 
   // Returns the length of the vector. Only use this if you really need an
@@ -130,9 +131,8 @@ class Vector {
     length_ = 0;
   }
 
-  Vector<T> operator+(size_t offset) {
-    DCHECK_LE(offset, length_);
-    return Vector<T>(start_ + offset, length_ - offset);
+  const Vector<T> operator+(size_t offset) const {
+    return SubVectorFrom(offset);
   }
 
   Vector<T> operator+=(size_t offset) {
@@ -169,20 +169,10 @@ class Vector {
     return std::equal(begin(), end(), other.begin(), other.end());
   }
 
-  bool operator!=(const Vector<T>& other) const {
-    return !operator==(other);
-  }
-
   template <typename TT = T>
     requires(!std::is_const_v<TT>)
   bool operator==(const Vector<const T>& other) const {
     return std::equal(begin(), end(), other.begin(), other.end());
-  }
-
-  template <typename TT = T>
-    requires(!std::is_const_v<TT>)
-  bool operator!=(const Vector<const T>& other) const {
-    return !operator==(other);
   }
 
  private:
@@ -289,6 +279,16 @@ class OwnedVector {
     return OwnedVector<T>(std::make_unique<T[]>(size), size);
   }
 
+  // Allocates a new vector of the specified size via the default allocator and
+  // initializes all elements by assigning from `init`.
+  template <typename U>
+  static OwnedVector<T> New(size_t size, U init) {
+    if (size == 0) return {};
+    OwnedVector<T> vec = NewForOverwrite(size);
+    std::fill_n(vec.begin(), size, init);
+    return vec;
+  }
+
   // Allocates a new vector of the specified size via the default allocator.
   // Elements in the new vector are default-initialized.
   static OwnedVector<T> NewForOverwrite(size_t size) {
@@ -297,17 +297,14 @@ class OwnedVector {
   }
 
   // Allocates a new vector containing the specified collection of values.
-  // {Iterator} is the common type of {std::begin} and {std::end} called on a
-  // {const U&}. This function is only instantiable if that type exists.
   template <typename U>
   static OwnedVector<U> NewByCopying(const U* data, size_t size) {
     auto result = OwnedVector<U>::NewForOverwrite(size);
-    std::copy(data, data + size, result.begin());
+    base::Copy(data, data + size, result.begin());
     return result;
   }
 
   bool operator==(std::nullptr_t) const { return data_ == nullptr; }
-  bool operator!=(std::nullptr_t) const { return data_ != nullptr; }
 
  private:
   template <typename U>
@@ -330,6 +327,10 @@ constexpr Vector<const char> StaticCharVector(const char (&array)[N]) {
 // Unknown length, not constexpr.
 inline Vector<const char> CStrVector(const char* data) {
   return {data, strlen(data)};
+}
+
+inline Vector<const char> StrVector(std::string_view str) {
+  return {str.data(), str.size()};
 }
 
 // OneByteVector is never constexpr because the data pointer is

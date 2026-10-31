@@ -51,9 +51,10 @@ BUILTIN(DataViewConstructor) {
   // 4. If IsDetachedBuffer(buffer) is true, throw a TypeError exception.
   if (array_buffer->was_detached()) {
     THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kDetachedOperation,
-                              isolate->factory()->NewStringFromAsciiChecked(
-                                  kMethodName)));
+        isolate,
+        NewTypeError(
+            MessageTemplate::kTypedArrayDetachedErrorOperation,
+            isolate->factory()->NewStringFromAsciiChecked(kMethodName)));
   }
 
   // 5. Let bufferByteLength be ArrayBufferByteLength(buffer, SeqCst).
@@ -111,13 +112,15 @@ BUILTIN(DataViewConstructor) {
         JSFunction::GetDerivedRabGsabDataViewMap(isolate, new_target));
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, result,
-        JSObject::NewWithMap(isolate, initial_map, {},
-                             NewJSObjectType::kAPIWrapper));
+        JSObject::NewWithMap(
+            isolate, initial_map, {},
+            NewJSObjectType::kMaybeEmbedderFieldsAndApiWrapper));
   } else {
     // Create a JSDataView.
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
         isolate, result,
-        JSObject::New(target, new_target, {}, NewJSObjectType::kAPIWrapper));
+        JSObject::New(target, new_target, {},
+                      NewJSObjectType::kMaybeEmbedderFieldsAndApiWrapper));
   }
   auto data_view = Cast<JSDataViewOrRabGsabDataView>(result);
   {
@@ -140,12 +143,15 @@ BUILTIN(DataViewConstructor) {
     raw->set_buffer(*array_buffer);
   }
 
+  array_buffer->AttachView(*data_view);
+
   // 13. If IsDetachedBuffer(buffer) is true, throw a TypeError exception.
   if (array_buffer->was_detached()) {
     THROW_NEW_ERROR_RETURN_FAILURE(
-        isolate, NewTypeError(MessageTemplate::kDetachedOperation,
-                              isolate->factory()->NewStringFromAsciiChecked(
-                                  kMethodName)));
+        isolate,
+        NewTypeError(
+            MessageTemplate::kTypedArrayDetachedErrorOperation,
+            isolate->factory()->NewStringFromAsciiChecked(kMethodName)));
   }
 
   // 14. Let getBufferByteLength be

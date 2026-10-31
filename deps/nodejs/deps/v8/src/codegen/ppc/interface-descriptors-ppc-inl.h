@@ -138,9 +138,11 @@ constexpr Register DefineKeyedOwnDescriptor::FlagsRegister() { return r8; }
 constexpr Register StoreTransitionDescriptor::MapRegister() { return r8; }
 
 // static
-constexpr Register ApiGetterDescriptor::HolderRegister() { return r3; }
+constexpr Register CallApiGetterDescriptor::NameRegister() {
+  return kCArgRegs[0];
+}
 // static
-constexpr Register ApiGetterDescriptor::CallbackRegister() { return r6; }
+constexpr Register CallApiGetterDescriptor::CallbackRegister() { return r6; }
 
 // static
 constexpr Register GrowArrayElementsDescriptor::ObjectRegister() { return r3; }
@@ -160,6 +162,22 @@ constexpr Register TypeConversionDescriptor::ArgumentRegister() { return r3; }
 
 // static
 constexpr auto TypeofDescriptor::registers() { return RegisterArray(r3); }
+
+// static
+constexpr Register
+MaglevOptimizeCodeOrTailCallOptimizedCodeSlotDescriptor::FlagsRegister() {
+  return r5;
+}
+// static
+constexpr Register MaglevOptimizeCodeOrTailCallOptimizedCodeSlotDescriptor::
+    FeedbackVectorRegister() {
+  return r8;
+}
+// static
+constexpr Register
+MaglevOptimizeCodeOrTailCallOptimizedCodeSlotDescriptor::TemporaryRegister() {
+  return r7;
+}
 
 // static
 constexpr auto CallTrampolineDescriptor::registers() {
@@ -283,6 +301,11 @@ constexpr auto CompareDescriptor::registers() { return RegisterArray(r4, r3); }
 
 // static
 constexpr auto Compare_BaselineDescriptor::registers() {
+  return RegisterArray(r4, r3, r5);
+}
+
+// static
+constexpr auto Compare_WithEmbeddedFeedbackOffsetDescriptor::registers() {
   return RegisterArray(r4, r3, r5);
 }
 

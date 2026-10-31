@@ -1,40 +1,35 @@
 'use strict';
 
 const {
-  ArrayFrom,
-  SafeSet,
-} = primordials;
-
-const {
   ChaCha20Poly1305CipherJob,
-  KeyObjectHandle,
-  kCryptoJobAsync,
+  SecretKeyGenJob,
+  kCryptoJobWebCrypto,
 } = internalBinding('crypto');
 
 const {
-  hasAnyNotIn,
+  getUsagesMask,
   jobPromise,
-  validateKeyOps,
-  kHandle,
-  kKeyObject,
+  validateAlgorithm,
 } = require('internal/crypto/util');
 
 const {
   lazyDOMException,
-  promisify,
 } = require('internal/util');
 
 const {
   InternalCryptoKey,
-  SecretKeyObject,
-  createSecretKey,
+  getCryptoKeyHandle,
 } = require('internal/crypto/keys');
 
 const {
-  randomBytes: _randomBytes,
-} = require('internal/crypto/random');
+  importJwkSecretKey,
+  importSecretKey,
+  validateJwk,
+  validateKeyUsages,
+  validateUsagesNotEmpty,
+} = require('internal/crypto/webcrypto_util');
 
-const randomBytes = promisify(_randomBytes);
+const kUsages = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'];
 
 function validateKeyLength(length) {
   if (length !== 256)
@@ -42,42 +37,28 @@ function validateKeyLength(length) {
 }
 
 function c20pCipher(mode, key, data, algorithm) {
+  validateAlgorithm(algorithm, 'encrypt');
   return jobPromise(() => new ChaCha20Poly1305CipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
     algorithm.iv,
     algorithm.additionalData));
 }
 
-async function c20pGenerateKey(algorithm, extractable, keyUsages) {
+function c20pGenerateKey(algorithm, extractable, usages) {
   const { name } = algorithm;
 
-  const checkUsages = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'];
+  const usagesSet = validateUsagesNotEmpty(
+    validateKeyUsages(usages, kUsages, name));
 
-  const usagesSet = new SafeSet(keyUsages);
-  if (hasAnyNotIn(usagesSet, checkUsages)) {
-    throw lazyDOMException(
-      `Unsupported key usage for a ${algorithm.name} key`,
-      'SyntaxError');
-  }
-
-  let keyData;
-  try {
-    keyData = await randomBytes(32);
-  } catch (err) {
-    throw lazyDOMException(
-      'The operation failed for an operation-specific reason' +
-      `[${err.message}]`,
-      { name: 'OperationError', cause: err });
-  }
-
-  return new InternalCryptoKey(
-    createSecretKey(keyData),
+  return jobPromise(() => new SecretKeyGenJob(
+    kCryptoJobWebCrypto,
+    256,
     { name },
-    ArrayFrom(usagesSet),
-    extractable);
+    getUsagesMask(usagesSet),
+    extractable));
 }
 
 function c20pImportKey(
@@ -85,57 +66,26 @@ function c20pImportKey(
   format,
   keyData,
   extractable,
-  keyUsages) {
+  usages) {
   const { name } = algorithm;
-  const checkUsages = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'];
 
-  const usagesSet = new SafeSet(keyUsages);
-  if (hasAnyNotIn(usagesSet, checkUsages)) {
-    throw lazyDOMException(
-      `Unsupported key usage for a ${algorithm.name} key`,
-      'SyntaxError');
-  }
+  const usagesSet = validateKeyUsages(
+    usages, kUsages, name);
 
-  let keyObject;
+  let handle;
   switch (format) {
-    case 'KeyObject': {
-      keyObject = keyData;
+    case 'KeyObjectHandle': {
+      handle = keyData;
       break;
     }
     case 'raw-secret': {
-      keyObject = createSecretKey(keyData);
+      handle = importSecretKey(keyData);
       break;
     }
     case 'jwk': {
-      if (!keyData.kty)
-        throw lazyDOMException('Invalid keyData', 'DataError');
+      validateJwk(keyData, 'oct', extractable, usagesSet, 'enc');
 
-      if (keyData.kty !== 'oct')
-        throw lazyDOMException('Invalid JWK "kty" Parameter', 'DataError');
-
-      if (usagesSet.size > 0 &&
-          keyData.use !== undefined &&
-          keyData.use !== 'enc') {
-        throw lazyDOMException('Invalid JWK "use" Parameter', 'DataError');
-      }
-
-      validateKeyOps(keyData.key_ops, usagesSet);
-
-      if (keyData.ext !== undefined &&
-          keyData.ext === false &&
-          extractable === true) {
-        throw lazyDOMException(
-          'JWK "ext" Parameter and extractable mismatch',
-          'DataError');
-      }
-
-      const handle = new KeyObjectHandle();
-      try {
-        handle.initJwk(keyData);
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
+      handle = importJwkSecretKey(keyData);
 
       if (keyData.alg !== undefined && keyData.alg !== 'C20P') {
         throw lazyDOMException(
@@ -143,19 +93,18 @@ function c20pImportKey(
           'DataError');
       }
 
-      keyObject = new SecretKeyObject(handle);
       break;
     }
     default:
       return undefined;
   }
 
-  validateKeyLength(keyObject.symmetricKeySize * 8);
+  validateKeyLength(handle.getSymmetricKeySize() * 8);
 
   return new InternalCryptoKey(
-    keyObject,
+    handle,
     { name },
-    keyUsages,
+    getUsagesMask(usagesSet),
     extractable);
 }
 

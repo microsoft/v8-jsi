@@ -6,10 +6,12 @@ set(ABSL_INTERNAL_DLL_FILES
   "algorithm/container.h"
   "base/attributes.h"
   "base/call_once.h"
+  "base/casts.cc"
   "base/casts.h"
   "base/config.h"
   "base/const_init.h"
   "base/dynamic_annotations.h"
+  "base/fast_type_id.h"
   "base/internal/atomic_hook.h"
   "base/internal/cycleclock.cc"
   "base/internal/cycleclock.h"
@@ -17,14 +19,12 @@ set(ABSL_INTERNAL_DLL_FILES
   "base/internal/direct_mmap.h"
   "base/internal/endian.h"
   "base/internal/errno_saver.h"
-  "base/internal/fast_type_id.h"
   "base/internal/hide_ptr.h"
-  "base/internal/identity.h"
   "base/internal/iterator_traits.h"
   "base/internal/low_level_alloc.cc"
   "base/internal/low_level_alloc.h"
   "base/internal/low_level_scheduling.h"
-  "base/internal/nullability_impl.h"
+  "base/internal/nullability_traits.h"
   "base/internal/per_thread_tls.h"
   "base/internal/poison.cc"
   "base/internal/poison.h"
@@ -68,6 +68,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "cleanup/internal/cleanup.h"
   "container/btree_map.h"
   "container/btree_set.h"
+  "container/chunked_queue.h"
   "container/hash_container_defaults.h"
   "container/fixed_array.h"
   "container/flat_hash_map.h"
@@ -75,6 +76,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "container/inlined_vector.h"
   "container/internal/btree.h"
   "container/internal/btree_container.h"
+  "container/internal/chunked_queue.h"
   "container/internal/common.h"
   "container/internal/common_policy_traits.h"
   "container/internal/compressed_tuple.h"
@@ -93,7 +95,10 @@ set(ABSL_INTERNAL_DLL_FILES
   "container/internal/raw_hash_map.h"
   "container/internal/raw_hash_set.cc"
   "container/internal/raw_hash_set.h"
+  "container/internal/raw_hash_set_resize_impl.h"
   "container/internal/tracked.h"
+  "container/linked_hash_map.h"
+  "container/linked_hash_set.h"
   "container/node_hash_map.h"
   "container/node_hash_set.h"
   "crc/crc32c.cc"
@@ -127,6 +132,8 @@ set(ABSL_INTERNAL_DLL_FILES
   "debugging/internal/address_is_readable.h"
   "debugging/internal/addresses.h"
   "debugging/internal/bounded_utf8_length_sequence.h"
+  "debugging/internal/borrowed_fixup_buffer.h"
+  "debugging/internal/borrowed_fixup_buffer.cc"
   "debugging/internal/decode_rust_punycode.cc"
   "debugging/internal/decode_rust_punycode.h"
   "debugging/internal/demangle.cc"
@@ -158,8 +165,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "hash/internal/hash.h"
   "hash/internal/hash.cc"
   "hash/internal/spy_hash_state.h"
-  "hash/internal/low_level_hash.h"
-  "hash/internal/low_level_hash.cc"
+  "hash/internal/weakly_mixed_integer.h"
   "log/absl_check.h"
   "log/absl_log.h"
   "log/absl_vlog_is_on.h"
@@ -175,6 +181,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "log/internal/conditions.cc"
   "log/internal/conditions.h"
   "log/internal/config.h"
+  "log/internal/container.h"
   "log/internal/fnmatch.h"
   "log/internal/fnmatch.cc"
   "log/internal/globals.cc"
@@ -201,6 +208,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "log/initialize.cc"
   "log/initialize.h"
   "log/log.h"
+  "log/log_entry.cc"
   "log/log_entry.h"
   "log/log_sink.cc"
   "log/log_sink.h"
@@ -210,15 +218,20 @@ set(ABSL_INTERNAL_DLL_FILES
   "log/vlog_is_on.h"
   "memory/memory.h"
   "meta/type_traits.h"
+  "meta/internal/requires.h"
   "numeric/bits.h"
   "numeric/int128.cc"
   "numeric/int128.h"
   "numeric/internal/bits.h"
   "numeric/internal/representation.h"
+  "profiling/hashtable.cc"
+  "profiling/hashtable.h"
   "profiling/internal/exponential_biased.cc"
   "profiling/internal/exponential_biased.h"
   "profiling/internal/periodic_sampler.cc"
   "profiling/internal/periodic_sampler.h"
+  "profiling/internal/profile_builder.cc"
+  "profiling/internal/profile_builder.h"
   "profiling/internal/sample_recorder.h"
   "random/bernoulli_distribution.h"
   "random/beta_distribution.h"
@@ -288,6 +301,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "strings/cord_buffer.h"
   "strings/escaping.cc"
   "strings/escaping.h"
+  "strings/internal/append_and_overwrite.h"
   "strings/internal/charconv_bigint.cc"
   "strings/internal/charconv_bigint.h"
   "strings/internal/charconv_parse.cc"
@@ -319,6 +333,9 @@ set(ABSL_INTERNAL_DLL_FILES
   "strings/internal/cordz_update_tracker.h"
   "strings/internal/damerau_levenshtein_distance.h"
   "strings/internal/damerau_levenshtein_distance.cc"
+  "strings/internal/generic_printer.cc"
+  "strings/internal/generic_printer.h"
+  "strings/internal/generic_printer_internal.h"
   "strings/internal/stl_type_traits.h"
   "strings/internal/string_constant.h"
   "strings/internal/stringify_sink.h"
@@ -337,8 +354,6 @@ set(ABSL_INTERNAL_DLL_FILES
   "strings/str_replace.h"
   "strings/str_split.cc"
   "strings/str_split.h"
-  "strings/string_view.cc"
-  "strings/string_view.h"
   "strings/strip.h"
   "strings/substitute.cc"
   "strings/substitute.h"
@@ -369,6 +384,7 @@ set(ABSL_INTERNAL_DLL_FILES
   "strings/internal/str_split_internal.h"
   "strings/internal/utf8.cc"
   "strings/internal/utf8.h"
+  "strings/resize_and_overwrite.h"
   "synchronization/barrier.cc"
   "synchronization/barrier.h"
   "synchronization/blocking_counter.cc"
@@ -437,9 +453,15 @@ set(ABSL_INTERNAL_DLL_FILES
   "types/variant.h"
   "utility/utility.h"
   "debugging/leak_check.cc"
+  "strings/string_view.h"
 )
 
-if(NOT MSVC)
+if(MSVC)
+  list(APPEND ABSL_INTERNAL_DLL_FILES
+    "time/internal/cctz/src/time_zone_name_win.cc"
+    "time/internal/cctz/src/time_zone_name_win.h"
+  )
+else()
   list(APPEND ABSL_INTERNAL_DLL_FILES
     "flags/commandlineflag.cc"
     "flags/commandlineflag.h"
@@ -716,8 +738,10 @@ int main() { return 0; }
 
 if(ABSL_INTERNAL_AT_LEAST_CXX20)
   set(ABSL_INTERNAL_CXX_STD_FEATURE cxx_std_20)
-else()
+elseif(ABSL_INTERNAL_AT_LEAST_CXX17)
   set(ABSL_INTERNAL_CXX_STD_FEATURE cxx_std_17)
+else()
+  message(FATAL_ERROR "The compiler defaults to or is configured for C++ < 17. C++ >= 17 is required and Abseil and all libraries that use Abseil must use the same C++ language standard")
 endif()
 
 function(absl_internal_dll_contains)
@@ -822,6 +846,9 @@ function(absl_make_dll)
       ${_dll_libs}
       ${ABSL_DEFAULT_LINKOPTS}
       $<$<BOOL:${ANDROID}>:-llog>
+      $<$<BOOL:${MINGW}>:-ladvapi32>
+      $<$<BOOL:${MINGW}>:-ldbghelp>
+      $<$<BOOL:${MINGW}>:-lbcrypt>
   )
   set_target_properties(${_dll} PROPERTIES
     LINKER_LANGUAGE "CXX"

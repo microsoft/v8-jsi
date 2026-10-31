@@ -218,8 +218,9 @@ DirectHandle<JSFunction> CreateBoundFunction(Isolate* isolate,
       native_context,
       static_cast<int>(Intl::BoundFunctionContextSlot::kLength));
 
-  context->set(static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction),
-               *object);
+  context->SetNoCell(
+      static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction),
+      *object);
 
   DirectHandle<SharedFunctionInfo> info =
       isolate->factory()->NewSharedFunctionInfoForBuiltin(
@@ -335,7 +336,8 @@ Tagged<Object> DisallowCallConstructor(BuiltinArguments args, Isolate* isolate,
   DirectHandle<Object> options = args.atOrUndefined(isolate, 2);
 
   // 3. Return New<T>(t, locales, options).
-  RETURN_RESULT_OR_FAILURE(isolate, T::New(isolate, map, locales, options));
+  RETURN_RESULT_OR_FAILURE(isolate,
+                           T::New(isolate, map, locales, options, method_name));
 }
 
 /**
@@ -520,7 +522,7 @@ BUILTIN(NumberFormatInternalFormatNumber) {
   // 2. Assert: Type(nf) is Object and nf has an
   //    [[InitializedNumberFormat]] internal slot.
   DirectHandle<JSNumberFormat> number_format(
-      Cast<JSNumberFormat>(context->get(
+      Cast<JSNumberFormat>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
 
@@ -626,7 +628,7 @@ BUILTIN(DateTimeFormatInternalFormat) {
   // 2. Assert: Type(dtf) is Object and dtf has an [[InitializedDateTimeFormat]]
   // internal slot.
   DirectHandle<JSDateTimeFormat> date_format_holder(
-      Cast<JSDateTimeFormat>(context->get(
+      Cast<JSDateTimeFormat>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
 
@@ -794,63 +796,6 @@ BUILTIN(LocalePrototypeGetWeekInfo) {
   RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetWeekInfo(isolate, locale));
 }
 
-BUILTIN(LocalePrototypeCalendars) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.calendars");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetCalendars(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeCollations) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.collations");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetCollations(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeHourCycles) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.hourCycles");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetHourCycles(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeNumberingSystems) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.numberingSystems");
-  RETURN_RESULT_OR_FAILURE(isolate,
-                           JSLocale::GetNumberingSystems(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeTextInfo) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.textInfo");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetTextInfo(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeTimeZones) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.timeZones");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetTimeZones(isolate, locale));
-}
-
-BUILTIN(LocalePrototypeWeekInfo) {
-  HandleScope scope(isolate);
-  isolate->CountUsage(
-      v8::Isolate::UseCounterFeature::kLocaleInfoObsoletedGetters);
-  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.weekInfo");
-  RETURN_RESULT_OR_FAILURE(isolate, JSLocale::GetWeekInfo(isolate, locale));
-}
-
 BUILTIN(RelativeTimeFormatSupportedLocalesOf) {
   HandleScope scope(isolate);
   DirectHandle<Object> locales = args.atOrUndefined(isolate, 1);
@@ -915,6 +860,13 @@ BUILTIN(LocalePrototypeRegion) {
   CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.region");
 
   return *JSLocale::Region(isolate, locale);
+}
+
+BUILTIN(LocalePrototypeVariants) {
+  HandleScope scope(isolate);
+  CHECK_RECEIVER(JSLocale, locale, "Intl.Locale.prototype.variants");
+
+  return *JSLocale::Variants(isolate, locale);
 }
 
 BUILTIN(LocalePrototypeBaseName) {
@@ -1187,7 +1139,7 @@ BUILTIN(CollatorInternalCompare) {
   // 2. Assert: Type(collator) is Object and collator has an
   // [[InitializedCollator]] internal slot.
   DirectHandle<JSCollator> collator(
-      Cast<JSCollator>(context->get(
+      Cast<JSCollator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
 
@@ -1275,8 +1227,8 @@ BUILTIN(SegmentsPrototypeContaining) {
 
   // 6. Let n be ? ToInteger(index).
   double n;
-  MAYBE_ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, n, Object::IntegerValue(isolate, index));
+  ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, n,
+                                     Object::IntegerValue(isolate, index));
 
   RETURN_RESULT_OR_FAILURE(isolate,
                            JSSegments::Containing(isolate, segments, n));
@@ -1287,11 +1239,13 @@ BUILTIN(SegmentsPrototypeIterator) {
   const char* const method_name = "%SegmentIsPrototype%[@@iterator]";
   HandleScope scope(isolate);
   CHECK_RECEIVER(JSSegments, segments, method_name);
+  DirectHandle<Managed<icu::BreakIterator>> managed_break_iterator(
+      segments->icu_break_iterator(), isolate);
+
   RETURN_RESULT_OR_FAILURE(
-      isolate,
-      JSSegmentIterator::Create(
-          isolate, direct_handle(segments->raw_string(), isolate),
-          segments->icu_break_iterator()->raw(), segments->granularity()));
+      isolate, JSSegmentIterator::Create(
+                   isolate, direct_handle(segments->raw_string(), isolate),
+                   managed_break_iterator, segments->granularity()));
 }
 
 BUILTIN(V8BreakIteratorConstructor) {
@@ -1333,7 +1287,7 @@ BUILTIN(V8BreakIteratorInternalAdoptText) {
   DirectHandle<Context> context(isolate->context(), isolate);
 
   DirectHandle<JSV8BreakIterator> break_iterator(
-      Cast<JSV8BreakIterator>(context->get(
+      Cast<JSV8BreakIterator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
 
@@ -1369,7 +1323,7 @@ BUILTIN(V8BreakIteratorInternalFirst) {
   DirectHandle<Context> context(isolate->context(), isolate);
 
   DirectHandle<JSV8BreakIterator> break_iterator(
-      Cast<JSV8BreakIterator>(context->get(
+      Cast<JSV8BreakIterator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
 
@@ -1399,7 +1353,7 @@ BUILTIN(V8BreakIteratorInternalNext) {
   DirectHandle<Context> context(isolate->context(), isolate);
 
   DirectHandle<JSV8BreakIterator> break_iterator(
-      Cast<JSV8BreakIterator>(context->get(
+      Cast<JSV8BreakIterator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
   return *JSV8BreakIterator::Next(isolate, break_iterator);
@@ -1428,7 +1382,7 @@ BUILTIN(V8BreakIteratorInternalCurrent) {
   DirectHandle<Context> context(isolate->context(), isolate);
 
   DirectHandle<JSV8BreakIterator> break_iterator(
-      Cast<JSV8BreakIterator>(context->get(
+      Cast<JSV8BreakIterator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
   return *JSV8BreakIterator::Current(isolate, break_iterator);
@@ -1459,7 +1413,7 @@ BUILTIN(V8BreakIteratorInternalBreakType) {
   DirectHandle<Context> context(isolate->context(), isolate);
 
   DirectHandle<JSV8BreakIterator> break_iterator(
-      Cast<JSV8BreakIterator>(context->get(
+      Cast<JSV8BreakIterator>(context->GetNoCell(
           static_cast<int>(Intl::BoundFunctionContextSlot::kBoundFunction))),
       isolate);
   return JSV8BreakIterator::BreakType(isolate, break_iterator);

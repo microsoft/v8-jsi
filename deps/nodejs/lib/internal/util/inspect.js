@@ -282,16 +282,14 @@ const meta = [
 ];
 
 // Regex used for ansi escape code splitting
-// Ref: https://github.com/chalk/ansi-regex/blob/f338e1814144efb950276aac84135ff86b72dc8e/index.js
+// Ref: https://github.com/chalk/ansi-regex/blob/72bc570aaf25fca25541b49c6a8564f3ec63e835/index.js
 // License: MIT by Sindre Sorhus <sindresorhus@gmail.com>
 // Matches all ansi escape code sequences in a string
 const ansi = new RegExp(
-  '[\\u001B\\u009B][[\\]()#;?]*' +
-  '(?:(?:(?:(?:;[-a-zA-Z\\d\\/\\#&.:=?%@~_]+)*' +
-  '|[a-zA-Z\\d]+(?:;[-a-zA-Z\\d\\/\\#&.:=?%@~_]*)*)?' +
-  '(?:\\u0007|\\u001B\\u005C|\\u009C))' +
-  '|(?:(?:\\d{1,4}(?:;\\d{0,4})*)?' +
-  '[\\dA-PR-TZcf-nq-uy=><~]))', 'g',
+  '(?:\\u001B\\][\\s\\S]*?(?:\\u0007|\\u001B\\u005C|\\u009C))' +
+  '|[\\u001B\\u009B][[\\]()#;?]*' +
+  '(?:\\d{1,4}(?:[;:]\\d{0,4})*)?' +
+  '[\\dA-PR-TZcf-nq-uy=><~]', 'g',
 );
 
 let getStringWidth;
@@ -502,7 +500,6 @@ defineColorAlias('inverse', 'swapColors');
 defineColorAlias('inverse', 'swapcolors');
 defineColorAlias('doubleunderline', 'doubleUnderline');
 
-// TODO(BridgeAR): Add function style support for more complex styles.
 // Don't use 'blue' not visible on cmd.exe
 inspect.styles = ObjectAssign({ __proto__: null }, {
   special: 'cyan',
@@ -515,10 +512,258 @@ inspect.styles = ObjectAssign({ __proto__: null }, {
   symbol: 'green',
   date: 'magenta',
   // "name": intentionally not styling
-  // TODO(BridgeAR): Highlight regular expressions properly.
-  regexp: 'red',
+  regexp: highlightRegExp,
   module: 'underline',
 });
+
+// Define the palette for RegExp group depth highlighting. Can be changed by users.
+inspect.styles.regexp.colors = ['green', 'red', 'yellow', 'cyan', 'magenta'];
+
+const highlightRegExpColors = inspect.styles.regexp.colors.slice();
+
+/**
+ * Colorize a JavaScript RegExp pattern per ECMAScript grammar.
+ * This is a tolerant single-pass highlighter using heuristics in some cases.
+ * It supports: groups (named/unnamed, lookaround), assertions, alternation,
+ * quantifiers, escapes (incl. Unicode properties), character classes and
+ * backreferences.
+ * @param {string} regexpString
+ * @returns {string}
+ */
+function highlightRegExp(regexpString) {
+  let out = '';
+  let i = 0;
+  let depth = 0;
+  let inClass = false;
+
+  // TODO(BridgeAR): Add group type tracking. That allows to increase the depth
+  // in case the same type is next to each other.
+  // let groupType = 0;
+
+  // Verify palette and update cache if user changed colors
+  const paletteNames = highlightRegExp.colors?.length > 0 ?
+    highlightRegExp.colors :
+    highlightRegExpColors;
+
+  const palette = paletteNames.reduce((acc, name) => {
+    const color = inspect.colors[name];
+    if (color) acc.push([`\u001b[${color[0]}m`, `\u001b[${color[1]}m`]);
+    return acc;
+  }, []);
+
+  function writeGroup(start, end, decreaseDepth = 1) {
+    let seq = '';
+    i++;
+    // Only checking for the closing delimiter is a fast heuristic for regular
+    // expressions without the u or v flag. A safer check would verify that the
+    // read characters are all alphanumeric.
+    while (i < regexpString.length && regexpString[i] !== end) {
+      seq += regexpString[i++];
+    }
+    if (i < regexpString.length) {
+      depth -= decreaseDepth;
+      write(start);
+      writeDepth(seq, 1, 1);
+      write(end);
+      depth += decreaseDepth;
+    } else {
+      // The group is not closed which would lead to mistakes in the output.
+      // This is a workaround to prevent output from being corrupted.
+      writeDepth(start, 1, -seq.length);
+    }
+  }
+
+  const write = (str) => {
+    const idx = depth % palette.length;
+    // Safeguard against bugs in the implementation.
+    const color = palette[idx] ?? palette[0];
+    out += color[0] + str + color[1];
+    return idx;
+  };
+
+  function writeDepth(str, incDepth, incI) {
+    depth += incDepth;
+    write(str);
+    depth -= incDepth;
+    i += incI;
+  }
+
+  // Opening '/'
+  write('/');
+  depth++;
+  i = 1;
+
+  // Parse pattern until next unescaped '/'
+  while (i < regexpString.length) {
+    const ch = regexpString[i];
+
+    if (inClass) {
+      if (ch === '\\') {
+        let seq = '\\';
+        i++;
+        if (i < regexpString.length) {
+          seq += regexpString[i++];
+          const next = seq[1];
+          if (next === 'u' && regexpString[i] === '{') {
+            writeGroup(`${seq}{`, '}', 0);
+            continue;
+          } else if ((next === 'p' || next === 'P') && regexpString[i] === '{') {
+            writeGroup(`${seq}{`, '}', 0);
+            continue;
+          } else if (seq[1] === 'x') {
+            seq += regexpString.slice(i, i + 2);
+            i += 2;
+          }
+        }
+        write(seq);
+      } else if (ch === ']') {
+        depth--;
+        write(']');
+        i++;
+        inClass = false;
+      } else if (ch === '-' && regexpString[i - 1] !== '[' &&
+                 i + 1 < regexpString.length && regexpString[i + 1] !== ']') {
+        writeDepth('-', 1, 1);
+      } else {
+        write(ch);
+        i++;
+      }
+    } else if (ch === '[') {
+      // Enter class
+      write('[');
+      depth++;
+      i++;
+      inClass = true;
+    } else if (ch === '(') {
+      write('(');
+      depth++;
+      i++;
+      if (i < regexpString.length && regexpString[i] === '?') {
+        // Assertions and named groups
+        i++;
+        const a = i < regexpString.length ? regexpString[i] : '';
+        if (a === ':' || a === '=' || a === '!') {
+          writeDepth(`?${a}`, -1, 1);
+        } else {
+          const b = i + 1 < regexpString.length ? regexpString[i + 1] : '';
+          if (a === '<' && (b === '=' || b === '!')) {
+            writeDepth(`?<${b}`, -1, 2);
+          } else if (a === '<') {
+            // Named capture: write '?<name>' as a single colored token
+            i++; // consume '<'
+            const start = i;
+            while (i < regexpString.length && regexpString[i] !== '>') {
+              i++;
+            }
+            const name = regexpString.slice(start, i);
+            if (i < regexpString.length && regexpString[i] === '>') {
+              depth--;
+              write('?<');
+              writeDepth(name, 1, 0);
+              write('>');
+              depth++;
+              i++;
+            } else {
+              writeDepth('?<', -1, 0);
+              write(name);
+            }
+          } else {
+            write('?');
+          }
+        }
+      }
+    } else if (ch === ')') {
+      depth--;
+      write(')');
+      i++;
+    } else if (ch === '\\') {
+      let seq = '\\';
+      i++;
+      if (i < regexpString.length) {
+        seq += regexpString[i++];
+        const next = seq[1];
+        if (i < regexpString.length) {
+          if (next === 'u' && regexpString[i] === '{') {
+            writeGroup(`${seq}{`, '}', 0);
+            continue;
+          } else if (next === 'x') {
+            seq += regexpString.slice(i, i + 2);
+            i += 2;
+          } else if (next >= '0' && next <= '9') {
+            while (i < regexpString.length && regexpString[i] >= '0' && regexpString[i] <= '9') {
+              seq += regexpString[i++];
+            }
+          } else if (next === 'k' && regexpString[i] === '<') {
+            writeGroup(`${seq}<`, '>');
+            continue;
+          } else if ((next === 'p' || next === 'P') && regexpString[i] === '{') {
+            // Unicode properties
+            writeGroup(`${seq}{`, '}', 0);
+            continue;
+          }
+        }
+      }
+      writeDepth(seq, 1, 0);
+    } else if (ch === '|' || ch === '+' || ch === '*' || ch === '?' || ch === ',' || ch === '^' || ch === '$') {
+      writeDepth(ch, 3, 1);
+    } else if (ch === '{') {
+      i++;
+      let digits = '';
+      while (i < regexpString.length && regexpString[i] >= '0' && regexpString[i] <= '9') {
+        digits += regexpString[i++];
+      }
+      if (digits) {
+        write('{');
+        depth++;
+        writeDepth(digits, 1, 0);
+      }
+      if (i < regexpString.length) {
+        if (regexpString[i] === ',') {
+          if (!digits) {
+            write('{');
+            depth++;
+          }
+          write(',');
+          i++;
+        } else if (!digits) {
+          depth += 1;
+          write('{');
+          depth -= 1;
+          continue;
+        }
+      }
+      let digits2 = '';
+      while (i < regexpString.length && regexpString[i] >= '0' && regexpString[i] <= '9') {
+        digits2 += regexpString[i++];
+      }
+      if (digits2) {
+        writeDepth(digits2, 1, 0);
+      }
+      if (i < regexpString.length && regexpString[i] === '}') {
+        depth--;
+        write('}');
+        i++;
+      }
+      if (i < regexpString.length && regexpString[i] === '?') {
+        writeDepth('?', 3, 1);
+      }
+    } else if (ch === '.') {
+      writeDepth(ch, 2, 1);
+    } else if (ch === '/') {
+      // Stop at closing delimiter (unescaped, outside of character class)
+      break;
+    } else {
+      writeDepth(ch, 1, 1);
+    }
+  }
+
+  // Closing delimiter and flags
+  writeDepth('/', -1, 1);
+  if (i < regexpString.length) {
+    write(regexpString.slice(i));
+  }
+  return out;
+}
 
 function addQuotes(str, quotes) {
   if (quotes === -1) {
@@ -606,8 +851,12 @@ function stylizeWithColor(str, styleType) {
   const style = inspect.styles[styleType];
   if (style !== undefined) {
     const color = inspect.colors[style];
-    if (color !== undefined)
+    if (color !== undefined) {
       return `\u001b[${color[0]}m${str}\u001b[${color[1]}m`;
+    }
+    if (typeof style === 'function') {
+      return style(str);
+    }
   }
   return str;
 }
@@ -780,20 +1029,15 @@ function getPrefix(constructor, tag, fallback, size = '') {
     return `[${fallback}${size}: null prototype] `;
   }
 
-  let result = `${constructor}${size} `;
   if (tag !== '') {
-    const position = constructor.indexOf(tag);
-    if (position === -1) {
-      result += `[${tag}] `;
-    } else {
-      const endPos = position + tag.length;
-      if (endPos !== constructor.length &&
-        constructor[endPos] === constructor[endPos].toLowerCase()) {
-        result += `[${tag}] `;
-      }
+    const dot = StringPrototypeLastIndexOf(tag, '.');
+    if (constructor === (dot >= 1 ? StringPrototypeSlice(tag, dot + 1) : tag)) {
+      return `${tag}${size} `;
     }
+    return `${constructor}${size} [${tag}] `;
   }
-  return result;
+
+  return `${constructor}${size} `;
 }
 
 // Look up the keys of the object.
@@ -867,17 +1111,29 @@ function formatValue(ctx, value, recurseTimes, typedArray) {
 
   // Memorize the context for custom inspection on proxies.
   const context = value;
+  let proxies = 0;
   // Always check for proxies to prevent side effects and to prevent triggering
   // any proxy handlers.
-  const proxy = getProxyDetails(value, !!ctx.showProxy);
+  let proxy = getProxyDetails(value, !!ctx.showProxy);
   if (proxy !== undefined) {
-    if (proxy === null || proxy[0] === null) {
-      return ctx.stylize('<Revoked Proxy>', 'special');
-    }
     if (ctx.showProxy) {
+      if (proxy[0] === null) {
+        return ctx.stylize('<Revoked Proxy>', 'special');
+      }
       return formatProxy(ctx, proxy, recurseTimes);
     }
-    value = proxy;
+    do {
+      if (proxy === null) {
+        let formatted = ctx.stylize('<Revoked Proxy>', 'special');
+        for (let i = 0; i < proxies; i++) {
+          formatted = `${ctx.stylize('Proxy(', 'special')}${formatted}${ctx.stylize(')', 'special')}`;
+        }
+        return formatted;
+      }
+      value = proxy;
+      proxy = getProxyDetails(value, false);
+      proxies += 1;
+    } while (proxy !== undefined);
   }
 
   // Provide a hook for user-specified inspect functions.
@@ -893,7 +1149,7 @@ function formatValue(ctx, value, recurseTimes, typedArray) {
       // a counter internally.
       const depth = ctx.depth === null ? null : ctx.depth - recurseTimes;
       const isCrossContext =
-        proxy !== undefined || !FunctionPrototypeSymbolHasInstance(Object, context);
+        proxies !== 0 || !FunctionPrototypeSymbolHasInstance(Object, context);
       const ret = FunctionPrototypeCall(
         maybeCustom,
         context,
@@ -929,7 +1185,15 @@ function formatValue(ctx, value, recurseTimes, typedArray) {
     return ctx.stylize(`[Circular *${index}]`, 'special');
   }
 
-  return formatRaw(ctx, value, recurseTimes, typedArray);
+  let formatted = formatRaw(ctx, value, recurseTimes, typedArray);
+
+  if (proxies !== 0) {
+    for (let i = 0; i < proxies; i++) {
+      formatted = `${ctx.stylize('Proxy(', 'special')}${formatted}${ctx.stylize(')', 'special')}`;
+    }
+  }
+
+  return formatted;
 }
 
 function formatRaw(ctx, value, recurseTimes, typedArray) {
@@ -1071,9 +1335,10 @@ function formatRaw(ctx, value, recurseTimes, typedArray) {
       const prefix = getPrefix(constructor, tag, 'RegExp');
       if (prefix !== 'RegExp ')
         base = `${prefix}${base}`;
+      base = ctx.stylize(base, 'regexp');
       if ((keys.length === 0 && protoProps === undefined) ||
           (recurseTimes > ctx.depth && ctx.depth !== null)) {
-        return ctx.stylize(base, 'regexp');
+        return base;
       }
     } else if (isDate(value)) {
       // Make dates with properties first say the date
@@ -1604,9 +1869,15 @@ function markNodeModules(ctx, line) {
     tempLine += StringPrototypeSlice(line, lastPos, moduleStart);
 
     let moduleEnd = StringPrototypeIndexOf(line, separator, moduleStart);
-    if (line[moduleStart] === '@') {
+    if (moduleEnd === -1) {
+      // No trailing separator: the module name runs to the end of the line.
+      moduleEnd = line.length;
+    } else if (line[moduleStart] === '@') {
       // Namespaced modules have an extra slash: @namespace/package
       moduleEnd = StringPrototypeIndexOf(line, separator, moduleEnd + 1);
+      if (moduleEnd === -1) {
+        moduleEnd = line.length;
+      }
     }
 
     const nodeModule = StringPrototypeSlice(line, moduleStart, moduleEnd);
@@ -1717,6 +1988,16 @@ function formatError(err, constructor, tag, ctx, keys) {
     }
   } catch {
     // If errors is a getter that throws, we ignore the error.
+  }
+
+  // Print the wrapped errors of a SuppressedError.
+  if (ObjectPrototypeHasOwnProperty(err, 'error') &&
+      (keys.length === 0 || !ArrayPrototypeIncludes(keys, 'error'))) {
+    ArrayPrototypePush(keys, 'error');
+  }
+  if (ObjectPrototypeHasOwnProperty(err, 'suppressed') &&
+      (keys.length === 0 || !ArrayPrototypeIncludes(keys, 'suppressed'))) {
+    ArrayPrototypePush(keys, 'suppressed');
   }
 
   stack = improveStack(stack, constructor, name, tag);
@@ -1917,11 +2198,12 @@ function addNumericSeparatorEnd(integerString) {
 const remainingText = (remaining) => `... ${remaining} more item${remaining > 1 ? 's' : ''}`;
 
 function formatNumber(fn, number, numericSeparator) {
+  // Format -0 as '-0'. Checking `number === -0` won't distinguish 0 from -0.
+  // String(-0) === '0', so this must be checked before any String() conversion.
+  if (ObjectIs(number, -0)) {
+    return fn('-0', 'number');
+  }
   if (!numericSeparator) {
-    // Format -0 as '-0'. Checking `number === -0` won't distinguish 0 from -0.
-    if (ObjectIs(number, -0)) {
-      return fn('-0', 'number');
-    }
     return fn(`${number}`, 'number');
   }
 
@@ -1934,7 +2216,7 @@ function formatNumber(fn, number, numericSeparator) {
     }
     return fn(addNumericSeparator(numberString), 'number');
   }
-  if (NumberIsNaN(number)) {
+  if (NumberIsNaN(number) || StringPrototypeIncludes(numberString, 'e')) {
     return fn(numberString, 'number');
   }
 
@@ -2263,8 +2545,11 @@ function formatPromise(ctx, value, recurseTimes) {
 }
 
 function formatExtraProperties(ctx, value, recurseTimes, key, typedArray) {
+  // Read the value before indenting: the getter throws for a detached
+  // DataView, and formatRaw() then retries with a fallback value.
+  const extraValue = value[key];
   ctx.indentationLvl += 2;
-  const str = formatValue(ctx, value[key], recurseTimes, typedArray);
+  const str = formatValue(ctx, extraValue, recurseTimes, typedArray);
   ctx.indentationLvl -= 2;
 
   // These entries are mainly getters. Should they be formatted like getters?
@@ -2297,7 +2582,7 @@ function formatProperty(ctx, value, recurseTimes, key, type, desc,
         const tmp = FunctionPrototypeCall(desc.get, original);
         if (tmp === null) {
           str = `${s(`[${label}:`, sp)} ${s('null', 'null')}${s(']', sp)}`;
-        } else if (typeof tmp === 'object') {
+        } else if (typeof tmp === 'object' || typeof tmp === 'function') {
           str = `${s(`[${label}]`, sp)} ${formatValue(ctx, tmp, recurseTimes)}`;
         } else {
           const primitive = formatPrimitive(s, tmp, ctx);
@@ -2345,6 +2630,14 @@ function isBelowBreakLength(ctx, output, start, base) {
   // TODO(BridgeAR): Add unicode support. Use the readline getStringWidth
   // function. Check the performance overhead and make it an opt-in in case it's
   // significant.
+  // allow the single-line format if the length limit is infinite and no items have newlines
+  if (ctx.breakLength === Infinity) {
+    if (base !== '' && StringPrototypeIncludes(base, '\n')) return false;
+    for (let i = 0; i < output.length; i++) {
+      if (typeof output[i] === 'string' && StringPrototypeIncludes(output[i], '\n')) return false;
+    }
+    return true;
+  }
   let totalLength = output.length + start;
   if (totalLength + output.length > ctx.breakLength)
     return false;
@@ -2433,7 +2726,7 @@ function hasBuiltInToString(value) {
     if (proxyTarget === null) {
       return true;
     }
-    value = proxyTarget;
+    return hasBuiltInToString(proxyTarget);
   }
 
   let hasOwnToString = ObjectPrototypeHasOwnProperty;
@@ -2778,6 +3071,7 @@ module.exports = {
   identicalSequenceRange,
   inspect,
   inspectDefaultOptions,
+  stylizeWithColor,
   format,
   formatWithOptions,
   getStringWidth,

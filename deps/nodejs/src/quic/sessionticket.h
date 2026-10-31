@@ -1,7 +1,6 @@
 #pragma once
 
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
 
 #include <crypto/crypto_common.h>
 #include <env.h>
@@ -66,14 +65,14 @@ class SessionTicket final : public MemoryRetainer {
 // server-side of the Session::Application that sets it.
 class SessionTicket::AppData final {
  public:
-  enum class Status {
+  enum class Status : uint8_t {
     TICKET_IGNORE = SSL_TICKET_RETURN_IGNORE,
     TICKET_IGNORE_RENEW = SSL_TICKET_RETURN_IGNORE_RENEW,
     TICKET_USE = SSL_TICKET_RETURN_USE,
     TICKET_USE_RENEW = SSL_TICKET_RETURN_USE_RENEW,
   };
 
-  explicit AppData(SSL* session);
+  explicit AppData(SSL* ssl, SSL_SESSION* session = nullptr);
   DISALLOW_COPY_AND_MOVE(AppData)
 
   bool Set(const uv_buf_t& data);
@@ -84,7 +83,7 @@ class SessionTicket::AppData final {
   // Session.
   class Source {
    public:
-    enum class Flag { STATUS_NONE, STATUS_RENEW };
+    enum class Flag : uint8_t { STATUS_NONE, STATUS_RENEW };
 
     // Collect application data into the given AppData instance.
     virtual void CollectSessionTicketAppData(AppData* app_data) const = 0;
@@ -95,14 +94,17 @@ class SessionTicket::AppData final {
   };
 
   static void Collect(SSL* ssl);
-  static Status Extract(SSL* ssl);
+  static Status Extract(SSL* ssl,
+                        SSL_SESSION* session,
+                        Source::Flag flag = Source::Flag::STATUS_NONE);
 
  private:
+  SSL_SESSION* GetSession() const;
   bool set_ = false;
   SSL* ssl_;
+  SSL_SESSION* session_;
 };
 
 }  // namespace node::quic
 
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
 #endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS

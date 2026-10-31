@@ -27,6 +27,7 @@
 #include "env.h"
 #include "node.h"
 #include "node_binding.h"
+#include "node_file_utils.h"
 #include "node_mutex.h"
 #include "tracing/trace_event.h"
 #include "util.h"
@@ -36,6 +37,7 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -250,10 +252,12 @@ class InternalCallbackScope {
   // stack-allocated itself, OR that `object` is a pointer to a stack-allocated
   // `v8::Local<v8::Object>` which outlives this scope (e.g. for the
   // public `CallbackScope` which indirectly allocates an instance of
-  // this class for ABI stability purposes).
+  // this class for ABI stability purposes), OR pass a `Global<>`.
   InternalCallbackScope(
       Environment* env,
-      std::variant<v8::Local<v8::Object>, v8::Local<v8::Object>*> object,
+      std::variant<v8::Local<v8::Object>,
+                   v8::Local<v8::Object>*,
+                   v8::Global<v8::Object>*> object,
       const async_context& asyncContext,
       int flags = kNoFlags,
       v8::Local<v8::Value> context_frame = v8::Local<v8::Value>());
@@ -270,14 +274,20 @@ class InternalCallbackScope {
   Environment* env_;
   async_context async_context_;
   v8::Local<v8::Object> object_storage_;
-  v8::Local<v8::Object>* object_;
   bool skip_hooks_;
   bool skip_task_queues_;
   bool failed_ = false;
   bool pushed_ids_ = false;
   bool closed_ = false;
   v8::Global<v8::Value> prior_context_frame_;
+  std::optional<v8::Isolate::AllowJavascriptExecutionScope> allow_js_;
 };
+
+// Non-zero while an Environment on this thread is closing its handles with JS
+// disallowed isolate-wide; InternalCallbackScope re-allows it for the other
+// Environments whose callbacks run in those loop turns.
+// NOLINTNEXTLINE(runtime/thread_local)
+extern thread_local int handle_cleanup_depth;
 
 class DebugSealHandleScope {
  public:
@@ -315,15 +325,6 @@ class ThreadPoolWork {
   const char* type_;
 };
 
-#define TRACING_CATEGORY_NODE "node"
-#define TRACING_CATEGORY_NODE1(one)                                           \
-    TRACING_CATEGORY_NODE ","                                                 \
-    TRACING_CATEGORY_NODE "." #one
-#define TRACING_CATEGORY_NODE2(one, two)                                      \
-    TRACING_CATEGORY_NODE ","                                                 \
-    TRACING_CATEGORY_NODE "." #one ","                                        \
-    TRACING_CATEGORY_NODE "." #one "." #two
-
 // Functions defined in node.cc that are exposed via the bootstrapper object
 
 #if defined(__POSIX__) && !defined(__ANDROID__) && !defined(__CloudABI__)
@@ -355,6 +356,8 @@ void DefineZlibConstants(v8::Local<v8::Object> target);
 // addresses, so this should be used with care.
 v8::IsolateGroup GetOrCreateIsolateGroup();
 
+// The blob every isolate is created from, see NewIsolate(). It is never freed.
+bool IsFirstSnapshotBlob(const char* data);
 v8::Isolate* NewIsolate(v8::Isolate::CreateParams* params,
                         uv_loop_t* event_loop,
                         MultiIsolatePlatform* platform,
@@ -387,7 +390,6 @@ class InitializationResultImpl final : public InitializationResult {
   MultiIsolatePlatform* platform_ = nullptr;
 };
 
-void SetIsolateErrorHandlers(v8::Isolate* isolate, const IsolateSettings& s);
 void SetIsolateMiscHandlers(v8::Isolate* isolate, const IsolateSettings& s);
 void SetIsolateCreateParamsForNode(v8::Isolate::CreateParams* params);
 
@@ -410,11 +412,6 @@ typedef struct tm TIME_TYPE;
 #endif
 
 double GetCurrentTimeInMicroseconds();
-int WriteFileSync(const char* path, uv_buf_t* bufs, size_t buf_count);
-int WriteFileSync(const char* path, uv_buf_t buf);
-int WriteFileSync(v8::Isolate* isolate,
-                  const char* path,
-                  v8::Local<v8::String> string);
 
 class DiagnosticFilename {
  public:

@@ -1,20 +1,27 @@
 'use strict';
 
 const {
-  ArrayFrom,
-  ArrayPrototypeSlice,
+  ArrayPrototypeMap,
   ObjectDefineProperties,
-  ObjectDefineProperty,
+  ObjectPrototypeHasOwnProperty,
   ObjectSetPrototypeOf,
-  SafeSet,
-  Symbol,
+  StringPrototypeIncludes,
+  StringPrototypeStartsWith,
   SymbolToStringTag,
+  TypedArrayPrototypeIncludes,
   Uint8Array,
 } = primordials;
 
 const {
   KeyObjectHandle,
   createNativeKeyObjectClass,
+  // eslint-disable-next-line no-restricted-syntax -- intended here
+  getKeyObjectSlots: nativeGetKeyObjectSlots,
+  isKeyObject: isNativeKeyObject,
+  createCryptoKeyClass,
+  // eslint-disable-next-line no-restricted-syntax -- intended here
+  getCryptoKeySlots: nativeGetCryptoKeySlots,
+  isCryptoKey: isNativeCryptoKey,
   kKeyTypeSecret,
   kKeyTypePublic,
   kKeyTypePrivate,
@@ -24,10 +31,12 @@ const {
   kKeyFormatRawPublic,
   kKeyFormatRawPrivate,
   kKeyFormatRawSeed,
+  kKeyFormatStore,
   kKeyEncodingPKCS1,
   kKeyEncodingPKCS8,
   kKeyEncodingSPKI,
   kKeyEncodingSEC1,
+  parsePKCS12: _parsePKCS12,
 } = internalBinding('crypto');
 
 const {
@@ -46,7 +55,6 @@ const {
 const {
   codes: {
     ERR_CRYPTO_INCOMPATIBLE_KEY_OPTIONS,
-    ERR_CRYPTO_INVALID_JWK,
     ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE,
     ERR_ILLEGAL_CONSTRUCTOR,
     ERR_INVALID_ARG_TYPE,
@@ -56,12 +64,15 @@ const {
 } = require('internal/errors');
 
 const {
-  kHandle,
-  kKeyObject,
   getArrayBufferOrView,
+  getBufferSourceBytes,
   bigIntArrayToUnsignedBigInt,
   normalizeAlgorithm,
   hasAnyNotIn,
+  getUsagesMask,
+  getUsagesFromMask,
+  hasUsage,
+  toUsagesSet,
 } = require('internal/crypto/util');
 
 const {
@@ -70,28 +81,34 @@ const {
 } = require('internal/util/types');
 
 const {
-  markTransferMode,
-  kClone,
-  kDeserialize,
-} = require('internal/worker/js_transferable');
+  fileURLToPath,
+  getURLHref,
+  isURLInstance,
+} = require('internal/url');
 
 const {
   customInspectSymbol: kInspect,
+  getDeprecationWarningEmitter,
   kEnumerableProperty,
+  kEmptyObject,
   lazyDOMException,
 } = require('internal/util');
 
 const { inspect } = require('internal/util/inspect');
-
 const { Buffer } = require('buffer');
 
-const kAlgorithm = Symbol('kAlgorithm');
-const kExtractable = Symbol('kExtractable');
-const kKeyType = Symbol('kKeyType');
-const kKeyUsages = Symbol('kKeyUsages');
-const kCachedAlgorithm = Symbol('kCachedAlgorithm');
-const kCachedKeyUsages = Symbol('kCachedKeyUsages');
+const emitDEP0203 = getDeprecationWarningEmitter(
+  'DEP0203',
+  'Passing a CryptoKey to node:crypto functions is deprecated.',
+);
 
+const maybeEmitDEP0204 = getDeprecationWarningEmitter(
+  'DEP0204',
+  'Passing a non-extractable CryptoKey to KeyObject.from() is deprecated.',
+  undefined,
+  false,
+  (key) => !getCryptoKeyExtractable(key),
+);
 
 // Key input contexts.
 const kConsumePublic = 0;
@@ -104,6 +121,34 @@ for (const m of [[kKeyEncodingPKCS1, 'pkcs1'], [kKeyEncodingPKCS8, 'pkcs8'],
                  [kKeyEncodingSPKI, 'spki'], [kKeyEncodingSEC1, 'sec1']])
   encodingNames[m[0]] = m[1];
 
+// KeyObject state lives on the native NativeKeyObject base class. JS caches
+// the constructor-known type enum in a private field, then replaces it with
+// the native type and KeyObjectHandle tuple when the handle is first needed.
+// No forgeable own Symbols are exposed on public KeyObject instances.
+let getKeyObjectSlots; // Populated by the createNativeKeyObjectClass callback.
+let isKeyObject;
+let getKeyObjectTypeValue;
+
+const kKeyObjectSlotType = 0;
+const kKeyObjectSlotHandle = 1;
+// The native slot tuple stops at kKeyObjectSlotHandle. The remaining entries
+// are JS-side lazy cache slots derived from the KeyObjectHandle on first use.
+const kKeyObjectSlotSymmetricKeySize = 2;
+const kKeyObjectSlotAsymmetricKeyType = 3;
+const kKeyObjectSlotAsymmetricKeyDetails = 4;
+
+function normalizeKeyDetails(details = kEmptyObject) {
+  if (details.publicExponent !== undefined) {
+    return {
+      __proto__: null,
+      ...details,
+      publicExponent:
+        bigIntArrayToUnsignedBigInt(new Uint8Array(details.publicExponent)),
+    };
+  }
+  return details;
+}
+
 // Creating the KeyObject class is a little complicated due to inheritance
 // and the fact that KeyObjects should be transferable between threads,
 // which requires the KeyObject base class to be implemented in C++.
@@ -115,35 +160,75 @@ const {
   2: PublicKeyObject,
   3: PrivateKeyObject,
 } = createNativeKeyObjectClass((NativeKeyObject) => {
+  let webidl;
+
   // Publicly visible KeyObject class.
   class KeyObject extends NativeKeyObject {
+    #slots;
+
     constructor(type, handle) {
-      if (type !== 'secret' && type !== 'public' && type !== 'private')
-        throw new ERR_INVALID_ARG_VALUE('type', type);
+      let keyType;
+      switch (type) {
+        case 'secret': keyType = kKeyTypeSecret; break;
+        case 'public': keyType = kKeyTypePublic; break;
+        case 'private': keyType = kKeyTypePrivate; break;
+        default: throw new ERR_INVALID_ARG_VALUE('type', type);
+      }
       if (typeof handle !== 'object' || !(handle instanceof KeyObjectHandle))
         throw new ERR_INVALID_ARG_TYPE('handle', 'object', handle);
 
       super(handle);
-
-      this[kKeyType] = type;
-
-      ObjectDefineProperty(this, kHandle, {
-        __proto__: null,
-        value: handle,
-        enumerable: false,
-        configurable: false,
-        writable: false,
-      });
+      this.#slots = keyType;
     }
 
     get type() {
-      return this[kKeyType];
+      return getKeyObjectType(this);
+    }
+
+    toCryptoKey(algorithm, extractable, keyUsages) {
+      webidl ??= require('internal/crypto/webidl');
+      algorithm = normalizeAlgorithm(webidl.converters.AlgorithmIdentifier(algorithm), 'importKey');
+      extractable = webidl.converters.boolean(extractable);
+      keyUsages = webidl.converters['sequence<KeyUsage>'](keyUsages);
+
+      const type = getKeyObjectType(this);
+      const handle = getKeyObjectHandle(this);
+      switch (type) {
+        case 'secret':
+          return toCryptoKeySecret(
+            handle,
+            algorithm,
+            extractable,
+            keyUsages);
+        case 'public':
+          // Fall through
+        case 'private':
+          return toCryptoKey(
+            handle,
+            algorithm,
+            extractable,
+            keyUsages);
+      }
     }
 
     static from(key) {
       if (!isCryptoKey(key))
         throw new ERR_INVALID_ARG_TYPE('key', 'CryptoKey', key);
-      return key[kKeyObject];
+      maybeEmitDEP0204(key);
+      if (getCryptoKeySecondaryHandle(key) !== undefined) {
+        throw new ERR_INVALID_ARG_VALUE(
+          'key',
+          key,
+          'cannot be represented by a single KeyObject');
+      }
+      const handle = getCryptoKeyHandle(key);
+      switch (getCryptoKeyType(key)) {
+        /* eslint-disable no-use-before-define */
+        case 'secret': return new SecretKeyObject(handle);
+        case 'public': return new PublicKeyObject(handle);
+        case 'private': return new PrivateKeyObject(handle);
+        /* eslint-enable no-use-before-define */
+      }
     }
 
     equals(otherKeyObject) {
@@ -152,8 +237,40 @@ const {
           'otherKeyObject', 'KeyObject', otherKeyObject);
       }
 
-      return otherKeyObject.type === this.type &&
-        this[kHandle].equals(otherKeyObject[kHandle]);
+      const slots = getKeyObjectSlots(this);
+      const otherSlots = getKeyObjectSlots(otherKeyObject);
+      return slots[kKeyObjectSlotType] === otherSlots[kKeyObjectSlotType] &&
+        slots[kKeyObjectSlotHandle].equals(
+          otherSlots[kKeyObjectSlotHandle]);
+    }
+
+    static {
+      isKeyObject = (key) => {
+        if (key == null || typeof key !== 'object') return false;
+        return #slots in key || isNativeKeyObject(key);
+      };
+      getKeyObjectTypeValue = (key) => {
+        if (!key || typeof key !== 'object')
+          throw new ERR_INVALID_THIS('KeyObject');
+        if (#slots in key) {
+          const cached = key.#slots;
+          if (typeof cached === 'number') return cached;
+          if (cached !== undefined) return cached[kKeyObjectSlotType];
+        }
+        return getKeyObjectSlots(key)[kKeyObjectSlotType];
+      };
+
+      getKeyObjectSlots = (key) => {
+        if (!key || typeof key !== 'object')
+          throw new ERR_INVALID_THIS('KeyObject');
+        if (#slots in key) {
+          const cached = key.#slots;
+          if (cached !== undefined && typeof cached !== 'number') return cached;
+        }
+        const slots = nativeGetKeyObjectSlots(key);
+        key.#slots = slots;
+        return slots;
+      };
     }
   }
 
@@ -165,183 +282,36 @@ const {
     },
   });
 
-  let webidl;
-
   class SecretKeyObject extends KeyObject {
     constructor(handle) {
       super('secret', handle);
     }
 
     get symmetricKeySize() {
-      return this[kHandle].getSymmetricKeySize();
+      return getKeyObjectSymmetricKeySize(this);
     }
 
     export(options) {
+      const handle = getKeyObjectHandle(this);
       if (options !== undefined) {
         validateObject(options, 'options');
         validateOneOf(
           options.format, 'options.format', [undefined, 'buffer', 'jwk']);
         if (options.format === 'jwk') {
-          return this[kHandle].exportJwk({}, false);
+          return handle.exportJwk({}, false);
         }
       }
-      return this[kHandle].export();
+      return handle.export();
     }
-
-    toCryptoKey(algorithm, extractable, keyUsages) {
-      webidl ??= require('internal/crypto/webidl');
-      algorithm = normalizeAlgorithm(webidl.converters.AlgorithmIdentifier(algorithm), 'importKey');
-      extractable = webidl.converters.boolean(extractable);
-      keyUsages = webidl.converters['sequence<KeyUsage>'](keyUsages);
-
-      let result;
-      switch (algorithm.name) {
-        case 'HMAC':
-          // Fall through
-        case 'KMAC128':
-          // Fall through
-        case 'KMAC256':
-          result = require('internal/crypto/mac')
-            .macImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        case 'AES-CTR':
-          // Fall through
-        case 'AES-CBC':
-          // Fall through
-        case 'AES-GCM':
-          // Fall through
-        case 'AES-KW':
-          // Fall through
-        case 'AES-OCB':
-          result = require('internal/crypto/aes')
-            .aesImportKey(algorithm, 'KeyObject', this, extractable, keyUsages);
-          break;
-        case 'ChaCha20-Poly1305':
-          result = require('internal/crypto/chacha20_poly1305')
-            .c20pImportKey(algorithm, 'KeyObject', this, extractable, keyUsages);
-          break;
-        case 'HKDF':
-          // Fall through
-        case 'PBKDF2':
-          // Fall through
-        case 'Argon2d':
-          // Fall through
-        case 'Argon2i':
-          // Fall through
-        case 'Argon2id':
-          result = importGenericSecretKey(
-            algorithm,
-            'KeyObject',
-            this,
-            extractable,
-            keyUsages);
-          break;
-        default:
-          throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
-      }
-
-      if (result[kKeyUsages].length === 0) {
-        throw lazyDOMException(
-          `Usages cannot be empty when importing a ${result.type} key.`,
-          'SyntaxError');
-      }
-
-      return result;
-    }
-  }
-
-  const kAsymmetricKeyType = Symbol('kAsymmetricKeyType');
-  const kAsymmetricKeyDetails = Symbol('kAsymmetricKeyDetails');
-
-  function normalizeKeyDetails(details = {}) {
-    if (details.publicExponent !== undefined) {
-      return {
-        ...details,
-        publicExponent:
-          bigIntArrayToUnsignedBigInt(new Uint8Array(details.publicExponent)),
-      };
-    }
-    return details;
   }
 
   class AsymmetricKeyObject extends KeyObject {
     get asymmetricKeyType() {
-      return this[kAsymmetricKeyType] ||= this[kHandle].getAsymmetricKeyType();
+      return getKeyObjectAsymmetricKeyType(this);
     }
 
     get asymmetricKeyDetails() {
-      switch (this.asymmetricKeyType) {
-        case 'rsa':
-        case 'rsa-pss':
-        case 'dsa':
-        case 'ec':
-          return this[kAsymmetricKeyDetails] ||= normalizeKeyDetails(
-            this[kHandle].keyDetail({}),
-          );
-        default:
-          return {};
-      }
-    }
-
-    toCryptoKey(algorithm, extractable, keyUsages) {
-      webidl ??= require('internal/crypto/webidl');
-      algorithm = normalizeAlgorithm(webidl.converters.AlgorithmIdentifier(algorithm), 'importKey');
-      extractable = webidl.converters.boolean(extractable);
-      keyUsages = webidl.converters['sequence<KeyUsage>'](keyUsages);
-
-      let result;
-      switch (algorithm.name) {
-        case 'RSASSA-PKCS1-v1_5':
-          // Fall through
-        case 'RSA-PSS':
-          // Fall through
-        case 'RSA-OAEP':
-          result = require('internal/crypto/rsa')
-            .rsaImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        case 'ECDSA':
-          // Fall through
-        case 'ECDH':
-          result = require('internal/crypto/ec')
-            .ecImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        case 'Ed25519':
-          // Fall through
-        case 'Ed448':
-          // Fall through
-        case 'X25519':
-          // Fall through
-        case 'X448':
-          result = require('internal/crypto/cfrg')
-            .cfrgImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        case 'ML-DSA-44':
-          // Fall through
-        case 'ML-DSA-65':
-          // Fall through
-        case 'ML-DSA-87':
-          result = require('internal/crypto/ml_dsa')
-            .mlDsaImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        case 'ML-KEM-512':
-          // Fall through
-        case 'ML-KEM-768':
-          // Fall through
-        case 'ML-KEM-1024':
-          result = require('internal/crypto/ml_kem')
-            .mlKemImportKey('KeyObject', this, algorithm, extractable, keyUsages);
-          break;
-        default:
-          throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
-      }
-
-      if (result.type === 'private' && result[kKeyUsages].length === 0) {
-        throw lazyDOMException(
-          `Usages cannot be empty when importing a ${result.type} key.`,
-          'SyntaxError');
-      }
-
-      return result;
+      return { ...getKeyObjectAsymmetricKeyDetails(this) };
     }
   }
 
@@ -353,23 +323,27 @@ const {
     export(options) {
       switch (options?.format) {
         case 'jwk':
-          return this[kHandle].exportJwk({}, false);
+          return getKeyObjectHandle(this).exportJwk({}, false);
         case 'raw-public': {
-          if (this.asymmetricKeyType === 'ec') {
+          const handle = getKeyObjectHandle(this);
+          const asymmetricKeyType = getKeyObjectAsymmetricKeyType(this);
+          if (asymmetricKeyType === 'ec') {
             const { type = 'uncompressed' } = options;
             validateOneOf(type, 'options.type', ['compressed', 'uncompressed']);
             const form = type === 'compressed' ?
               POINT_CONVERSION_COMPRESSED : POINT_CONVERSION_UNCOMPRESSED;
-            return this[kHandle].exportECPublicRaw(form);
+            return handle.exportECPublicRaw(form);
           }
-          return this[kHandle].rawPublicKey();
+          return handle.rawPublicKey();
         }
         default: {
+          const asymmetricKeyType = getKeyObjectAsymmetricKeyType(this);
+          const handle = getKeyObjectHandle(this);
           const {
             format,
             type,
-          } = parsePublicKeyEncoding(options, this.asymmetricKeyType);
-          return this[kHandle].export(format, type);
+          } = parsePublicKeyEncoding(options, asymmetricKeyType);
+          return handle.export(format, type);
         }
       }
     }
@@ -388,23 +362,27 @@ const {
       }
       switch (options?.format) {
         case 'jwk':
-          return this[kHandle].exportJwk({}, false);
+          return getKeyObjectHandle(this).exportJwk({}, false);
         case 'raw-private': {
-          if (this.asymmetricKeyType === 'ec') {
-            return this[kHandle].exportECPrivateRaw();
+          const handle = getKeyObjectHandle(this);
+          const asymmetricKeyType = getKeyObjectAsymmetricKeyType(this);
+          if (asymmetricKeyType === 'ec') {
+            return handle.exportECPrivateRaw();
           }
-          return this[kHandle].rawPrivateKey();
+          return handle.rawPrivateKey();
         }
         case 'raw-seed':
-          return this[kHandle].rawSeed();
+          return getKeyObjectHandle(this).rawSeed();
         default: {
+          const asymmetricKeyType = getKeyObjectAsymmetricKeyType(this);
+          const handle = getKeyObjectHandle(this);
           const {
             format,
             type,
             cipher,
             passphrase,
-          } = parsePrivateKeyEncoding(options, this.asymmetricKeyType);
-          return this[kHandle].export(format, type, cipher, passphrase);
+          } = parsePrivateKeyEncoding(options, asymmetricKeyType);
+          return handle.export(format, type, cipher, passphrase);
         }
       }
     }
@@ -413,7 +391,7 @@ const {
   return [KeyObject, SecretKeyObject, PublicKeyObject, PrivateKeyObject];
 });
 
-function parseKeyFormat(formatStr, defaultFormat, optionName) {
+function parseKeyFormat(formatStr, defaultFormat, objName) {
   if (formatStr === undefined && defaultFormat !== undefined)
     return defaultFormat;
   else if (formatStr === 'pem')
@@ -428,10 +406,10 @@ function parseKeyFormat(formatStr, defaultFormat, optionName) {
     return kKeyFormatRawPrivate;
   else if (formatStr === 'raw-seed')
     return kKeyFormatRawSeed;
-  throw new ERR_INVALID_ARG_VALUE(optionName, formatStr);
+  throw new ERR_INVALID_ARG_VALUE(option('format', objName), formatStr);
 }
 
-function parseKeyType(typeStr, required, keyType, isPublic, optionName) {
+function parseKeyType(typeStr, required, keyType, isPublic, objName) {
   if (typeStr === undefined && !required) {
     return undefined;
   } else if (typeStr === 'pkcs1') {
@@ -452,12 +430,12 @@ function parseKeyType(typeStr, required, keyType, isPublic, optionName) {
     return kKeyEncodingSEC1;
   }
 
-  throw new ERR_INVALID_ARG_VALUE(optionName, typeStr);
+  throw new ERR_INVALID_ARG_VALUE(option('type', objName), typeStr);
 }
 
-function option(name, objName) {
-  return objName === undefined ?
-    `options.${name}` : `options.${objName}.${name}`;
+function option(name, prefix) {
+  return prefix === undefined ?
+    `options.${name}` : `${prefix}.${name}`;
 }
 
 function parseKeyFormatAndType(enc, keyType, isPublic, objName) {
@@ -466,7 +444,7 @@ function parseKeyFormatAndType(enc, keyType, isPublic, objName) {
   const isInput = keyType === undefined;
   const format = parseKeyFormat(formatStr,
                                 isInput ? kKeyFormatPEM : undefined,
-                                option('format', objName));
+                                objName);
 
   if (format === kKeyFormatRawPublic) {
     if (isPublic === false) {
@@ -502,7 +480,7 @@ function parseKeyFormatAndType(enc, keyType, isPublic, objName) {
                             isRequired,
                             keyType,
                             isPublic,
-                            option('type', objName));
+                            objName);
   return { format, type };
 }
 
@@ -510,6 +488,10 @@ function isStringOrBuffer(val) {
   return typeof val === 'string' ||
          isArrayBufferView(val) ||
          isAnyArrayBuffer(val);
+}
+
+function encodeKeyString(value, encoding) {
+  return Buffer.from(value, encoding === 'buffer' ? 'utf8' : encoding);
 }
 
 function parseKeyEncoding(enc, keyType, isPublic, objName) {
@@ -545,7 +527,9 @@ function parseKeyEncoding(enc, keyType, isPublic, objName) {
             encodingNames[type], 'does not support encryption');
         }
       } else if (passphrase !== undefined) {
-        throw new ERR_INVALID_ARG_VALUE(option('cipher', objName), cipher);
+        throw new ERR_INVALID_ARG_VALUE(
+          option('cipher', objName), cipher,
+          'is required when a passphrase is specified');
       }
     }
 
@@ -557,8 +541,8 @@ function parseKeyEncoding(enc, keyType, isPublic, objName) {
     }
   }
 
-  if (passphrase !== undefined)
-    passphrase = getArrayBufferOrView(passphrase, 'key.passphrase', encoding);
+  if (typeof passphrase === 'string')
+    passphrase = encodeKeyString(passphrase, encoding);
 
   return { format, type, cipher, passphrase };
 }
@@ -577,333 +561,231 @@ function parsePrivateKeyEncoding(enc, keyType, objName) {
   return parseKeyEncoding(enc, keyType, false, objName);
 }
 
-function getKeyObjectHandle(key, ctx) {
+function validateAsymmetricKeyType(type, ctx, key) {
   if (ctx === kCreatePrivate) {
     throw new ERR_INVALID_ARG_TYPE(
       'key',
-      ['string', 'ArrayBuffer', 'Buffer', 'TypedArray', 'DataView'],
+      getKeyTypes({ allowKeyObject: false, allowURL: true }),
       key,
     );
   }
 
-  if (key.type !== 'private') {
+  if (type !== kKeyTypePrivate) {
     if (ctx === kConsumePrivate || ctx === kCreatePublic)
-      throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(key.type, 'private');
-    if (key.type !== 'public') {
-      throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(key.type,
+      throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(keyObjectTypeToString(type), 'private');
+    if (type !== kKeyTypePublic) {
+      throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(keyObjectTypeToString(type),
                                                    'private or public');
     }
   }
-
-  return key[kHandle];
 }
 
-function getKeyTypes(allowKeyObject, bufferOnly = false) {
-  const types = [
-    'ArrayBuffer',
-    'Buffer',
-    'TypedArray',
-    'DataView',
-    'string', // Only if bufferOnly == false
-    'KeyObject', // Only if allowKeyObject == true && bufferOnly == false
-    'CryptoKey', // Only if allowKeyObject == true && bufferOnly == false
+const kKeyTypesBufferOnly = [
+  'ArrayBuffer',
+  'Buffer',
+  'TypedArray',
+  'DataView',
+];
+
+function getKeyTypes({ allowKeyObject, allowURL = false }) {
+  return [
+    ...kKeyTypesBufferOnly,
+    'string',
+    ...(allowKeyObject ? ['KeyObject', 'CryptoKey'] : []),
+    ...(allowURL ? ['URL'] : []),
   ];
-  if (bufferOnly) {
-    return ArrayPrototypeSlice(types, 0, 4);
-  } else if (!allowKeyObject) {
-    return ArrayPrototypeSlice(types, 0, 5);
-  }
-  return types;
 }
 
-function mlDsaPubLen(alg) {
-  switch (alg) {
-    case 'ML-DSA-44': return 1312;
-    case 'ML-DSA-65': return 1952;
-    case 'ML-DSA-87': return 2592;
-  }
-}
+function prepareStorePrivateKey(url, name, passphrase, encoding, properties) {
+  // Read the canonical serialization from private URL state. Public accessors
+  // can be overridden by subclasses or through prototype mutation.
+  let uri = getURLHref(url);
+  if (StringPrototypeStartsWith(uri, 'file:'))
+    uri = fileURLToPath(uri);
 
-function getKeyObjectHandleFromJwk(key, ctx) {
-  validateObject(key, 'key');
-  validateOneOf(
-    key.kty, 'key.kty', ['RSA', 'EC', 'OKP', 'AKP']);
-  const isPublic = ctx === kConsumePublic || ctx === kCreatePublic;
-
-  if (key.kty === 'AKP') {
-    validateOneOf(
-      key.alg, 'key.alg', ['ML-DSA-44', 'ML-DSA-65', 'ML-DSA-87']);
-    validateString(key.pub, 'key.pub');
-
-    let keyData;
-    if (isPublic) {
-      keyData = Buffer.from(key.pub, 'base64url');
-      if (keyData.byteLength !== mlDsaPubLen(key.alg)) {
-        throw new ERR_CRYPTO_INVALID_JWK();
-      }
-    } else {
-      validateString(key.priv, 'key.priv');
-      keyData = Buffer.from(key.priv, 'base64url');
-      if (keyData.byteLength !== 32) {
-        throw new ERR_CRYPTO_INVALID_JWK();
-      }
-    }
-
-    const handle = new KeyObjectHandle();
-
-    const keyType = isPublic ? kKeyTypePublic : kKeyTypePrivate;
-    if (!handle.initPqcRaw(key.alg, keyData, keyType)) {
-      throw new ERR_CRYPTO_INVALID_JWK();
-    }
-
-    return handle;
+  validateString(uri, name);
+  // The URI is handed to OpenSSL as a NUL-terminated C string. Reject embedded
+  // NUL bytes, which `fileURLToPath()` happily decodes from `%00`, rather than
+  // letting the URI be silently truncated.
+  if (StringPrototypeIncludes(uri, '\u0000')) {
+    throw new ERR_INVALID_ARG_VALUE(
+      name, url, 'must be a URL without null bytes');
   }
 
-  if (key.kty === 'OKP') {
-    validateString(key.crv, 'key.crv');
-    validateOneOf(
-      key.crv, 'key.crv', ['Ed25519', 'Ed448', 'X25519', 'X448']);
-    validateString(key.x, 'key.x');
-
-    if (!isPublic)
-      validateString(key.d, 'key.d');
-
-    let keyData;
-    if (isPublic)
-      keyData = Buffer.from(key.x, 'base64');
-    else
-      keyData = Buffer.from(key.d, 'base64');
-
-    switch (key.crv) {
-      case 'Ed25519':
-      case 'X25519':
-        if (keyData.byteLength !== 32) {
-          throw new ERR_CRYPTO_INVALID_JWK();
-        }
-        break;
-      case 'Ed448':
-        if (keyData.byteLength !== 57) {
-          throw new ERR_CRYPTO_INVALID_JWK();
-        }
-        break;
-      case 'X448':
-        if (keyData.byteLength !== 56) {
-          throw new ERR_CRYPTO_INVALID_JWK();
-        }
-        break;
+  if (passphrase !== undefined) {
+    if (!isStringOrBuffer(passphrase)) {
+      throw new ERR_INVALID_ARG_VALUE(option('passphrase', name), passphrase);
     }
-
-    const handle = new KeyObjectHandle();
-
-    const keyType = isPublic ? kKeyTypePublic : kKeyTypePrivate;
-    if (!handle.initEDRaw(key.crv, keyData, keyType)) {
-      throw new ERR_CRYPTO_INVALID_JWK();
+    if (typeof passphrase === 'string') {
+      passphrase = encodeKeyString(passphrase, encoding);
     }
-
-    return handle;
   }
 
-  if (key.kty === 'EC') {
-    validateString(key.crv, 'key.crv');
-    validateOneOf(
-      key.crv, 'key.crv', ['P-256', 'secp256k1', 'P-384', 'P-521']);
-    validateString(key.x, 'key.x');
-    validateString(key.y, 'key.y');
-
-    const jwk = {
-      kty: key.kty,
-      crv: key.crv,
-      x: key.x,
-      y: key.y,
-    };
-
-    if (!isPublic) {
-      validateString(key.d, 'key.d');
-      jwk.d = key.d;
+  if (properties !== undefined) {
+    validateString(properties, option('properties', name));
+    // Reaches OpenSSL as a NUL-terminated C string, same as the URI above.
+    if (StringPrototypeIncludes(properties, '\u0000')) {
+      throw new ERR_INVALID_ARG_VALUE(
+        option('properties', name),
+        properties,
+        'must be a string without null bytes');
     }
-
-    const handle = new KeyObjectHandle();
-    const type = handle.initJwk(jwk, jwk.crv);
-    if (type === undefined)
-      throw new ERR_CRYPTO_INVALID_JWK();
-
-    return handle;
   }
 
-  // RSA
-  validateString(key.n, 'key.n');
-  validateString(key.e, 'key.e');
-
-  const jwk = {
-    kty: key.kty,
-    n: key.n,
-    e: key.e,
+  return {
+    data: {
+      uri,
+      properties: properties ?? null,
+    },
+    format: kKeyFormatStore,
+    passphrase: passphrase ?? null,
   };
-
-  if (!isPublic) {
-    validateString(key.d, 'key.d');
-    validateString(key.p, 'key.p');
-    validateString(key.q, 'key.q');
-    validateString(key.dp, 'key.dp');
-    validateString(key.dq, 'key.dq');
-    validateString(key.qi, 'key.qi');
-    jwk.d = key.d;
-    jwk.p = key.p;
-    jwk.q = key.q;
-    jwk.dp = key.dp;
-    jwk.dq = key.dq;
-    jwk.qi = key.qi;
-  }
-
-  const handle = new KeyObjectHandle();
-  const type = handle.initJwk(jwk);
-  if (type === undefined)
-    throw new ERR_CRYPTO_INVALID_JWK();
-
-  return handle;
 }
 
-
-function getKeyObjectHandleFromRaw(options, data, format) {
-  if (!isStringOrBuffer(data)) {
-    throw new ERR_INVALID_ARG_TYPE(
-      'key.key',
-      ['ArrayBuffer', 'Buffer', 'TypedArray', 'DataView'],
-      data);
+function prepareAsymmetricKey(key, ctx, name = 'key') {
+  if (typeof key === 'string') {
+    return { format: kKeyFormatPEM, data: encodeKeyString(key) };
   }
-
-  const keyData = getArrayBufferOrView(data, 'key.key');
-
-  validateString(options.asymmetricKeyType, 'key.asymmetricKeyType');
-  const asymmetricKeyType = options.asymmetricKeyType;
-
-  const handle = new KeyObjectHandle();
-
-  switch (asymmetricKeyType) {
-    case 'ec': {
-      validateString(options.namedCurve, 'key.namedCurve');
-      if (format === 'raw-public') {
-        if (!handle.initECRaw(options.namedCurve, keyData)) {
-          throw new ERR_INVALID_ARG_VALUE('key.key', keyData);
-        }
-      } else if (!handle.initECPrivateRaw(options.namedCurve, keyData)) {
-        throw new ERR_INVALID_ARG_VALUE('key.key', keyData);
-      }
-      return handle;
-    }
-    case 'ed25519':
-    case 'ed448':
-    case 'x25519':
-    case 'x448': {
-      const keyType = format === 'raw-public' ? kKeyTypePublic : kKeyTypePrivate;
-      if (!handle.initEDRaw(asymmetricKeyType, keyData, keyType)) {
-        throw new ERR_INVALID_ARG_VALUE('key.key', keyData);
-      }
-      return handle;
-    }
-    case 'rsa':
-    case 'rsa-pss':
-    case 'dsa':
-    case 'dh':
-      throw new ERR_CRYPTO_INCOMPATIBLE_KEY_OPTIONS(
-        format, `is not supported for ${asymmetricKeyType} keys`);
-    case 'ml-dsa-44':
-    case 'ml-dsa-65':
-    case 'ml-dsa-87':
-    case 'ml-kem-512':
-    case 'ml-kem-768':
-    case 'ml-kem-1024':
-    case 'slh-dsa-sha2-128f':
-    case 'slh-dsa-sha2-128s':
-    case 'slh-dsa-sha2-192f':
-    case 'slh-dsa-sha2-192s':
-    case 'slh-dsa-sha2-256f':
-    case 'slh-dsa-sha2-256s':
-    case 'slh-dsa-shake-128f':
-    case 'slh-dsa-shake-128s':
-    case 'slh-dsa-shake-192f':
-    case 'slh-dsa-shake-192s':
-    case 'slh-dsa-shake-256f':
-    case 'slh-dsa-shake-256s': {
-      const keyType = format === 'raw-public' ? kKeyTypePublic : kKeyTypePrivate;
-      if (!handle.initPqcRaw(asymmetricKeyType, keyData, keyType)) {
-        throw new ERR_INVALID_ARG_VALUE('key.key', keyData);
-      }
-      return handle;
-    }
-    default:
-      throw new ERR_INVALID_ARG_VALUE('asymmetricKeyType', asymmetricKeyType);
+  if (isArrayBufferView(key)) {
+    return { format: kKeyFormatPEM, data: key };
   }
-}
+  const isPrivateKeyInput = ctx === kConsumePrivate || ctx === kCreatePrivate;
 
-function prepareAsymmetricKey(key, ctx) {
   if (isKeyObject(key)) {
     // Best case: A key object, as simple as that.
-    return { data: getKeyObjectHandle(key, ctx) };
-  } else if (isCryptoKey(key)) {
-    return { data: getKeyObjectHandle(key[kKeyObject], ctx) };
-  } else if (isStringOrBuffer(key)) {
-    // Expect PEM by default, mostly for backward compatibility.
-    return { format: kKeyFormatPEM, data: getArrayBufferOrView(key, 'key') };
-  } else if (typeof key === 'object') {
-    const { key: data, encoding, format } = key;
-
-    // The 'key' property can be a KeyObject as well to allow specifying
-    // additional options such as padding along with the key.
-    if (isKeyObject(data))
-      return { data: getKeyObjectHandle(data, ctx) };
-    else if (isCryptoKey(data))
-      return { data: getKeyObjectHandle(data[kKeyObject], ctx) };
-    else if (format === 'jwk') {
-      validateObject(data, 'key.key');
-      return { data: getKeyObjectHandleFromJwk(data, ctx), format: 'jwk' };
-    } else if (format === 'raw-public' || format === 'raw-private' ||
-               format === 'raw-seed') {
-      return {
-        data: getKeyObjectHandleFromRaw(key, data, format),
-        format,
-      };
-    }
-
-    // Either PEM or DER using PKCS#1 or SPKI.
-    if (!isStringOrBuffer(data)) {
-      throw new ERR_INVALID_ARG_TYPE(
-        'key.key',
-        getKeyTypes(ctx !== kCreatePrivate),
-        data);
-    }
-
-    const isPublic =
-      (ctx === kConsumePrivate || ctx === kCreatePrivate) ? false : undefined;
-    return {
-      data: getArrayBufferOrView(data, 'key', encoding),
-      ...parseKeyEncoding(key, undefined, isPublic),
-    };
+    const slots = getKeyObjectSlots(key);
+    validateAsymmetricKeyType(slots[kKeyObjectSlotType], ctx, key);
+    return { data: slots[kKeyObjectSlotHandle] };
   }
+  if (isCryptoKey(key)) {
+    emitDEP0203();
+    const slots = getSlots(key);
+    validateAsymmetricKeyType(slots[kSlotType], ctx, key);
+    return { data: slots[kSlotHandle] };
+  }
+  if (isPrivateKeyInput && isURLInstance(key)) {
+    // A private key referenced by a URI for an OpenSSL STORE loader.
+    return prepareStorePrivateKey(key, name);
+  }
+  if (isAnyArrayBuffer(key)) {
+    return { format: kKeyFormatPEM, data: key };
+  }
+  if (typeof key === 'object') {
+    return prepareAsymmetricKeyOptions(key, ctx, name, isPrivateKeyInput);
+  }
+
   throw new ERR_INVALID_ARG_TYPE(
-    'key',
-    getKeyTypes(ctx !== kCreatePrivate),
+    name,
+    getKeyTypes({
+      allowKeyObject: ctx !== kCreatePrivate,
+      allowURL: isPrivateKeyInput,
+    }),
     key);
 }
 
-function preparePrivateKey(key) {
-  return prepareAsymmetricKey(key, kConsumePrivate);
+function prepareAsymmetricKeyOptions(key, ctx, name, isPrivateKeyInput) {
+  const { key: data, encoding, format, properties } = key;
+  let isData = typeof data === 'string' || isArrayBufferView(data);
+
+  // The 'key' property can be a KeyObject as well to allow specifying
+  // additional options such as padding along with the key.
+  if (!isData && isKeyObject(data)) {
+    const slots = getKeyObjectSlots(data);
+    validateAsymmetricKeyType(slots[kKeyObjectSlotType], ctx, data);
+    return { data: slots[kKeyObjectSlotHandle] };
+  }
+  if (!isData && isCryptoKey(data)) {
+    emitDEP0203();
+    const slots = getSlots(data);
+    validateAsymmetricKeyType(slots[kSlotType], ctx, data);
+    return { data: slots[kSlotHandle] };
+  }
+  isData ||= isAnyArrayBuffer(data);
+  if (!isData && isPrivateKeyInput && isURLInstance(data)) {
+    // A private key referenced by a URI for an OpenSSL STORE loader, with
+    // an optional passphrase/PIN.
+    return prepareStorePrivateKey(
+      data,
+      name,
+      key.passphrase,
+      encoding,
+      properties);
+  }
+  if (format === 'jwk') {
+    validateObject(data, `${name}.key`);
+    return { data, format: kKeyFormatJWK };
+  }
+  if (format === 'raw-public' || format === 'raw-private' ||
+               format === 'raw-seed') {
+    if (isPrivateKeyInput && format === 'raw-public') {
+      throw new ERR_INVALID_ARG_VALUE(`${name}.format`, format);
+    }
+    if (!isData || typeof data === 'string') {
+      throw new ERR_INVALID_ARG_TYPE(
+        `${name}.key`,
+        ['ArrayBuffer', 'Buffer', 'TypedArray', 'DataView'],
+        data);
+    }
+    validateString(key.asymmetricKeyType, `${name}.asymmetricKeyType`);
+    if (key.asymmetricKeyType === 'ec') {
+      validateString(key.namedCurve, `${name}.namedCurve`);
+    }
+    const rawFormat = format === 'raw-public' ? kKeyFormatRawPublic :
+      format === 'raw-private' ? kKeyFormatRawPrivate : kKeyFormatRawSeed;
+    return {
+      data,
+      format: rawFormat,
+      type: key.asymmetricKeyType,
+      namedCurve: key.namedCurve ?? null,
+    };
+  }
+
+  // Either PEM or DER using PKCS#1 or SPKI.
+  if (!isData) {
+    throw new ERR_INVALID_ARG_TYPE(
+      `${name}.key`,
+      getKeyTypes({
+        allowKeyObject: ctx !== kCreatePrivate,
+        allowURL: isPrivateKeyInput,
+      }),
+      data);
+  }
+
+  const isPublic = isPrivateKeyInput ? false : undefined;
+  const keyData = typeof data === 'string' ?
+    encodeKeyString(data, encoding) : data;
+  const parsed = parseKeyEncoding(key, undefined, isPublic, name);
+  return {
+    data: keyData,
+    format: parsed.format,
+    type: parsed.type,
+    cipher: parsed.cipher,
+    passphrase: parsed.passphrase,
+  };
 }
 
-function preparePublicOrPrivateKey(key) {
-  return prepareAsymmetricKey(key, kConsumePublic);
+function preparePrivateKey(key, name) {
+  return prepareAsymmetricKey(key, kConsumePrivate, name);
+}
+
+function preparePublicOrPrivateKey(key, name) {
+  return prepareAsymmetricKey(key, kConsumePublic, name);
 }
 
 function prepareSecretKey(key, encoding, bufferOnly = false) {
   if (!bufferOnly) {
     if (isKeyObject(key)) {
-      if (key.type !== 'secret')
-        throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(key.type, 'secret');
-      return key[kHandle];
-    } else if (isCryptoKey(key)) {
-      if (key[kKeyType] !== 'secret')
-        throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(key[kKeyType], 'secret');
-      return key[kKeyObject][kHandle];
+      const type = getKeyObjectType(key);
+      if (type !== 'secret')
+        throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(type, 'secret');
+      return getKeyObjectHandle(key);
+    }
+    if (isCryptoKey(key)) {
+      emitDEP0203();
+      const type = getCryptoKeyType(key);
+      if (type !== 'secret')
+        throw new ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE(type, 'secret');
+      return getCryptoKeyHandle(key);
     }
   }
   if (typeof key !== 'string' &&
@@ -911,7 +793,7 @@ function prepareSecretKey(key, encoding, bufferOnly = false) {
       !isAnyArrayBuffer(key)) {
     throw new ERR_INVALID_ARG_TYPE(
       'key',
-      getKeyTypes(!bufferOnly, bufferOnly),
+      bufferOnly ? kKeyTypesBufferOnly : getKeyTypes({ allowKeyObject: true }),
       key);
   }
   return getArrayBufferOrView(key, 'key', encoding);
@@ -925,206 +807,674 @@ function createSecretKey(key, encoding) {
 }
 
 function createPublicKey(key) {
-  const { format, type, data, passphrase } =
+  const { format, type, data, passphrase, namedCurve } =
     prepareAsymmetricKey(key, kCreatePublic);
-  let handle;
-  if (format === 'jwk' || format === 'raw-public') {
-    handle = data;
-  } else {
-    handle = new KeyObjectHandle();
-    handle.init(kKeyTypePublic, data, format, type, passphrase);
-  }
+  const handle = new KeyObjectHandle();
+  handle.init(kKeyTypePublic, data, format ?? null,
+              type ?? null, passphrase ?? null, namedCurve ?? null);
   return new PublicKeyObject(handle);
 }
 
-function createPrivateKey(key) {
-  const { format, type, data, passphrase } =
-    prepareAsymmetricKey(key, kCreatePrivate);
-  let handle;
-  if (format === 'jwk' || format === 'raw-private' || format === 'raw-seed') {
-    handle = data;
-  } else {
-    handle = new KeyObjectHandle();
-    handle.init(kKeyTypePrivate, data, format, type, passphrase);
-  }
-  return new PrivateKeyObject(handle);
-}
-
-function isKeyObject(obj) {
-  return obj != null && obj[kKeyType] !== undefined && obj[kKeyObject] === undefined;
-}
-
-// Our implementation of CryptoKey is a simple wrapper around a KeyObject
-// that adapts it to the standard interface.
-// TODO(@jasnell): Embedder environments like electron may have issues
-// here similar to other things like URL. A chromium provided CryptoKey
-// will not be recognized as a Node.js CryptoKey, and vice versa. It
-// would be fantastic if we could find a way of making those interop.
-class CryptoKey {
-  constructor() {
-    throw new ERR_ILLEGAL_CONSTRUCTOR();
+/**
+ * Parses a PKCS#12 (.p12 / .pfx) bundle. Returns an object holding the first
+ * private key as `privateKey`, the certificate associated with it as
+ * `certificate`, and every other certificate in the bundle as an array in
+ * `additionalCertificates`. `privateKey` and `certificate` are null when the
+ * bundle contains none.
+ * @param {ArrayBuffer|Buffer|TypedArray|DataView} bundle
+ * @param {object} [options]
+ * @returns {object}
+ */
+function parsePKCS12(bundle, options = kEmptyObject) {
+  if (!isArrayBufferView(bundle) && !isAnyArrayBuffer(bundle)) {
+    throw new ERR_INVALID_ARG_TYPE(
+      'bundle',
+      ['ArrayBuffer', 'TypedArray', 'DataView', 'Buffer'],
+      bundle);
   }
 
-  [kInspect](depth, options) {
-    if (depth < 0)
-      return this;
+  validateObject(options, 'options');
+  const { passphrase } = options;
 
-    const opts = {
-      ...options,
-      depth: options.depth == null ? null : options.depth - 1,
-    };
-
-    return `CryptoKey ${inspect({
-      type: this[kKeyType],
-      extractable: this[kExtractable],
-      algorithm: this[kAlgorithm],
-      usages: this[kKeyUsages],
-    }, opts)}`;
-  }
-
-  get [kKeyType]() {
-    return this[kKeyObject].type;
-  }
-
-  get type() {
-    if (!(this instanceof CryptoKey))
-      throw new ERR_INVALID_THIS('CryptoKey');
-    return this[kKeyType];
-  }
-
-  get extractable() {
-    if (!(this instanceof CryptoKey))
-      throw new ERR_INVALID_THIS('CryptoKey');
-    return this[kExtractable];
-  }
-
-  get algorithm() {
-    if (!(this instanceof CryptoKey))
-      throw new ERR_INVALID_THIS('CryptoKey');
-    if (!this[kCachedAlgorithm]) {
-      this[kCachedAlgorithm] ??= { ...this[kAlgorithm] };
-      this[kCachedAlgorithm].hash &&= { ...this[kCachedAlgorithm].hash };
-      this[kCachedAlgorithm].publicExponent &&= new Uint8Array(this[kCachedAlgorithm].publicExponent);
+  // `undefined` means no passphrase, '' a zero-length one. OpenSSL accepts
+  // either PKCS#12 password encoding for both, so they behave the same.
+  let passBuf;
+  if (passphrase !== undefined) {
+    passBuf = getArrayBufferOrView(passphrase, 'options.passphrase', 'utf8');
+    // OpenSSL takes the passphrase as a NUL-terminated C string, so one
+    // containing a NUL byte would be truncated there and the bundle opened
+    // with only the bytes before it. A PKCS#12 password cannot represent an
+    // embedded NUL anyway, so reject it outright.
+    if (TypedArrayPrototypeIncludes(getBufferSourceBytes(passBuf), 0)) {
+      throw new ERR_INVALID_ARG_VALUE(
+        'options.passphrase', passphrase, 'must not contain null bytes');
     }
-    return this[kCachedAlgorithm];
+    // The binding reads the passphrase as a view; wrap a bare ArrayBuffer.
+    if (isAnyArrayBuffer(passBuf)) passBuf = Buffer.from(passBuf);
   }
 
-  get usages() {
-    if (!(this instanceof CryptoKey))
-      throw new ERR_INVALID_THIS('CryptoKey');
-    this[kCachedKeyUsages] ??= ArrayFrom(this[kKeyUsages]);
-    return this[kCachedKeyUsages];
-  }
+  // Likewise, the binding reads the bundle as a view.
+  const bundleBuf = isAnyArrayBuffer(bundle) ? Buffer.from(bundle) : bundle;
+
+  const {
+    0: keyHandle,
+    1: certHandle,
+    2: otherHandles,
+  } = _parsePKCS12(bundleBuf, passBuf);
+
+  // Required lazily: internal/crypto/x509 depends on this module.
+  const { InternalX509Certificate } = require('internal/crypto/x509');
+
+  return {
+    privateKey: keyHandle === null ? null : new PrivateKeyObject(keyHandle),
+    certificate:
+      certHandle === null ? null : new InternalX509Certificate(certHandle),
+    additionalCertificates:
+      ArrayPrototypeMap(otherHandles, (h) => new InternalX509Certificate(h)),
+  };
 }
-
-ObjectDefineProperties(CryptoKey.prototype, {
-  type: kEnumerableProperty,
-  extractable: kEnumerableProperty,
-  algorithm: kEnumerableProperty,
-  usages: kEnumerableProperty,
-  [SymbolToStringTag]: {
-    __proto__: null,
-    configurable: true,
-    value: 'CryptoKey',
-  },
-});
 
 /**
- * @param {InternalCryptoKey} key
- * @param {KeyObject} keyObject
+ * Converts a secret KeyObjectHandle to a CryptoKey by dispatching to the
+ * algorithm-specific Web Crypto import path.
+ * @param {KeyObjectHandle} keyData
  * @param {object} algorithm
  * @param {boolean} extractable
- * @param {Set<string>} keyUsages
+ * @param {string[]} keyUsages
+ * @returns {CryptoKey}
  */
-function defineCryptoKeyProperties(
-  key,
-  keyObject,
+function toCryptoKeySecret(
+  keyData,
   algorithm,
   extractable,
   keyUsages,
 ) {
-  // Using symbol properties here currently instead of private
-  // properties because (for now) the performance penalty of
-  // private fields is still too high.
-  ObjectDefineProperties(key, {
-    [kKeyObject]: {
-      __proto__: null,
-      value: keyObject,
-      enumerable: false,
-      configurable: false,
-      writable: false,
-    },
-    [kAlgorithm]: {
-      __proto__: null,
-      value: algorithm,
-      enumerable: false,
-      configurable: false,
-      writable: false,
-    },
-    [kExtractable]: {
-      __proto__: null,
-      value: extractable,
-      enumerable: false,
-      configurable: false,
-      writable: false,
-    },
-    [kKeyUsages]: {
-      __proto__: null,
-      value: keyUsages,
-      enumerable: false,
-      configurable: false,
-      writable: false,
-    },
-  });
+  let result;
+  switch (algorithm.name) {
+    case 'HMAC':
+      // Fall through
+    case 'KMAC128':
+      // Fall through
+    case 'KMAC256':
+      result = require('internal/crypto/mac')
+        .macImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    case 'AES-CTR':
+      // Fall through
+    case 'AES-CBC':
+      // Fall through
+    case 'AES-GCM':
+      // Fall through
+    case 'AES-KW':
+      // Fall through
+    case 'AES-OCB':
+      result = require('internal/crypto/aes')
+        .aesImportKey(algorithm, 'KeyObjectHandle', keyData, extractable, keyUsages);
+      break;
+    case 'ChaCha20-Poly1305':
+      result = require('internal/crypto/chacha20_poly1305')
+        .c20pImportKey(algorithm, 'KeyObjectHandle', keyData, extractable, keyUsages);
+      break;
+    case 'HKDF':
+      // Fall through
+    case 'PBKDF2':
+      // Fall through
+    case 'Argon2d':
+      // Fall through
+    case 'Argon2i':
+      // Fall through
+    case 'Argon2id':
+      result = importGenericSecretKey(
+        algorithm,
+        'KeyObjectHandle',
+        keyData,
+        extractable,
+        keyUsages);
+      break;
+    default:
+      throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
+  }
+
+  if (getCryptoKeyUsagesMask(result) === 0) {
+    throw lazyDOMException(
+      `Usages cannot be empty when importing a ${getCryptoKeyType(result)} key.`,
+      'SyntaxError');
+  }
+
+  return result;
 }
 
-// All internal code must use new InternalCryptoKey to create
-// CryptoKey instances. The CryptoKey class is exposed to end
-// user code but is not permitted to be constructed directly.
-// Using markTransferMode also allows the CryptoKey to be
-// cloned to Workers.
-class InternalCryptoKey {
-  constructor(keyObject, algorithm, keyUsages, extractable) {
-    markTransferMode(this, true, false);
-    // When constructed during transfer the properties get assigned
-    // in the kDeserialize call.
-    if (keyObject) {
-      defineCryptoKeyProperties(
-        this,
-        keyObject,
-        algorithm,
-        extractable,
-        keyUsages,
-      );
+/**
+ * Converts an asymmetric KeyObjectHandle to a CryptoKey by dispatching to
+ * the algorithm-specific Web Crypto import path. This preserves the same
+ * algorithm and usage validation used by SubtleCrypto.importKey().
+ * @param {KeyObjectHandle} keyData
+ * @param {object} algorithm
+ * @param {boolean} extractable
+ * @param {string[]} keyUsages
+ * @returns {CryptoKey}
+ */
+function toCryptoKey(
+  keyData,
+  algorithm,
+  extractable,
+  keyUsages,
+) {
+  let result;
+  switch (algorithm.name) {
+    case 'RSASSA-PKCS1-v1_5':
+      // Fall through
+    case 'RSA-PSS':
+      // Fall through
+    case 'RSA-OAEP':
+      result = require('internal/crypto/rsa')
+        .rsaImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    case 'ECDSA':
+      // Fall through
+    case 'ECDH':
+      result = require('internal/crypto/ec')
+        .ecImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    case 'Ed25519':
+      // Fall through
+    case 'Ed448':
+      // Fall through
+    case 'X25519':
+      // Fall through
+    case 'X448':
+      result = require('internal/crypto/cfrg')
+        .cfrgImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    case 'ML-DSA-44':
+      // Fall through
+    case 'ML-DSA-65':
+      // Fall through
+    case 'ML-DSA-87':
+      result = require('internal/crypto/ml_dsa')
+        .mlDsaImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    case 'ML-KEM-512':
+      // Fall through
+    case 'ML-KEM-768':
+      // Fall through
+    case 'ML-KEM-1024':
+      result = require('internal/crypto/ml_kem')
+        .mlKemImportKey('KeyObjectHandle', keyData, algorithm, extractable, keyUsages);
+      break;
+    default:
+      throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
+  }
+
+  const resultType = getCryptoKeyType(result);
+  if (resultType === 'private' && getCryptoKeyUsagesMask(result) === 0) {
+    throw lazyDOMException(
+      `Usages cannot be empty when importing a ${resultType} key.`,
+      'SyntaxError');
+  }
+
+  return result;
+}
+
+/**
+ * Derives a public CryptoKey from a private CryptoKey. The resulting key uses
+ * the private key's algorithm, is extractable, and validates the requested
+ * public usages through the shared asymmetric import path.
+ * @param {CryptoKey} key
+ * @param {string[]} keyUsages
+ * @returns {CryptoKey}
+ */
+function toPublicCryptoKey(key, keyUsages) {
+  const handle = new KeyObjectHandle();
+  handle.init(kKeyTypePublic, getCryptoKeyHandle(key),
+              null, null, null, null);
+  return toCryptoKey(
+    handle,
+    getCryptoKeyAlgorithm(key),
+    true,
+    keyUsages);
+}
+
+function createPrivateKey(key) {
+  const { format, type, data, passphrase, namedCurve } =
+    prepareAsymmetricKey(key, kCreatePrivate);
+  const handle = new KeyObjectHandle();
+  handle.init(kKeyTypePrivate, data, format ?? null,
+              type ?? null, passphrase ?? null, namedCurve ?? null);
+  return new PrivateKeyObject(handle);
+}
+
+function keyObjectTypeToString(type) {
+  switch (type) {
+    case kKeyTypeSecret: return 'secret';
+    case kKeyTypePublic: return 'public';
+    case kKeyTypePrivate: return 'private';
+    default: {
+      const assert = require('internal/assert');
+      assert.fail('Unreachable code');
+    }
+  }
+}
+
+// The helpers below return a KeyObject's native-backed slot values,
+// populating the per-instance cache on first access via a single native
+// call. The public getters delegate to these helpers, and internal
+// consumers use them directly to avoid user-replaceable public accessors.
+// Derived metadata such as key size and asymmetric key details is expanded
+// lazily from the cached KeyObjectHandle. The public asymmetric key details
+// getter returns a clone so the cached details object stays internal.
+
+/**
+ * Returns the KeyObject's native type slot as a string.
+ * @param {KeyObject} key
+ * @returns {'secret' | 'public' | 'private'}
+ */
+function getKeyObjectType(key) {
+  return keyObjectTypeToString(getKeyObjectTypeValue(key));
+}
+
+/**
+ * Returns the KeyObjectHandle wrapping the KeyObject's underlying key
+ * material.
+ * @param {KeyObject} key
+ * @returns {KeyObjectHandle}
+ */
+function getKeyObjectHandle(key) {
+  return getKeyObjectSlots(key)[kKeyObjectSlotHandle];
+}
+
+/**
+ * Returns the KeyObject's symmetric key size, bypassing the public
+ * `symmetricKeySize` getter. The value is derived lazily from the cached
+ * KeyObjectHandle.
+ * @param {SecretKeyObject} key
+ * @returns {number}
+ */
+function getKeyObjectSymmetricKeySize(key) {
+  const slots = getKeyObjectSlots(key);
+  if (slots[kKeyObjectSlotType] !== kKeyTypeSecret)
+    throw new ERR_INVALID_THIS('SecretKeyObject');
+
+  let cached = slots[kKeyObjectSlotSymmetricKeySize];
+  if (cached === undefined) {
+    cached = slots[kKeyObjectSlotHandle].getSymmetricKeySize();
+    slots[kKeyObjectSlotSymmetricKeySize] = cached;
+  }
+  return cached;
+}
+
+/**
+ * Returns the KeyObject's asymmetric key type, bypassing the public
+ * `asymmetricKeyType` getter. The value is derived lazily from the cached
+ * KeyObjectHandle.
+ * @param {PublicKeyObject|PrivateKeyObject} key
+ * @returns {string}
+ */
+function getKeyObjectAsymmetricKeyType(key) {
+  const slots = getKeyObjectSlots(key);
+  if (slots[kKeyObjectSlotType] === kKeyTypeSecret)
+    throw new ERR_INVALID_THIS('AsymmetricKeyObject');
+
+  let cached = slots[kKeyObjectSlotAsymmetricKeyType];
+  if (cached === undefined) {
+    cached = slots[kKeyObjectSlotHandle].getAsymmetricKeyType();
+    slots[kKeyObjectSlotAsymmetricKeyType] = cached;
+  }
+  return cached;
+}
+
+/**
+ * Returns the KeyObject's cached asymmetric key details, bypassing the
+ * public `asymmetricKeyDetails` getter (which returns a cloned copy).
+ * The value is derived lazily from the cached KeyObjectHandle.
+ * @param {PublicKeyObject|PrivateKeyObject} key
+ * @returns {object}
+ */
+function getKeyObjectAsymmetricKeyDetails(key) {
+  const slots = getKeyObjectSlots(key);
+  if (slots[kKeyObjectSlotType] === kKeyTypeSecret)
+    throw new ERR_INVALID_THIS('AsymmetricKeyObject');
+
+  let cached = slots[kKeyObjectSlotAsymmetricKeyDetails];
+  if (cached === undefined) {
+    let asymmetricKeyType = slots[kKeyObjectSlotAsymmetricKeyType];
+    if (asymmetricKeyType === undefined) {
+      asymmetricKeyType = slots[kKeyObjectSlotHandle].getAsymmetricKeyType();
+      slots[kKeyObjectSlotAsymmetricKeyType] = asymmetricKeyType;
+    }
+    switch (asymmetricKeyType) {
+      case 'rsa':
+      case 'rsa-pss':
+      case 'dsa':
+      case 'ec':
+        cached = normalizeKeyDetails(
+          slots[kKeyObjectSlotHandle].keyDetail({ __proto__: null }),
+        );
+        break;
+      default:
+        cached = kEmptyObject;
+        break;
+    }
+    slots[kKeyObjectSlotAsymmetricKeyDetails] = cached;
+  }
+  return cached;
+}
+
+// CryptoKey is a plain JS class whose prototype's [[Prototype]] is
+// Object.prototype, as Web Crypto requires. Instance storage (type enum,
+// extractable, algorithm, usages mask, the primary KeyObject handle, an
+// optional Hybrid KEM-only secondary KeyObject handle, and optional Hybrid
+// KEM-only seed data) lives
+// on a C++ class, NativeCryptoKey, created by createCryptoKeyClass.
+// InternalCryptoKey is the only constructor we expose to internal
+// code; it extends NativeCryptoKey to get that storage and gives each
+// instance the public interface prototype:
+//   instance -> CryptoKey.prototype
+//            -> Object.prototype
+//
+// Normal construction caches all native internal slots in a private class
+// field on `InternalCryptoKey`. Partially initialized transferred keys read
+// them from C++ in a single `getCryptoKeySlots` call on first access. The
+// cache is invisible to reflection (`Object.getOwnPropertySymbols` etc.) and
+// CryptoKey's hidden class pristine. The `getCryptoKey{Type,Extractable,
+// Algorithm,Usages,Handle,SecondaryHandle,SeedData}` helpers index into that
+// array and convert native enums/masks back to Web Crypto strings.
+// The internal algorithm object is stored as a null-prototype clone
+// so it cannot observe polluted Object.prototype properties.
+// The public `algorithm` getter caches a cloned dictionary and the
+// public `usages` getter caches a synthesized array (as Web Crypto
+// requires repeat reads to return the same object so a consumer's
+// mutation is visible next time).
+let getSlots; // Populated by the createCryptoKeyClass callback below.
+let isCryptoKey;
+
+const kSlotType = 0;
+const kSlotExtractable = 1;
+const kSlotAlgorithm = 2;
+const kSlotUsagesMask = 3;
+const kSlotHandle = 4;
+const kSlotSecondaryHandle = 5;
+const kSlotSeedData = 6;
+const kSlotClonedAlgorithm = 7;
+const kSlotClonedUsages = 8;
+const kSlotUsages = 9;
+
+function cloneAlgorithm(raw) {
+  const cloned = { ...raw };
+  if (ObjectPrototypeHasOwnProperty(cloned, 'hash') &&
+      cloned.hash !== undefined) {
+    cloned.hash = { ...cloned.hash };
+  }
+  if (ObjectPrototypeHasOwnProperty(cloned, 'publicExponent') &&
+      cloned.publicExponent !== undefined) {
+    cloned.publicExponent = new Uint8Array(cloned.publicExponent);
+  }
+  return cloned;
+}
+
+function cloneInternalAlgorithm(raw) {
+  const cloned = { __proto__: null, ...raw };
+  if (ObjectPrototypeHasOwnProperty(cloned, 'hash') &&
+      cloned.hash !== undefined) {
+    cloned.hash = { __proto__: null, ...cloned.hash };
+  }
+  if (ObjectPrototypeHasOwnProperty(cloned, 'publicExponent') &&
+      cloned.publicExponent !== undefined) {
+    cloned.publicExponent = new Uint8Array(cloned.publicExponent);
+  }
+  return cloned;
+}
+
+const {
+  0: CryptoKey,
+  1: InternalCryptoKey,
+} = createCryptoKeyClass((NativeCryptoKey) => {
+  class CryptoKey {
+    constructor() {
+      throw new ERR_ILLEGAL_CONSTRUCTOR();
+    }
+
+    [kInspect](depth, options) {
+      if (depth < 0)
+        return this;
+
+      if (!isCryptoKey(this))
+        throw new ERR_INVALID_THIS('CryptoKey');
+
+      const opts = {
+        ...options,
+        depth: options.depth == null ? null : options.depth - 1,
+      };
+
+      return `CryptoKey ${inspect({
+        type: getCryptoKeyType(this),
+        extractable: getCryptoKeyExtractable(this),
+        algorithm: cloneAlgorithm(getCryptoKeyAlgorithm(this)),
+        usages: getUsagesFromMask(getCryptoKeyUsagesMask(this)),
+      }, opts)}`;
+    }
+
+    get type() {
+      if (!isCryptoKey(this))
+        throw new ERR_INVALID_THIS('CryptoKey');
+      return getCryptoKeyType(this);
+    }
+
+    get extractable() {
+      if (!isCryptoKey(this))
+        throw new ERR_INVALID_THIS('CryptoKey');
+      return getCryptoKeyExtractable(this);
+    }
+
+    get algorithm() {
+      if (!isCryptoKey(this))
+        throw new ERR_INVALID_THIS('CryptoKey');
+      const slots = getSlots(this);
+      let cached = slots[kSlotClonedAlgorithm];
+      if (cached === undefined) {
+        cached = cloneAlgorithm(slots[kSlotAlgorithm]);
+        slots[kSlotClonedAlgorithm] = cached;
+      }
+      return cached;
+    }
+
+    get usages() {
+      if (!isCryptoKey(this))
+        throw new ERR_INVALID_THIS('CryptoKey');
+      const slots = getSlots(this);
+      let cached = slots[kSlotClonedUsages];
+      if (cached === undefined) {
+        cached = getUsagesFromMask(slots[kSlotUsagesMask]);
+        slots[kSlotClonedUsages] = cached;
+      }
+      return cached;
     }
   }
 
-  [kClone]() {
-    const keyObject = this[kKeyObject];
-    const algorithm = this[kAlgorithm];
-    const extractable = this[kExtractable];
-    const usages = this[kKeyUsages];
+  class InternalCryptoKey extends NativeCryptoKey {
+    #slots;
 
-    return {
-      data: {
-        keyObject,
+    constructor(
+      handle,
+      algorithm,
+      usagesMask,
+      extractable,
+      secondaryHandle,
+      seedData) {
+      if (algorithm !== undefined)
+        algorithm = cloneInternalAlgorithm(algorithm);
+      if (seedData !== undefined)
+        seedData = new Uint8Array(seedData);
+      super(
+        handle,
         algorithm,
-        usages,
+        usagesMask,
         extractable,
-      },
-      deserializeInfo: 'internal/crypto/keys:InternalCryptoKey',
-    };
-  }
+        secondaryHandle,
+        seedData);
+      ObjectSetPrototypeOf(this, CryptoKey.prototype);
+      if (algorithm !== undefined) {
+        this.#slots = [
+          handle.getKeyType(),
+          extractable,
+          algorithm,
+          usagesMask,
+          handle,
+          secondaryHandle,
+          seedData,
+        ];
+      }
+    }
 
-  [kDeserialize]({ keyObject, algorithm, usages, extractable }) {
-    defineCryptoKeyProperties(this, keyObject, algorithm, extractable, usages);
+    static {
+      isCryptoKey = (key) => {
+        if (key == null || typeof key !== 'object') return false;
+        return #slots in key || isNativeCryptoKey(key);
+      };
+      getSlots = (key) => {
+        const cached = key.#slots;
+        if (cached !== undefined) return cached;
+        const slots = nativeGetCryptoKeySlots(key);
+        slots[kSlotAlgorithm] = cloneInternalAlgorithm(slots[kSlotAlgorithm]);
+        if (slots[kSlotSeedData] !== undefined)
+          slots[kSlotSeedData] = new Uint8Array(slots[kSlotSeedData]);
+        key.#slots = slots;
+        return slots;
+      };
+    }
+  }
+  // Hide NativeCryptoKey from user code.
+  InternalCryptoKey.prototype.constructor = CryptoKey;
+  ObjectSetPrototypeOf(InternalCryptoKey.prototype, CryptoKey.prototype);
+
+  ObjectDefineProperties(CryptoKey.prototype, {
+    type: kEnumerableProperty,
+    extractable: kEnumerableProperty,
+    algorithm: kEnumerableProperty,
+    usages: kEnumerableProperty,
+    [SymbolToStringTag]: {
+      __proto__: null,
+      configurable: true,
+      value: 'CryptoKey',
+    },
+  });
+
+  return [CryptoKey, InternalCryptoKey];
+});
+
+// The helpers below return a CryptoKey's internal slot value. The public
+// `type` getter converts the native enum to the Web Crypto string. The
+// `usages` helper converts the native usage mask to Web Crypto strings. The
+// public `algorithm` / `usages` getters cache their returned objects.
+
+/**
+ * Returns the value of a CryptoKey's `[[type]]` internal slot.
+ * @param {CryptoKey} key
+ * @returns {'secret' | 'public' | 'private'}
+ */
+function getCryptoKeyType(key) {
+  switch (getSlots(key)[kSlotType]) {
+    case kKeyTypeSecret: return 'secret';
+    case kKeyTypePublic: return 'public';
+    case kKeyTypePrivate: return 'private';
+    default: {
+      const assert = require('internal/assert');
+      assert.fail('Unreachable code');
+    }
   }
 }
-InternalCryptoKey.prototype.constructor = CryptoKey;
-ObjectSetPrototypeOf(InternalCryptoKey.prototype, CryptoKey.prototype);
 
-function isCryptoKey(obj) {
-  return obj != null && obj[kKeyObject] !== undefined;
+/**
+ * Returns the value of a CryptoKey's `[[extractable]]` internal slot.
+ * @param {CryptoKey} key
+ * @returns {boolean}
+ */
+function getCryptoKeyExtractable(key) {
+  return getSlots(key)[kSlotExtractable];
+}
+
+/**
+ * Returns the CryptoKey's `[[algorithm]]` internal slot, bypassing the
+ * public `algorithm` getter (which returns a cloned copy).
+ * @param {CryptoKey} key
+ * @returns {object}
+ */
+function getCryptoKeyAlgorithm(key) {
+  return getSlots(key)[kSlotAlgorithm];
+}
+
+/**
+ * Returns the CryptoKey's native `[[usages]]` mask.
+ * @param {CryptoKey} key
+ * @returns {number}
+ */
+function getCryptoKeyUsagesMask(key) {
+  return getSlots(key)[kSlotUsagesMask];
+}
+
+/**
+ * Returns whether a CryptoKey's `[[usages]]` contains `usage`.
+ * @param {CryptoKey} key
+ * @param {string} usage
+ * @returns {boolean}
+ */
+function hasCryptoKeyUsage(key, usage) {
+  return hasUsage(getCryptoKeyUsagesMask(key), usage);
+}
+
+/**
+ * Returns the CryptoKey's cached canonical usages array for internal
+ * consumers, expanding it from the native usage mask on first access.
+ * @param {Array} slots
+ * @returns {string[]}
+ */
+function getCryptoKeyUsagesFromSlots(slots) {
+  let usages = slots[kSlotUsages];
+  if (usages === undefined) {
+    usages = getUsagesFromMask(slots[kSlotUsagesMask]);
+    slots[kSlotUsages] = usages;
+  }
+  return usages;
+}
+
+/**
+ * Returns the CryptoKey's `[[usages]]` internal slot, bypassing the
+ * public `usages` getter (which returns a cloned array). The internal
+ * array is expanded lazily from the native usage mask.
+ * @param {CryptoKey} key
+ * @returns {string[]}
+ */
+function getCryptoKeyUsages(key) {
+  return getCryptoKeyUsagesFromSlots(getSlots(key));
+}
+
+/**
+ * Returns the KeyObjectHandle wrapping the CryptoKey's underlying
+ * key material.
+ * @param {CryptoKey} key
+ * @returns {KeyObjectHandle}
+ */
+function getCryptoKeyHandle(key) {
+  return getSlots(key)[kSlotHandle];
+}
+
+/**
+ * Returns the optional Hybrid KEM-only secondary KeyObjectHandle wrapping a
+ * CryptoKey's other underlying key material.
+ * @param {CryptoKey} key
+ * @returns {KeyObjectHandle | undefined}
+ */
+function getCryptoKeySecondaryHandle(key) {
+  return getSlots(key)[kSlotSecondaryHandle];
+}
+
+/**
+ * Returns the optional Hybrid KEM-only seed data stored with a CryptoKey.
+ * @param {CryptoKey} key
+ * @returns {Uint8Array | undefined}
+ */
+function getCryptoKeySeedData(key) {
+  return getSlots(key)[kSlotSeedData];
 }
 
 function importGenericSecretKey(
@@ -1134,7 +1484,7 @@ function importGenericSecretKey(
   extractable,
   keyUsages,
 ) {
-  const usagesSet = new SafeSet(keyUsages);
+  const usagesSet = toUsagesSet(keyUsages);
   const { name } = algorithm;
   if (extractable)
     throw lazyDOMException(`${name} keys are not extractable`, 'SyntaxError');
@@ -1145,22 +1495,27 @@ function importGenericSecretKey(
       'SyntaxError');
   }
 
-  let keyObject;
+  let handle;
   switch (format) {
-    case 'KeyObject': {
-      keyObject = keyData;
+    case 'KeyObjectHandle': {
+      handle = keyData;
       break;
     }
     case 'raw-secret':
     case 'raw': {
-      keyObject = createSecretKey(keyData);
+      handle = new KeyObjectHandle();
+      handle.init(kKeyTypeSecret, keyData);
       break;
     }
     default:
       return undefined;
   }
 
-  return new InternalCryptoKey(keyObject, { name }, keyUsages, false);
+  return new InternalCryptoKey(
+    handle,
+    { name },
+    getUsagesMask(usagesSet),
+    false);
 }
 
 module.exports = {
@@ -1168,6 +1523,7 @@ module.exports = {
   createSecretKey,
   createPublicKey,
   createPrivateKey,
+  parsePKCS12,
   KeyObject,
   CryptoKey,
   InternalCryptoKey,
@@ -1176,6 +1532,12 @@ module.exports = {
   parsePublicKeyEncoding,
   parsePrivateKeyEncoding,
   parseKeyEncoding,
+  toPublicCryptoKey,
+  prepareAsymmetricKey,
+  kConsumePublic,
+  kConsumePrivate,
+  kCreatePublic,
+  kCreatePrivate,
   preparePrivateKey,
   preparePublicOrPrivateKey,
   prepareSecretKey,
@@ -1183,10 +1545,20 @@ module.exports = {
   PublicKeyObject,
   PrivateKeyObject,
   isKeyObject,
+  getKeyObjectType,
+  getKeyObjectHandle,
+  getKeyObjectSymmetricKeySize,
+  getKeyObjectAsymmetricKeyType,
+  getKeyObjectAsymmetricKeyDetails,
   isCryptoKey,
+  getCryptoKeyType,
+  getCryptoKeyExtractable,
+  getCryptoKeyAlgorithm,
+  getCryptoKeyUsages,
+  getCryptoKeyUsagesMask,
+  hasCryptoKeyUsage,
+  getCryptoKeyHandle,
+  getCryptoKeySecondaryHandle,
+  getCryptoKeySeedData,
   importGenericSecretKey,
-  kAlgorithm,
-  kExtractable,
-  kKeyType,
-  kKeyUsages,
 };

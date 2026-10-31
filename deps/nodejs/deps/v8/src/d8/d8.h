@@ -23,8 +23,11 @@
 #include "src/base/platform/time.h"
 #include "src/base/platform/wrappers.h"
 #include "src/d8/async-hooks-wrapper.h"
+// For V8_ENABLE_HARDWARE_WATCHPOINT_SUPPORT.
+#include "src/d8/hardware-watchpoints.h"
 #include "src/handles/global-handles.h"
 #include "src/heap/parked-scope.h"
+#include "src/sandbox/sandboxable-thread.h"
 
 namespace v8 {
 
@@ -84,6 +87,7 @@ class CounterCollection {
 };
 
 using CounterMap = std::unordered_map<std::string, Counter*>;
+using PerformanceMarkMap = std::unordered_map<std::string, double>;
 
 class SourceGroup {
  public:
@@ -243,11 +247,12 @@ class Worker : public std::enable_shared_from_this<Worker> {
   void ProcessMessage(std::unique_ptr<SerializationData> data);
   void ProcessMessages();
 
-  class WorkerThread : public base::Thread {
+  class WorkerThread : public internal::SandboxableThread {
    public:
     explicit WorkerThread(std::shared_ptr<Worker> worker,
                           base::Thread::Priority priority)
-        : base::Thread(base::Thread::Options("WorkerThread", priority)),
+        : internal::SandboxableThread(
+              base::Thread::Options("WorkerThread", priority)),
           worker_(std::move(worker)) {}
 
     void Run() override;
@@ -333,10 +338,11 @@ class PerIsolateData {
                            Local<Value> exception);
   int HandleUnhandledPromiseRejections();
 
-  // Keep track of DynamicImportData so we can properly free it on shutdown
-  // when LEAK_SANITIZER is active.
+  // Keep track of DynamicImportData so we can prevent leaks and unauthorized
+  // uses.
   void AddDynamicImportData(DynamicImportData*);
   void DeleteDynamicImportData(DynamicImportData*);
+  DynamicImportData* LookupImportData(void*);
 
   Local<FunctionTemplate> GetTestApiObjectCtor() const;
   void SetTestApiObjectCtor(Local<FunctionTemplate> ctor);
@@ -366,9 +372,7 @@ class PerIsolateData {
   std::vector<std::tuple<Global<Promise>, Global<Message>, Global<Value>>>
       unhandled_promises_;
   AsyncHooks* async_hooks_wrapper_;
-#if defined(LEAK_SANITIZER)
   std::unordered_set<DynamicImportData*> import_data_;
-#endif
   Global<FunctionTemplate> test_api_object_ctor_;
   Global<FunctionTemplate> dom_node_ctor_;
   // Track workers and their callbacks separately, so that we know both which
@@ -379,6 +383,8 @@ class PerIsolateData {
   std::map<std::shared_ptr<Worker>,
            std::pair<Global<Context>, Global<Function>>>
       worker_message_callbacks_;
+
+  PerformanceMarkMap performance_mark_map_;
 
   int RealmIndexOrThrow(const v8::FunctionCallbackInfo<v8::Value>& info,
                         int arg_offset);
@@ -401,8 +407,7 @@ class ShellOptions {
   // repeated flags for identical boolean values. We allow exceptions for flags
   // with enum-like arguments since their conflicts can also be specified
   // completely.
-  template <class T,
-            bool kAllowIdenticalAssignment = std::is_same<T, bool>::value>
+  template <class T, bool kAllowIdenticalAssignment = std::is_same_v<T, bool>>
   class DisallowReassignment {
    public:
     DisallowReassignment(const char* name, T value)
@@ -428,12 +433,16 @@ class ShellOptions {
     }
     void Overwrite(T value) { value_ = value; }
 
+    bool WasSpecified() const { return specified_; }
+
+    const char* name() const { return name_; }
+
    private:
     const char* name_;
     T value_;
     bool specified_ = false;
   };
-
+  DisallowReassignment<bool> can_block = {"can_block", true};
   DisallowReassignment<const char*> d8_path = {"d8-path", ""};
   DisallowReassignment<bool> fuzzilli_coverage_statistics = {
       "fuzzilli-coverage-statistics", false};
@@ -487,7 +496,13 @@ class ShellOptions {
       "scope-linux-perf-to-mark-measure", false};
   DisallowReassignment<int> perf_ctl_fd = {"perf-ctl-fd", -1};
   DisallowReassignment<int> perf_ack_fd = {"perf-ack-fd", -1};
-#endif
+#endif  // V8_OS_LINUX
+#ifdef V8_ENABLE_HARDWARE_WATCHPOINT_SUPPORT
+  DisallowReassignment<bool> memory_corruption_via_watchpoints = {
+      "memory-corruption-via-watchpoints", false};
+  DisallowReassignment<bool> trace_memory_corruption_via_watchpoints = {
+      "trace-memory-corruption-via-watchpoints", false};
+#endif  // V8_ENABLE_HARDWARE_WATCHPOINT_SUPPORT
   DisallowReassignment<bool> disable_in_process_stack_traces = {
       "disable-in-process-stack-traces", false};
   DisallowReassignment<int> read_from_tcp_port = {"read-from-tcp-port", -1};
@@ -553,8 +568,10 @@ class Shell : public i::AllStatic {
   static MaybeLocal<Context> CreateEvaluationContext(Isolate* isolate);
   static int RunMain(Isolate* isolate, bool last_run);
   static int Main(int argc, char* argv[]);
+  static void InitializeDefaultCounters(Isolate* isolate);
   static void Exit(int exit_code);
   static void OnExit(Isolate* isolate, bool dispose);
+  static void DumpCounters();
   static void CollectGarbage(Isolate* isolate);
   static bool EmptyMessageQueues(Isolate* isolate);
   static bool CompleteMessageLoop(Isolate* isolate);
@@ -578,16 +595,21 @@ class Shell : public i::AllStatic {
 
   static void PerformanceNow(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void PerformanceMark(const v8::FunctionCallbackInfo<v8::Value>& info);
+  static bool LookupPerformanceMark(Isolate* isolate, v8::Local<String> name,
+                                    double* result);
   static void PerformanceMeasure(
       const v8::FunctionCallbackInfo<v8::Value>& info);
   static void PerformanceMeasureMemory(
       const v8::FunctionCallbackInfo<v8::Value>& info);
+  static void PerformanceStub(const v8::FunctionCallbackInfo<v8::Value>& info);
 
   static void RealmCurrent(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmOwner(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmGlobal(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmCreate(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmNavigate(const v8::FunctionCallbackInfo<v8::Value>& info);
+  static void RealmNavigateSameOrigin(
+      const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmCreateAllowCrossRealmAccess(
       const v8::FunctionCallbackInfo<v8::Value>& info);
   static void RealmDetachGlobal(
@@ -606,7 +628,6 @@ class Shell : public i::AllStatic {
 
   static void InstallConditionalFeatures(
       const v8::FunctionCallbackInfo<v8::Value>& info);
-  static void EnableJSPI(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void SetFlushDenormals(
       const v8::FunctionCallbackInfo<v8::Value>& info);
 
@@ -627,6 +648,13 @@ class Shell : public i::AllStatic {
   static void SerializerDeserialize(
       const v8::FunctionCallbackInfo<v8::Value>& info);
 
+#if V8_ENABLE_WEBASSEMBLY
+  static void WasmSerializeModule(
+      const v8::FunctionCallbackInfo<v8::Value>& info);
+  static void WasmDeserializeModule(
+      const v8::FunctionCallbackInfo<v8::Value>& info);
+#endif  // V8_ENABLE_WEBASSEMBLY
+
   static void ProfilerSetOnProfileEndListener(
       const v8::FunctionCallbackInfo<v8::Value>& info);
   static void ProfilerTriggerSample(
@@ -646,7 +674,9 @@ class Shell : public i::AllStatic {
   static void NotifyDone(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void QuitOnce(v8::FunctionCallbackInfo<v8::Value>* info);
   static void Quit(const v8::FunctionCallbackInfo<v8::Value>& info);
-  static void Terminate(const v8::FunctionCallbackInfo<v8::Value>& info);
+  static void TerminateNow(const v8::FunctionCallbackInfo<v8::Value>& info);
+  static void ScheduleTermination(
+      const v8::FunctionCallbackInfo<v8::Value>& info);
   static void Version(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void WriteFile(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void ReadFile(const v8::FunctionCallbackInfo<v8::Value>& info);
@@ -656,7 +686,7 @@ class Shell : public i::AllStatic {
   static MaybeLocal<PrimitiveArray> ReadLines(Isolate* isolate,
                                               const char* name);
   static void ReadBuffer(const v8::FunctionCallbackInfo<v8::Value>& info);
-  static Local<String> ReadFromStdin(Isolate* isolate);
+  static MaybeLocal<String> ReadFromStdin(Isolate* isolate);
   static void ReadLine(const v8::FunctionCallbackInfo<v8::Value>& info);
   static void WriteChars(const char* name, uint8_t* buffer, size_t buffer_size);
   static void ExecuteFile(const v8::FunctionCallbackInfo<v8::Value>& info);
@@ -779,6 +809,7 @@ class Shell : public i::AllStatic {
 
   static void Initialize(Isolate* isolate, D8Console* console,
                          bool isOnMainThread = true);
+  static void InitializeMainThreadCounters(Isolate* isolate);
 
   static void PromiseRejectCallback(v8::PromiseRejectMessage reject_message);
 
@@ -832,7 +863,6 @@ class Shell : public i::AllStatic {
   static Local<ObjectTemplate> CreateOSTemplate(Isolate* isolate);
   static Local<FunctionTemplate> CreateWorkerTemplate(Isolate* isolate);
   static Local<ObjectTemplate> CreateAsyncHookTemplate(Isolate* isolate);
-  static Local<ObjectTemplate> CreateTestRunnerTemplate(Isolate* isolate);
   static Local<ObjectTemplate> CreatePerformanceTemplate(Isolate* isolate);
   static Local<ObjectTemplate> CreateRealmTemplate(Isolate* isolate);
   static Local<ObjectTemplate> CreateD8Template(Isolate* isolate);
@@ -866,6 +896,7 @@ class Shell : public i::AllStatic {
                                                      Local<Value> name);
   static void StoreInCodeCache(Isolate* isolate, Local<Value> name,
                                const ScriptCompiler::CachedData* data);
+
   // We may have multiple isolates running concurrently, so the access to
   // the isolate_status_ needs to be concurrency-safe.
   static base::LazyMutex isolate_status_lock_;
@@ -876,6 +907,20 @@ class Shell : public i::AllStatic {
   static std::map<std::string, std::unique_ptr<ScriptCompiler::CachedData>>
       cached_code_map_;
   static std::atomic<int> unhandled_promise_rejections_;
+
+#if V8_ENABLE_WEBASSEMBLY
+  // The `d8.wasm.serializeModule` and `d8.wasm.deserializeModule` APIs are
+  // constrained to only allow deserializing bytes that were previously produced
+  // via serialization. This is how embedders will use the API as well, and
+  // deserialization can not safely handle manipulated bytes.
+  // This check prevents fuzzers from creating all kinds of crashes by
+  // manipulating serialized bytes.
+  // Note that this is prone to hash collisions; if we get occasional (maybe
+  // external) reports here, this is fine. It's not a vulnerability.
+  static base::LazyMutex wasm_serialized_bytes_mutex_;
+  // Stores a hash of concatenated wire bytes plus serialized bytes.
+  static std::unordered_set<size_t> wasm_serialized_bytes_hashes_;
+#endif  // V8_ENABLE_WEBASSEMBLY
 };
 
 class FuzzerMonitor : public i::AllStatic {

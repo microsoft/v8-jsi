@@ -22,7 +22,7 @@ DirectHandle<Code> BuildWithTurboshaftAssemblerImpl(
     Isolate* isolate, Builtin builtin, TurboshaftAssemblerGenerator generator,
     std::function<compiler::CallDescriptor*(Zone*)> call_descriptor_builder,
     const char* name, const AssemblerOptions& options, CodeKind code_kind,
-    std::optional<BytecodeHandlerData> bytecode_handler_data) {
+    std::optional<interpreter::BytecodeHandlerData> bytecode_handler_data) {
   using namespace compiler::turboshaft;  // NOLINT(build/namespaces)
   DCHECK_EQ(code_kind == CodeKind::BYTECODE_HANDLER,
             bytecode_handler_data.has_value());
@@ -38,7 +38,7 @@ DirectHandle<Code> BuildWithTurboshaftAssemblerImpl(
                     &info, options);
   data.InitializeBuiltinComponent(call_descriptor,
                                   std::move(bytecode_handler_data));
-  data.InitializeGraphComponent(nullptr);
+  data.InitializeGraphComponent(nullptr, Graph::Origin::kPureTurboshaft);
   ZoneWithName<kTempZoneName> temp_zone(&zone_stats, kTempZoneName);
   generator(&data, isolate, data.graph(), temp_zone);
 

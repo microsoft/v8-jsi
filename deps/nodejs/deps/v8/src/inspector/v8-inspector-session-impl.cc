@@ -90,19 +90,19 @@ int V8ContextInfo::executionContextId(v8::Local<v8::Context> context) {
   return InspectedContext::contextId(context);
 }
 
-std::unique_ptr<V8InspectorSessionImpl> V8InspectorSessionImpl::create(
+V8InspectorSessionImpl* V8InspectorSessionImpl::create(
     V8InspectorImpl* inspector, int contextGroupId, int sessionId,
-    V8Inspector::Channel* channel, StringView state,
+    V8Inspector::ManagedChannel* channel, StringView state,
     V8Inspector::ClientTrustLevel clientTrustLevel,
     std::shared_ptr<V8DebuggerBarrier> debuggerBarrier) {
-  return std::unique_ptr<V8InspectorSessionImpl>(new V8InspectorSessionImpl(
-      inspector, contextGroupId, sessionId, channel, state, clientTrustLevel,
-      std::move(debuggerBarrier)));
+  return new V8InspectorSessionImpl(inspector, contextGroupId, sessionId,
+                                    channel, state, clientTrustLevel,
+                                    std::move(debuggerBarrier));
 }
 
 V8InspectorSessionImpl::V8InspectorSessionImpl(
     V8InspectorImpl* inspector, int contextGroupId, int sessionId,
-    V8Inspector::Channel* channel, StringView savedState,
+    V8Inspector::ManagedChannel* channel, StringView savedState,
     V8Inspector::ClientTrustLevel clientTrustLevel,
     std::shared_ptr<V8DebuggerBarrier> debuggerBarrier)
     : m_contextGroupId(contextGroupId),
@@ -186,17 +186,8 @@ std::unique_ptr<StringBuffer> V8InspectorSessionImpl::serializeForFrontend(
   DCHECK(CheckCBORMessage(SpanFrom(cbor)).ok());
   if (use_binary_protocol_) return StringBufferFrom(std::move(cbor));
   std::vector<uint8_t> json;
-  Status status = ConvertCBORToJSON(SpanFrom(cbor), &json);
-  DCHECK(status.ok());
-  USE(status);
-  // TODO(johannes): It should be OK to make a StringBuffer from |json|
-  // directly, since it's 7 Bit US-ASCII with anything else escaped.
-  // However it appears that the Node.js tests (or perhaps even production)
-  // assume that the StringBuffer is 16 Bit. It probably accesses
-  // characters16() somehwere without checking is8Bit. Until it's fixed
-  // we take a detour via String16 which makes the StringBuffer 16 bit.
-  String16 string16(reinterpret_cast<const char*>(json.data()), json.size());
-  return StringBufferFrom(std::move(string16));
+  CHECK(ConvertCBORToJSON(SpanFrom(cbor), &json).ok());
+  return StringBufferFrom(std::move(json));
 }
 
 void V8InspectorSessionImpl::SendProtocolResponse(
@@ -233,6 +224,7 @@ void V8InspectorSessionImpl::discardInjectedScripts() {
                               [&sessionId](InspectedContext* context) {
                                 context->discardInjectedScript(sessionId);
                               });
+  m_inspector->promiseHandlerTracker().makeWeakForSession(sessionId);
 }
 
 Response V8InspectorSessionImpl::findInjectedScript(
@@ -269,6 +261,10 @@ void V8InspectorSessionImpl::releaseObjectGroup(const String16& objectGroup) {
         InjectedScript* injectedScript = context->getInjectedScript(sessionId);
         if (injectedScript) injectedScript->releaseObjectGroup(objectGroup);
       });
+  if (!objectGroup.isEmpty()) {
+    m_inspector->promiseHandlerTracker().makeWeakForObjectGroup(m_sessionId,
+                                                                objectGroup);
+  }
 }
 
 bool V8InspectorSessionImpl::unwrapObject(
@@ -359,6 +355,8 @@ void V8InspectorSessionImpl::reportAllContexts(V8RuntimeAgentImpl* agent) {
 }
 
 void V8InspectorSessionImpl::dispatchProtocolMessage(StringView message) {
+  KeepSessionAliveScope keepAlive(*this);
+
   using v8_crdtp::span;
   using v8_crdtp::SpanFrom;
   span<uint8_t> cbor;
@@ -487,7 +485,7 @@ V8InspectorSessionImpl::searchInTextByLines(StringView text, StringView query,
                                             bool caseSensitive, bool isRegex) {
   // TODO(dgozman): search may operate on StringView and avoid copying |text|.
   std::vector<std::unique_ptr<protocol::Debugger::SearchMatch>> matches =
-      searchInTextByLinesImpl(this, toString16(text), toString16(query),
+      searchInTextByLinesImpl(m_inspector, toString16(text), toString16(query),
                               caseSensitive, isRegex);
   std::vector<std::unique_ptr<protocol::Debugger::API::SearchMatch>> result;
   for (size_t i = 0; i < matches.size(); ++i)

@@ -3,25 +3,35 @@
 const {
   ArrayBufferIsView,
   ArrayBufferPrototypeGetByteLength,
+  ArrayBufferPrototypeGetDetached,
   ArrayPrototypeIncludes,
   ArrayPrototypePush,
+  ArrayPrototypeSlice,
   BigInt,
   DataViewPrototypeGetBuffer,
   DataViewPrototypeGetByteLength,
   DataViewPrototypeGetByteOffset,
-  FunctionPrototypeBind,
+  MathFloor,
+  MathMin,
   Number,
   ObjectDefineProperty,
   ObjectEntries,
   ObjectKeys,
   ObjectPrototypeHasOwnProperty,
+  ObjectSetPrototypeOf,
+  PromisePrototypeThen,
+  PromiseReject,
   PromiseWithResolvers,
+  SafeMap,
+  SafeSet,
+  StringPrototypeCharCodeAt,
+  StringPrototypeStartsWith,
   StringPrototypeToUpperCase,
   Symbol,
   TypedArrayPrototypeGetBuffer,
   TypedArrayPrototypeGetByteLength,
   TypedArrayPrototypeGetByteOffset,
-  TypedArrayPrototypeSlice,
+  TypedArrayPrototypeGetLength,
   Uint8Array,
 } = primordials;
 
@@ -29,20 +39,30 @@ const {
   getCiphers: _getCiphers,
   getCurves: _getCurves,
   getHashes: _getHashes,
+  getMacs: _getMacs,
   setEngine: _setEngine,
   secureHeapUsed: _secureHeapUsed,
   getCachedAliases,
+  getCachedMacAliases,
   getOpenSSLSecLevelCrypto: getOpenSSLSecLevel,
-  EVP_PKEY_ML_DSA_44,
-  EVP_PKEY_ML_DSA_65,
-  EVP_PKEY_ML_DSA_87,
-  EVP_PKEY_ML_KEM_512,
-  EVP_PKEY_ML_KEM_768,
-  EVP_PKEY_ML_KEM_1024,
   kKeyVariantAES_OCB_128: hasAesOcbMode,
   Argon2Job,
+  getFipsCrypto,
+  getFipsCryptoGeneration,
   KmacJob,
+  isKeyAlgorithmAvailable,
 } = internalBinding('crypto');
+
+let fips;
+let fipsGeneration;
+function isFips() {
+  const generation = getFipsCryptoGeneration();
+  if (fipsGeneration !== generation) {
+    fips = getFipsCrypto() === 1;
+    fipsGeneration = generation;
+  }
+  return fips;
+}
 
 const { getOptionValue } = require('internal/options');
 
@@ -72,10 +92,10 @@ const {
 const { Buffer } = require('buffer');
 
 const {
-  cachedResult,
   emitExperimentalWarning,
   filterDuplicateStrings,
   lazyDOMException,
+  setOwnProperty,
 } = require('internal/util');
 
 const {
@@ -87,12 +107,13 @@ const {
 
 const {
   isDataView,
+  isArrayBuffer,
   isArrayBufferView,
   isAnyArrayBuffer,
+  isPromise,
 } = require('internal/util/types');
 
 const kHandle = Symbol('kHandle');
-const kKeyObject = Symbol('kKeyObject');
 
 // This is here because many functions accepted binary strings without
 // any explicit encoding in older versions of node, and we don't want
@@ -107,15 +128,60 @@ function toBuf(val, encoding) {
 }
 
 let _hashCache;
+let _macCache;
+if (isBuildingSnapshot()) {
+  addSerializeCallback(() => {
+    fips = undefined;
+    fipsGeneration = undefined;
+    supportedAlgorithmsGeneration = undefined;
+    _hashCache = undefined;
+    _macCache = undefined;
+  });
+}
+
 function getHashCache() {
-  if (_hashCache === undefined) {
-    _hashCache = getCachedAliases();
-    if (isBuildingSnapshot()) {
-      // For dynamic linking, clear the map.
-      addSerializeCallback(() => { _hashCache = undefined; });
-    }
+  while (_hashCache === undefined) {
+    const generation = getFipsCryptoGeneration();
+    const cache = getCachedAliases();
+    if (generation !== getFipsCryptoGeneration()) continue;
+    _hashCache = cache;
   }
   return _hashCache;
+}
+
+function getMacCache() {
+  while (_macCache === undefined) {
+    const generation = getFipsCryptoGeneration();
+    const cache = getCachedMacAliases();
+    if (generation !== getFipsCryptoGeneration()) continue;
+    _macCache = cache;
+  }
+  return _macCache;
+}
+
+function cachedArrayByFipsGeneration(fn, onRefresh) {
+  let result;
+  let generation;
+  if (isBuildingSnapshot()) {
+    addSerializeCallback(() => {
+      result = undefined;
+      generation = undefined;
+    });
+  }
+
+  return () => {
+    while (true) {
+      const current = getFipsCryptoGeneration();
+      if (result === undefined || generation !== current) {
+        const next = fn();
+        if (current !== getFipsCryptoGeneration()) continue;
+        result = next;
+        generation = current;
+        if (onRefresh !== undefined) onRefresh();
+      }
+      return ArrayPrototypeSlice(result);
+    }
+  };
 }
 
 function getCachedHashId(algorithm) {
@@ -123,9 +189,26 @@ function getCachedHashId(algorithm) {
   return result === undefined ? -1 : result;
 }
 
-const getCiphers = cachedResult(() => filterDuplicateStrings(_getCiphers()));
-const getHashes = cachedResult(() => filterDuplicateStrings(_getHashes()));
-const getCurves = cachedResult(() => filterDuplicateStrings(_getCurves()));
+function getCachedMacId(algorithm) {
+  const result = getMacCache()[algorithm];
+  return result === undefined ? -1 : result;
+}
+
+const getCiphers = cachedArrayByFipsGeneration(
+  () => filterDuplicateStrings(_getCiphers()));
+const getHashes = cachedArrayByFipsGeneration(
+  () => filterDuplicateStrings(_getHashes()),
+  () => {
+    _hashCache = undefined;
+  });
+const getMacs = cachedArrayByFipsGeneration(
+  () => filterDuplicateStrings(_getMacs(), true),
+  () => {
+    _macCache = undefined;
+  });
+
+const getCurves = cachedArrayByFipsGeneration(
+  () => filterDuplicateStrings(_getCurves()));
 
 function setEngine(id, flags) {
   validateString(id, 'id');
@@ -244,6 +327,10 @@ const kAlgorithmDefinitions = {
   },
   'cSHAKE128': { 'digest': 'CShakeParams' },
   'cSHAKE256': { 'digest': 'CShakeParams' },
+  'KT128': { 'digest': 'KangarooTwelveParams' },
+  'KT256': { 'digest': 'KangarooTwelveParams' },
+  'TurboSHAKE128': { 'digest': 'TurboShakeParams' },
+  'TurboSHAKE256': { 'digest': 'TurboShakeParams' },
   'ECDH': {
     'generateKey': 'EcKeyGenParams',
     'exportKey': null,
@@ -327,6 +414,7 @@ const kAlgorithmDefinitions = {
     'importKey': null,
     'encapsulate': null,
     'decapsulate': null,
+    'get shared key length': null,
   },
   'ML-KEM-768': {
     'generateKey': null,
@@ -334,6 +422,7 @@ const kAlgorithmDefinitions = {
     'importKey': null,
     'encapsulate': null,
     'decapsulate': null,
+    'get shared key length': null,
   },
   'ML-KEM-1024': {
     'generateKey': null,
@@ -341,6 +430,31 @@ const kAlgorithmDefinitions = {
     'importKey': null,
     'encapsulate': null,
     'decapsulate': null,
+    'get shared key length': null,
+  },
+  'MLKEM768-P256': {
+    'generateKey': null,
+    'exportKey': null,
+    'importKey': null,
+    'encapsulate': null,
+    'decapsulate': null,
+    'get shared key length': null,
+  },
+  'MLKEM768-X25519': {
+    'generateKey': null,
+    'exportKey': null,
+    'importKey': null,
+    'encapsulate': null,
+    'decapsulate': null,
+    'get shared key length': null,
+  },
+  'MLKEM1024-P384': {
+    'generateKey': null,
+    'exportKey': null,
+    'importKey': null,
+    'encapsulate': null,
+    'decapsulate': null,
+    'get shared key length': null,
   },
   'PBKDF2': {
     'importKey': null,
@@ -389,77 +503,130 @@ const kAlgorithmDefinitions = {
   },
 };
 
-// Conditionally supported algorithms
-const conditionalAlgorithms = {
-  'AES-KW': !process.features.openssl_is_boringssl,
-  'AES-OCB': !!hasAesOcbMode,
-  'Argon2d': !!Argon2Job,
-  'Argon2i': !!Argon2Job,
-  'Argon2id': !!Argon2Job,
-  'ChaCha20-Poly1305': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getCiphers(), 'chacha20-poly1305'),
-  'cSHAKE128': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getHashes(), 'shake128'),
-  'cSHAKE256': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getHashes(), 'shake256'),
-  'Ed448': !process.features.openssl_is_boringssl,
-  'KMAC128': !!KmacJob,
-  'KMAC256': !!KmacJob,
-  'ML-DSA-44': !!EVP_PKEY_ML_DSA_44,
-  'ML-DSA-65': !!EVP_PKEY_ML_DSA_65,
-  'ML-DSA-87': !!EVP_PKEY_ML_DSA_87,
-  'ML-KEM-512': !!EVP_PKEY_ML_KEM_512,
-  'ML-KEM-768': !!EVP_PKEY_ML_KEM_768,
-  'ML-KEM-1024': !!EVP_PKEY_ML_KEM_1024,
-  'SHA3-256': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getHashes(), 'sha3-256'),
-  'SHA3-384': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getHashes(), 'sha3-384'),
-  'SHA3-512': !process.features.openssl_is_boringssl ||
-    ArrayPrototypeIncludes(getHashes(), 'sha3-512'),
-  'X448': !process.features.openssl_is_boringssl,
-};
+function has(algorithms, name) {
+  return ArrayPrototypeIncludes(algorithms, name);
+}
 
-// Experimental algorithms
-const experimentalAlgorithms = [
+// Re-evaluated when the active FIPS state changes.
+function getConditionalAlgorithms() {
+  const mlKem768 = isKeyAlgorithmAvailable('ML-KEM-768');
+  const mlKem1024 = isKeyAlgorithmAvailable('ML-KEM-1024');
+  const ciphers = getCiphers();
+  const hashes = getHashes();
+  const macs = getMacs();
+
+  const fips = isFips();
+
+  return {
+    'AES-OCB': !!hasAesOcbMode &&
+      (has(ciphers, 'aes-128-ocb') ||
+       has(ciphers, 'aes-192-ocb') ||
+       has(ciphers, 'aes-256-ocb')),
+    'Argon2d': !!Argon2Job && !fips,
+    'Argon2i': !!Argon2Job && !fips,
+    'Argon2id': !!Argon2Job && !fips,
+    'ChaCha20-Poly1305': process.features.openssl_is_boringssl ||
+      has(ciphers, 'chacha20-poly1305'),
+    'cSHAKE128': has(hashes, 'shake128'),
+    'cSHAKE256': has(hashes, 'shake256'),
+    'Ed25519': isKeyAlgorithmAvailable('Ed25519'),
+    'Ed448': isKeyAlgorithmAvailable('Ed448'),
+    'KMAC128': !!KmacJob && has(macs, 'kmac128'),
+    'KMAC256': !!KmacJob && has(macs, 'kmac256'),
+    'KT128': !fips,
+    'KT256': !fips,
+    'ML-DSA-44': isKeyAlgorithmAvailable('ML-DSA-44'),
+    'ML-DSA-65': isKeyAlgorithmAvailable('ML-DSA-65'),
+    'ML-DSA-87': isKeyAlgorithmAvailable('ML-DSA-87'),
+    'ML-KEM-512': isKeyAlgorithmAvailable('ML-KEM-512'),
+    'ML-KEM-768': mlKem768,
+    'ML-KEM-1024': mlKem1024,
+    'MLKEM768-P256': !fips && mlKem768 &&
+      (!process.features.openssl_is_boringssl ||
+        (has(hashes, 'sha3-256') &&
+         has(hashes, 'shake256'))),
+    'MLKEM768-X25519': !fips && mlKem768 &&
+      (!process.features.openssl_is_boringssl ||
+        (has(hashes, 'sha3-256') &&
+         has(hashes, 'shake256'))),
+    'MLKEM1024-P384': !fips && mlKem1024 &&
+      (!process.features.openssl_is_boringssl ||
+        (has(hashes, 'sha3-256') &&
+         has(hashes, 'shake256'))),
+    'SHA-1': has(hashes, 'sha1'),
+    'SHA-256': has(hashes, 'sha256'),
+    'SHA-384': has(hashes, 'sha384'),
+    'SHA-512': has(hashes, 'sha512'),
+    'SHA3-256': has(hashes, 'sha3-256'),
+    'SHA3-384': has(hashes, 'sha3-384'),
+    'SHA3-512': has(hashes, 'sha3-512'),
+    'TurboSHAKE128': !fips,
+    'TurboSHAKE256': !fips,
+    'X25519': isKeyAlgorithmAvailable('X25519'),
+    'X448': isKeyAlgorithmAvailable('X448'),
+  };
+}
+
+// Experimental algorithms that emit warnings.
+const experimentalAlgorithmsWithWarnings = [
   'AES-OCB',
   'Argon2d',
   'Argon2i',
   'Argon2id',
-  'ChaCha20-Poly1305',
   'cSHAKE128',
   'cSHAKE256',
   'Ed448',
   'KMAC128',
   'KMAC256',
-  'ML-DSA-44',
-  'ML-DSA-65',
-  'ML-DSA-87',
   'ML-KEM-512',
-  'ML-KEM-768',
-  'ML-KEM-1024',
+  'MLKEM768-P256',
+  'MLKEM1024-P384',
   'SHA3-256',
   'SHA3-384',
   'SHA3-512',
+  'TurboSHAKE128',
+  'TurboSHAKE256',
+  'KT128',
+  'KT256',
   'X448',
+  // Ships unflagged in Chromium >= 155
+  // 'ChaCha20-Poly1305'
+  // 'ML-DSA-44'
+  // 'ML-DSA-65'
+  // 'ML-DSA-87'
+  // 'ML-KEM-768'
+  // 'ML-KEM-1024'
+  // 'MLKEM768-X25519'
 ];
 
 // Transform the algorithm definitions into the operation-keyed structure
+// Also builds a parallel Map<UPPERCASED_NAME, canonicalName> per operation
+// for O(1) case-insensitive algorithm name lookup in normalizeAlgorithm.
 function createSupportedAlgorithms(algorithmDefs) {
+  const conditionalAlgorithms = getConditionalAlgorithms();
+  // Detached below rather than declared `__proto__: null`: V8 puts that
+  // literal form in dictionary mode, slowing every registry lookup.
   const result = {};
+  const nameMap = {};
 
-  for (const { 0: algorithmName, 1: operations } of ObjectEntries(algorithmDefs)) {
+  const algorithmEntries = ObjectEntries(algorithmDefs);
+  for (let i = 0; i < algorithmEntries.length; i++) {
+    const { 0: algorithmName, 1: operations } = algorithmEntries[i];
     // Skip algorithms that are conditionally not supported
     if (ObjectPrototypeHasOwnProperty(conditionalAlgorithms, algorithmName) &&
         !conditionalAlgorithms[algorithmName]) {
       continue;
     }
 
-    for (const { 0: operation, 1: dict } of ObjectEntries(operations)) {
+    const operationEntries = ObjectEntries(operations);
+    for (let j = 0; j < operationEntries.length; j++) {
+      const { 0: operation, 1: dict } = operationEntries[j];
       result[operation] ||= {};
+      nameMap[operation] ||= new SafeMap();
+      nameMap[operation].set(StringPrototypeToUpperCase(algorithmName), algorithmName);
 
-      // Add experimental warnings for experimental algorithms
-      if (ArrayPrototypeIncludes(experimentalAlgorithms, algorithmName)) {
+      // Add warnings for select experimental algorithms
+      if (ArrayPrototypeIncludes(experimentalAlgorithmsWithWarnings, algorithmName)) {
         ObjectDefineProperty(result[operation], algorithmName, {
           get() {
             emitExperimentalWarning(`The ${algorithmName} Web Crypto API algorithm`);
@@ -474,10 +641,26 @@ function createSupportedAlgorithms(algorithmDefs) {
     }
   }
 
-  return result;
+  const operations = ObjectKeys(result);
+  for (let i = 0; i < operations.length; i++) {
+    ObjectSetPrototypeOf(result[operations[i]], null);
+  }
+  ObjectSetPrototypeOf(result, null);
+  ObjectSetPrototypeOf(nameMap, null);
+
+  return { algorithms: result, nameMap };
 }
 
-const kSupportedAlgorithms = createSupportedAlgorithms(kAlgorithmDefinitions);
+let supportedAlgorithms;
+let supportedAlgorithmsGeneration;
+function getSupportedAlgorithms() {
+  const generation = getFipsCryptoGeneration();
+  if (supportedAlgorithmsGeneration !== generation) {
+    supportedAlgorithms = createSupportedAlgorithms(kAlgorithmDefinitions);
+    supportedAlgorithmsGeneration = generation;
+  }
+  return supportedAlgorithms;
+}
 
 const simpleAlgorithmDictionaries = {
   AesCbcParams: { iv: 'BufferSource' },
@@ -513,17 +696,82 @@ const simpleAlgorithmDictionaries = {
   KmacParams: {
     customization: 'BufferSource',
   },
+  KangarooTwelveParams: {
+    customization: 'BufferSource',
+  },
+  TurboShakeParams: {},
 };
 
-function validateMaxBufferLength(data, name) {
-  if (data.byteLength > kMaxBufferLength) {
+// Pre-compute ObjectKeys() for each dictionary entry at module init
+// to avoid allocating a new keys array on every normalizeAlgorithm call.
+const simpleAlgorithmDictionaryEntries =
+  ObjectEntries(simpleAlgorithmDictionaries);
+for (let i = 0; i < simpleAlgorithmDictionaryEntries.length; i++) {
+  const { 0: name, 1: types } = simpleAlgorithmDictionaryEntries[i];
+  simpleAlgorithmDictionaries[name] = { keys: ObjectKeys(types), types };
+}
+// See createSupportedAlgorithms() for why this is detached here.
+ObjectSetPrototypeOf(simpleAlgorithmDictionaries, null);
+
+function validateMaxBufferLength(data, name, max = kMaxBufferLength) {
+  if (getBufferSourceByteLength(data) > max) {
     throw lazyDOMException(
-      `${name} must be less than ${kMaxBufferLength + 1} bits`,
+      `${name} must be at most ${max} bytes`,
       'OperationError');
   }
 }
 
+function validateKmacKeyLength(length) {
+  if (length < 32 || length % 8 !== 0)
+    throw lazyDOMException('Invalid key length', 'NotSupportedError');
+}
+
+/**
+ * Converts a bit length to the number of bytes needed to contain it.
+ * Non-byte lengths are rounded up to the next byte.
+ * @param {number} length
+ * @returns {number}
+ */
+function numBitsToBytes(length) {
+  return MathFloor(length / 8) + MathFloor((7 + (length % 8)) / 8);
+}
+
+/**
+ * Copies `bytes` up to the byte length needed for `length` bits, then clears
+ * unused least-significant bits in the final byte.
+ * @param {number} length
+ * @param {ArrayBuffer|ArrayBufferView} bytes
+ * @returns {Uint8Array}
+ */
+function truncateToBitLength(length, bytes) {
+  const lengthBytes = numBitsToBytes(length);
+  const isView = ArrayBufferIsView(bytes);
+  const byteView = isView ?
+    new Uint8Array(
+      getDataViewOrTypedArrayBuffer(bytes),
+      getDataViewOrTypedArrayByteOffset(bytes),
+      MathMin(lengthBytes, getDataViewOrTypedArrayByteLength(bytes)),
+    ) :
+    new Uint8Array(bytes, 0,
+                   MathMin(lengthBytes, ArrayBufferPrototypeGetByteLength(bytes)));
+  const result = new Uint8Array(byteView);
+
+  const remainder = length % 8;
+  if (remainder !== 0)
+    result[lengthBytes - 1] &= (0xff << (8 - remainder)) & 0xff;
+
+  return result;
+}
+
 let webidl;
+
+// Keep this as a regular object. The WebIDL converters read and spread these
+// options on the normalizeAlgorithm hot path, and a null-prototype object
+// measurably regresses benchmark/misc/webcrypto-webidl normalizeAlgorithm-*.
+const kNormalizeAlgorithmOpts = {
+  prefix: 'Failed to normalize algorithm',
+  context: 'passed algorithm',
+};
 
 // https://w3c.github.io/webcrypto/#algorithm-normalization-normalize-an-algorithm
 // adapted for Node.js from Deno's implementation
@@ -534,76 +782,82 @@ function normalizeAlgorithm(algorithm, op) {
 
   webidl ??= require('internal/crypto/webidl');
 
-  // 1.
-  const registeredAlgorithms = kSupportedAlgorithms[op];
   // 2. 3.
-  const initialAlg = webidl.converters.Algorithm(algorithm, {
-    prefix: 'Failed to normalize algorithm',
-    context: 'passed algorithm',
-  });
+  const initialAlg = webidl.converters.Algorithm(algorithm,
+                                                 kNormalizeAlgorithmOpts);
+  const { algorithms, nameMap } = getSupportedAlgorithms();
+  const registeredAlgorithms = algorithms[op];
   // 4.
   let algName = initialAlg.name;
 
-  // 5.
-  let desiredType;
-  for (const key in registeredAlgorithms) {
-    if (!ObjectPrototypeHasOwnProperty(registeredAlgorithms, key)) {
-      continue;
-    }
-    if (
-      StringPrototypeToUpperCase(key) === StringPrototypeToUpperCase(algName)
-    ) {
-      algName = key;
-      desiredType = registeredAlgorithms[key];
+  // 5. Case-insensitive lookup via pre-built Map (O(1) instead of O(n)).
+  const canonicalName = nameMap[op]?.get(
+    StringPrototypeToUpperCase(algName));
+  if (canonicalName === undefined)
+    throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
+
+  // Registered names are ASCII. Only check characters when case folding was
+  // needed, so Unicode characters such as U+017F cannot match ASCII names.
+  if (algName !== canonicalName) {
+    for (let i = 0; i < algName.length; i++) {
+      if (StringPrototypeCharCodeAt(algName, i) > 0x7f)
+        throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
     }
   }
-  if (desiredType === undefined)
-    throw lazyDOMException('Unrecognized algorithm name', 'NotSupportedError');
+
+  algName = canonicalName;
+  const desiredType = registeredAlgorithms[algName];
 
   // Fast path everything below if the registered dictionary is null
   if (desiredType === null)
     return { name: algName };
 
   // 6.
-  const normalizedAlgorithm = webidl.converters[desiredType](
-    { __proto__: algorithm, name: algName },
-    {
-      prefix: 'Failed to normalize algorithm',
-      context: 'passed algorithm',
-    },
+  const normalizedAlgorithm = webidl.algorithmConverters[desiredType](
+    algorithm,
+    kNormalizeAlgorithmOpts,
   );
   // 7.
   normalizedAlgorithm.name = algName;
 
-  // 9.
-  const dict = simpleAlgorithmDictionaries[desiredType];
-  // 10.
-  const dictKeys = dict ? ObjectKeys(dict) : [];
-  for (let i = 0; i < dictKeys.length; i++) {
-    const member = dictKeys[i];
-    if (!ObjectPrototypeHasOwnProperty(dict, member))
-      continue;
-    const idlType = dict[member];
-    const idlValue = normalizedAlgorithm[member];
-    // 3.
-    if (idlType === 'BufferSource' && idlValue) {
-      const isView = ArrayBufferIsView(idlValue);
-      normalizedAlgorithm[member] = TypedArrayPrototypeSlice(
-        new Uint8Array(
-          isView ? getDataViewOrTypedArrayBuffer(idlValue) : idlValue,
-          isView ? getDataViewOrTypedArrayByteOffset(idlValue) : 0,
-          isView ? getDataViewOrTypedArrayByteLength(idlValue) : ArrayBufferPrototypeGetByteLength(idlValue),
-        ),
-      );
-    } else if (idlType === 'HashAlgorithmIdentifier') {
-      normalizedAlgorithm[member] = normalizeAlgorithm(idlValue, 'digest');
-    } else if (idlType === 'AlgorithmIdentifier') {
-      // This extension point is not used by any supported algorithm (yet?)
-      throw lazyDOMException('Not implemented.', 'NotSupportedError');
+  // 9. 10. Pre-computed keys and types from simpleAlgorithmDictionaries.
+  const dictMeta = simpleAlgorithmDictionaries[desiredType];
+  if (dictMeta) {
+    const { keys: dictKeys, types: dictTypes } = dictMeta;
+    for (let i = 0; i < dictKeys.length; i++) {
+      const member = dictKeys[i];
+      const idlType = dictTypes[member];
+      const idlValue = normalizedAlgorithm[member];
+      // 3.
+      if (idlType === 'BufferSource' && idlValue) {
+        normalizedAlgorithm[member] = new Uint8Array(
+          getBufferSourceBytes(idlValue),
+        );
+      } else if (idlType === 'HashAlgorithmIdentifier') {
+        const hash = normalizeAlgorithm(idlValue, 'digest');
+        if (!StringPrototypeStartsWith(hash.name, 'SHA')) {
+          throw lazyDOMException(
+            `Only SHA hashes are supported in ${desiredType}`, 'NotSupportedError');
+        }
+        normalizedAlgorithm[member] = hash;
+      } else if (idlType === 'AlgorithmIdentifier') {
+        // This extension point is not used by any supported algorithm (yet?)
+        throw lazyDOMException('Not implemented.', 'NotSupportedError');
+      }
     }
   }
 
   return normalizedAlgorithm;
+}
+
+function validateAlgorithm(algorithm, op) {
+  // HMAC's get key length operation handles zero with a TypeError, while
+  // HmacImportParams otherwise uses the import operation's DataError.
+  if (op === 'get key length' && algorithm.name === 'HMAC')
+    return;
+  webidl ??= require('internal/crypto/webidl');
+  const desiredType = getSupportedAlgorithms().algorithms[op]?.[algorithm.name];
+  webidl.validators[desiredType]?.(algorithm);
 }
 
 function getDataViewOrTypedArrayBuffer(V) {
@@ -619,6 +873,50 @@ function getDataViewOrTypedArrayByteOffset(V) {
 function getDataViewOrTypedArrayByteLength(V) {
   return isDataView(V) ?
     DataViewPrototypeGetByteLength(V) : TypedArrayPrototypeGetByteLength(V);
+}
+
+function getBufferSourceByteLength(V) {
+  // ArrayBuffer and typed array lengths already become zero when detached.
+  if (!ArrayBufferIsView(V))
+    return ArrayBufferPrototypeGetByteLength(V);
+  if (!isDataView(V))
+    return TypedArrayPrototypeGetByteLength(V);
+  const buffer = DataViewPrototypeGetBuffer(V);
+  if (isArrayBuffer(buffer) && ArrayBufferPrototypeGetDetached(buffer))
+    return 0;
+  return DataViewPrototypeGetByteLength(V);
+}
+
+function getBufferSourceBytes(V) {
+  if (!ArrayBufferIsView(V)) {
+    const length = ArrayBufferPrototypeGetByteLength(V);
+    if (length === 0 && ArrayBufferPrototypeGetDetached(V))
+      return new Uint8Array(0);
+    return new Uint8Array(V, 0, length);
+  }
+
+  let buffer;
+  let offset;
+  let length;
+  if (isDataView(V)) {
+    buffer = DataViewPrototypeGetBuffer(V);
+    if (isArrayBuffer(buffer) && ArrayBufferPrototypeGetDetached(buffer))
+      return new Uint8Array(0);
+    offset = DataViewPrototypeGetByteOffset(V);
+    length = DataViewPrototypeGetByteLength(V);
+  } else {
+    buffer = TypedArrayPrototypeGetBuffer(V);
+    offset = TypedArrayPrototypeGetByteOffset(V);
+    length = TypedArrayPrototypeGetByteLength(V);
+    if (length === 0 && isArrayBuffer(buffer) &&
+        ArrayBufferPrototypeGetDetached(buffer))
+      return new Uint8Array(0);
+  }
+  return new Uint8Array(buffer, offset, length);
+}
+
+function getOptionalByteLength(V) {
+  return V === undefined ? 0 : TypedArrayPrototypeGetByteLength(V);
 }
 
 function hasAnyNotIn(set, checks) {
@@ -646,25 +944,128 @@ const validateByteSource = hideStackFrames((val, name) => {
     val);
 });
 
-function onDone(resolve, reject, err, result) {
-  if (err) {
-    return reject(lazyDOMException(
+/**
+ * @template T
+ * @typedef {{ run(): Promise<T> }} WebCryptoJob
+ */
+
+/**
+ * CryptoJob constructors can synchronously throw while running their native
+ * AdditionalConfig hook. WebCrypto needs those operation-specific setup
+ * failures to reject with an OperationError.
+ * @template T
+ * @param {() => WebCryptoJob<T>} getJob
+ * @returns {Promise<T>}
+ */
+function jobPromise(getJob) {
+  try {
+    return getJob().run();
+  } catch (err) {
+    return PromiseReject(lazyDOMException(
       'The operation failed for an operation-specific reason',
       { name: 'OperationError', cause: err }));
   }
-  resolve(result);
 }
 
-function jobPromise(getJob) {
-  const { promise, resolve, reject } = PromiseWithResolvers();
-  try {
-    const job = getJob();
-    job.ondone = FunctionPrototypeBind(onDone, job, resolve, reject);
-    job.run();
-  } catch (err) {
-    onDone(resolve, reject, err);
+/**
+ * Temporarily shadow inherited then accessors on WebCrypto result objects.
+ * Promise resolution reads "then" synchronously for thenable assimilation.
+ * Returning an own undefined data property keeps that lookup from reaching
+ * user-mutated prototypes.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function prepareWebCryptoResult(value) {
+  if ((value === null || typeof value !== 'object') &&
+      typeof value !== 'function') {
+    return false;
   }
-  return promise;
+  if (isPromise(value) || ObjectPrototypeHasOwnProperty(value, 'then'))
+    return false;
+  setOwnProperty(value, 'then', undefined);
+  return true;
+}
+
+/**
+ * Remove the temporary then property installed by prepareWebCryptoResult().
+ * @param {{ then?: unknown }} value
+ * @returns {void}
+ */
+function cleanupWebCryptoResult(value) {
+  delete value.then;
+}
+
+/**
+ * @template T
+ * @typedef {(value: T | PromiseLike<T>) => void} WebCryptoResolve
+ */
+
+/**
+ * Resolve a WebCrypto promise while inherited then accessors are shadowed.
+ * @template T
+ * @param {WebCryptoResolve<T>} resolve
+ * @param {T | PromiseLike<T>} value
+ * @returns {void}
+ */
+function resolveWebCryptoResult(resolve, value) {
+  const shouldCleanupResult = prepareWebCryptoResult(value);
+  try {
+    resolve(value);
+  } finally {
+    if (shouldCleanupResult)
+      cleanupWebCryptoResult(value);
+  }
+}
+
+/**
+ * Run a WebCrypto promise reaction and settle the outer promise.
+ * @template T
+ * @template TResult
+ * @param {((value: T) => TResult | PromiseLike<TResult>) | undefined} handler
+ * @param {WebCryptoResolve<T | TResult>} resolve
+ * @param {(reason?: unknown) => void} reject
+ * @param {T} value
+ * @param {boolean} isRejected
+ * @returns {void}
+ */
+function settleJobPromise(handler, resolve, reject, value, isRejected) {
+  try {
+    if (typeof handler === 'function') {
+      resolveWebCryptoResult(resolve, handler(value));
+    } else if (isRejected) {
+      reject(value);
+    } else {
+      resolveWebCryptoResult(resolve, value);
+    }
+  } catch (err) {
+    reject(err);
+  }
+}
+
+/**
+ * Promise.prototype.then gets promise.constructor to determine the result
+ * promise's species. These promises are internal WebCrypto intermediates, so
+ * make that lookup stay on the promise itself instead of user-mutated state.
+ * @template T
+ * @template [TResult1=T]
+ * @template [TResult2=never]
+ * @param {Promise<T>} promise
+ * @param {((value: T) => TResult1 | PromiseLike<TResult1>) | null | undefined} [onFulfilled]
+ * @param {((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null | undefined} [onRejected]
+ * @returns {Promise<TResult1 | TResult2>}
+ */
+function jobPromiseThen(promise, onFulfilled, onRejected) {
+  const {
+    promise: resultPromise,
+    resolve,
+    reject,
+  } = PromiseWithResolvers();
+  setOwnProperty(promise, 'constructor', undefined);
+  PromisePrototypeThen(
+    promise,
+    (value) => settleJobPromise(onFulfilled, resolve, reject, value, false),
+    (value) => settleJobPromise(onRejected, resolve, reject, value, true));
+  return resultPromise;
 }
 
 // In WebCrypto, the publicExponent option in RSA is represented as a
@@ -673,25 +1074,30 @@ function jobPromise(getJob) {
 // an unsigned int from a Buffer are not adequate. The implementation
 // here is adapted from the chromium implementation here:
 // https://github.com/chromium/chromium/blob/HEAD/third_party/blink/public/platform/web_crypto_algorithm_params.h, but ported to JavaScript
-// Returns undefined if the conversion was unsuccessful.
+// Throws an OperationError if the value does not fit in an unsigned 32-bit integer.
 function bigIntArrayToUnsignedInt(input) {
   let result = 0;
+  const length = TypedArrayPrototypeGetLength(input);
 
-  for (let n = 0; n < input.length; ++n) {
-    const n_reversed = input.length - n - 1;
-    if (n_reversed >= 4 && input[n])
-      return;  // Too large
+  for (let n = 0; n < length; ++n) {
+    const n_reversed = length - n - 1;
+    if (n_reversed >= 4 && input[n]) {
+      throw lazyDOMException(
+        'algorithm.publicExponent must fit in an unsigned 32-bit integer',
+        'OperationError');
+    }
     result |= input[n] << 8 * n_reversed;
   }
 
-  return result;
+  return result >>> 0;
 }
 
 function bigIntArrayToUnsignedBigInt(input) {
   let result = 0n;
+  const length = TypedArrayPrototypeGetLength(input);
 
-  for (let n = 0; n < input.length; ++n) {
-    const n_reversed = input.length - n - 1;
+  for (let n = 0; n < length; ++n) {
+    const n_reversed = length - n - 1;
     result |= BigInt(input[n]) << 8n * BigInt(n_reversed);
   }
 
@@ -705,13 +1111,91 @@ function getStringOption(options, key) {
   return value;
 }
 
-function getUsagesUnion(usageSet, ...usages) {
-  const newset = [];
+// Must be at most 31 entries.
+const kCanonicalUsageOrder = [
+  'encrypt', 'decrypt',
+  'sign', 'verify',
+  'deriveKey', 'deriveBits',
+  'wrapKey', 'unwrapKey',
+  'encapsulateKey', 'encapsulateBits',
+  'decapsulateKey', 'decapsulateBits',
+];
+
+const kUsageMasks = {
+  __proto__: null,
+};
+const kUsageByMask = {
+  __proto__: null,
+};
+// Derive both lookup tables from kCanonicalUsageOrder so adding a new
+// usage only requires updating the canonical list above. The numeric
+// mask uses the usage's canonical index as its bit position.
+for (let n = 0; n < kCanonicalUsageOrder.length; n++) {
+  const usage = kCanonicalUsageOrder[n];
+  const mask = 1 << n;
+  kUsageMasks[usage] = mask;
+  kUsageByMask[mask] = usage;
+}
+
+/**
+ * Collects a key usage list into a set.
+ * @param {string[]} usages
+ * @returns {SafeSet<string>}
+ */
+function toUsagesSet(usages) {
+  const usagesSet = new SafeSet();
   for (let n = 0; n < usages.length; n++) {
-    if (usageSet.has(usages[n]))
-      ArrayPrototypePush(newset, usages[n]);
+    usagesSet.add(usages[n]);
   }
-  return newset;
+  return usagesSet;
+}
+
+/**
+ * Returns a bit mask representing the usages from `usageSet`.
+ * @param {SafeSet<string>} usageSet
+ * @returns {number}
+ */
+function getUsagesMask(usageSet) {
+  // No usages is a valid state for some public keys, represented by a
+  // zero mask.
+  if (usageSet.size === 0) return 0;
+  let mask = 0;
+  for (const usage of usageSet) {
+    mask |= kUsageMasks[usage];
+  }
+  return mask;
+}
+
+/**
+ * Returns whether `mask` contains `usage`.
+ * @param {number} mask
+ * @param {string} usage
+ * @returns {boolean}
+ */
+function hasUsage(mask, usage) {
+  return (mask & kUsageMasks[usage]) !== 0;
+}
+
+/**
+ * Returns the usages represented by `mask` in canonical order.
+ * @param {number} mask
+ * @returns {string[]}
+ */
+function getUsagesFromMask(mask) {
+  // Short circuit most common cases, empty and single usage
+  // No usages is a valid state for some public keys
+  if (mask === 0) return [];
+  // A mask with exactly one bit set maps directly to one usage
+  if ((mask & (mask - 1)) === 0) {
+    return [kUsageByMask[mask]];
+  }
+  // Multiple usages need to be expanded in canonical order.
+  const result = [];
+  for (let n = 0; n < kCanonicalUsageOrder.length; n++) {
+    if (mask & (1 << n))
+      ArrayPrototypePush(result, kCanonicalUsageOrder[n]);
+  }
+  return result;
 }
 
 function getBlockSize(name) {
@@ -735,47 +1219,21 @@ function getBlockSize(name) {
   }
 }
 
-function getDigestSizeInBytes(name) {
-  switch (name) {
-    case 'SHA-1':
-      return 20;
-    case 'SHA-256': // Fall through
-    case 'SHA3-256':
-      return 32;
-    case 'SHA-384': // Fall through
-    case 'SHA3-384':
-      return 48;
-    case 'SHA-512': // Fall through
-    case 'SHA3-512':
-      return 64;
-  }
-}
-
-const kKeyOps = {
-  sign: 1,
-  verify: 2,
-  encrypt: 3,
-  decrypt: 4,
-  wrapKey: 5,
-  unwrapKey: 6,
-  deriveKey: 7,
-  deriveBits: 8,
-};
-
 function validateKeyOps(keyOps, usagesSet) {
   if (keyOps === undefined) return;
   validateArray(keyOps, 'keyData.key_ops');
-  let flags = 0;
+  let keyOpsMask = 0;
+  const seen = new SafeSet();
   for (let n = 0; n < keyOps.length; n++) {
     const op = keyOps[n];
-    const op_flag = kKeyOps[op];
-    // Skipping unknown key ops
-    if (op_flag === undefined)
-      continue;
-    // Have we seen it already? if so, error
-    if (flags & (1 << op_flag))
+    if (seen.has(op))
       throw lazyDOMException('Duplicate key operation', 'DataError');
-    flags |= (1 << op_flag);
+    seen.add(op);
+    const opMask = kUsageMasks[op];
+    // Skipping unknown key ops
+    if (opMask === undefined)
+      continue;
+    keyOpsMask |= opMask;
 
     // TODO(@jasnell): RFC7517 section 4.3 strong recommends validating
     // key usage combinations. Specifically, it says that unrelated key
@@ -783,12 +1241,11 @@ function validateKeyOps(keyOps, usagesSet) {
   }
 
   if (usagesSet !== undefined) {
-    for (const use of usagesSet) {
-      if (!ArrayPrototypeIncludes(keyOps, use)) {
-        throw lazyDOMException(
-          'Key operations and usage mismatch',
-          'DataError');
-      }
+    const usagesMask = getUsagesMask(usagesSet);
+    if ((keyOpsMask & usagesMask) !== usagesMask) {
+      throw lazyDOMException(
+        'Key operations and usage mismatch',
+        'DataError');
     }
   }
 }
@@ -806,31 +1263,50 @@ function secureHeapUsed() {
 
 module.exports = {
   getArrayBufferOrView,
+  getBufferSourceByteLength,
+  getBufferSourceBytes,
   getCiphers,
   getCurves,
   getDataViewOrTypedArrayBuffer,
   getHashes,
+  getMacs,
+  getOptionalByteLength,
   kHandle,
-  kKeyObject,
   setEngine,
   toBuf,
 
   kNamedCurveAliases,
+  get kSupportedAlgorithms() {
+    return getSupportedAlgorithms().algorithms;
+  },
+  isFips,
   normalizeAlgorithm,
   normalizeHashName,
   hasAnyNotIn,
   validateByteSource,
   validateKeyOps,
+  validateAlgorithm,
   jobPromise,
+  jobPromiseThen,
+  cleanupWebCryptoResult,
+  prepareWebCryptoResult,
+  validateKmacKeyLength,
+  resolveWebCryptoResult,
   validateMaxBufferLength,
+  numBitsToBytes,
+  truncateToBitLength,
   bigIntArrayToUnsignedBigInt,
   bigIntArrayToUnsignedInt,
   getBlockSize,
-  getDigestSizeInBytes,
   getStringOption,
-  getUsagesUnion,
+  getUsagesMask,
+  getUsagesFromMask,
+  toUsagesSet,
+  hasUsage,
   secureHeapUsed,
   getCachedHashId,
   getHashCache,
+  getCachedMacId,
+  getMacCache,
   getOpenSSLSecLevel,
 };

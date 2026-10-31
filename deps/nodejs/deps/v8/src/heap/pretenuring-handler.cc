@@ -143,7 +143,7 @@ void PretenuringHandler::MergeAllocationSitePretenuringFeedback(
   Tagged<AllocationSite> site;
   for (auto& site_and_count : local_pretenuring_feedback) {
     site = site_and_count.first;
-    MapWord map_word = site->map_word(cage_base, kRelaxedLoad);
+    MapWord map_word = site->map_word(kRelaxedLoad);
     if (map_word.IsForwardingAddress()) {
       DCHECK(!HeapLayout::IsSelfForwarded(site, map_word));
       site = Cast<AllocationSite>(map_word.ToForwardingAddress(site));
@@ -151,8 +151,7 @@ void PretenuringHandler::MergeAllocationSitePretenuringFeedback(
 
     // We have not validated the allocation site yet, since we have not
     // dereferenced the site during collecting information.
-    // This is an inlined check of AllocationMemento::IsValid.
-    if (!IsAllocationSite(site) || site->IsZombie()) continue;
+    if (!IsAllocationSite(site)) continue;
 
     const int value = static_cast<int>(site_and_count.second);
     DCHECK_LT(0, value);
@@ -174,8 +173,7 @@ void PretenuringHandler::ProcessPretenuringFeedback(
   // pretenured. A too small capacity means frequent GCs. Objects thus don't get
   // a chance to die before being promoted, which may lead to wrong pretenuring
   // decisions.
-  static constexpr size_t kDefaultMinNewSpaceCapacityForPretenuring =
-      8192 * KB * Heap::kPointerMultiplier;
+  static constexpr size_t kDefaultMinNewSpaceCapacityForPretenuring = 8 * MB;
 
   DCHECK(heap_->tracer()->IsInAtomicPause());
 

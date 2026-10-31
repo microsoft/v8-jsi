@@ -1,15 +1,8 @@
 'use strict';
 
 const {
-  ArrayFrom,
-  ArrayPrototypePush,
-  SafeSet,
-} = primordials;
-
-const {
   AESCipherJob,
-  KeyObjectHandle,
-  kCryptoJobAsync,
+  kCryptoJobWebCrypto,
   kKeyVariantAES_CTR_128,
   kKeyVariantAES_CBC_128,
   kKeyVariantAES_GCM_128,
@@ -25,33 +18,45 @@ const {
   kKeyVariantAES_GCM_256,
   kKeyVariantAES_KW_256,
   kKeyVariantAES_OCB_256,
+  SecretKeyGenJob,
 } = internalBinding('crypto');
 
 const {
-  hasAnyNotIn,
+  getUsagesMask,
   jobPromise,
-  validateKeyOps,
-  kHandle,
-  kKeyObject,
+  getBufferSourceByteLength,
+  validateAlgorithm,
 } = require('internal/crypto/util');
 
 const {
   lazyDOMException,
-  promisify,
 } = require('internal/util');
 
 const {
   InternalCryptoKey,
-  SecretKeyObject,
-  createSecretKey,
-  kAlgorithm,
+  getCryptoKeyAlgorithm,
+  getCryptoKeyHandle,
 } = require('internal/crypto/keys');
 
 const {
-  generateKey: _generateKey,
-} = require('internal/crypto/keygen');
+  importJwkSecretKey,
+  importSecretKey,
+  validateJwk,
+  validateKeyUsages,
+  validateUsagesNotEmpty,
+} = require('internal/crypto/webcrypto_util');
 
-const generateKey = promisify(_generateKey);
+const kCipherUsages = ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'];
+const kWrapUsages = ['wrapKey', 'unwrapKey'];
+
+const kUsages = {
+  '__proto__': null,
+  'AES-CBC': kCipherUsages,
+  'AES-CTR': kCipherUsages,
+  'AES-GCM': kCipherUsages,
+  'AES-KW': kWrapUsages,
+  'AES-OCB': kCipherUsages,
+};
 
 function getAlgorithmName(name, length) {
   switch (name) {
@@ -110,32 +115,32 @@ function getVariant(name, length) {
 
 function asyncAesCtrCipher(mode, key, data, algorithm) {
   return jobPromise(() => new AESCipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
-    getVariant('AES-CTR', key[kAlgorithm].length),
+    getVariant('AES-CTR', getCryptoKeyAlgorithm(key).length),
     algorithm.counter,
     algorithm.length));
 }
 
 function asyncAesCbcCipher(mode, key, data, algorithm) {
   return jobPromise(() => new AESCipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
-    getVariant('AES-CBC', key[kAlgorithm].length),
+    getVariant('AES-CBC', getCryptoKeyAlgorithm(key).length),
     algorithm.iv));
 }
 
 function asyncAesKwCipher(mode, key, data) {
   return jobPromise(() => new AESCipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
-    getVariant('AES-KW', key[kAlgorithm].length)));
+    getVariant('AES-KW', getCryptoKeyAlgorithm(key).length)));
 }
 
 function asyncAesGcmCipher(mode, key, data, algorithm) {
@@ -143,11 +148,11 @@ function asyncAesGcmCipher(mode, key, data, algorithm) {
   const tagByteLength = tagLength / 8;
 
   return jobPromise(() => new AESCipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
-    getVariant('AES-GCM', key[kAlgorithm].length),
+    getVariant('AES-GCM', getCryptoKeyAlgorithm(key).length),
     algorithm.iv,
     tagByteLength,
     algorithm.additionalData));
@@ -158,17 +163,18 @@ function asyncAesOcbCipher(mode, key, data, algorithm) {
   const tagByteLength = tagLength / 8;
 
   return jobPromise(() => new AESCipherJob(
-    kCryptoJobAsync,
+    kCryptoJobWebCrypto,
     mode,
-    key[kKeyObject][kHandle],
+    getCryptoKeyHandle(key),
     data,
-    getVariant('AES-OCB', key.algorithm.length),
+    getVariant('AES-OCB', getCryptoKeyAlgorithm(key).length),
     algorithm.iv,
     tagByteLength,
     algorithm.additionalData));
 }
 
 function aesCipher(mode, key, data, algorithm) {
+  validateAlgorithm(algorithm, 'encrypt');
   switch (algorithm.name) {
     case 'AES-CTR': return asyncAesCtrCipher(mode, key, data, algorithm);
     case 'AES-CBC': return asyncAesCbcCipher(mode, key, data, algorithm);
@@ -178,35 +184,19 @@ function aesCipher(mode, key, data, algorithm) {
   }
 }
 
-async function aesGenerateKey(algorithm, extractable, keyUsages) {
+function aesGenerateKey(algorithm, extractable, usages) {
   const { name, length } = algorithm;
 
-  const checkUsages = ['wrapKey', 'unwrapKey'];
-  if (name !== 'AES-KW')
-    ArrayPrototypePush(checkUsages, 'encrypt', 'decrypt');
+  const usagesSet = validateKeyUsages(usages, kUsages[name], name);
+  validateAlgorithm(algorithm, 'generateKey');
+  validateUsagesNotEmpty(usagesSet);
 
-  const usagesSet = new SafeSet(keyUsages);
-  if (hasAnyNotIn(usagesSet, checkUsages)) {
-    throw lazyDOMException(
-      'Unsupported key usage for an AES key',
-      'SyntaxError');
-  }
-
-  let key;
-  try {
-    key = await generateKey('aes', { length });
-  } catch (err) {
-    throw lazyDOMException(
-      'The operation failed for an operation-specific reason' +
-      `[${err.message}]`,
-      { name: 'OperationError', cause: err });
-  }
-
-  return new InternalCryptoKey(
-    key,
+  return jobPromise(() => new SecretKeyGenJob(
+    kCryptoJobWebCrypto,
+    length,
     { name, length },
-    ArrayFrom(usagesSet),
-    extractable);
+    getUsagesMask(usagesSet),
+    extractable));
 }
 
 function aesImportKey(
@@ -214,25 +204,17 @@ function aesImportKey(
   format,
   keyData,
   extractable,
-  keyUsages) {
+  usages) {
   const { name } = algorithm;
-  const checkUsages = ['wrapKey', 'unwrapKey'];
-  if (name !== 'AES-KW')
-    ArrayPrototypePush(checkUsages, 'encrypt', 'decrypt');
+  const usagesSet = validateKeyUsages(usages, kUsages[name], name);
 
-  const usagesSet = new SafeSet(keyUsages);
-  if (hasAnyNotIn(usagesSet, checkUsages)) {
-    throw lazyDOMException(
-      'Unsupported key usage for an AES key',
-      'SyntaxError');
-  }
-
-  let keyObject;
+  let handle;
   let length;
   switch (format) {
-    case 'KeyObject': {
-      validateKeyLength(keyData.symmetricKeySize * 8);
-      keyObject = keyData;
+    case 'KeyObjectHandle': {
+      length = keyData.getSymmetricKeySize() * 8;
+      validateKeyLength(length);
+      handle = keyData;
       break;
     }
     case 'raw-secret':
@@ -240,67 +222,32 @@ function aesImportKey(
       if (format === 'raw' && name === 'AES-OCB') {
         return undefined;
       }
-      validateKeyLength(keyData.byteLength * 8);
-      keyObject = createSecretKey(keyData);
+      length = getBufferSourceByteLength(keyData) * 8;
+      validateKeyLength(length);
+      handle = importSecretKey(keyData);
       break;
     }
     case 'jwk': {
-      if (!keyData.kty)
-        throw lazyDOMException('Invalid keyData', 'DataError');
-
-      if (keyData.kty !== 'oct')
-        throw lazyDOMException('Invalid JWK "kty" Parameter', 'DataError');
-
-      if (usagesSet.size > 0 &&
-          keyData.use !== undefined &&
-          keyData.use !== 'enc') {
-        throw lazyDOMException('Invalid JWK "use" Parameter', 'DataError');
-      }
-
-      validateKeyOps(keyData.key_ops, usagesSet);
-
-      if (keyData.ext !== undefined &&
-          keyData.ext === false &&
-          extractable === true) {
-        throw lazyDOMException(
-          'JWK "ext" Parameter and extractable mismatch',
-          'DataError');
-      }
-
-      const handle = new KeyObjectHandle();
-      try {
-        handle.initJwk(keyData);
-      } catch (err) {
-        throw lazyDOMException(
-          'Invalid keyData', { name: 'DataError', cause: err });
-      }
-
-      ({ length } = handle.keyDetail({ }));
+      validateJwk(keyData, 'oct', extractable, usagesSet, 'enc');
+      handle = importJwkSecretKey(keyData);
+      length = handle.getSymmetricKeySize() * 8;
       validateKeyLength(length);
-
       if (keyData.alg !== undefined) {
         if (keyData.alg !== getAlgorithmName(algorithm.name, length))
           throw lazyDOMException(
             'JWK "alg" does not match the requested algorithm',
             'DataError');
       }
-
-      keyObject = new SecretKeyObject(handle);
       break;
     }
     default:
       return undefined;
   }
 
-  if (length === undefined) {
-    ({ length } = keyObject[kHandle].keyDetail({ }));
-    validateKeyLength(length);
-  }
-
   return new InternalCryptoKey(
-    keyObject,
+    handle,
     { name, length },
-    keyUsages,
+    getUsagesMask(usagesSet),
     extractable);
 }
 

@@ -2,13 +2,11 @@
 
 const {
   ArrayPrototypeFilter,
-  ArrayPrototypeMap,
-  Boolean,
-  ObjectEntries,
+  ObjectKeys,
   PromisePrototypeThen,
   PromiseResolve,
   PromiseWithResolvers,
-  SafePromiseAll,
+  SafePromiseAllReturnVoid,
   SafePromisePrototypeFinally,
   SafeSet,
   StringPrototypeStartsWith,
@@ -25,11 +23,16 @@ const { TextEncoder } = require('internal/encoding');
 const {
   ReadableStream,
   isReadableStream,
+  readableStreamDefaultReaderRead,
+  kChunk,
+  kClose,
+  kError,
 } = require('internal/webstreams/readablestream');
 
 const {
   WritableStream,
   isWritableStream,
+  writableStreamDefaultWriterWriteWithRequest,
 } = require('internal/webstreams/writablestream');
 
 const {
@@ -56,7 +59,11 @@ const {
 } = require('buffer');
 
 const {
-  isArrayBuffer,
+  kResolvedPromise,
+} = require('internal/webstreams/util');
+
+const {
+  isAnyArrayBuffer,
 } = require('internal/util/types');
 
 const {
@@ -71,8 +78,10 @@ const {
 } = require('internal/errors');
 
 const {
+  getDeprecationWarningEmitter,
   kEmptyObject,
   normalizeEncoding,
+  setOwnProperty,
 } = require('internal/util');
 
 const {
@@ -85,13 +94,18 @@ const {
 const {
   WriteWrap,
   ShutdownWrap,
+  kArrayBufferOffset,
   kReadBytesOrError,
   kLastWriteWasAsync,
   streamBaseState,
 } = internalBinding('stream_wrap');
 
-const { eos } = require('internal/streams/end-of-stream');
+const {
+  eos,
+  kEosNodeSynchronousCallback,
+} = require('internal/streams/end-of-stream');
 
+const { zlib } = internalBinding('constants');
 const { UV_EOF } = internalBinding('uv');
 
 const encoder = new TextEncoder();
@@ -100,42 +114,131 @@ const kValidateChunk = Symbol('kValidateChunk');
 const kDestroyOnSyncError = Symbol('kDestroyOnSyncError');
 
 // Collect all negative (error) ZLIB codes and Z_NEED_DICT
-const ZLIB_FAILURES = new SafeSet([
-  ...ArrayPrototypeFilter(
-    ArrayPrototypeMap(
-      ObjectEntries(internalBinding('constants').zlib),
-      ({ 0: code, 1: value }) => (value < 0 ? code : null),
-    ),
-    Boolean,
+const ZLIB_FAILURES = new SafeSet(
+  ArrayPrototypeFilter(
+    ObjectKeys(zlib),
+    (code) => code === 'Z_NEED_DICT' || zlib[code] < 0,
   ),
-  'Z_NEED_DICT',
-]);
+);
 
 /**
  * @param {Error|null} cause
  * @returns {Error|null}
  */
 function handleKnownInternalErrors(cause) {
+  const causeCode = cause?.code;
   switch (true) {
-    case cause?.code === 'ERR_STREAM_PREMATURE_CLOSE': {
+    case causeCode === 'ERR_STREAM_PREMATURE_CLOSE': {
       return new AbortError(undefined, { cause });
     }
-    case ZLIB_FAILURES.has(cause?.code):
+    case ZLIB_FAILURES.has(causeCode):
     // Brotli decoder error codes are formatted as 'ERR_' +
     // BrotliDecoderErrorString(), where the latter returns strings like
     // '_ERROR_FORMAT_...', '_ERROR_ALLOC_...', '_ERROR_UNREACHABLE', etc.
     // The resulting JS error codes all start with 'ERR__ERROR_'.
     // Falls through
-    case cause?.code != null &&
-      StringPrototypeStartsWith(cause.code, 'ERR__ERROR_'): {
+    case causeCode != null &&
+      StringPrototypeStartsWith(causeCode, 'ERR__ERROR_'): {
       // eslint-disable-next-line no-restricted-syntax
       const error = new TypeError(undefined, { cause });
-      error.code = cause.code;
+      setOwnProperty(error, 'code', causeCode);
       return error;
     }
     default:
       return cause;
   }
+}
+
+const noop = () => {};
+
+// A single shared write request tracks every chunk written to the
+// destination WritableStream, replacing the per-write promise pair that
+// writer.ready + writer.write() would allocate. Only one write/writev
+// batch is in flight at a time, so one callback slot is enough.
+// `promise` is non-undefined so writable-stream queue entries are
+// discriminated from kNilRequest by `promise === undefined`;
+// `failed`/`failure` latch a write that could not proceed.
+function createWriteTracker(getDestination) {
+  return {
+    promise: null,
+    pending: 0,
+    failed: false,
+    failure: undefined,
+    callback: undefined,
+    error: undefined,
+    hasError: false,
+    dispatching: false,
+    resolve() {
+      this.pending--;
+      if (!this.dispatching && this.pending === 0 &&
+          this.callback !== undefined) {
+        this.settle();
+      }
+    },
+    reject(error) {
+      this.pending--;
+      if (!this.hasError) {
+        this.hasError = true;
+        this.error = error;
+      }
+      if (!this.dispatching && this.pending === 0 &&
+          this.callback !== undefined) {
+        this.settle();
+      }
+    },
+    settle() {
+      const callback = this.callback;
+      this.callback = undefined;
+      let error;
+      if (this.hasError) {
+        error = this.error;
+        this.hasError = false;
+        this.error = undefined;
+      } else if (this.failed) {
+        error = this.failure;
+      }
+      this.failed = false;
+      this.failure = undefined;
+      if (error !== undefined) {
+        // Deliver failures in a microtask: this can run while the
+        // writable-stream machinery is mid-transition (e.g. inside
+        // writableStreamFinishErroring), and the callback typically
+        // destroys the stream, which re-enters the machinery.
+        PromisePrototypeThen(kResolvedPromise, () => {
+          try {
+            callback(error);
+          } catch (err) {
+            process.nextTick(() => destroy(getDestination(), err));
+          }
+        });
+        return;
+      }
+      try {
+        callback(error);
+      } catch (err) {
+        // In a next tick because this can run within a promise context,
+        // and any error thrown must not become an unhandled rejection.
+        process.nextTick(() => destroy(getDestination(), err));
+      }
+    },
+  };
+}
+
+function dispatchWrite(writer, chunk, tracker) {
+  tracker.dispatching = true;
+  writableStreamDefaultWriterWriteWithRequest(writer, chunk, tracker);
+  tracker.dispatching = false;
+  if (tracker.pending === 0)
+    tracker.settle();
+}
+
+function dispatchWritev(writer, chunks, tracker) {
+  tracker.dispatching = true;
+  for (let i = 0; i < chunks.length; i++)
+    writableStreamDefaultWriterWriteWithRequest(writer, chunks[i].chunk, tracker);
+  tracker.dispatching = false;
+  if (tracker.pending === 0)
+    tracker.settle();
 }
 
 /**
@@ -182,15 +285,19 @@ function newWritableStreamFromStreamWritable(streamWritable, options = kEmptyObj
   const strategy =
     streamWritable.writableObjectMode ?
       new CountQueuingStrategy({ highWaterMark }) :
-      { highWaterMark };
+      {
+        highWaterMark,
+        size(chunk) {
+          return chunk?.byteLength ?? chunk?.length ?? 1;
+        },
+      };
 
   let controller;
   let backpressurePromise;
   let closed;
 
   function onDrain() {
-    if (backpressurePromise !== undefined)
-      backpressurePromise.resolve();
+    backpressurePromise?.resolve();
   }
 
   const cleanup = eos(streamWritable, (error) => {
@@ -201,8 +308,7 @@ function newWritableStreamFromStreamWritable(streamWritable, options = kEmptyObj
     // that happen to emit an error event again after finished is called.
     streamWritable.on('error', () => {});
     if (error != null) {
-      if (backpressurePromise !== undefined)
-        backpressurePromise.reject(error);
+      backpressurePromise?.reject(error);
       // If closed is not undefined, the error is happening
       // after the WritableStream close has already started.
       // We need to reject it here.
@@ -210,7 +316,7 @@ function newWritableStreamFromStreamWritable(streamWritable, options = kEmptyObj
         closed.reject(error);
         closed = undefined;
       }
-      controller.error(error);
+      controller?.error(error);
       controller = undefined;
       return;
     }
@@ -220,7 +326,7 @@ function newWritableStreamFromStreamWritable(streamWritable, options = kEmptyObj
       closed = undefined;
       return;
     }
-    controller.error(new AbortError());
+    controller?.error(new AbortError());
     controller = undefined;
   });
 
@@ -230,13 +336,16 @@ function newWritableStreamFromStreamWritable(streamWritable, options = kEmptyObj
     start(c) { controller = c; },
 
     write(chunk) {
-      if (!streamWritable.writableObjectMode && isArrayBuffer(chunk)) {
-        chunk = new Uint8Array(chunk);
-      }
       try {
         options[kValidateChunk]?.(chunk);
+        if (!streamWritable.writableObjectMode && isAnyArrayBuffer(chunk)) {
+          chunk = new Uint8Array(chunk);
+        }
         if (streamWritable.writableNeedDrain || !streamWritable.write(chunk)) {
           backpressurePromise = PromiseWithResolvers();
+          if (!streamWritable.writableNeedDrain) {
+            backpressurePromise.resolve();
+          }
           return SafePromisePrototypeFinally(
             backpressurePromise.promise, () => {
               backpressurePromise = undefined;
@@ -304,6 +413,7 @@ function newStreamWritableFromWritableStream(writableStream, options = kEmptyObj
 
   const writer = writableStream.getWriter();
   let closed = false;
+  const writeTracker = createWriteTracker(() => writable);
 
   const writable = new Writable({
     highWaterMark,
@@ -312,31 +422,8 @@ function newStreamWritableFromWritableStream(writableStream, options = kEmptyObj
     signal,
 
     writev(chunks, callback) {
-      function done(error) {
-        error = error.filter((e) => e);
-        try {
-          callback(error.length === 0 ? undefined : error);
-        } catch (error) {
-          // In a next tick because this is happening within
-          // a promise context, and if there are any errors
-          // thrown we don't want those to cause an unhandled
-          // rejection. Let's just escape the promise and
-          // handle it separately.
-          process.nextTick(() => destroy(writable, error));
-        }
-      }
-
-      PromisePrototypeThen(
-        writer.ready,
-        () => {
-          return PromisePrototypeThen(
-            SafePromiseAll(
-              chunks,
-              (data) => writer.write(data.chunk)),
-            done,
-            done);
-        },
-        done);
+      writeTracker.callback = callback;
+      dispatchWritev(writer, chunks, writeTracker);
     },
 
     write(chunk, encoding, callback) {
@@ -355,23 +442,8 @@ function newStreamWritableFromWritableStream(writableStream, options = kEmptyObj
         }
       }
 
-      function done(error) {
-        try {
-          callback(error);
-        } catch (error) {
-          destroy(writable, error);
-        }
-      }
-
-      PromisePrototypeThen(
-        writer.ready,
-        () => {
-          return PromisePrototypeThen(
-            writer.write(chunk),
-            done,
-            done);
-        },
-        done);
+      writeTracker.callback = callback;
+      dispatchWrite(writer, chunk, writeTracker);
     },
 
     destroy(error, callback) {
@@ -448,6 +520,8 @@ function newStreamWritableFromWritableStream(writableStream, options = kEmptyObj
   return writable;
 }
 
+const kErrorSentinelAttached = Symbol('kErrorSentinelAttached');
+
 /**
  * @typedef {import('./queuingstrategies').QueuingStrategy} QueuingStrategy
  * @param {Readable} streamReadable
@@ -474,89 +548,82 @@ function newReadableStreamFromStreamReadable(streamReadable, options = kEmptyObj
   }
 
   const isBYOB = options.type === 'bytes';
-
-  if (isDestroyed(streamReadable) || !isReadable(streamReadable)) {
-    const readable = new ReadableStream();
-    readable.cancel();
-    return readable;
-  }
-
-  const objectMode = streamReadable.readableObjectMode;
-  const highWaterMark = streamReadable.readableHighWaterMark;
-
-  const evaluateStrategyOrFallback = (strategy) => {
-    // If the stream is BYOB, we only use highWaterMark
-    if (isBYOB)
-      return { highWaterMark };
-    // If there is a strategy available, use it
-    if (strategy)
-      return strategy;
-
-    if (objectMode) {
-      // When running in objectMode explicitly but no strategy, we just fall
-      // back to CountQueuingStrategy
-      return new CountQueuingStrategy({ highWaterMark });
-    }
-
-    return new ByteLengthQueuingStrategy({ highWaterMark });
-  };
-
-  const strategy = evaluateStrategyOrFallback(options?.strategy);
-
   let controller;
   let wasCanceled = false;
+  let strategy;
 
-  function onData(chunk) {
-    // Copy the Buffer to detach it from the pool.
-    if (Buffer.isBuffer(chunk) && !objectMode)
-      chunk = new Uint8Array(chunk);
-    controller.enqueue(chunk);
-    if (controller.desiredSize <= 0)
-      streamReadable.pause();
-  }
-
-  streamReadable.pause();
-
-  const cleanup = eos(streamReadable, (error) => {
-    error = handleKnownInternalErrors(error);
-
-    cleanup();
-    // This is a protection against non-standard, legacy streams
-    // that happen to emit an error event again after finished is called.
-    streamReadable.on('error', () => {});
-    if (error)
-      return controller.error(error);
-    // Was already canceled
-    if (wasCanceled) {
-      return;
-    }
-    controller.close();
-  });
-
-  streamReadable.on('data', onData);
-
-  return new ReadableStream({
+  /** @type {UnderlyingSource} */
+  const underlyingSource = {
+    __proto__: null,
     type: isBYOB ? 'bytes' : undefined,
-    start(c) {
-      controller = c;
-      if (isBYOB) {
-        streamReadable.once('end', () => {
-          // close the controller
-          controller.close();
-          // And unlock the last BYOB read request
-          controller.byobRequest?.respond(0);
-          wasCanceled = true;
-        });
-      }
-    },
-
-    pull() { streamReadable.resume(); },
-
+    start(c) { controller = c; },
     cancel(reason) {
       wasCanceled = true;
       destroy(streamReadable, reason);
     },
-  }, strategy);
+  };
+
+  const readable = isReadable(streamReadable);
+  const objectMode = streamReadable.readableObjectMode;
+  if (readable) {
+    underlyingSource.pull = function pull() {
+      streamReadable.resume();
+    };
+
+    const highWaterMark = streamReadable.readableHighWaterMark;
+    strategy = isBYOB ? { highWaterMark } :
+      options.strategy ?? new (objectMode ? CountQueuingStrategy : ByteLengthQueuingStrategy)({ highWaterMark });
+  }
+  const readableStream = new ReadableStream(underlyingSource, strategy);
+
+  // When adapting a Duplex as a ReadableStream, readable completion should not
+  // wait for a half-open writable side to finish as well.
+  let cleanup = noop;
+  cleanup = eos(streamReadable, {
+    __proto__: null,
+    writable: false,
+    [kEosNodeSynchronousCallback]: true,
+  }, (error) => {
+    error = handleKnownInternalErrors(error);
+
+    // If eos calls the callback synchronously, cleanup is still a no-op here.
+    cleanup();
+
+    if (!(kErrorSentinelAttached in streamReadable)) {
+      // This is a protection against non-standard, legacy streams
+      // that happen to emit an error event again after finished is called.
+      streamReadable.on('error', noop);
+      streamReadable[kErrorSentinelAttached] = true;
+    }
+    if (wasCanceled) {
+      return;
+    }
+    wasCanceled = true;
+    if (error)
+      return controller.error(error);
+    controller.close();
+    if (isBYOB)
+      controller.byobRequest?.respond(0);
+  });
+
+  if (wasCanceled) {
+    // `eos` called the callback synchronously
+    cleanup();
+  } else if (readable) {
+    streamReadable.pause();
+
+    streamReadable.on('data', function onData(chunk) {
+      if (wasCanceled) return;
+      // Copy the Buffer to detach it from the pool.
+      if (Buffer.isBuffer(chunk) && !objectMode)
+        chunk = new Uint8Array(chunk);
+      controller.enqueue(chunk);
+      if (controller.desiredSize <= 0)
+        streamReadable.pause();
+    });
+  }
+
+  return readableStream;
 }
 
 /**
@@ -591,6 +658,14 @@ function newStreamReadableFromReadableStream(readableStream, options = kEmptyObj
 
   const reader = readableStream.getReader();
   let closed = false;
+  let readRequest;
+  let pendingChunk;
+
+  function forwardChunk() {
+    const chunk = pendingChunk;
+    pendingChunk = undefined;
+    readable.push(chunk);
+  }
 
   const readable = new Readable({
     objectMode,
@@ -599,17 +674,25 @@ function newStreamReadableFromReadableStream(readableStream, options = kEmptyObj
     signal,
 
     read() {
-      PromisePrototypeThen(
-        reader.read(),
-        (chunk) => {
-          if (chunk.done) {
-            // Value should always be undefined here.
-            readable.push(null);
-          } else {
-            readable.push(chunk.value);
-          }
+      // At most one read is in flight (Readable does not call read()
+      // again before push()), so a single reused read request replaces
+      // the promise, read-result object, and reaction closures that
+      // reader.read() would allocate per chunk. The chunk is forwarded
+      // in a microtask to keep the old reaction position: a sync push
+      // could deliver a chunk that an error or destroy should beat.
+      readRequest ??= {
+        [kChunk](chunk) {
+          pendingChunk = chunk;
+          PromisePrototypeThen(kResolvedPromise, forwardChunk);
         },
-        (error) => destroy(readable, error));
+        [kClose]() {
+          readable.push(null);
+        },
+        [kError](error) {
+          destroy(readable, error);
+        },
+      };
+      readableStreamDefaultReaderRead(reader, readRequest);
     },
 
     destroy(error, callback) {
@@ -650,6 +733,12 @@ function newStreamReadableFromReadableStream(readableStream, options = kEmptyObj
   return readable;
 }
 
+const emitDEP0201 = getDeprecationWarningEmitter(
+  'DEP0201',
+  "Passing 'options.type' to Duplex.toWeb() is deprecated. " +
+      "To specify the ReadableStream type, use 'options.readableType'.",
+  newReadableWritablePairFromDuplex);
+
 /**
  * @typedef {import('./readablestream').ReadableWritablePair
  * } ReadableWritablePair
@@ -677,9 +766,14 @@ function newReadableWritablePairFromDuplex(duplex, options = kEmptyObject) {
 
   const readableOptions = {
     __proto__: null,
-    // DEP0201: 'options.type' is a deprecated alias for 'options.readableType'
-    type: options.readableType ?? options.type,
+    type: options.readableType,
   };
+
+  if (options.readableType == null && options.type != null) {
+    // 'options.type' is a deprecated alias for 'options.readableType'
+    emitDEP0201();
+    readableOptions.type = options.type;
+  }
 
   if (isDestroyed(duplex)) {
     const writable = new WritableStream();
@@ -764,6 +858,15 @@ function newStreamDuplexFromReadableWritablePair(pair = kEmptyObject, options = 
   const reader = readableStream.getReader();
   let writableClosed = false;
   let readableClosed = false;
+  let readRequest;
+  let pendingChunk;
+  const writeTracker = createWriteTracker(() => duplex);
+
+  function forwardChunk() {
+    const chunk = pendingChunk;
+    pendingChunk = undefined;
+    duplex.push(chunk);
+  }
 
   const duplex = new Duplex({
     allowHalfOpen,
@@ -774,31 +877,8 @@ function newStreamDuplexFromReadableWritablePair(pair = kEmptyObject, options = 
     signal,
 
     writev(chunks, callback) {
-      function done(error) {
-        error = error.filter((e) => e);
-        try {
-          callback(error.length === 0 ? undefined : error);
-        } catch (error) {
-          // In a next tick because this is happening within
-          // a promise context, and if there are any errors
-          // thrown we don't want those to cause an unhandled
-          // rejection. Let's just escape the promise and
-          // handle it separately.
-          process.nextTick(() => destroy(duplex, error));
-        }
-      }
-
-      PromisePrototypeThen(
-        writer.ready,
-        () => {
-          return PromisePrototypeThen(
-            SafePromiseAll(
-              chunks,
-              (data) => writer.write(data.chunk)),
-            done,
-            done);
-        },
-        done);
+      writeTracker.callback = callback;
+      dispatchWritev(writer, chunks, writeTracker);
     },
 
     write(chunk, encoding, callback) {
@@ -817,23 +897,8 @@ function newStreamDuplexFromReadableWritablePair(pair = kEmptyObject, options = 
         }
       }
 
-      function done(error) {
-        try {
-          callback(error);
-        } catch (error) {
-          destroy(duplex, error);
-        }
-      }
-
-      PromisePrototypeThen(
-        writer.ready,
-        () => {
-          return PromisePrototypeThen(
-            writer.write(chunk),
-            done,
-            done);
-        },
-        done);
+      writeTracker.callback = callback;
+      dispatchWrite(writer, chunk, writeTracker);
     },
 
     final(callback) {
@@ -859,16 +924,21 @@ function newStreamDuplexFromReadableWritablePair(pair = kEmptyObject, options = 
     },
 
     read() {
-      PromisePrototypeThen(
-        reader.read(),
-        (chunk) => {
-          if (chunk.done) {
-            duplex.push(null);
-          } else {
-            duplex.push(chunk.value);
-          }
+      // Same single-in-flight reused read request as
+      // newStreamReadableFromReadableStream().
+      readRequest ??= {
+        [kChunk](chunk) {
+          pendingChunk = chunk;
+          PromisePrototypeThen(kResolvedPromise, forwardChunk);
         },
-        (error) => destroy(duplex, error));
+        [kClose]() {
+          duplex.push(null);
+        },
+        [kError](error) {
+          destroy(duplex, error);
+        },
+      };
+      readableStreamDefaultReaderRead(reader, readRequest);
     },
 
     destroy(error, callback) {
@@ -897,7 +967,7 @@ function newStreamDuplexFromReadableWritablePair(pair = kEmptyObject, options = 
 
       if (!writableClosed || !readableClosed) {
         PromisePrototypeThen(
-          SafePromiseAll([
+          SafePromiseAllReturnVoid([
             closeWriter(),
             closeReader(),
           ]),
@@ -1053,7 +1123,8 @@ function newReadableStreamFromStreamBase(streamBase, strategy, options = kEmptyO
         return;
       }
 
-      controller.enqueue(arrayBuffer);
+      const offset = streamBaseState[kArrayBufferOffset];
+      controller.enqueue(new Uint8Array(arrayBuffer, offset, nread));
 
       if (controller.desiredSize <= 0)
         streamBase.readStop();

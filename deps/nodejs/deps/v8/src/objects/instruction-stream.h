@@ -10,6 +10,7 @@
 #endif
 
 #include "src/codegen/code-desc.h"
+#include "src/heap/heap-write-barrier.h"
 #include "src/objects/trusted-object.h"
 
 // Has to be the last include (doesn't have include guards):
@@ -19,6 +20,7 @@ namespace v8 {
 namespace internal {
 
 class Code;
+class CodeDesc;
 class WritableJitAllocation;
 
 // InstructionStream contains the instruction stream for V8-generated code
@@ -33,8 +35,6 @@ class WritableJitAllocation;
 // it doesn't live in the trusted space but instead in the code space.
 class InstructionStream : public TrustedObject {
  public:
-  NEVER_READ_ONLY_SPACE
-
   // All InstructionStream objects have the following layout:
   //
   //  +--------------------------+
@@ -116,6 +116,7 @@ class InstructionStream : public TrustedObject {
   static V8_INLINE Tagged<InstructionStream> Initialize(
       Tagged<HeapObject> self, Tagged<Map> map, uint32_t body_size,
       int constant_pool_offset, Tagged<TrustedByteArray> reloc_info);
+  static void ValidateJSDispatchHandles(Heap* heap, const CodeDesc& desc);
   V8_INLINE void Finalize(Tagged<Code> code,
                           Tagged<TrustedByteArray> reloc_info, CodeDesc desc,
                           Heap* heap);
@@ -155,7 +156,12 @@ class InstructionStream : public TrustedObject {
 
   class V8_NODISCARD WriteBarrierPromise {
    public:
-    WriteBarrierPromise() = default;
+#ifdef DEBUG
+    explicit WriteBarrierPromise(Tagged<InstructionStream> host)
+        : write_barrier_mode_scope_(host, SKIP_WRITE_BARRIER_SCOPE) {}
+#else
+    explicit WriteBarrierPromise(Tagged<InstructionStream> host) {}
+#endif
     WriteBarrierPromise(WriteBarrierPromise&&) V8_NOEXCEPT = default;
     WriteBarrierPromise(const WriteBarrierPromise&) = delete;
     WriteBarrierPromise& operator=(const WriteBarrierPromise&) = delete;
@@ -167,6 +173,7 @@ class InstructionStream : public TrustedObject {
 
    private:
     std::set<Address> delayed_write_barriers_;
+    WriteBarrierModeScope write_barrier_mode_scope_;
 #else
     void RegisterAddress(Address address) {}
     void ResolveAddress(Address address) {}

@@ -5,6 +5,7 @@ const {
   ErrorCaptureStackTrace,
   ObjectDefineProperty,
   ObjectPrototypeHasOwnProperty,
+  ReflectApply,
   Symbol,
 } = primordials;
 
@@ -104,6 +105,7 @@ const before_symbol = Symbol('before');
 const after_symbol = Symbol('after');
 const destroy_symbol = Symbol('destroy');
 const promise_resolve_symbol = Symbol('promiseResolve');
+const async_local_storage_context_symbol = Symbol('kAsyncLocalStorageContext');
 const emitBeforeNative = emitHookFactory(before_symbol, 'emitBeforeNative');
 const emitAfterNative = emitHookFactory(after_symbol, 'emitAfterNative');
 const emitDestroyNative = emitHookFactory(destroy_symbol, 'emitDestroyNative');
@@ -125,9 +127,9 @@ function callbackTrampoline(asyncId, resource, cb, ...args) {
   let result;
   if (asyncId === 0 && typeof domain_cb === 'function') {
     args.unshift(cb);
-    result = domain_cb.apply(this, args);
+    result = ReflectApply(domain_cb, this, args);
   } else {
-    result = cb.apply(this, args);
+    result = ReflectApply(cb, this, args);
   }
 
   if (asyncId !== 0 && hasHooks(kAfter))
@@ -462,14 +464,14 @@ function clearDefaultTriggerAsyncId() {
  */
 function defaultTriggerAsyncIdScope(triggerAsyncId, block, ...args) {
   if (triggerAsyncId === undefined)
-    return block.apply(null, args);
+    return ReflectApply(block, null, args);
   // CHECK(NumberIsSafeInteger(triggerAsyncId))
   // CHECK(triggerAsyncId > 0)
   const oldDefaultTriggerAsyncId = async_id_fields[kDefaultTriggerAsyncId];
   async_id_fields[kDefaultTriggerAsyncId] = triggerAsyncId;
 
   try {
-    return block.apply(null, args);
+    return ReflectApply(block, null, args);
   } finally {
     async_id_fields[kDefaultTriggerAsyncId] = oldDefaultTriggerAsyncId;
   }
@@ -594,7 +596,8 @@ module.exports = {
   symbols: {
     async_id_symbol, trigger_async_id_symbol,
     init_symbol, before_symbol, after_symbol, destroy_symbol,
-    promise_resolve_symbol, owner_symbol,
+    promise_resolve_symbol, async_local_storage_context_symbol,
+    owner_symbol,
   },
   constants: {
     kInit, kBefore, kAfter, kDestroy, kTotals, kPromiseResolve,

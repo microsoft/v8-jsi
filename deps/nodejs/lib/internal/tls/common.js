@@ -82,10 +82,11 @@ function SecureContext(secureProtocol, secureOptions, minVersion, maxVersion) {
       throw new ERR_TLS_PROTOCOL_VERSION_CONFLICT(maxVersion, secureProtocol);
   }
 
+  const minV = toV('minimum', minVersion, tls.DEFAULT_MIN_VERSION);
+  const maxV = toV('maximum', maxVersion, tls.DEFAULT_MAX_VERSION);
+
   this.context = new NativeSecureContext();
-  this.context.init(secureProtocol,
-                    toV('minimum', minVersion, tls.DEFAULT_MIN_VERSION),
-                    toV('maximum', maxVersion, tls.DEFAULT_MAX_VERSION));
+  this.context.init(secureProtocol, minV, maxV);
 
   if (secureOptions) {
     validateInteger(secureOptions, 'secureOptions');
@@ -100,6 +101,7 @@ function createSecureContext(options) {
     minVersion,
     maxVersion,
     secureProtocol,
+    singleUse,
   } = options;
 
   let { secureOptions } = options;
@@ -111,6 +113,13 @@ function createSecureContext(options) {
                               minVersion, maxVersion);
 
   configSecureContext(c.context, options);
+
+  // A single-use context belongs to exactly one connection, so the underlying
+  // SSL_CTX can be freed as soon as that connection closes instead of waiting
+  // for the JS wrapper to be garbage collected. TLSSocket relies on this flag
+  // to know that it may close the context itself.
+  if (singleUse)
+    c.singleUse = true;
 
   return c;
 }

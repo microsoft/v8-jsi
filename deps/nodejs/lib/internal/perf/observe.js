@@ -13,7 +13,6 @@ const {
   MathMin,
   ObjectDefineProperties,
   ObjectFreeze,
-  ObjectKeys,
   SafeArrayPrototypePushApply,
   SafeMap,
   SafeSet,
@@ -28,11 +27,11 @@ const {
     NODE_PERFORMANCE_ENTRY_TYPE_HTTP,
     NODE_PERFORMANCE_ENTRY_TYPE_NET,
     NODE_PERFORMANCE_ENTRY_TYPE_DNS,
+    NODE_PERFORMANCE_ENTRY_TYPE_QUIC,
   },
-  installGarbageCollectionTracking,
   observerCounts,
-  removeGarbageCollectionTracking,
   setupObservers,
+  updateGarbageCollectionTracking,
 } = internalBinding('performance');
 
 const {
@@ -57,7 +56,6 @@ const {
 
 const {
   customInspectSymbol: kInspect,
-  deprecate,
   lazyDOMException,
   kEmptyObject,
   kEnumerableProperty,
@@ -74,16 +72,9 @@ const { now } = require('internal/perf/utils');
 const kBuffer = Symbol('kBuffer');
 const kDispatch = Symbol('kDispatch');
 const kMaybeBuffer = Symbol('kMaybeBuffer');
-const kDeprecatedFields = Symbol('kDeprecatedFields');
-
-const kDeprecationMessage =
-  'Custom PerformanceEntry accessors are deprecated. ' +
-  'Please use the detail property.';
 
 const kTypeSingle = 0;
 const kTypeMultiple = 1;
-
-let gcTrackingInstalled = false;
 
 const kSupportedEntryTypes = ObjectFreeze([
   'dns',
@@ -94,6 +85,7 @@ const kSupportedEntryTypes = ObjectFreeze([
   'mark',
   'measure',
   'net',
+  'quic',
   'resource',
 ]);
 
@@ -138,6 +130,7 @@ function getObserverType(type) {
     case 'http': return NODE_PERFORMANCE_ENTRY_TYPE_HTTP;
     case 'net': return NODE_PERFORMANCE_ENTRY_TYPE_NET;
     case 'dns': return NODE_PERFORMANCE_ENTRY_TYPE_DNS;
+    case 'quic': return NODE_PERFORMANCE_ENTRY_TYPE_QUIC;
   }
 }
 
@@ -148,13 +141,29 @@ function maybeDecrementObserverCounts(entryTypes) {
     if (observerType !== undefined) {
       observerCounts[observerType]--;
 
-      if (observerType === NODE_PERFORMANCE_ENTRY_TYPE_GC &&
-          observerCounts[observerType] === 0) {
-        removeGarbageCollectionTracking();
-        gcTrackingInstalled = false;
+      // Removes the GC callbacks once the last 'gc' observer is gone.
+      if (observerType === NODE_PERFORMANCE_ENTRY_TYPE_GC) {
+        updateGarbageCollectionTracking();
       }
     }
   }
+}
+
+let gcTrackingDeserializeCallbackAdded = false;
+
+// V8 GC callbacks do not survive a snapshot. When building one with active
+// 'gc' observers, register the callbacks again after deserialization.
+function maybeRestoreGarbageCollectionTrackingOnDeserialize() {
+  if (gcTrackingDeserializeCallbackAdded) return;
+  const {
+    namespace: {
+      addDeserializeCallback,
+      isBuildingSnapshot,
+    },
+  } = require('internal/v8/startup_snapshot');
+  if (!isBuildingSnapshot()) return;
+  gcTrackingDeserializeCallbackAdded = true;
+  addDeserializeCallback(updateGarbageCollectionTracking);
 }
 
 function maybeIncrementObserverCount(type) {
@@ -162,10 +171,11 @@ function maybeIncrementObserverCount(type) {
 
   if (observerType !== undefined) {
     observerCounts[observerType]++;
-    if (!gcTrackingInstalled &&
-        observerType === NODE_PERFORMANCE_ENTRY_TYPE_GC) {
-      installGarbageCollectionTracking();
-      gcTrackingInstalled = true;
+    // Installs the GC callbacks if they are not installed yet. This is
+    // idempotent, so it is called whenever the 'gc' observer count changes.
+    if (observerType === NODE_PERFORMANCE_ENTRY_TYPE_GC) {
+      updateGarbageCollectionTracking();
+      maybeRestoreGarbageCollectionTrackingOnDeserialize();
     }
   }
 }
@@ -295,16 +305,23 @@ class PerformanceObserver {
       maybeDecrementObserverCounts(this.#entryTypes);
       this.#entryTypes.clear();
       for (let n = 0; n < entryTypes.length; n++) {
-        if (ArrayPrototypeIncludes(kSupportedEntryTypes, entryTypes[n])) {
-          this.#entryTypes.add(entryTypes[n]);
-          maybeIncrementObserverCount(entryTypes[n]);
+        const entryType = entryTypes[n];
+        // Count each entry type at most once per observer, as disconnect()
+        // decrements the counts once per observed type.
+        if (ArrayPrototypeIncludes(kSupportedEntryTypes, entryType) &&
+            !this.#entryTypes.has(entryType)) {
+          this.#entryTypes.add(entryType);
+          maybeIncrementObserverCount(entryType);
         }
       }
     } else {
       if (!ArrayPrototypeIncludes(kSupportedEntryTypes, type))
         return;
-      this.#entryTypes.add(type);
-      maybeIncrementObserverCount(type);
+      // Observing the same type again only replaces the options.
+      if (!this.#entryTypes.has(type)) {
+        this.#entryTypes.add(type);
+        maybeIncrementObserverCount(type);
+      }
       if (buffered) {
         const entries = filterBufferMapByNameAndType(undefined, type);
         SafeArrayPrototypePushApply(this.#buffer, entries);
@@ -536,32 +553,6 @@ function observerCallback(name, type, startTime, duration, details) {
       duration,
       details);
 
-  if (details !== undefined) {
-    // GC, HTTP2, and HTTP PerformanceEntry used additional
-    // properties directly off the entry. Those have been
-    // moved into the details property. The existing accessors
-    // are still included but are deprecated.
-    entry[kDeprecatedFields] = new SafeMap();
-
-    const detailKeys = ObjectKeys(details);
-    const props = {};
-    for (let n = 0; n < detailKeys.length; n++) {
-      const key = detailKeys[n];
-      entry[kDeprecatedFields].set(key, details[key]);
-      props[key] = {
-        configurable: true,
-        enumerable: true,
-        get: deprecate(() => {
-          return entry[kDeprecatedFields].get(key);
-        }, kDeprecationMessage, 'DEP0152'),
-        set: deprecate((value) => {
-          entry[kDeprecatedFields].set(key, value);
-        }, kDeprecationMessage, 'DEP0152'),
-      };
-    }
-    ObjectDefineProperties(entry, props);
-  }
-
   enqueue(entry);
 }
 
@@ -573,14 +564,14 @@ function hasObserver(type) {
 }
 
 
-function startPerf(target, key, context = {}) {
+function startPerf(target, key, context = kEmptyObject) {
   target[key] = {
     ...context,
     startTime: now(),
   };
 }
 
-function stopPerf(target, key, context = {}) {
+function stopPerf(target, key, context = kEmptyObject) {
   const ctx = target[key];
   if (!ctx) {
     return;

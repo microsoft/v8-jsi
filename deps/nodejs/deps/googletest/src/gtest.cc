@@ -407,6 +407,18 @@ GTEST_DEFINE_bool_(
     "if exceptions are enabled or exit the program with a non-zero code "
     "otherwise. For use with an external test framework.");
 
+GTEST_DEFINE_int32_(
+    shard_index,
+    testing::internal::Int32FromEnvOrDie(testing::kTestShardIndex, -1),
+    "The zero-based index of the shard to run. A value of -1 "
+    "(the default) indicates that sharding is disabled.");
+
+GTEST_DEFINE_int32_(
+    total_shards,
+    testing::internal::Int32FromEnvOrDie(testing::kTestTotalShards, -1),
+    "The total number of shards to use when running tests in parallel. "
+    "A value of -1 (the default) indicates that sharding is disabled.");
+
 #if GTEST_USE_OWN_FLAGFILE_FLAG_
 GTEST_DEFINE_string_(
     flagfile, testing::internal::StringFromGTestEnv("flagfile", ""),
@@ -1197,7 +1209,7 @@ int UnitTestImpl::test_to_run_count() const {
 // trace but Bar() and CurrentOsStackTraceExceptTop() won't.
 std::string UnitTestImpl::CurrentOsStackTraceExceptTop(int skip_count) {
   return os_stack_trace_getter()->CurrentStackTrace(
-      static_cast<int>(GTEST_FLAG_GET(stack_trace_depth)), skip_count + 1
+      GTEST_FLAG_GET(stack_trace_depth), skip_count + 1
       // Skips the user-specified number of frames plus this function
       // itself.
   );  // NOLINT
@@ -1864,11 +1876,13 @@ bool IsSubstringPred(const char* needle, const char* haystack) {
   return strstr(haystack, needle) != nullptr;
 }
 
+#if GTEST_HAS_STD_WSTRING
 bool IsSubstringPred(const wchar_t* needle, const wchar_t* haystack) {
   if (needle == nullptr || haystack == nullptr) return needle == haystack;
 
   return wcsstr(haystack, needle) != nullptr;
 }
+#endif  // GTEST_HAS_STD_WSTRING
 
 // StringType here can be either ::std::string or ::std::wstring.
 template <typename StringType>
@@ -1910,20 +1924,9 @@ AssertionResult IsSubstring(const char* needle_expr, const char* haystack_expr,
   return IsSubstringImpl(true, needle_expr, haystack_expr, needle, haystack);
 }
 
-AssertionResult IsSubstring(const char* needle_expr, const char* haystack_expr,
-                            const wchar_t* needle, const wchar_t* haystack) {
-  return IsSubstringImpl(true, needle_expr, haystack_expr, needle, haystack);
-}
-
 AssertionResult IsNotSubstring(const char* needle_expr,
                                const char* haystack_expr, const char* needle,
                                const char* haystack) {
-  return IsSubstringImpl(false, needle_expr, haystack_expr, needle, haystack);
-}
-
-AssertionResult IsNotSubstring(const char* needle_expr,
-                               const char* haystack_expr, const wchar_t* needle,
-                               const wchar_t* haystack) {
   return IsSubstringImpl(false, needle_expr, haystack_expr, needle, haystack);
 }
 
@@ -1941,6 +1944,17 @@ AssertionResult IsNotSubstring(const char* needle_expr,
 }
 
 #if GTEST_HAS_STD_WSTRING
+AssertionResult IsSubstring(const char* needle_expr, const char* haystack_expr,
+                            const wchar_t* needle, const wchar_t* haystack) {
+  return IsSubstringImpl(true, needle_expr, haystack_expr, needle, haystack);
+}
+
+AssertionResult IsNotSubstring(const char* needle_expr,
+                               const char* haystack_expr, const wchar_t* needle,
+                               const wchar_t* haystack) {
+  return IsSubstringImpl(false, needle_expr, haystack_expr, needle, haystack);
+}
+
 AssertionResult IsSubstring(const char* needle_expr, const char* haystack_expr,
                             const ::std::wstring& needle,
                             const ::std::wstring& haystack) {
@@ -2170,6 +2184,7 @@ bool String::WideCStringEquals(const wchar_t* lhs, const wchar_t* rhs) {
   return wcscmp(lhs, rhs) == 0;
 }
 
+#if GTEST_HAS_STD_WSTRING
 // Helper function for *_STREQ on wide strings.
 AssertionResult CmpHelperSTREQ(const char* lhs_expression,
                                const char* rhs_expression, const wchar_t* lhs,
@@ -2194,6 +2209,7 @@ AssertionResult CmpHelperSTRNE(const char* s1_expression,
          << "Expected: (" << s1_expression << ") != (" << s2_expression
          << "), actual: " << PrintToString(s1) << " vs " << PrintToString(s2);
 }
+#endif  // GTEST_HAS_STD_WSTRING
 
 // Compares two C strings, ignoring case.  Returns true if and only if they have
 // the same content.
@@ -2688,7 +2704,7 @@ Result HandleSehExceptionsInMethodIfSupported(T* object, Result (T::*method)(),
 }
 
 // Runs the given method and catches and reports C++ and/or SEH-style
-// exceptions, if they are supported; returns the 0-value for type
+// exceptions, if they are supported; returns the default-value for type
 // Result in case of an SEH exception.
 template <class T, typename Result>
 Result HandleExceptionsInMethodIfSupported(T* object, Result (T::*method)(),
@@ -2736,7 +2752,7 @@ Result HandleExceptionsInMethodIfSupported(T* object, Result (T::*method)(),
           TestPartResult::kFatalFailure,
           FormatCxxExceptionMessage(nullptr, location));
     }
-    return static_cast<Result>(0);
+    return Result();
 #else
     return HandleSehExceptionsInMethodIfSupported(object, method, location);
 #endif  // GTEST_HAS_EXCEPTIONS
@@ -3475,11 +3491,11 @@ void PrettyUnitTestResultPrinter::OnTestIterationStart(
                   filter);
   }
 
-  if (internal::ShouldShard(kTestTotalShards, kTestShardIndex, false)) {
-    const int32_t shard_index = Int32FromEnvOrDie(kTestShardIndex, -1);
-    ColoredPrintf(GTestColor::kYellow, "Note: This is test shard %d of %s.\n",
+  if (internal::ShouldShard(false)) {
+    const int32_t shard_index = GTEST_FLAG_GET(shard_index);
+    ColoredPrintf(GTestColor::kYellow, "Note: This is test shard %d of %d.\n",
                   static_cast<int>(shard_index) + 1,
-                  internal::posix::GetEnv(kTestTotalShards));
+                  GTEST_FLAG_GET(total_shards));
   }
 
   if (GTEST_FLAG_GET(shuffle)) {
@@ -4227,8 +4243,7 @@ void XmlUnitTestResultPrinter::OutputXmlCDataSection(::std::ostream* stream,
   for (;;) {
     const char* const next_segment = strstr(segment, "]]>");
     if (next_segment != nullptr) {
-      stream->write(segment,
-                    static_cast<std::streamsize>(next_segment - segment));
+      stream->write(segment, next_segment - segment);
       *stream << "]]>]]&gt;<![CDATA[";
       segment = next_segment + strlen("]]>");
     } else {
@@ -4633,7 +4648,7 @@ std::string JsonUnitTestResultPrinter::EscapeJson(const std::string& str) {
         m << "\\r";
         break;
       default:
-        if (ch < ' ') {
+        if (static_cast<unsigned char>(ch) < ' ' || ch == '\x7F') {
           m << "\\u00" << String::FormatByte(static_cast<unsigned char>(ch));
         } else {
           m << ch;
@@ -5160,9 +5175,12 @@ class ScopedPrematureExitFile {
       // create the file with a single "0" character in it.  I/O
       // errors are ignored as there's nothing better we can do and we
       // don't want to fail the test because of this.
-      FILE* pfile = posix::FOpen(premature_exit_filepath_.c_str(), "w");
-      fwrite("0", 1, 1, pfile);
-      fclose(pfile);
+      if (FILE* pfile = posix::FOpen(premature_exit_filepath_.c_str(), "w")) {
+        fwrite("0", 1, 1, pfile);
+        fclose(pfile);
+      } else {
+        premature_exit_filepath_.clear();
+      }
     }
   }
 
@@ -5180,7 +5198,7 @@ class ScopedPrematureExitFile {
   }
 
  private:
-  const std::string premature_exit_filepath_;
+  std::string premature_exit_filepath_;
 
   ScopedPrematureExitFile(const ScopedPrematureExitFile&) = delete;
   ScopedPrematureExitFile& operator=(const ScopedPrematureExitFile&) = delete;
@@ -5271,17 +5289,8 @@ void TestEventListeners::SuppressEventForwarding(bool suppress) {
 // call this before main() starts, from which point on the return
 // value will never change.
 UnitTest* UnitTest::GetInstance() {
-  // CodeGear C++Builder insists on a public destructor for the
-  // default implementation.  Use this implementation to keep good OO
-  // design with private destructor.
-
-#if defined(__BORLANDC__)
-  static UnitTest* const instance = new UnitTest;
-  return instance;
-#else
   static UnitTest instance;
   return &instance;
-#endif  // defined(__BORLANDC__)
 }
 
 // Gets the number of successful test suites.
@@ -5983,8 +5992,7 @@ bool UnitTestImpl::RunAllTests() {
 #endif  // defined(GTEST_EXTRA_DEATH_TEST_CHILD_SETUP_)
 #endif  // GTEST_HAS_DEATH_TEST
 
-  const bool should_shard = ShouldShard(kTestTotalShards, kTestShardIndex,
-                                        in_subprocess_for_death_test);
+  const bool should_shard = ShouldShard(in_subprocess_for_death_test);
 
   // Compares the full test names with the filter to decide which
   // tests to run.
@@ -6196,45 +6204,44 @@ void WriteToShardStatusFileIfNeeded() {
 }
 #endif  // GTEST_HAS_FILE_SYSTEM
 
-// Checks whether sharding is enabled by examining the relevant
-// environment variable values. If the variables are present,
-// but inconsistent (i.e., shard_index >= total_shards), prints
-// an error and exits. If in_subprocess_for_death_test, sharding is
-// disabled because it must only be applied to the original test
-// process. Otherwise, we could filter out death tests we intended to execute.
-bool ShouldShard(const char* total_shards_env, const char* shard_index_env,
-                 bool in_subprocess_for_death_test) {
+// Checks whether sharding is enabled by examining the relevant command line
+// arguments. If the arguments are present, but inconsistent
+// (i.e., shard_index >= total_shards), prints an error and exits.
+// If in_subprocess_for_death_test, sharding is disabled because it must only
+// be applied to the original test process. Otherwise, we could filter out death
+// tests we intended to execute.
+bool ShouldShard(bool in_subprocess_for_death_test) {
   if (in_subprocess_for_death_test) {
     return false;
   }
 
-  const int32_t total_shards = Int32FromEnvOrDie(total_shards_env, -1);
-  const int32_t shard_index = Int32FromEnvOrDie(shard_index_env, -1);
+  const int32_t total_shards = GTEST_FLAG_GET(total_shards);
+  const int32_t shard_index = GTEST_FLAG_GET(shard_index);
 
   if (total_shards == -1 && shard_index == -1) {
     return false;
   } else if (total_shards == -1 && shard_index != -1) {
-    const Message msg = Message() << "Invalid environment variables: you have "
-                                  << kTestShardIndex << " = " << shard_index
-                                  << ", but have left " << kTestTotalShards
-                                  << " unset.\n";
+    const Message msg = Message()
+                        << "Invalid sharding: you have " << kTestShardIndex
+                        << " = " << shard_index << ", but have left "
+                        << kTestTotalShards << " unset.\n";
     ColoredPrintf(GTestColor::kRed, "%s", msg.GetString().c_str());
     fflush(stdout);
     exit(EXIT_FAILURE);
   } else if (total_shards != -1 && shard_index == -1) {
     const Message msg = Message()
-                        << "Invalid environment variables: you have "
-                        << kTestTotalShards << " = " << total_shards
-                        << ", but have left " << kTestShardIndex << " unset.\n";
+                        << "Invalid sharding: you have " << kTestTotalShards
+                        << " = " << total_shards << ", but have left "
+                        << kTestShardIndex << " unset.\n";
     ColoredPrintf(GTestColor::kRed, "%s", msg.GetString().c_str());
     fflush(stdout);
     exit(EXIT_FAILURE);
   } else if (shard_index < 0 || shard_index >= total_shards) {
     const Message msg =
-        Message() << "Invalid environment variables: we require 0 <= "
-                  << kTestShardIndex << " < " << kTestTotalShards
-                  << ", but you have " << kTestShardIndex << "=" << shard_index
-                  << ", " << kTestTotalShards << "=" << total_shards << ".\n";
+        Message() << "Invalid sharding: we require 0 <= " << kTestShardIndex
+                  << " < " << kTestTotalShards << ", but you have "
+                  << kTestShardIndex << "=" << shard_index << ", "
+                  << kTestTotalShards << "=" << total_shards << ".\n";
     ColoredPrintf(GTestColor::kRed, "%s", msg.GetString().c_str());
     fflush(stdout);
     exit(EXIT_FAILURE);
@@ -6277,11 +6284,10 @@ bool ShouldRunTestOnShard(int total_shards, int shard_index, int test_id) {
 // . Returns the number of tests that should run.
 int UnitTestImpl::FilterTests(ReactionToSharding shard_tests) {
   const int32_t total_shards = shard_tests == HONOR_SHARDING_PROTOCOL
-                                   ? Int32FromEnvOrDie(kTestTotalShards, -1)
+                                   ? GTEST_FLAG_GET(total_shards)
                                    : -1;
-  const int32_t shard_index = shard_tests == HONOR_SHARDING_PROTOCOL
-                                  ? Int32FromEnvOrDie(kTestShardIndex, -1)
-                                  : -1;
+  const int32_t shard_index =
+      shard_tests == HONOR_SHARDING_PROTOCOL ? GTEST_FLAG_GET(shard_index) : -1;
 
   const PositiveAndNegativeUnitTestFilter gtest_flag_filter(
       GTEST_FLAG_GET(filter));
@@ -6723,6 +6729,12 @@ static const char kColorEncodedHelpMessage[] =
     "recreate_environments_when_repeating@D\n"
     "      Sets up and tears down the global test environment on each repeat\n"
     "      of the test.\n"
+    "  @G--" GTEST_FLAG_PREFIX_
+    "fail_fast@D\n"
+    "      Stop running tests after the first failure.\n"
+    "  @G--" GTEST_FLAG_PREFIX_
+    "fail_if_no_test_linked@D\n"
+    "      Fail if no test is linked into the test program.\n"
     "\n"
     "Test Output:\n"
     "  @G--" GTEST_FLAG_PREFIX_
@@ -6734,6 +6746,9 @@ static const char kColorEncodedHelpMessage[] =
     "  @G--" GTEST_FLAG_PREFIX_
     "print_time=0@D\n"
     "      Don't print the elapsed time of each test.\n"
+    "  @G--" GTEST_FLAG_PREFIX_
+    "print_utf8=0@D\n"
+    "      Don't print UTF-8 characters as text.\n"
     "  @G--" GTEST_FLAG_PREFIX_
     "output=@Y(@Gjson@Y|@Gxml@Y)[@G:@YDIRECTORY_PATH@G" GTEST_PATH_SEP_
     "@Y|@G:@YFILE_PATH]@D\n"
@@ -6751,6 +6766,9 @@ static const char kColorEncodedHelpMessage[] =
     "  @G--" GTEST_FLAG_PREFIX_
     "death_test_style=@Y(@Gfast@Y|@Gthreadsafe@Y)@D\n"
     "      Set the default death test style.\n"
+    "  @G--" GTEST_FLAG_PREFIX_
+    "death_test_use_fork@D\n"
+    "      Use fork() instead of clone() to spawn death test child processes.\n"
 #endif  // GTEST_HAS_DEATH_TEST && !GTEST_OS_WINDOWS
     "  @G--" GTEST_FLAG_PREFIX_
     "break_on_failure@D\n"
@@ -6763,6 +6781,9 @@ static const char kColorEncodedHelpMessage[] =
     "catch_exceptions=0@D\n"
     "      Do not report exceptions as test failures. Instead, allow them\n"
     "      to crash the program or throw a pop-up (on Windows).\n"
+    "  @G--" GTEST_FLAG_PREFIX_
+    "stack_trace_depth=@Y[NUMBER]@D\n"
+    "      Maximum number of stack frames to print when an assertion fails.\n"
     "\n"
     "Except for @G--" GTEST_FLAG_PREFIX_
     "list_tests@D, you can alternatively set "
@@ -6810,6 +6831,8 @@ static bool ParseGoogleTestFlag(const char* const arg) {
   GTEST_INTERNAL_PARSE_FLAG(print_utf8);
   GTEST_INTERNAL_PARSE_FLAG(random_seed);
   GTEST_INTERNAL_PARSE_FLAG(repeat);
+  GTEST_INTERNAL_PARSE_FLAG(shard_index);
+  GTEST_INTERNAL_PARSE_FLAG(total_shards);
   GTEST_INTERNAL_PARSE_FLAG(recreate_environments_when_repeating);
   GTEST_INTERNAL_PARSE_FLAG(shuffle);
   GTEST_INTERNAL_PARSE_FLAG(stack_trace_depth);
@@ -6902,7 +6925,7 @@ void ParseGoogleTestFlagsOnly(int* argc, char** argv) {
   std::vector<char*> positional_args;
   std::vector<absl::UnrecognizedFlag> unrecognized_flags;
   absl::ParseAbseilFlagsOnly(*argc, argv, positional_args, unrecognized_flags);
-  absl::flat_hash_set<absl::string_view> unrecognized;
+  absl::flat_hash_set<std::string_view> unrecognized;
   for (const auto& flag : unrecognized_flags) {
     unrecognized.insert(flag.flag_name);
   }

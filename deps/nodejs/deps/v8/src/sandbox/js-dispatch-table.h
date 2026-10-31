@@ -12,8 +12,6 @@
 #include "src/runtime/runtime.h"
 #include "src/sandbox/external-entity-table.h"
 
-#ifdef V8_ENABLE_LEAPTIERING
-
 namespace v8 {
 namespace internal {
 
@@ -58,7 +56,7 @@ struct JSDispatchEntry {
   // called even when the entry is not a freelist entry. However, the result
   // is only valid if this is a freelist entry. This behaviour is required
   // for efficient entry allocation, see TryAllocateEntryFromFreelist.
-  inline uint32_t GetNextFreelistEntryIndex() const;
+  inline std::optional<uint32_t> GetNextFreelistEntryIndex() const;
 
   // Mark this entry as alive during garbage collection.
   inline void Mark();
@@ -74,6 +72,18 @@ struct JSDispatchEntry {
   static constexpr uintptr_t kEntrypointOffset = 0;
   static constexpr uintptr_t kCodeObjectOffset = kSystemPointerSize;
   static constexpr size_t kParameterCountSize = 2;
+
+// On AIX and IBM i, mmap will give you back an address with the top bits set
+// unlike other platforms where the top bits are unset.
+// Therefore kObjectPointerOffset was introduced to ensure we account for
+// the top bits being set when performing pointer operations.
+#if defined(__PASE__)
+  static constexpr uintptr_t kObjectPointerOffset = 0x0700000000000000;
+#elif defined(_AIX)
+  static constexpr uintptr_t kObjectPointerOffset = 0x0a00000000000000;
+#else
+  static constexpr uintptr_t kObjectPointerOffset = 0;
+#endif
 
 #if defined(V8_TARGET_ARCH_64_BIT)
   // Freelist entries contain the index of the next free entry in their lower 32
@@ -198,7 +208,7 @@ class V8_EXPORT_PRIVATE JSDispatchTable
   JSDispatchTable& operator=(const JSDispatchTable&) = delete;
 
   // The Spaces used by a JSDispatchTable.
-  using Space = Base::SpaceWithBlackAllocationSupport;
+  using Space = Base::Space;
 
   // Retrieves the entrypoint of the entry referenced by the given handle.
   inline Address GetEntrypoint(JSDispatchHandle handle);
@@ -247,15 +257,6 @@ class V8_EXPORT_PRIVATE JSDispatchTable
   inline std::optional<JSDispatchHandle> TryAllocateAndInitializeEntry(
       Space* space, uint16_t parameter_count, Tagged<Code> code);
 
-  // The following methods are used to pre allocate entries and then initialize
-  // them later.
-  JSDispatchHandle PreAllocateEntries(Space* space, int num,
-                                      bool ensure_static_handles);
-  bool PreAllocatedEntryNeedsInitialization(Space* space,
-                                            JSDispatchHandle handle);
-  void InitializePreAllocatedEntry(Space* space, JSDispatchHandle handle,
-                                   Tagged<Code> code, uint16_t parameter_count);
-
   // Can be used to statically predict the handles if the pre allocated entries
   // are in the overall first read only segment of the whole table.
 #if V8_STATIC_DISPATCH_HANDLES_BOOL
@@ -264,7 +265,7 @@ class V8_EXPORT_PRIVATE JSDispatchTable
   }
 #endif  // V8_STATIC_DISPATCH_HANDLES_BOOL
   static bool InReadOnlySegment(JSDispatchHandle handle) {
-    return HandleToIndex(handle) <= kEndOfInternalReadOnlySegment;
+    return HandleToIndex(handle) <= kEndOfReadOnlyIndex;
   }
   static int OffsetOfEntry(JSDispatchHandle handle) {
     return JSDispatchTable::HandleToIndex(handle)
@@ -275,6 +276,7 @@ class V8_EXPORT_PRIVATE JSDispatchTable
   //
   // This method is atomic and can be called from background threads.
   inline void Mark(JSDispatchHandle handle);
+  inline bool IsMarked(JSDispatchHandle handle);
 
   // Frees all unmarked entries in the given space.
   //
@@ -299,9 +301,6 @@ class V8_EXPORT_PRIVATE JSDispatchTable
   // The base address of this table, for use in JIT compilers.
   Address base_address() const { return base(); }
 
-#ifdef DEBUG
-  bool IsMarked(JSDispatchHandle handle);
-#endif  // DEBUG
 #if defined(DEBUG) || defined(VERIFY_HEAP)
   inline void VerifyEntry(JSDispatchHandle handle, Space* space,
                           Space* ro_space);
@@ -312,6 +311,11 @@ class V8_EXPORT_PRIVATE JSDispatchTable
                                   std::ostream& os);
 
   static constexpr bool kWriteBarrierSetsEntryMarkBit = true;
+
+  static bool MaybeValidJSDispatchHandle(uint32_t handle) {
+    return ((handle >> kJSDispatchHandleShift) << kJSDispatchHandleShift) ==
+           handle;
+  }
 
  private:
   static inline bool IsCompatibleCode(Tagged<Code> code,
@@ -332,12 +336,16 @@ class V8_EXPORT_PRIVATE JSDispatchTable
     return handle;
   }
 
+  friend class Isolate;
   friend class MarkCompactCollector;
+
+  // Using `ExternalReferenceAsOperand(IsolateFieldId::kJSDispatchTable)` in the
+  // macro assembler to get the table's base address relies the offset being 0.
+  static_assert(Internals::kExternalEntityTableBasePointerOffset == 0);
 };
 
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_ENABLE_LEAPTIERING
 
 #endif  // V8_SANDBOX_JS_DISPATCH_TABLE_H_

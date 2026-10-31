@@ -13,6 +13,7 @@
 #include "src/debug/debug-interface.h"
 #include "src/debug/debug-wasm-objects-inl.h"
 #include "src/execution/frames-inl.h"
+#include "src/execution/isolate.h"
 #include "src/objects/allocation-site.h"
 #include "src/objects/property-descriptor.h"
 #include "src/wasm/canonical-types.h"
@@ -104,7 +105,8 @@ struct IndexedDebugProxy {
                                                make_map_non_extensible);
     auto object = isolate->factory()->NewFastOrSlowJSObjectFromMap(
         object_map, 0, AllocationType::kYoung,
-        DirectHandle<AllocationSite>::null(), NewJSObjectType::kAPIWrapper);
+        DirectHandle<AllocationSite>::null(),
+        NewJSObjectType::kMaybeEmbedderFieldsAndApiWrapper);
     object->SetEmbedderField(kProviderField, *provider);
     return object;
   }
@@ -237,7 +239,8 @@ struct NamedDebugProxy : IndexedDebugProxy<T, id, Provider> {
       if (table->FindEntry(isolate, key).is_found()) continue;
       DirectHandle<Smi> value(Smi::FromInt(index), isolate);
       table = NameDictionary::Add(isolate, table, key, value,
-                                  PropertyDetails::Empty());
+                                  PropertyDetails::Empty())
+                  .ToHandleChecked();
     }
     Object::SetProperty(isolate, holder, symbol, table).Check();
     return table;
@@ -308,8 +311,8 @@ struct FunctionsProxy : NamedDebugProxy<FunctionsProxy, kFunctionsProxy> {
     DirectHandle<WasmTrustedInstanceData> trusted_data{
         instance->trusted_data(isolate), isolate};
     DirectHandle<WasmFuncRef> func_ref =
-        WasmTrustedInstanceData::GetOrCreateFuncRef(isolate, trusted_data,
-                                                    index);
+        WasmTrustedInstanceData::GetOrCreateFuncRef(
+            isolate, trusted_data, index, wasm::kPrecreateExternal);
     DirectHandle<WasmInternalFunction> internal_function{
         func_ref->internal(isolate), isolate};
     return WasmInternalFunction::GetOrCreateExternal(internal_function);
@@ -556,14 +559,38 @@ DirectHandle<JSObject> GetOrCreateInstanceProxy(
 //
 // See http://doc/1VZOJrU2VsqOZe3IUzbwQWQQSZwgGySsm5119Ust1gUA and
 // http://bit.ly/devtools-wasm-entities for more details.
-class ContextProxyPrototype {
+class ContextProxy {
  public:
-  static DirectHandle<JSObject> Create(Isolate* isolate) {
+  static DirectHandle<JSObject> Create(WasmFrame* frame) {
+    Isolate* isolate = frame->isolate();
     auto object_map =
-        GetOrCreateDebugProxyMap(isolate, kContextProxy, &CreateTemplate);
-    return isolate->factory()->NewJSObjectFromMap(
+        GetOrCreateDebugProxyMap(isolate, kContextProxy, &CreateTemplate,
+                                 false /* leave map extensible */);
+    auto object = isolate->factory()->NewJSObjectFromMap(
         object_map, AllocationType::kYoung,
-        DirectHandle<AllocationSite>::null(), NewJSObjectType::kAPIWrapper);
+        DirectHandle<AllocationSite>::null(),
+        NewJSObjectType::kMaybeEmbedderFieldsAndApiWrapper);
+
+    DirectHandle<WasmInstanceObject> instance(frame->wasm_instance(), isolate);
+    JSObject::AddProperty(isolate, object, "instance", instance, FROZEN);
+    DirectHandle<WasmModuleObject> module_object(instance->module_object(),
+                                                 isolate);
+    JSObject::AddProperty(isolate, object, "module", module_object, FROZEN);
+    auto locals = LocalsProxy::Create(frame);
+    JSObject::AddProperty(isolate, object, "locals", locals, FROZEN);
+    auto stack = StackProxy::Create(frame);
+    JSObject::AddProperty(isolate, object, "stack", stack, FROZEN);
+    auto memories = GetOrCreateInstanceProxy<MemoriesProxy>(isolate, instance);
+    JSObject::AddProperty(isolate, object, "memories", memories, FROZEN);
+    auto tables = GetOrCreateInstanceProxy<TablesProxy>(isolate, instance);
+    JSObject::AddProperty(isolate, object, "tables", tables, FROZEN);
+    auto globals = GetOrCreateInstanceProxy<GlobalsProxy>(isolate, instance);
+    JSObject::AddProperty(isolate, object, "globals", globals, FROZEN);
+    auto functions =
+        GetOrCreateInstanceProxy<FunctionsProxy>(isolate, instance);
+    JSObject::AddProperty(isolate, object, "functions", functions, FROZEN);
+
+    return object;
   }
 
  private:
@@ -605,43 +632,13 @@ class ContextProxyPrototype {
       Local<v8::Name> name, const PropertyCallbackInfo<v8::Value>& info) {
     auto name_string = Cast<String>(Utils::OpenHandle(*name));
     auto isolate = reinterpret_cast<Isolate*>(info.GetIsolate());
-    auto receiver = Cast<JSObject>(Utils::OpenHandle(*info.This()));
+    auto holder = Cast<JSObject>(Utils::OpenHandle(*info.HolderV2()));
     DirectHandle<Object> value;
-    if (GetNamedProperty(isolate, receiver, name_string).ToHandle(&value)) {
+    if (GetNamedProperty(isolate, holder, name_string).ToHandle(&value)) {
       info.GetReturnValue().Set(Utils::ToLocal(value));
       return v8::Intercepted::kYes;
     }
     return v8::Intercepted::kNo;
-  }
-};
-
-class ContextProxy {
- public:
-  static DirectHandle<JSObject> Create(WasmFrame* frame) {
-    Isolate* isolate = frame->isolate();
-    auto object = isolate->factory()->NewSlowJSObjectWithNullProto();
-    DirectHandle<WasmInstanceObject> instance(frame->wasm_instance(), isolate);
-    JSObject::AddProperty(isolate, object, "instance", instance, FROZEN);
-    DirectHandle<WasmModuleObject> module_object(instance->module_object(),
-                                                 isolate);
-    JSObject::AddProperty(isolate, object, "module", module_object, FROZEN);
-    auto locals = LocalsProxy::Create(frame);
-    JSObject::AddProperty(isolate, object, "locals", locals, FROZEN);
-    auto stack = StackProxy::Create(frame);
-    JSObject::AddProperty(isolate, object, "stack", stack, FROZEN);
-    auto memories = GetOrCreateInstanceProxy<MemoriesProxy>(isolate, instance);
-    JSObject::AddProperty(isolate, object, "memories", memories, FROZEN);
-    auto tables = GetOrCreateInstanceProxy<TablesProxy>(isolate, instance);
-    JSObject::AddProperty(isolate, object, "tables", tables, FROZEN);
-    auto globals = GetOrCreateInstanceProxy<GlobalsProxy>(isolate, instance);
-    JSObject::AddProperty(isolate, object, "globals", globals, FROZEN);
-    auto functions =
-        GetOrCreateInstanceProxy<FunctionsProxy>(isolate, instance);
-    JSObject::AddProperty(isolate, object, "functions", functions, FROZEN);
-    DirectHandle<JSObject> prototype = ContextProxyPrototype::Create(isolate);
-    JSObject::SetPrototype(isolate, object, prototype, false, kDontThrow)
-        .Check();
-    return object;
   }
 };
 
@@ -849,8 +846,8 @@ DirectHandle<String> WasmSimd128ToString(Isolate* isolate, Simd128 s128) {
   // https://github.com/WebAssembly/simd/blob/master/proposals/simd/TextSIMD.md
   base::EmbeddedVector<char, 50> buffer;
   auto i32x4 = s128.to_i32x4();
-  SNPrintF(buffer, "i32x4 0x%08X 0x%08X 0x%08X 0x%08X", i32x4.val[0],
-           i32x4.val[1], i32x4.val[2], i32x4.val[3]);
+  SNPrintF(buffer, "i32x4 0x%08X 0x%08X 0x%08X 0x%08X", i32x4[0], i32x4[1],
+           i32x4[2], i32x4[3]);
   return isolate->factory()->NewStringFromAsciiChecked(buffer.data());
 }
 
@@ -1029,7 +1026,7 @@ DirectHandle<WasmValueObject> WasmValueObject::New(
     case wasm::kRefNull:
     case wasm::kRef: {
       DirectHandle<Object> ref = value.to_ref();
-      if (value.type().is_reference_to(wasm::HeapType::kExn)) {
+      if (value.type().is_reference_to(wasm::GenericKind::kExn)) {
         t = isolate->factory()->InternalizeString(
             base::StaticCharVector("exnref"));
         v = ref;
@@ -1053,8 +1050,8 @@ DirectHandle<WasmValueObject> WasmValueObject::New(
         t = GetRefTypeName(isolate, value.type());
       } else if (IsJSFunction(*ref) || IsSmi(*ref) || IsNull(*ref) ||
                  IsString(*ref) ||
-                 value.type().is_reference_to(wasm::HeapType::kExtern) ||
-                 value.type().is_reference_to(wasm::HeapType::kAny)) {
+                 value.type().is_reference_to(wasm::GenericKind::kExtern) ||
+                 value.type().is_reference_to(wasm::GenericKind::kAny)) {
         t = GetRefTypeName(isolate, value.type());
         v = ref;
       } else {

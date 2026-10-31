@@ -10,35 +10,13 @@ const {
   DhKeyPairGenJob,
   DsaKeyPairGenJob,
   EcKeyPairGenJob,
-  NidKeyPairGenJob,
+  NamedKeyPairGenJob,
   RsaKeyPairGenJob,
   SecretKeyGenJob,
   kCryptoJobAsync,
   kCryptoJobSync,
   kKeyVariantRSA_PSS,
   kKeyVariantRSA_SSA_PKCS1_v1_5,
-  EVP_PKEY_ED25519,
-  EVP_PKEY_ED448,
-  EVP_PKEY_ML_DSA_44,
-  EVP_PKEY_ML_DSA_65,
-  EVP_PKEY_ML_DSA_87,
-  EVP_PKEY_ML_KEM_1024,
-  EVP_PKEY_ML_KEM_512,
-  EVP_PKEY_ML_KEM_768,
-  EVP_PKEY_SLH_DSA_SHA2_128F,
-  EVP_PKEY_SLH_DSA_SHA2_128S,
-  EVP_PKEY_SLH_DSA_SHA2_192F,
-  EVP_PKEY_SLH_DSA_SHA2_192S,
-  EVP_PKEY_SLH_DSA_SHA2_256F,
-  EVP_PKEY_SLH_DSA_SHA2_256S,
-  EVP_PKEY_SLH_DSA_SHAKE_128F,
-  EVP_PKEY_SLH_DSA_SHAKE_128S,
-  EVP_PKEY_SLH_DSA_SHAKE_192F,
-  EVP_PKEY_SLH_DSA_SHAKE_192S,
-  EVP_PKEY_SLH_DSA_SHAKE_256F,
-  EVP_PKEY_SLH_DSA_SHAKE_256S,
-  EVP_PKEY_X25519,
-  EVP_PKEY_X448,
   OPENSSL_EC_NAMED_CURVE,
   OPENSSL_EC_EXPLICIT_CURVE,
 } = internalBinding('crypto');
@@ -148,7 +126,7 @@ function parseKeyEncoding(keyType, options = kEmptyObject) {
       format: publicFormat,
       type: publicType,
     } = parsePublicKeyEncoding(publicKeyEncoding, keyType,
-                               'publicKeyEncoding'));
+                               'options.publicKeyEncoding'));
   } else {
     throw new ERR_INVALID_ARG_VALUE('options.publicKeyEncoding',
                                     publicKeyEncoding);
@@ -164,7 +142,7 @@ function parseKeyEncoding(keyType, options = kEmptyObject) {
       cipher,
       passphrase,
     } = parsePrivateKeyEncoding(privateKeyEncoding, keyType,
-                                'privateKeyEncoding'));
+                                'options.privateKeyEncoding'));
   } else {
     throw new ERR_INVALID_ARG_VALUE('options.privateKeyEncoding',
                                     privateKeyEncoding);
@@ -180,52 +158,31 @@ function parseKeyEncoding(keyType, options = kEmptyObject) {
   ];
 }
 
-const nidOnlyKeyPairs = {
-  'ed25519': EVP_PKEY_ED25519,
-  'ed448': EVP_PKEY_ED448,
-  'x25519': EVP_PKEY_X25519,
-  'x448': EVP_PKEY_X448,
-  'ml-dsa-44': EVP_PKEY_ML_DSA_44,
-  'ml-dsa-65': EVP_PKEY_ML_DSA_65,
-  'ml-dsa-87': EVP_PKEY_ML_DSA_87,
-  'ml-kem-512': EVP_PKEY_ML_KEM_512,
-  'ml-kem-768': EVP_PKEY_ML_KEM_768,
-  'ml-kem-1024': EVP_PKEY_ML_KEM_1024,
-  'slh-dsa-sha2-128f': EVP_PKEY_SLH_DSA_SHA2_128F,
-  'slh-dsa-sha2-128s': EVP_PKEY_SLH_DSA_SHA2_128S,
-  'slh-dsa-sha2-192f': EVP_PKEY_SLH_DSA_SHA2_192F,
-  'slh-dsa-sha2-192s': EVP_PKEY_SLH_DSA_SHA2_192S,
-  'slh-dsa-sha2-256f': EVP_PKEY_SLH_DSA_SHA2_256F,
-  'slh-dsa-sha2-256s': EVP_PKEY_SLH_DSA_SHA2_256S,
-  'slh-dsa-shake-128f': EVP_PKEY_SLH_DSA_SHAKE_128F,
-  'slh-dsa-shake-128s': EVP_PKEY_SLH_DSA_SHAKE_128S,
-  'slh-dsa-shake-192f': EVP_PKEY_SLH_DSA_SHAKE_192F,
-  'slh-dsa-shake-192s': EVP_PKEY_SLH_DSA_SHAKE_192S,
-  'slh-dsa-shake-256f': EVP_PKEY_SLH_DSA_SHAKE_256F,
-  'slh-dsa-shake-256s': EVP_PKEY_SLH_DSA_SHAKE_256S,
-};
-
 function createJob(mode, type, options) {
   validateString(type, 'type');
 
-  const encoding = new SafeArrayIterator(parseKeyEncoding(type, options));
-
   if (options !== undefined)
     validateObject(options, 'options');
+
+  const encoding = new SafeArrayIterator(parseKeyEncoding(type, options));
 
   switch (type) {
     case 'rsa':
     case 'rsa-pss':
     {
       validateObject(options, 'options');
-      const { modulusLength } = options;
+      let { modulusLength } = options;
       validateUint32(modulusLength, 'options.modulusLength');
+      // Coerce -0 to +0.
+      modulusLength += 0;
 
       let { publicExponent } = options;
       if (publicExponent == null) {
         publicExponent = 0x10001;
       } else {
         validateUint32(publicExponent, 'options.publicExponent');
+        // Coerce -0 to +0.
+        publicExponent += 0;
       }
 
       if (type === 'rsa') {
@@ -237,37 +194,39 @@ function createJob(mode, type, options) {
           ...encoding);
       }
 
-      const {
-        hash, mgf1Hash, hashAlgorithm, mgf1HashAlgorithm, saltLength,
-      } = options;
+      const { hashAlgorithm, mgf1HashAlgorithm } = options;
+      let { saltLength } = options;
 
-      if (saltLength !== undefined)
+      if (saltLength !== undefined) {
         validateInt32(saltLength, 'options.saltLength', 0);
+        // Coerce -0 to +0.
+        saltLength += 0;
+      }
       if (hashAlgorithm !== undefined)
         validateString(hashAlgorithm, 'options.hashAlgorithm');
       if (mgf1HashAlgorithm !== undefined)
         validateString(mgf1HashAlgorithm, 'options.mgf1HashAlgorithm');
-      if (hash !== undefined) {
-        process.emitWarning(
-          '"options.hash" is deprecated, ' +
-          'use "options.hashAlgorithm" instead.',
-          'DeprecationWarning',
-          'DEP0154');
-        validateString(hash, 'options.hash');
-        if (hashAlgorithm && hash !== hashAlgorithm) {
-          throw new ERR_INVALID_ARG_VALUE('options.hash', hash);
-        }
+      if (options.hash !== undefined) {
+        // This API previously accepted a `hash` option that was deprecated
+        // and removed. However, in order to make the change more visible, we
+        // opted to throw an error if hash is specified rather than removing it
+        // entirely.
+        throw new ERR_INVALID_ARG_VALUE(
+          'options.hash',
+          options.hash,
+          'is no longer supported',
+        );
       }
-      if (mgf1Hash !== undefined) {
-        process.emitWarning(
-          '"options.mgf1Hash" is deprecated, ' +
-          'use "options.mgf1HashAlgorithm" instead.',
-          'DeprecationWarning',
-          'DEP0154');
-        validateString(mgf1Hash, 'options.mgf1Hash');
-        if (mgf1HashAlgorithm && mgf1Hash !== mgf1HashAlgorithm) {
-          throw new ERR_INVALID_ARG_VALUE('options.mgf1Hash', mgf1Hash);
-        }
+      if (options.mgf1Hash !== undefined) {
+        // This API previously accepted a `mgf1Hash` option that was deprecated
+        // and removed. However, in order to make the change more visible, we
+        // opted to throw an error if mgf1Hash is specified rather than removing
+        // it entirely.
+        throw new ERR_INVALID_ARG_VALUE(
+          'options.mgf1Hash',
+          options.mgf1Hash,
+          'is no longer supported',
+        );
       }
 
       return new RsaKeyPairGenJob(
@@ -275,22 +234,27 @@ function createJob(mode, type, options) {
         kKeyVariantRSA_PSS,
         modulusLength,
         publicExponent,
-        hashAlgorithm || hash,
-        mgf1HashAlgorithm || mgf1Hash,
+        hashAlgorithm,
+        mgf1HashAlgorithm,
         saltLength,
         ...encoding);
     }
     case 'dsa':
     {
       validateObject(options, 'options');
-      const { modulusLength } = options;
+      let { modulusLength } = options;
       validateUint32(modulusLength, 'options.modulusLength');
+      // Coerce -0 to +0.
+      modulusLength += 0;
 
       let { divisorLength } = options;
       if (divisorLength == null) {
         divisorLength = -1;
-      } else
+      } else {
         validateInt32(divisorLength, 'options.divisorLength', 0);
+        // Coerce -0 to +0.
+        divisorLength += 0;
+      }
 
       return new DsaKeyPairGenJob(
         mode,
@@ -320,7 +284,8 @@ function createJob(mode, type, options) {
     case 'dh':
     {
       validateObject(options, 'options');
-      const { group, primeLength, prime, generator } = options;
+      const { group, prime } = options;
+      let { primeLength, generator } = options;
       if (group != null) {
         if (prime != null)
           throw new ERR_INCOMPATIBLE_OPTION_PAIR('group', 'prime');
@@ -341,6 +306,8 @@ function createJob(mode, type, options) {
         validateBuffer(prime, 'options.prime');
       } else if (primeLength != null) {
         validateInt32(primeLength, 'options.primeLength', 0);
+        // Coerce -0 to +0.
+        primeLength += 0;
       } else {
         throw new ERR_MISSING_OPTION(
           'At least one of the group, prime, or primeLength options');
@@ -348,6 +315,8 @@ function createJob(mode, type, options) {
 
       if (generator != null) {
         validateInt32(generator, 'options.generator', 0);
+        // Coerce -0 to +0.
+        generator += 0;
       }
       return new DhKeyPairGenJob(
         mode,
@@ -355,12 +324,8 @@ function createJob(mode, type, options) {
         generator == null ? 2 : generator,
         ...encoding);
     }
-    default: {
-      if (nidOnlyKeyPairs[type] === undefined) {
-        throw new ERR_INVALID_ARG_VALUE('type', type, 'must be a supported key type');
-      }
-      return new NidKeyPairGenJob(mode, nidOnlyKeyPairs[type], ...encoding);
-    }
+    default:
+      return new NamedKeyPairGenJob(mode, type, ...encoding);
   }
 }
 

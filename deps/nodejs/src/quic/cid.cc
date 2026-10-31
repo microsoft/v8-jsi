@@ -1,12 +1,14 @@
-#if HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
-#include "cid.h"
+#include "guard.h"
+#ifndef OPENSSL_NO_QUIC
 #include <crypto/crypto_util.h>
 #include <memory_tracker-inl.h>
+#include <node_hash.h>
 #include <node_mutex.h>
 #include <string_bytes.h>
+#include "cid.h"
+#include "defs.h"
 #include "nbytes.h"
 #include "ncrypto.h"
-#include "quic/defs.h"
 
 namespace node::quic {
 
@@ -77,30 +79,25 @@ std::string CID::ToString() const {
   return std::string(dest, written);
 }
 
-CID CID::kInvalid{};
+const CID CID::kInvalid{};
 
 // ============================================================================
 // CID::Hash
 
 size_t CID::Hash::operator()(const CID& cid) const {
-  size_t hash = 0;
-  for (size_t n = 0; n < cid.length(); n++) {
-    hash ^= std::hash<uint8_t>{}(cid.ptr_->data[n] + 0x9e3779b9 + (hash << 6) +
-                                 (hash >> 2));
-  }
-  return hash;
+  return HashBytes(cid.ptr_->data, cid.length());
 }
 
 // ============================================================================
 // CID::Factory
 
 namespace {
-class RandomCIDFactory : public CID::Factory {
+class RandomCIDFactory final : public CID::Factory {
  public:
   RandomCIDFactory() = default;
   DISALLOW_COPY_AND_MOVE(RandomCIDFactory)
 
-  CID Generate(size_t length_hint) const override {
+  const CID Generate(size_t length_hint) const override {
     DCHECK_GE(length_hint, CID::kMinLength);
     DCHECK_LE(length_hint, CID::kMaxLength);
     Mutex::ScopedLock lock(mutex_);
@@ -110,8 +107,8 @@ class RandomCIDFactory : public CID::Factory {
     return CID(start, length_hint);
   }
 
-  CID GenerateInto(ngtcp2_cid* cid,
-                   size_t length_hint = CID::kMaxLength) const override {
+  const CID GenerateInto(ngtcp2_cid* cid,
+                         size_t length_hint = CID::kMaxLength) const override {
     DCHECK_GE(length_hint, CID::kMinLength);
     DCHECK_LE(length_hint, CID::kMaxLength);
     Mutex::ScopedLock lock(mutex_);
@@ -135,7 +132,7 @@ class RandomCIDFactory : public CID::Factory {
     }
   }
 
-  static constexpr int kPoolSize = 4096;
+  static constexpr int kPoolSize = 1024 * 16;
   mutable int pos_ = kPoolSize;
   mutable uint8_t pool_[kPoolSize];
   mutable Mutex mutex_;
@@ -148,4 +145,4 @@ const CID::Factory& CID::Factory::random() {
 }
 
 }  // namespace node::quic
-#endif  // HAVE_OPENSSL && NODE_OPENSSL_HAS_QUIC
+#endif  // OPENSSL_NO_QUIC

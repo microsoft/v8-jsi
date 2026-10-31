@@ -20,6 +20,9 @@ class Isolate;
 
 namespace wasm {
 
+class StackMemory;
+class CanonicalSig;
+
 using Address = uintptr_t;
 
 V8_EXPORT_PRIVATE void f32_trunc_wrapper(Address data);
@@ -156,6 +159,8 @@ V8_EXPORT_PRIVATE void f16x8_qfma_wrapper(Address data);
 
 V8_EXPORT_PRIVATE void f16x8_qfms_wrapper(Address data);
 
+void data_drop_wrapper(Address instance_addr, uint32_t segment_index);
+
 // The return type is {int32_t} instead of {bool} to enforce the compiler to
 // zero-extend the result in the return register.
 int32_t memory_init_wrapper(Address instance_addr, uint32_t mem_index,
@@ -186,12 +191,25 @@ void array_fill_wrapper(Address raw_array, uint32_t index, uint32_t length,
 
 double flat_string_to_f64(Address string_address);
 
-// Update the stack limit after a stack switch,
-// and preserve pending interrupts.
-void switch_stacks(Isolate* isolate, Address old_continuation);
-// Return {continuation}'s stack memory to the stack pool after it has returned
-// and switched back to its parent, and update the stack limit.
-void return_switch(Isolate* isolate, Address continuation);
+// Called from the stack switching builtins to handle some of the
+// platform-independent stack switching logic: updating the stack limit,
+// validating the switch, debug traces, managing the stack memory, etc.
+void start_stack(Isolate* isolate, wasm::StackMemory* to, Address sp,
+                 Address fp, Address pc);
+int32_t suspender_has_js_frames(Isolate* isolate);
+void suspend_stack(Isolate* isolate, wasm::StackMemory* to, Address sp,
+                   Address fp, Address pc);
+void resume_jspi_stack(Isolate* isolate, wasm::StackMemory* to, Address sp,
+                       Address fp, Address pc, Address suspender);
+void resume_wasmfx_stack(Isolate* isolate, wasm::StackMemory* to, Address sp,
+                         Address fp, Address pc);
+Address suspend_wasmfx_stack(Isolate* isolate, Address sp, Address fp,
+                             Address pc, Address wanted_tag_raw,
+                             Address cont_raw, Address return_buffer,
+                             const CanonicalSig* sig);
+void return_jspi_stack(Isolate* isolate, wasm::StackMemory* to);
+void return_wasmfx_stack(Isolate* isolate, wasm::StackMemory* to);
+void retire_stack(Isolate* isolate, wasm::StackMemory* stack);
 
 intptr_t switch_to_the_central_stack(Isolate* isolate, uintptr_t sp);
 void switch_from_the_central_stack(Isolate* isolate);

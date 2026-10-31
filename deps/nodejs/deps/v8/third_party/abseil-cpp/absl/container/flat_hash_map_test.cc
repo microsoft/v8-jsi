@@ -39,8 +39,7 @@ namespace absl {
 ABSL_NAMESPACE_BEGIN
 namespace container_internal {
 namespace {
-using ::absl::container_internal::hash_internal::Enum;
-using ::absl::container_internal::hash_internal::EnumClass;
+
 using ::testing::_;
 using ::testing::IsEmpty;
 using ::testing::Pair;
@@ -116,15 +115,6 @@ TEST(FlatHashMap, StandardLayout) {
 
 TEST(FlatHashMap, Relocatability) {
   static_assert(absl::is_trivially_relocatable<int>::value);
-#if ABSL_INTERNAL_CPLUSPLUS_LANG <= 202002L
-  // std::pair is not trivially copyable in C++23 in some standard
-  // library versions.
-  // See https://github.com/llvm/llvm-project/pull/95444 for instance.
-  // container_memory.h contains a workaround so what really matters
-  // is the transfer test below.
-  static_assert(
-      absl::is_trivially_relocatable<std::pair<const int, int>>::value);
-#endif
   static_assert(
       std::is_same<decltype(absl::container_internal::FlatHashMapPolicy<
                             int, int>::transfer<std::allocator<char>>(nullptr,

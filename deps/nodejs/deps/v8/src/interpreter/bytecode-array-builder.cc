@@ -115,7 +115,7 @@ template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
         LocalIsolate* isolate);
 
 #ifdef DEBUG
-int BytecodeArrayBuilder::CheckBytecodeMatches(Tagged<BytecodeArray> bytecode) {
+int BytecodeArrayBuilder::CheckBytecodeMatches(Handle<BytecodeArray> bytecode) {
   DisallowGarbageCollection no_gc;
   return bytecode_array_writer_.CheckBytecodeMatches(bytecode);
 }
@@ -453,6 +453,20 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::BinaryOperation(Token::Value op,
   return *this;
 }
 
+BytecodeArrayBuilder& BytecodeArrayBuilder::Add_StringConstant_Internalize(
+    Token::Value op, Register reg, int feedback_slot,
+    AddStringConstantAndInternalizeVariant as_variant) {
+  DCHECK_EQ(op, Token::kAdd);
+#ifdef DEBUG
+  using ASVariant = AddStringConstantAndInternalizeVariant;
+  DCHECK(as_variant == ASVariant::kLhsIsStringConstant ||
+         as_variant == ASVariant::kRhsIsStringConstant);
+#endif  // DEBUG
+  OutputAdd_StringConstant_Internalize(reg, feedback_slot,
+                                       static_cast<uint8_t>(as_variant));
+  return *this;
+}
+
 BytecodeArrayBuilder& BytecodeArrayBuilder::BinaryOperationSmiLiteral(
     Token::Value op, Tagged<Smi> literal, int feedback_slot) {
   switch (op) {
@@ -553,22 +567,29 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::CompareOperation(
     Token::Value op, Register reg, int feedback_slot) {
   switch (op) {
     case Token::kEq:
-      OutputTestEqual(reg, feedback_slot);
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestEqual(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kEqStrict:
-      OutputTestEqualStrict(reg, feedback_slot);
+      // feedback is embedded into bytecode array for strict equal
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestEqualStrict(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kLessThan:
-      OutputTestLessThan(reg, feedback_slot);
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestLessThan(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kGreaterThan:
-      OutputTestGreaterThan(reg, feedback_slot);
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestGreaterThan(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kLessThanEq:
-      OutputTestLessThanOrEqual(reg, feedback_slot);
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestLessThanOrEqual(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kGreaterThanEq:
-      OutputTestGreaterThanOrEqual(reg, feedback_slot);
+      DCHECK_EQ(feedback_slot, kFeedbackIsEmbedded);
+      OutputTestGreaterThanOrEqual(reg, kUninitializedEmbeddedFeedback);
       break;
     case Token::kInstanceOf:
       OutputTestInstanceOf(reg, feedback_slot);
@@ -747,6 +768,12 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::MoveRegister(Register from,
   return *this;
 }
 
+BytecodeArrayBuilder& BytecodeArrayBuilder::SetPrototypeProperties(
+    size_t index_obj, size_t slot) {
+  OutputSetPrototypeProperties(index_obj, slot);
+  return *this;
+}
+
 BytecodeArrayBuilder& BytecodeArrayBuilder::LoadGlobal(const AstRawString* name,
                                                        int feedback_slot,
                                                        TypeofMode typeof_mode) {
@@ -785,18 +812,17 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::LoadContextSlot(
     }
   } else {
     DCHECK_EQ(kMutableSlot, mutability);
-    if (v8_flags.script_context_mutable_heap_number &&
-        variable->scope()->is_script_scope()) {
-      if (context.is_current_context() && depth == 0) {
-        OutputLdaCurrentScriptContextSlot(slot_index);
-      } else {
-        OutputLdaScriptContextSlot(context, slot_index, depth);
-      }
-    } else {
+    if (variable->scope()->has_context_cells()) {
       if (context.is_current_context() && depth == 0) {
         OutputLdaCurrentContextSlot(slot_index);
       } else {
         OutputLdaContextSlot(context, slot_index, depth);
+      }
+    } else {
+      if (context.is_current_context() && depth == 0) {
+        OutputLdaCurrentContextSlotNoCell(slot_index);
+      } else {
+        OutputLdaContextSlotNoCell(context, slot_index, depth);
       }
     }
   }
@@ -807,20 +833,18 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::StoreContextSlot(Register context,
                                                              Variable* variable,
                                                              int depth) {
   int slot_index = variable->index();
-  if ((v8_flags.script_context_mutable_heap_number ||
-       (v8_flags.const_tracking_let &&
-        variable->mode() == VariableMode::kLet)) &&
-      variable->scope()->is_script_scope()) {
-    if (context.is_current_context() && depth == 0) {
-      OutputStaCurrentScriptContextSlot(slot_index);
-    } else {
-      OutputStaScriptContextSlot(context, slot_index, depth);
-    }
-  } else {
+  if (variable->maybe_assigned() != kNotAssigned &&
+      variable->scope()->has_context_cells()) {
     if (context.is_current_context() && depth == 0) {
       OutputStaCurrentContextSlot(slot_index);
     } else {
       OutputStaContextSlot(context, slot_index, depth);
+    }
+  } else {
+    if (context.is_current_context() && depth == 0) {
+      OutputStaCurrentContextSlotNoCell(slot_index);
+    } else {
+      OutputStaContextSlotNoCell(context, slot_index, depth);
     }
   }
   return *this;
@@ -841,25 +865,23 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::LoadLookupSlot(
 }
 
 BytecodeArrayBuilder& BytecodeArrayBuilder::LoadLookupContextSlot(
-    const AstRawString* name, TypeofMode typeof_mode, ContextKind context_kind,
+    const AstRawString* name, TypeofMode typeof_mode, ContextMode context_mode,
     int slot_index, int depth) {
   size_t name_index = GetConstantPoolEntry(name);
   switch (typeof_mode) {
     case TypeofMode::kInside:
-      if (v8_flags.script_context_mutable_heap_number &&
-          context_kind == ContextKind::kScriptContext) {
-        OutputLdaLookupScriptContextSlotInsideTypeof(name_index, slot_index,
-                                                     depth);
-      } else {
+      if (context_mode == ContextMode::kHasContextCells) {
         OutputLdaLookupContextSlotInsideTypeof(name_index, slot_index, depth);
+      } else {
+        OutputLdaLookupContextSlotNoCellInsideTypeof(name_index, slot_index,
+                                                     depth);
       }
       break;
     case TypeofMode::kNotInside:
-      if (v8_flags.script_context_mutable_heap_number &&
-          context_kind == ContextKind::kScriptContext) {
-        OutputLdaLookupScriptContextSlot(name_index, slot_index, depth);
-      } else {
+      if (context_mode == ContextMode::kHasContextCells) {
         OutputLdaLookupContextSlot(name_index, slot_index, depth);
+      } else {
+        OutputLdaLookupContextSlotNoCell(name_index, slot_index, depth);
       }
       break;
   }
@@ -929,6 +951,15 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::LoadIteratorProperty(
 BytecodeArrayBuilder& BytecodeArrayBuilder::GetIterator(
     Register object, int load_feedback_slot, int call_feedback_slot) {
   OutputGetIterator(object, load_feedback_slot, call_feedback_slot);
+  return *this;
+}
+
+BytecodeArrayBuilder& BytecodeArrayBuilder::ForOfNext(Register object,
+                                                      Register next,
+                                                      RegisterList value_done,
+                                                      int call_slot) {
+  DCHECK_EQ(2, value_done.register_count());
+  OutputForOfNext(object, next, value_done, call_slot);
   return *this;
 }
 
@@ -1041,7 +1072,11 @@ BytecodeArrayBuilder& BytecodeArrayBuilder::CreateCatchContext(
 BytecodeArrayBuilder& BytecodeArrayBuilder::CreateFunctionContext(
     const Scope* scope, int slots) {
   size_t scope_index = GetConstantPoolEntry(scope);
-  OutputCreateFunctionContext(scope_index, slots);
+  if (scope->has_context_cells()) {
+    OutputCreateFunctionContextWithCells(scope_index, slots);
+  } else {
+    OutputCreateFunctionContext(scope_index, slots);
+  }
   return *this;
 }
 
@@ -1663,6 +1698,13 @@ BytecodeJumpTable* BytecodeArrayBuilder::AllocateJumpTable(
 
   return zone()->New<BytecodeJumpTable>(constant_pool_index, size,
                                         case_value_base, zone());
+}
+
+void BytecodeArrayBuilder::TrimJumpTable(BytecodeJumpTable* jump_table,
+                                         int size) {
+  if (size == jump_table->size()) return;
+
+  bytecode_array_writer_.PatchJumpTableSize(jump_table, size);
 }
 
 size_t BytecodeArrayBuilder::AllocateDeferredConstantPoolEntry() {

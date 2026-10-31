@@ -25,8 +25,7 @@ int Compare(const T& a, const T& b) {
 }
 
 // Returns the negative absolute value of its argument.
-template <typename T,
-          typename = typename std::enable_if<std::is_signed<T>::value>::type>
+template <typename T, typename = typename std::enable_if_t<std::is_signed_v<T>>>
 T Nabs(T a) {
   return a < 0 ? a : -a;
 }
@@ -300,8 +299,16 @@ class Simulator : public SimulatorBase {
     }
 
     explicit CallArgument(float argument) {
-      // TODO(all): CallArgument(float) is untested.
-      UNIMPLEMENTED();
+      // Make the FPU register a NaN to try to trap errors if the callee expects
+      // a double. If it expects a float, the callee should ignore the top word.
+      double sNaN = std::numeric_limits<double>::signaling_NaN();
+      DCHECK(sizeof(sNaN) == sizeof(bits_));
+      memcpy(&bits_, &sNaN, sizeof(sNaN));
+
+      // Write the float payload to the FPU register.
+      DCHECK(sizeof(argument) <= sizeof(bits_));
+      memcpy(&bits_, &argument, sizeof(argument));
+      type_ = FP_ARG;
     }
 
     // This indicates the end of the arguments list, so that CallArgument
@@ -378,14 +385,12 @@ class Simulator : public SimulatorBase {
 
   // Read floating point return values.
   template <typename T>
-  typename std::enable_if<std::is_floating_point<T>::value, T>::type
-  ReadReturn() {
+  typename std::enable_if_t<std::is_floating_point_v<T>, T> ReadReturn() {
     return static_cast<T>(get_fpu_register_double(f0));
   }
   // Read non-float return values.
   template <typename T>
-  typename std::enable_if<!std::is_floating_point<T>::value, T>::type
-  ReadReturn() {
+  typename std::enable_if_t<!std::is_floating_point_v<T>, T> ReadReturn() {
     return ConvertReturn<T>(get_register(a0));
   }
 
@@ -615,7 +620,7 @@ class Simulator : public SimulatorBase {
   static size_t UsableStackSize() { return v8_flags.sim_stack_size * KB; }
   uintptr_t stack_limit_;
   // Added in Simulator::StackLimit()
-  static const int kAdditionalStackMargin = 4 * KB;
+  static const int kAdditionalStackMargin = 20 * KB;
 
   bool pc_modified_;
   int64_t icount_;
@@ -683,6 +688,18 @@ class Simulator : public SimulatorBase {
 
   class GlobalMonitor {
    public:
+    class SimulatorMutex final {
+     public:
+      explicit SimulatorMutex(GlobalMonitor* global_monitor) {
+        if (!global_monitor->IsSingleThreaded()) {
+          guard.emplace(global_monitor->mutex_);
+        }
+      }
+
+     private:
+      std::optional<base::MutexGuard> guard;
+    };
+
     class LinkedAddress {
      public:
       LinkedAddress();
@@ -709,32 +726,33 @@ class Simulator : public SimulatorBase {
       int failure_counter_;
     };
 
-    // Exposed so it can be accessed by Simulator::{Read,Write}Ex*.
-    base::Mutex mutex;
-
     void NotifyLoadLinked_Locked(uintptr_t addr, LinkedAddress* linked_address);
     void NotifyStore_Locked(LinkedAddress* linked_address);
     bool NotifyStoreConditional_Locked(uintptr_t addr,
                                        LinkedAddress* linked_address);
 
+    // Called when the simulator is constructed.
+    void PrependLinkedAddress(LinkedAddress* linked_address);
     // Called when the simulator is destroyed.
     void RemoveLinkedAddress(LinkedAddress* linked_address);
 
     static GlobalMonitor* Get();
 
    private:
+    bool IsSingleThreaded() const { return num_linked_address_ == 1; }
+
     // Private constructor. Call {GlobalMonitor::Get()} to get the singleton.
     GlobalMonitor() = default;
     friend class base::LeakyObject<GlobalMonitor>;
 
-    bool IsProcessorInLinkedList_Locked(LinkedAddress* linked_address) const;
-    void PrependProcessor_Locked(LinkedAddress* linked_address);
-
     LinkedAddress* head_ = nullptr;
+    std::atomic<uint32_t> num_linked_address_ = 0;
+    base::Mutex mutex_;
   };
 
   LocalMonitor local_monitor_;
   GlobalMonitor::LinkedAddress global_monitor_thread_;
+  GlobalMonitor* global_monitor_;
 };
 
 }  // namespace internal

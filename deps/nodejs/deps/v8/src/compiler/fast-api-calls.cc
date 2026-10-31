@@ -278,12 +278,7 @@ Node* FastApiCallBuilder::Build(FastApiCallFunction c_function,
   builder.AddReturn(return_type);
   for (int i = 0; i < c_arg_count; ++i) {
     CTypeInfo type = c_signature->ArgumentInfo(i);
-    START_ALLOW_USE_DEPRECATED()
-    MachineType machine_type =
-        type.GetSequenceType() == CTypeInfo::SequenceType::kScalar
-            ? MachineType::TypeForCType(type)
-            : MachineType::AnyTagged();
-    END_ALLOW_USE_DEPRECATED()
+    MachineType machine_type = MachineType::TypeForCType(type);
     builder.AddParam(machine_type);
   }
 
@@ -324,9 +319,7 @@ Node* FastApiCallBuilder::Build(FastApiCallFunction c_function,
                    inputs[0], c_signature, c_arg_count, stack_slot);
 
   Node* exception = __ Load(MachineType::IntPtr(),
-                            __ ExternalConstant(ExternalReference::Create(
-                                IsolateAddressId::kExceptionAddress, isolate_)),
-                            0);
+                            __ IsolateField(IsolateFieldId::kException), 0);
 
   Node* the_hole =
       __ Load(MachineType::IntPtr(), __ LoadRootRegister(),

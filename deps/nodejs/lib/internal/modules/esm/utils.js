@@ -11,9 +11,11 @@ const {
 const {
   privateSymbols: {
     host_defined_option_symbol,
+    module_source_private_symbol: kModuleSource,
   },
 } = internalBinding('util');
 const {
+  embedder_module_hdo,
   source_text_module_default_hdo,
   vm_dynamic_import_default_internal,
   vm_dynamic_import_main_context_default,
@@ -43,6 +45,7 @@ const {
 const assert = require('internal/assert');
 const {
   normalizeReferrerURL,
+  loadBuiltinModuleForEmbedder,
 } = require('internal/modules/helpers');
 
 let defaultConditions;
@@ -183,27 +186,14 @@ function registerModule(referrer, registry) {
 }
 
 /**
- * Proxy the import meta handling to the default loader for source text modules.
- * @param {Record<string, string | Function>} meta - The import.meta object to initialize.
- * @param {ModuleWrap} wrap - The ModuleWrap of the SourceTextModule where `import.meta` is referenced.
- * @returns {object}
- */
-function defaultInitializeImportMetaForModule(meta, wrap) {
-  const cascadedLoader = require('internal/modules/esm/loader').getOrInitializeCascadedLoader();
-  return cascadedLoader.importMetaInitialize(meta, { url: wrap.url, isMain: wrap.isMain });
-}
-
-/**
- * Defines the `import.meta` object for a given module.
+ * Initializes the `import.meta` object for a given module. This is only called when the module
+ * is compiled with custom callbacks. Ordinary user-land source text modules are
+ * initialized by the native DefaultImportMetaObjectInitializer directly.
  * @param {symbol} symbol - Reference to the module.
  * @param {Record<string, string | Function>} meta - The import.meta object to initialize.
  * @param {ModuleWrap} wrap - The ModuleWrap of the SourceTextModule where `import.meta` is referenced.
  */
 function initializeImportMetaObject(symbol, meta, wrap) {
-  if (symbol === source_text_module_default_hdo) {
-    defaultInitializeImportMetaForModule(meta, wrap);
-    return;
-  }
   const data = moduleRegistries.get(symbol);
   assert(data, `import.meta registry not found for ${wrap.url}`);
   const { initializeImportMeta, callbackReferrer } = data;
@@ -240,6 +230,28 @@ function defaultImportModuleDynamicallyForScript(specifier, phase, attributes, r
 }
 
 /**
+ * Loads the built-in and wraps it in a ModuleWrap for embedder ESM.
+ * @param {string} specifier
+ * @returns {ModuleWrap}
+ */
+function getBuiltinModuleWrapForEmbedder(specifier) {
+  return loadBuiltinModuleForEmbedder(specifier).getESMFacade();
+}
+
+/**
+ * Get the built-in module dynamically for embedder ESM.
+ * @param {string} specifier - The module specifier string.
+ * @param {number} phase - The module import phase. Ignored for now.
+ * @param {Record<string, string>} attributes - The import attributes object. Ignored for now.
+ * @param {string|null|undefined} referrerName - name of the referrer.
+ * @returns {import('internal/modules/esm/loader.js').ModuleExports} - The imported module object.
+ */
+function importModuleDynamicallyForEmbedder(specifier, phase, attributes, referrerName) {
+  // Ignore phase and attributes for embedder ESM for now, because this only supports loading builtins.
+  return getBuiltinModuleWrapForEmbedder(specifier).getNamespace();
+}
+
+/**
  * Asynchronously imports a module dynamically using a callback function. The native callback.
  * @param {symbol} referrerSymbol - Referrer symbol of the registered script, function, module, or contextified object.
  * @param {string} specifier - The module specifier string.
@@ -265,6 +277,10 @@ async function importModuleDynamicallyCallback(referrerSymbol, specifier, phase,
   // For SourceTextModules compiled internally, proxy the request to the default loader.
   if (referrerSymbol === source_text_module_default_hdo) {
     return defaultImportModuleDynamicallyForModule(specifier, phase, attributes, referrerName);
+  }
+  // For embedder entry point ESM, only allow built-in modules.
+  if (referrerSymbol === embedder_module_hdo) {
+    return importModuleDynamicallyForEmbedder(specifier, phase, attributes, referrerName);
   }
 
   if (moduleRegistries.has(referrerSymbol)) {
@@ -303,21 +319,42 @@ function shouldSpawnLoaderHookWorker() {
   return _shouldSpawnLoaderHookWorker;
 }
 
+const SourceTextModuleTypes = {
+  kInternal: 'internal',  // TODO(joyeecheung): support internal ESM.
+  kEmbedder: 'embedder',  // Embedder ESM, also used by SEA
+  kUser: 'user', // User-land ESM
+  kFacade: 'facade',  // Currently only used by the facade that proxies WASM module import/exports.
+};
+
 /**
  * Compile a SourceTextModule for the built-in ESM loader. Register it for default
  * source map and import.meta and dynamic import() handling if cascadedLoader is provided.
  * @param {string} url URL of the module.
  * @param {string} source Source code of the module.
- * @param {typeof import('./loader.js').ModuleLoader|undefined} cascadedLoader If provided,
- *   register the module for default handling.
+ * @param {string} type Type of the source text module, one of SourceTextModuleTypes.
  * @param {{ isMain?: boolean }|undefined} context - context object containing module metadata.
  * @returns {ModuleWrap}
  */
-function compileSourceTextModule(url, source, cascadedLoader, context = kEmptyObject) {
-  const hostDefinedOption = cascadedLoader ? source_text_module_default_hdo : undefined;
-  const wrap = new ModuleWrap(url, undefined, source, 0, 0, hostDefinedOption);
+function compileSourceTextModule(url, source, type, context = kEmptyObject) {
+  let hostDefinedOptions;
+  switch (type) {
+    case SourceTextModuleTypes.kFacade:
+    case SourceTextModuleTypes.kInternal:
+      hostDefinedOptions = undefined;
+      break;
+    case SourceTextModuleTypes.kEmbedder:
+      hostDefinedOptions = embedder_module_hdo;
+      break;
+    case SourceTextModuleTypes.kUser:
+      hostDefinedOptions = source_text_module_default_hdo;
+      break;
+    default:
+      assert.fail(`Unknown SourceTextModule type: ${type}`);
+  }
 
-  if (!cascadedLoader) {
+  const wrap = new ModuleWrap(url, undefined, source, 0, 0, hostDefinedOptions);
+
+  if (type === SourceTextModuleTypes.kFacade) {
     return wrap;
   }
 
@@ -326,13 +363,30 @@ function compileSourceTextModule(url, source, cascadedLoader, context = kEmptyOb
     wrap.isMain = true;
   }
 
+  // Add an extra reference to the source of modules containing top-level await so that if the
+  // module ends up being require()'d, we can parse the location of the top-level awaits to print
+  // better errors. There will be other references to the same source in the module in V8 so this
+  // only serves as a shortcut.
+  if (wrap.hasTopLevelAwait &&
+      getOptionValue('--experimental-print-required-tla')) {
+    wrap[kModuleSource] = source;
+  }
+
   // Cache the source map for the module if present.
   if (wrap.sourceMapURL) {
     maybeCacheSourceMap(url, source, wrap, false, wrap.sourceURL, wrap.sourceMapURL);
   }
+
+  if (type === SourceTextModuleTypes.kEmbedder) {
+    // For embedder ESM, we also handle the linking and evaluation.
+    const requests = wrap.getModuleRequests();
+    const modules = requests.map(({ specifier }) => getBuiltinModuleWrapForEmbedder(specifier));
+    wrap.link(modules);
+    wrap.instantiate();
+    wrap.evaluate(-1, false);
+  }
   return wrap;
 }
-
 
 const kImportInImportedESM = Symbol('kImportInImportedESM');
 const kImportInRequiredESM = Symbol('kImportInRequiredESM');
@@ -344,11 +398,13 @@ const kRequireInImportedCJS = Symbol('kRequireInImportedCJS');
 const requestTypes = { kImportInImportedESM, kImportInRequiredESM, kRequireInImportedCJS };
 
 module.exports = {
+  embedder_module_hdo,
   registerModule,
   initializeESM,
   getDefaultConditions,
   getConditionsSet,
   shouldSpawnLoaderHookWorker,
   compileSourceTextModule,
+  SourceTextModuleTypes,
   requestTypes,
 };

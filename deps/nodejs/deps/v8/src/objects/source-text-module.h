@@ -28,7 +28,6 @@ class StructBodyDescriptor;
 class SourceTextModule
     : public TorqueGeneratedSourceTextModule<SourceTextModule, Module> {
  public:
-  NEVER_READ_ONLY_SPACE
   DECL_VERIFIER(SourceTextModule)
   DECL_PRINTER(SourceTextModule)
 
@@ -68,7 +67,7 @@ class SourceTextModule
   // exist yet, it is created.
   static DirectHandle<JSModuleNamespace> GetModuleNamespace(
       Isolate* isolate, DirectHandle<SourceTextModule> module,
-      int module_request);
+      int module_request_index);
 
   // Get the import.meta object of [module].  If it doesn't exist yet, it is
   // created and passed to the embedder callback for initialization.
@@ -90,6 +89,9 @@ class SourceTextModule
   std::pair<DirectHandleVector<SourceTextModule>,
             DirectHandleVector<JSMessageObject>>
   GetStalledTopLevelAwaitMessages(Isolate* isolate);
+
+  static bool ReadyForSyncExecution(Isolate* isolate, Handle<Module> module,
+                                    UnorderedModuleSet* seen);
 
  private:
   friend class Factory;
@@ -162,7 +164,7 @@ class SourceTextModule
       MessageLocation loc, bool must_resolve, ResolveSet* resolve_set);
   static V8_WARN_UNUSED_RESULT MaybeHandle<Cell> ResolveImport(
       Isolate* isolate, DirectHandle<SourceTextModule> module,
-      Handle<String> name, int module_request_index, MessageLocation loc,
+      MaybeHandle<String> name, int module_request_index, MessageLocation loc,
       bool must_resolve, ResolveSet* resolve_set);
 
   static V8_WARN_UNUSED_RESULT MaybeHandle<Cell> ResolveExportUsingStarExports(
@@ -173,8 +175,7 @@ class SourceTextModule
   static V8_WARN_UNUSED_RESULT bool PrepareInstantiate(
       Isolate* isolate, DirectHandle<SourceTextModule> module,
       v8::Local<v8::Context> context,
-      v8::Module::ResolveModuleCallback module_callback,
-      v8::Module::ResolveSourceCallback source_callback);
+      const Module::UserResolveCallbacks& callbacks);
   static V8_WARN_UNUSED_RESULT bool FinishInstantiate(
       Isolate* isolate, Handle<SourceTextModule> module,
       ZoneForwardList<Handle<SourceTextModule>>* stack, unsigned* dfs_index,
@@ -198,6 +199,11 @@ class SourceTextModule
   static V8_WARN_UNUSED_RESULT MaybeDirectHandle<Object> InnerModuleEvaluation(
       Isolate* isolate, Handle<SourceTextModule> module,
       ZoneForwardList<Handle<SourceTextModule>>* stack, unsigned* dfs_index);
+
+  static void GatherAsynchronousTransitiveDependencies(
+      Isolate* isolate, Handle<Module> module,
+      UnorderedModuleSet* evaluation_set,
+      ZoneVector<Handle<Module>>* evaluation_list, UnorderedModuleSet* seen);
 
   // Returns true if the evaluation exception was catchable by js, and false
   // for termination exceptions.
@@ -279,7 +285,6 @@ class SourceTextModuleInfo : public FixedArray {
 class ModuleRequest
     : public TorqueGeneratedModuleRequest<ModuleRequest, Struct> {
  public:
-  NEVER_READ_ONLY_SPACE
   DECL_VERIFIER(ModuleRequest)
 
   template <typename IsolateT>

@@ -51,6 +51,8 @@ exposeLazyInterfaces(globalThis, 'internal/worker/io', ['BroadcastChannel']);
 exposeLazyInterfaces(globalThis, 'internal/worker/io', [
   'MessageChannel', 'MessagePort',
 ]);
+// https://html.spec.whatwg.org/multipage/workers.html#dedicated-workers-and-the-worker-interface
+exposeLazyInterfaces(globalThis, 'internal/webworker', ['Worker']);
 // https://www.w3.org/TR/FileAPI/#dfn-Blob
 exposeLazyInterfaces(globalThis, 'internal/blob', ['Blob']);
 // https://www.w3.org/TR/FileAPI/#dfn-file
@@ -75,7 +77,7 @@ ObjectDefineProperty(globalThis, 'fetch', {
   configurable: true,
   enumerable: true,
   writable: true,
-  value: function fetch(input, init = undefined) { // eslint-disable-line func-name-matching
+  value: function fetch(input, init = undefined) {
     if (!fetchImpl) { // Implement lazy loading of undici module for fetch function
       const undiciModule = require('internal/deps/undici/undici');
       fetchImpl = undiciModule.fetch;
@@ -89,7 +91,7 @@ ObjectDefineProperty(globalThis, 'fetch', {
 // https://fetch.spec.whatwg.org/#request-class
 // https://fetch.spec.whatwg.org/#response-class
 exposeLazyInterfaces(globalThis, 'internal/deps/undici/undici', [
-  'FormData', 'Headers', 'Request', 'Response', 'MessageEvent', 'CloseEvent',
+  'FormData', 'Headers', 'Request', 'Response', 'MessageEvent', 'CloseEvent', 'ErrorEvent',
 ]);
 
 // https://html.spec.whatwg.org/multipage/server-sent-events.html#server-sent-events.org/

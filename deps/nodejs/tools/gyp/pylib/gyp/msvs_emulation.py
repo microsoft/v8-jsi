@@ -1057,13 +1057,18 @@ class PrecompiledHeader:
             pch_output = ["/Yc" + self._PchHeader()]
             if command == "cxx":
                 return (
-                    [("cflags_cc", map(expand_special, cflags_cc + pch_output))],
+                    [
+                        (
+                            "cflags_cc",
+                            [expand_special(x) for x in cflags_cc + pch_output],
+                        )
+                    ],
                     self.output_obj,
                     [],
                 )
             elif command == "cc":
                 return (
-                    [("cflags_c", map(expand_special, cflags_c + pch_output))],
+                    [("cflags_c", [expand_special(x) for x in cflags_c + pch_output])],
                     self.output_obj,
                     [],
                 )
@@ -1174,7 +1179,7 @@ def GenerateEnvironmentFiles(
     meet your requirement (e.g. for custom toolchains), you can pass
     "-G ninja_use_custom_environment_files" to the gyp to suppress file
     generation and use custom environment files prepared by yourself."""
-    archs = ("x86", "x64")
+    archs = ("x86", "x64", "arm64")
     if generator_flags.get("ninja_use_custom_environment_files", 0):
         cl_paths = {}
         for arch in archs:
