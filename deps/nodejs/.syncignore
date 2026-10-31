@@ -191,3 +191,8 @@
 /.npmrc
 /tools/msvs/msi/
 /deps/openssl/config/Dockerfile
+
+# Unused ngtcp2 example/parser-test fixtures flagged by secret scanning.
+/deps/ngtcp2/ngtcp2/examples/sim.cc
+/deps/ngtcp2/ngtcp2/third-party/urlparse/http-parser/test.c
+/deps/ngtcp2/ngtcp2/third-party/http-parser/test.c
