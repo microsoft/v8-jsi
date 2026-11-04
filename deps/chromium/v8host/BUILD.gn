@@ -454,7 +454,6 @@ executable("v8host_config_tests") {
   ]
   deps = [ "//sbox:sbox_config" ]
   public_configs = [ ":v8host_common_config" ]
-  defines = [ "SBOX_STATIC" ]
 }
 
 # Deterministic, in-process conformance tests for the neutral spawn/worker-profile
@@ -481,7 +480,6 @@ executable("v8host_spawn_config_tests") {
   # v8host_spawn_apply.h lives in the v8host root (next to v8host_engine.cc); put
   # it on the include path so the test .cc (in tests/) can reach the lowering.
   include_dirs = [ "." ]
-  defines = [ "SBOX_STATIC" ]
 }
 
 executable("v8host_layout_release_tests") {

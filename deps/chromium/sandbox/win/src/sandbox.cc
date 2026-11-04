@@ -42,8 +42,7 @@ TargetServices* SandboxFactory::GetTargetServices() {
 }  // namespace sandbox
 
 // Allows querying for whether the current process has been sandboxed.
-// Not exported: this DLL publishes only its own public C API, and this symbol is
-// unused in this hosted, non-component build.
+// Not exported: sbox.exe must export nothing; this symbol is unused here.
 extern "C" bool IsSandboxedProcess() {
   return !!sandbox::g_shared_section;
 }

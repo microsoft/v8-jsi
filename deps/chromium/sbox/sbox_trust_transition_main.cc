@@ -19,8 +19,6 @@
 // Role dispatch is FIRST in main() so neither persona can fall through into the
 // other's init. testonly; SBOX_TRUST_TRANSITION_TESTING-gated; never shipped.
 
-#define SBOX_DLL_IMPL  // sbox_* are defined in THIS image (sbox_broker.cc).
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -1048,15 +1046,6 @@ bool RunPolicyTests() {
            SBOX_TRUST_TRANSITION_PLATFORM_CURRENT,
            SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE) &&
       ok;
-  // Retired with the two-image topology: the former
-  // "non-hosted-dll-linkage" case drove SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED
-  // to prove the broker rejects a target whose sandbox core is a SEPARATE,
-  // non-hosted DLL (SBOX_ERROR_INVALID_LINK_STATE / rc=64). That guard
-  // (broker_services.cc: !g_sbox_hosted_mode && CURRENT_MODULE() !=
-  // GetModuleHandleW(nullptr)) fires only when the core is in its own module; in
-  // the single statically-linked image the core IS the EXE, so the guard
-  // correctly treats same-image as the valid state and the case is inapplicable.
-  // The guard itself is unchanged and still fails closed for a non-hosted DLL.
 
   DWORD handles_before = 0;
   DWORD handles_after = 0;
@@ -1125,14 +1114,6 @@ bool RunPolicyTests() {
       {"lpac-untrusted", true, true, SBOX_INTEGRITY_UNTRUSTED},
       {"appcontainer-unused-token-fields", true, false, SBOX_INTEGRITY_LOW, true},
       {"lpac-unused-token-fields", true, true, SBOX_INTEGRITY_LOW, true},
-      // Retired with the two-image topology: the former
-      // "hosted-relocation" / "lpac-hosted-relocation" cases set SBOX_FORCE_RELOCATE
-      // to force the target's SEPARATE sandbox-core DLL to load at a different base
-      // and prove the RVA seed survived. In the single statically-linked image the
-      // core is mapped with the EXE at creation and same-boot ASLR pins the broker
-      // and worker to the same base, so the core image cannot be post-spawn
-      // relocated; the forced-relocation assertion is architecturally inapplicable.
-      // (The SBOX_FORCE_RELOCATE broker probe remains for a manual seed-resolves check.)
   };
   uint64_t serial = 100;
   for (const auto &spec : cases)

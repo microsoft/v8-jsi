@@ -1,6 +1,6 @@
 // sbox_main.cc — the product single-image sbox.exe: one binary that is BOTH the
 // sandbox broker and the sandbox worker, selected by argv. It statically links
-// the same Chromium sandbox core as the DLL did (via sbox_broker.cc) so the broker
+// the Chromium sandbox core (via sbox_broker.cc) so the broker
 // and worker share one image and one set of sandbox globals.
 //
 // Personas (role is chosen first; neither falls through into the other's init).
@@ -15,8 +15,8 @@
 //                       : invoke the plugin-owned coordinator service.
 //   sbox.exe --pipe-bench : developer transport-latency probe.
 //
-// SBOX_CORE_API is plain extern "C" here (the target defines SBOX_STATIC), so the
-// sbox_* core compiled into this EXE stays out of its export table.
+// SBOX_CORE_API is plain extern "C", so the statically linked sbox_* core
+// stays out of the export table.
 #include "sbox_core_internal.h"
 #include "sbox_harden.h"
 #include "sbox.h"

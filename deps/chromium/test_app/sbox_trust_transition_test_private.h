@@ -37,7 +37,6 @@ enum SboxTrustTransitionPlatform : uint32_t {
 enum SboxTrustTransitionBrokerFault : uint32_t {
   SBOX_TRUST_TRANSITION_BROKER_NONE = 0,
   SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE = 1,
-  SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED = 2,
 };
 
 struct SboxTrustTransitionPolicyExpectation {
@@ -45,7 +44,6 @@ struct SboxTrustTransitionPolicyExpectation {
   int32_t delayed_integrity;
   int32_t app_container;
   int32_t lpac;
-  int32_t force_relocation;
   wchar_t package_sid[184];
   wchar_t fixture_directory[260];
 };
@@ -55,7 +53,6 @@ struct SboxTrustTransitionTestControl {
   uint32_t version;
   uint32_t case_id;
   uint64_t serial;
-  uintptr_t broker_dll_base;
   SboxTrustTransitionPolicyExpectation policy;
 };
 

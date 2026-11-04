@@ -1,10 +1,6 @@
-// The sbox core — the Chromium sandbox behind a generic, V8-agnostic C ABI.
-// One signed DLL, loaded by two different binaries: a broker host
-// (sbox_broker_*) and an app-defined target EXE (sbox_target_*). Contains NO
-// knowledge of v8jsi, JavaScript, jitless, or any guest engine — the target EXE
-// owns all of that.
+// The generic, V8-agnostic sandbox core, statically linked into the
+// single-image broker and worker executable.
 
-#define SBOX_DLL_IMPL
 #include "msg_channel.h"
 #include "sbox_core_internal.h"
 
@@ -51,7 +47,7 @@
 #include "sbox_trust_transition_test_private.h"
 #endif
 
-// Hosted (decoupled-DLL) mode hooks. We are inside the sbox core (linked with the
+// Hosted bootstrap hooks. We are inside the sbox core (linked with the
 // sandbox engine), so we reference these vendored globals directly.
 namespace sandbox {
 extern bool g_sbox_hosted_mode;                  // sandbox_policy_base.cc
@@ -119,7 +115,6 @@ bool ValidPolicyExpectation(const SboxTrustTransitionPolicyExpectation& policy) 
           policy.delayed_integrity == SBOX_INTEGRITY_UNTRUSTED) &&
          (policy.app_container == 0 || policy.app_container == 1) &&
          (policy.lpac == 0 || policy.lpac == 1) &&
-         (policy.force_relocation == 0 || policy.force_relocation == 1) &&
          (!policy.lpac || policy.app_container) &&
          (!policy.app_container || policy.package_sid[0]) &&
          policy.fixture_directory[0] &&
@@ -188,8 +183,8 @@ class SyncBrokerDelegate : public sandbox::BrokerServicesDelegate {
   void OnCreateThreadActionDuplicateFailure(DWORD) override {}
 };
 
-// base needs an AtExitManager + an initialized CommandLine. The DLL owns them
-// (the host EXEs don't link base). One per process; leaked for process lifetime.
+// Initialize base for sbox.exe with one AtExitManager and CommandLine per
+// process; keep them alive for the process lifetime.
 struct BaseBootstrap {
   base::AtExitManager at_exit;
   BaseBootstrap() { base::CommandLine::Init(0, nullptr); }
@@ -398,12 +393,11 @@ bool ValidatePolicy(const wchar_t* target_exe, const SboxPolicy* policy) {
   return true;
 }
 
-// Base + SizeOfImage of our own sbox.exe in this process (diagnostics + the
-// optional forced-relocation base-independence probe).
-uintptr_t MyDllBase() {
+// Base + SizeOfImage of the current executable (diagnostics and RVA seeding).
+uintptr_t MyImageBase() {
   return reinterpret_cast<uintptr_t>(CURRENT_MODULE());
 }
-DWORD MyDllSizeOfImage() {
+DWORD MyImageSizeOfImage() {
   HMODULE m = CURRENT_MODULE();
   if (!m)
     return 0;
@@ -637,8 +631,8 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   // DLL-loading init on this freshly-created launcher thread can stall if the
   // host hardened its DLL search path). EnsureBrokerInitialized() here just
   // returns the already-created broker (its std::call_once is already satisfied).
-  BrokerLog("[broker] sbox.dll base = 0x%llx (size 0x%lx)\n",
-         (unsigned long long)MyDllBase(), MyDllSizeOfImage());
+  BrokerLog("[broker] image base = 0x%llx (size 0x%lx)\n",
+         (unsigned long long)MyImageBase(), MyImageSizeOfImage());
 
   sandbox::BrokerServices* broker = EnsureBrokerInitialized();
   if (!broker) {
@@ -723,17 +717,10 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
     return nullptr;
   }
 
-  // Hosted mode: the broker can't push into the suspended child's unmapped
-  // sbox.exe. Create the shared IPC section here (target->Init adopts it); after
-  // the spawn we duplicate it + the message-channel handles into the child and
-  // seed the values directly at their shared RVAs (same-image handoff).
+  // Hosted bootstrap: create the IPC section for the worker to adopt. After
+  // spawning, duplicate its handles and seed the suspended child's mapped
+  // image at shared RVAs.
   sandbox::g_sbox_hosted_mode = true;
-#if defined(SBOX_TRUST_TRANSITION_TESTING)
-  if (sandbox::trust_transition_test::ConsumeBrokerFault(
-          SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED)) {
-    sandbox::g_sbox_hosted_mode = false;
-  }
-#endif
   s->ipc_section =
       ::CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
                            PAGE_READWRITE | SEC_COMMIT, 0, 256 * 1024, nullptr);
@@ -839,7 +826,7 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
   // my_base is the base of THIS image (the one holding the sandbox globals we
   // address below). sbox_broker.cc links into sbox.exe and the single-image
   // test exe; CURRENT_MODULE() anchors the globals in either executable.
-  const uintptr_t my_base = MyDllBase();
+  const uintptr_t my_base = MyImageBase();
   if (!worker_base || !my_base) {
     BrokerLog("[broker] same-image base read failed (worker=0x%llx my=0x%llx)\n",
               (unsigned long long)worker_base, (unsigned long long)my_base);
@@ -923,7 +910,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
     g_trust_transition_next_control = {};
   }
   if (control.magic == kSboxTrustTransitionControlMagic) {
-    control.broker_dll_base = MyDllBase();
     // Same-image seed: write the control struct directly at its shared RVA in
     // the suspended worker (was a FindRemoteExport of an exported symbol).
     if (!SeedWorkerVar(proc, worker_base, my_base,
@@ -940,19 +926,6 @@ SboxSession* SpawnOnLauncherThread(const wchar_t* target_exe,
 #endif
 
 #if defined(SBOX_DEV_ALLOW_UNSIGNED)
-  // Base-independence probe (see security note): force the child's sbox.exe to
-  // relocate when SBOX_FORCE_RELOCATE is set.
-  if (::GetEnvironmentVariableW(L"SBOX_FORCE_RELOCATE", nullptr, 0) > 0) {
-    uintptr_t host_base = MyDllBase();
-    DWORD img_size = MyDllSizeOfImage();
-    void* reserved = ::VirtualAllocEx(proc, reinterpret_cast<void*>(host_base),
-                                      img_size, MEM_RESERVE, PAGE_NOACCESS);
-    BrokerLog("[broker] FORCE_RELOCATE: reserved child range [0x%llx,+0x%lx) -> %s "
-           "(err=%lu); child must relocate sbox.dll\n",
-           (unsigned long long)host_base, img_size, reserved ? "OK" : "FAILED",
-           reserved ? 0 : ::GetLastError());
-  }
-
   if (failure) {
     wchar_t event_name[256] = {};
     if (::GetEnvironmentVariableW(L"SBOX_TEST_LIFECYCLE_HELD_EVENT", event_name, 256)) {
@@ -1210,7 +1183,7 @@ SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_platform(
 
 SBOX_TRUST_TRANSITION_API int sbox_trust_transition_test_set_broker_fault(
     uint32_t fault) {
-  if (fault > SBOX_TRUST_TRANSITION_BROKER_NON_HOSTED)
+  if (fault > SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE)
     return 0;
   sandbox::trust_transition_test::SetBrokerFault(fault);
   return 1;
@@ -1250,7 +1223,7 @@ SBOX_CORE_API SboxTarget* sbox_target_begin(void) {
          static_cast<size_t>(sandbox::g_shared_policy_size),
          sandbox::g_handle_closer_info.handle_closer_enabled);
   printf("[sbox] image base = 0x%llx (size 0x%lx)\n",
-         (unsigned long long)MyDllBase(), MyDllSizeOfImage());
+         (unsigned long long)MyImageBase(), MyImageSizeOfImage());
 
   sandbox::TargetServices* services =
       sandbox::SandboxFactory::GetTargetServices();
@@ -1299,9 +1272,8 @@ SBOX_CORE_API int sbox_target_lower_token(SboxTarget* target) {
   if (!target || !target->services)
     return -1;
   // Install the ntdll interceptions while still privileged: ACG (applied by
-  // LowerToken) forbids patching executable ntdll pages afterward. The broker
-  // can't install these remotely (our sbox core is a different binary, unmapped
-  // while we were suspended), so we patch our own.
+  // LowerToken) forbids patching executable ntdll pages afterward. Hosted
+  // bootstrap leaves interception setup to the worker.
   // The hosted public policy serializes file rules. An empty policy section
   // means the broker requested no file interceptions.
   const bool file_brokering = sandbox::g_shared_policy_size != 0;

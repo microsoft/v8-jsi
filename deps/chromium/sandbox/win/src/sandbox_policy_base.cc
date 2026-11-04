@@ -633,22 +633,13 @@ base::expected<TargetTokens, ResultCode> PolicyBase::MakeTokens() {
   return TargetTokens{std::move(*impersonation), std::move(*primary)};
 }
 
-// Hosted (decoupled-DLL) mode: when set, the sandbox engine lives in a shared
-// sandbox.dll loaded by a broker host that is a DIFFERENT binary from the target
-// (e.g. an app host process spawning a separate sandboxed target exe). The
-// broker cannot push bootstrap data into the suspended child — its sandbox.dll
-// is not mapped yet (only the EXE and ntdll are) — so InitProcess keeps the
-// dispatcher + IPC server but skips the fixed-&g_global child-memory writes that
-// would fail across binaries. The child self-populates its globals from the
-// broker-relayed bootstrap (delivered via the target EXE's exported struct) and
-// self-installs its ntdll interceptions. Engine-generic; no app/guest knowledge.
-// Set via sandbox::g_sbox_hosted_mode before SpawnTargetAsync.
+// Hosted bootstrap: the broker seeds the suspended worker by shared image RVA;
+// the worker adopts the IPC section and self-installs its interceptions.
+// Set before SpawnTargetAsync.
 bool g_sbox_hosted_mode = false;
 
-// Hosted mode: captured handle-closer config for the broker to relay to the
-// child via the EXE bootstrap struct (the child's g_handle_closer_info can't be
-// written while it is suspended with its sandbox.dll unmapped). Parity with
-// SetupHandleCloser, which is skipped in hosted mode.
+// Handle-closer configuration captured for the broker's same-image seed.
+// SetupHandleCloser is skipped in hosted mode.
 HandleCloserConfig g_sbox_hosted_handle_closer = {};
 
 ResultCode PolicyBase::InitProcess(HANDLE process_handle,
@@ -687,16 +678,9 @@ ResultCode PolicyBase::InitProcess(HANDLE process_handle,
     return SBOX_ERROR_APPLY_ASLR_MITIGATIONS;
   }
 
-  // Hosted (decoupled-DLL) mode: token/job/mitigations above are applied at
-  // CreateProcess (PEB/process-level, no sandbox.dll in the child needed). The
-  // interception setup + the fixed-&g_global pushes WriteProcessMemory into the
-  // child's (not-yet-mapped) sandbox.dll, which fails across binaries — skip
-  // those. The shared-memory IPC server (target->Init) IS kept: it works on the
-  // broker-adopted section and dups its events into the child via handles stored
-  // inside the section, so it is binary-agnostic. The broker relays the section
-  // handle + sizes + integrity/mitigations to the child via its EXE bootstrap
-  // struct; the child self-installs its ntdll interceptions (see
-  // SelfInstallFileInterceptions) so brokered calls auto-route.
+  // Hosted bootstrap keeps the dispatcher and shared-section IPC server, but
+  // skips fixed-address global writes and broker-side interception setup.
+  // The broker seeds the worker by RVA; the worker self-installs interceptions.
   dispatcher_ = std::make_unique<TopLevelDispatcher>(this);
   ResultCode ret = SBOX_ALL_OK;
   if (!g_sbox_hosted_mode) {
@@ -716,10 +700,8 @@ ResultCode PolicyBase::InitProcess(HANDLE process_handle,
     return ret;
 
   if (g_sbox_hosted_mode) {
-    // Integrity + mitigations + handle-closer are relayed to the child via its
-    // EXE bootstrap struct (the broker can't write the child's unmapped
-    // sandbox.dll globals). Capture the handle-closer config here (parity with
-    // SetupHandleCloser, skipped above).
+    // Capture handle-closer configuration for the broker's same-image seed,
+    // which also carries integrity and mitigations to the worker.
     g_sbox_hosted_handle_closer = config()->handle_closer();
     target_ = std::move(target);
     return SBOX_ALL_OK;

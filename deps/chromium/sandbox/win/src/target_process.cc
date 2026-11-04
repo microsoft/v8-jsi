@@ -75,13 +75,9 @@ SANDBOX_INTERCEPT size_t g_delegate_data_size;
 // 'BOXY'
 SANDBOX_INTERCEPT DWORD g_sentinel_value_end = 0x424F5859;
 
-// Hosted (decoupled-DLL) mode: the sandbox engine is a shared sandbox.dll loaded
-// by a broker host that is a DIFFERENT binary from the target. The broker can't
-// WriteProcessMemory into the suspended child's unmapped sandbox.dll, so in this
-// mode TargetProcess::Init adopts a broker-provided shared section, keeps the IPC
-// server, and skips the sentinel + every fixed-&g_global TransferVariable. The
-// broker relays the child-side section handle + sizes to the child via its EXE
-// bootstrap struct instead. Engine-generic; no app/guest knowledge.
+// Hosted bootstrap adopts the broker-provided section and keeps the IPC server,
+// skipping sentinel and fixed-address TransferVariable writes. The broker seeds
+// the worker's section handle and sizes by shared image RVA.
 extern bool g_sbox_hosted_mode;                    // sandbox_policy_base.cc
 HANDLE g_sbox_hosted_section = nullptr;            // broker-created section to adopt
 uint32_t g_sbox_hosted_child_ipc_size = 0;         // captured for the broker to relay
@@ -147,8 +143,7 @@ ResultCode TargetProcess::Init(
     DWORD* win_error) {
   ResultCode ret = SBOX_ALL_OK;
   if (!g_sbox_hosted_mode) {
-    // Sentinel check reads the child's sandbox image — skip in hosted mode where
-    // the child's sandbox.dll is not mapped while suspended.
+    // Hosted bootstrap uses the same-image seed instead of sentinel checks.
     ret = VerifySentinels();
     if (ret != SBOX_ALL_OK)
       return ret;
@@ -175,8 +170,8 @@ ResultCode TargetProcess::Init(
   if (g_sbox_hosted_mode) {
     // Adopt the broker-provided section. It may be oversized; the offset CHECK
     // below validates the write math (computed from policy sizes), not the
-    // section size. The broker owns the handle and relays it to the child via
-    // its EXE bootstrap struct, so we do not take ownership here.
+    // section size. The broker owns the handle and seeds the worker by RVA,
+    // so we do not take ownership here.
     section_to_map = g_sbox_hosted_section;
     g_sbox_hosted_child_ipc_size = static_cast<uint32_t>(shared_IPC_size);
     // The policy blob is copied into the section right after the IPC region
@@ -223,8 +218,7 @@ ResultCode TargetProcess::Init(
   CHECK_EQ(current_offset, shared_mem_size);
 
   // Set the global variables in the target. These are not used on the broker.
-  // In hosted mode the broker can't write the child's unmapped sandbox.dll
-  // globals; it relays these sizes to the child via the EXE bootstrap struct.
+  // Hosted bootstrap carries these sizes in the same-image worker seed.
   if (!g_sbox_hosted_mode) {
     size_t transfer_shared_IPC_size = shared_IPC_size;
     static_assert(sizeof(g_shared_IPC_size) == sizeof(transfer_shared_IPC_size));
@@ -264,9 +258,8 @@ ResultCode TargetProcess::Init(
   if (!ipc_server_->Init(shared_memory, shared_IPC_size, kIPCChannelSize))
     return SBOX_ERROR_NO_SPACE;
 
-  // In hosted mode the broker duplicates the section into the child and relays the
-  // handle value via the EXE bootstrap struct (the child's sandbox.dll global
-  // can't be written while suspended/unmapped).
+  // Hosted bootstrap duplicates the section into the worker and carries its
+  // handle in the same-image seed.
   if (!g_sbox_hosted_mode) {
     DWORD access = FILE_MAP_READ | FILE_MAP_WRITE | SECTION_QUERY;
     HANDLE target_shared_section;

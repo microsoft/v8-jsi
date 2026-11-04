@@ -202,10 +202,8 @@ class InterceptionManager {
   std::list<InterceptionData> interceptions_;
 };
 
-// Hosted (decoupled-DLL) mode: self-install the ntdll service-call interceptions
-// in the CURRENT process. In hosted mode the broker is a DIFFERENT binary and
-// cannot remotely patch the child's not-yet-mapped sandbox.dll, so the child
-// patches its own ntdll instead. Installs the SetupBasicInterceptions()
+// Hosted bootstrap: the worker self-installs ntdll service-call interceptions
+// in its own process. Installs the SetupBasicInterceptions()
 // process/thread/token hardening hooks (including the NtSetInformationThread
 // premature-RevertToSelf guard). When the trusted policy requests file
 // brokering, also installs the filesystem dispatcher's hooks. Only

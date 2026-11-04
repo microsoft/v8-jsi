@@ -10,7 +10,7 @@ import("//sbox/trust.gni")
 # the fail-closed marshal/discard gate. Factored out of sbox_main.cc so the
 # status-returning setters and the gate are unit-testable (see
 # //v8host:v8host_config_tests) without the sbox.exe role dispatch or a spawned
-# worker. SBOX_STATIC keeps sbox_core_internal.h's SBOX_CORE_API as plain extern "C".
+# worker.
 config("sbox_config_public") {
   include_dirs = [ "." ]  # sbox.h, sbox_core_internal.h, sbox_config.h
 }
@@ -21,20 +21,18 @@ static_library("sbox_config") {
     "sbox_config.h",
   ]
   public_configs = [ ":sbox_config_public" ]
-  defines = [ "SBOX_STATIC" ]
 }
 
 # sbox.exe — the V8-agnostic sandbox container. Statically links the broker/
 # target core (sbox_broker.cc) and the role-dispatch + fail-closed lifecycle driver
-# (sbox_main.cc). SBOX_STATIC makes SBOX_CORE_API plain extern "C" so the core's
-# sbox_* symbols stay out of the EXE's export table (it must export nothing).
+# (sbox_main.cc). The EXE must export nothing.
 executable("sbox") {
   sources = [
     "sbox_broker.cc",
     "sbox_main.cc",
   ]
   include_dirs = [ "." ]  # sbox_core_internal.h, sbox.h, msg_channel.h, sbox_harden.h
-  defines = [ "SBOX_STATIC" ]
+  defines = []
   if (sbox_dev_allow_unsigned) {
     defines += [ "SBOX_DEV_ALLOW_UNSIGNED" ]
   }
@@ -95,12 +93,8 @@ if (current_cpu == "x64") {
       ".",           # sbox.h, msg_channel.h
       "//test_app",  # sbox_trust_transition_test_private.h
     ]
-    # SBOX_STATIC: SBOX_CORE_API -> plain extern "C" so this exe (which also compiles
-    # sbox_broker.cc) exports nothing, like the product sbox.exe.
-    defines = [
-      "SBOX_TRUST_TRANSITION_TESTING",
-      "SBOX_STATIC",
-    ]
+    # Like the product sbox.exe, this executable exports nothing.
+    defines = [ "SBOX_TRUST_TRANSITION_TESTING" ]
     deps = [
       "//base",
       "//sandbox/win:sandbox_trust_transition_test",
@@ -123,7 +117,7 @@ executable("sbox_lifecycle_tests") {
     "//v8host/tests/v8host_test_support.cc",
   ]
   include_dirs = [ ".", "//v8host/tests" ]
-  defines = [ "SBOX_STATIC", "SBOX_LIFECYCLE_TESTING" ]
+  defines = [ "SBOX_LIFECYCLE_TESTING" ]
   deps = [ ":sbox_config", "//base", "//sandbox/win:sandbox", "//v8host:file_identity" ]
   libs = [ "advapi32.lib", "bcrypt.lib", "wintrust.lib" ]
   ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]

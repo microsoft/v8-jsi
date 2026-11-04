@@ -5,8 +5,8 @@
 // Each direction has an auto-reset event the PRODUCER signals after a post; the
 // CONSUMER waits on it and drains. Fire-and-forget; frames carry a kind tag
 // (string vs binary) so the channel itself is payload-agnostic.
-#ifndef SANDBOX_DLL_MSG_CHANNEL_H_
-#define SANDBOX_DLL_MSG_CHANNEL_H_
+#ifndef SBOX_MSG_CHANNEL_H_
+#define SBOX_MSG_CHANNEL_H_
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -116,4 +116,4 @@ inline int Drain(RingControl* ctl, uint8_t* ring, FrameCb cb, void* ctx,
 
 }  // namespace sbox_msg
 
-#endif  // SANDBOX_DLL_MSG_CHANNEL_H_
+#endif  // SBOX_MSG_CHANNEL_H_

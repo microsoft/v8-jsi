@@ -4,8 +4,8 @@
 // and lowers it to an SboxPolicy. Factored out of sbox_main.cc so the setters +
 // the fail-closed discard gate are unit-testable without the sbox.exe role
 // dispatch or a spawned worker.
-#ifndef SANDBOX_DLL_SBOX_CONFIG_H_
-#define SANDBOX_DLL_SBOX_CONFIG_H_
+#ifndef SBOX_CONFIG_H_
+#define SBOX_CONFIG_H_
 
 #include <string>
 #include <vector>
@@ -80,4 +80,4 @@ bool MarshalSboxConfig(const sbox_config_s& cfg,
                        const wchar_t* worker_plugin_name,
                        SboxConfigMarshal& out);
 
-#endif  // SANDBOX_DLL_SBOX_CONFIG_H_
+#endif  // SBOX_CONFIG_H_

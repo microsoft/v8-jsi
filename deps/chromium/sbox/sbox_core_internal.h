@@ -19,27 +19,17 @@
 // package/capabilities, a job, and integrity levels; it does not combine that
 // identity with the ordinary mode's token-level or restricted-default-DACL
 // settings. File rules are an additional broker-mediated access channel.
-#ifndef SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
-#define SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
+#ifndef SBOX_CORE_INTERNAL_H_
+#define SBOX_CORE_INTERNAL_H_
 
 #include <cstddef>
 #include <cstdint>
 #include "sbox.h"
 
-#if defined(SBOX_STATIC)
-// The broker/target core is linked directly into an executable (the product
-// sbox.exe and the trust-transition test both compile sbox_broker.cc), so the
-// sbox_* ABI is resolved at link time, not across a DLL boundary. Plain
-// extern "C" keeps the symbols out of the export table (the EXE must export
-// nothing). Checked BEFORE SBOX_DLL_IMPL because sbox_broker.cc self-defines that.
+// Link-time internal symbols; sbox.exe must export nothing.
 #define SBOX_CORE_API extern "C"
-#elif defined(SBOX_DLL_IMPL)
-#define SBOX_CORE_API extern "C" __declspec(dllexport)
-#else
-#define SBOX_CORE_API extern "C" __declspec(dllimport)
-#endif
 
-// --- abstract, ABI-safe levels (mapped to sandbox enums inside the DLL) ---
+// --- abstract, ABI-safe levels (mapped to sandbox enums inside the core) ---
 // Token levels, most- to least-restrictive (mirrors Chromium's TokenLevel 1:1).
 // Unknown -> RESTRICTED_SAME_ACCESS.
 enum SboxTokenLevel {
@@ -62,10 +52,10 @@ typedef struct SboxFileRule {
   int32_t readonly;        // 1 = read-only access; 0 = any access
 } SboxFileRule;
 
-// The policy the broker host describes; the DLL compiles it into sandbox rules.
-// Engine-generic: ACG (prohibit_dynamic_code) is an OS mitigation the DLL
+// The policy the broker host describes; the core compiles it into sandbox rules.
+// Engine-generic: ACG (prohibit_dynamic_code) is an OS mitigation the core
 // applies; whether the guest can survive it (e.g. running V8 jitless) is the
-// target EXE's concern, not the DLL's.
+// plugin's concern, not the core's.
 typedef struct SboxPolicy {
   uint32_t struct_size;           // size in bytes; at least sizeof(SboxPolicy)
   int32_t initial_token;          // SboxTokenLevel; ordinary mode only
@@ -149,7 +139,7 @@ typedef void (*SboxMessageCb)(void* ctx, int kind, const void* data, size_t len)
 //
 // THREAD-SAFETY: sbox_broker_spawn is thread-safe -- it may be called
 // concurrently from multiple threads. The underlying Chromium spawn path
-// requires every spawn to run on a single thread, so the DLL marshals the actual
+// requires every spawn to run on a single thread, so the core marshals the actual
 // spawn onto one internal launcher thread and blocks the caller until it
 // completes. Spawns are thus serialized internally (briefly), but the spawned
 // targets run fully in parallel and callers do NOT need to coordinate. The
@@ -224,4 +214,4 @@ SBOX_CORE_API int sbox_target_acg_enabled(SboxTarget* target);
 // Release the target handle (does not terminate the process).
 SBOX_CORE_API void sbox_target_end(SboxTarget* target);
 
-#endif  // SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
+#endif  // SBOX_CORE_INTERNAL_H_

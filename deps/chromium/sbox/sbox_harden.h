@@ -2,8 +2,8 @@
 // binaries (sbox.exe, v8host.dll). The engine is a swappable on-disk
 // DLL, so a planted v8host.dll would replace the plugin. These helpers restrict
 // the loader search path and verify Authenticode signatures.
-#ifndef SANDBOX_DLL_SBOX_HARDEN_H_
-#define SANDBOX_DLL_SBOX_HARDEN_H_
+#ifndef SBOX_HARDEN_H_
+#define SBOX_HARDEN_H_
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -107,4 +107,4 @@ inline bool CheckTrust(const std::wstring& path, const char* tag) {
 
 }  // namespace sbox_harden
 
-#endif  // SANDBOX_DLL_SBOX_HARDEN_H_
+#endif  // SBOX_HARDEN_H_
