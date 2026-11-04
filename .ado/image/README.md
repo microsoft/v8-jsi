@@ -10,11 +10,11 @@ image the build agents run on.
 | [`windows-2025-1espt-x64.json`](./windows-2025-1espt-x64.json) | x64 (also runs x86) | `windows-2025-1espt` |
 | [`windows-2025-1espt-arm64.json`](./windows-2025-1espt-arm64.json) | ARM64 (native) | `windows-2025-1espt-arm64` |
 
-Both images share one toolchain — **Visual Studio 2026 Enterprise + Clang, the
-current Windows SDK, Node.js 24, Python 3.13 in the Azure Pipelines tool cache,
+Both definitions request one toolchain — **Visual Studio 2026 Enterprise + Clang,
+Windows SDK 28000 (with 26100 and 22621 retained), Node.js 24, Python 3.13 in the Azure Pipelines tool cache,
 the latest Python on `PATH`, a native Python 3.14 off `PATH`, and .NET 10** —
-so x64, x86, and ARM64 all build and
-test with the same tools. The two JSONs are intentionally kept as close to
+so x64, x86, and ARM64 all build and test with the same tools once the images
+are rebuilt. The two JSONs are intentionally kept as close to
 identical as possible; they differ only where the architecture forces it (see
 [Per-architecture differences](#per-architecture-differences)).
 
@@ -82,7 +82,8 @@ the 2026 product line), with the **same** workload string ending in
 | `VC.Tools.x86.x64` **and** `VC.Tools.ARM64` | native MSVC for x64 **and** ARM64 |
 | `VC.Llvm.Clang`, `VC.Llvm.ClangToolset` | Clang/LLVM (Clang 22 ships in VS 2026); the Node.js ≥ 24 build uses `clang-cl` |
 | `VC.CMake.Project` | CMake (used by the sandbox `gn`/`ninja` build) |
-| `Windows11SDK.26100` | current Windows SDK |
+| `Windows11SDK.28000` | Chromium 156 sandbox builds; requires SDK `10.0.28000.2270` servicing or newer |
+| `Windows11SDK.26100` | **kept deliberately** — existing builds still target `10.0.26100.0` |
 | `Windows11SDK.22621` | **kept deliberately** — consumers (e.g. react-native-windows default props) still target `10.0.22621.0` |
 | `Windows11Sdk.WindowsPerformanceToolkit` | WPA/WPR/xperf |
 | `VC.ATL`, `VC.ATLMFC`, `VC.ATL.ARM64`, `VC.MFC.ARM64`, `UWP.VC.ARM64` | ATL/MFC/UWP for x64 and ARM64 |
@@ -296,11 +297,27 @@ Studio Installer background updater from contacting the Microsoft CDN during a
 build, which would violate pipeline network isolation. Both registry locations
 are set because Visual Studio setup components can consult either location.
 
-### Both Windows SDKs are kept
+### Windows SDKs are kept side by side
 
-`Windows11SDK.26100` (current) and `Windows11SDK.22621` are both installed.
-Consumers of these images still target `10.0.22621.0` in some projects, so 22621
-must remain until those consumers migrate.
+The [Chromium 156.0.8078.80 Windows build requirements](https://chromium.googlesource.com/chromium/src/+/fb096c0011f9d50f0a264a9376420cdea9c421e3/docs/windows_build_instructions.md)
+specify SDK `10.0.28000.2270`. Use that servicing level or a newer 28000 servicing
+release, not just any 28000 installation; the include/lib directory version
+remains `10.0.28000.0` and does not establish the servicing level.
+
+The [VS 18 stable catalog](https://aka.ms/vs/18/stable/channel) (18.11.3, checked
+2026-11-02) offers `Microsoft.VisualStudio.Component.Windows11SDK.28000` for both
+x64 and ARM64 hosts, backed by SDK `10.0.28000.2705`. Its installer requests x86,
+x64, and ARM64 desktop features. The component follows the stable catalog's
+servicing updates, so recheck the delivered version when rebuilding.
+
+`Windows11SDK.26100` remains for existing builds targeting `10.0.26100.0`.
+`Windows11SDK.22621` remains for consumers such as React Native for Windows that
+still target `10.0.22621.0`. Keep both until those consumers migrate.
+
+These are definition changes, not confirmation of installed SDKs on published
+images. After rebuilding both images, verify the installed 28000 servicing level,
+headers, libraries, and tools for x64/x86 and native ARM64, then run real sandbox
+builds on the updated agents.
 
 ## Updating an image
 
