@@ -111,6 +111,7 @@ come before the artifacts that depend on them.
 | `windows-add-to-path` | Add the 7-zip installation directory to the machine `PATH` |
 | `windows-chocolatey` (`nasm`) | **x64 only** — install NASM for native builds |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
+| `windows-powershell-invokecommand` ([`install-rust.ps1`](./install-rust.ps1)) | Public Rust `stable` through rustup into `%SystemDrive%\Rust`, with the x64, x86, ARM64 and ARM64EC targets; see [Rust note](#rust) |
 | `Windows-NodeJS` | Node.js `24.x` (`UseARM` selects the architecture) |
 | `windows-1es-starter-install-python` | Latest Python `3.13.*` x64 build in the Azure Pipelines tool cache; see [Python note](#python) |
 | `windows-1es-starter-install-python` (`3.14.*`) | **x64 only** — latest Python `3.14.*` x64 build in the tool cache, the build scripts' fallback; see [Python note](#python) |
@@ -226,6 +227,49 @@ expansion; both remain independent of the system drive. Reason: the SBoM
 discover (via `DOTNET_ROOT_X64`, which an x64 .NET host probes first on an arm64
 OS) lets SBoM run on the ARM64 cells.
 
+### Rust
+
+V8 implements Temporal with the Rust `temporal_rs` crates, which the vendored
+Node.js build compiles with Cargo into a static library that MSVC links. Both
+images install the same Rust toolchain so Temporal can be enabled for
+`v8jsi.dll` and `v8jsisb.dll`. The Chromium sandbox build (`sbox-build.ts`)
+does not use it.
+
+[`install-rust.ps1`](./install-rust.ps1) downloads the official
+`rustup-init.exe` for the OS architecture, checks it against the published
+SHA-256, and installs the floating `stable` toolchain with the `minimal`
+profile (rustc, Cargo, the host standard library) under `%SystemDrive%\Rust`.
+It persists `RUSTUP_HOME=%SystemDrive%\Rust\.rustup` and adds the rustup
+proxies in `%SystemDrive%\Rust\.image-cargo\bin` to the machine `PATH`. It does
+not persist `CARGO_HOME`, so Cargo caches stay per user. The toolchain is
+read-only for agents, so they cannot add targets themselves. The script
+therefore adds every engine target on both images:
+
+| Rust target | Used for |
+|-------------|----------|
+| `x86_64-pc-windows-msvc` | x64 |
+| `i686-pc-windows-msvc` | x86, which builds as Win32 on the x64 image |
+| `aarch64-pc-windows-msvc` | ARM64 |
+| `arm64ec-pc-windows-msvc` | ARM64EC |
+
+The script then builds a small `std`-using static library for each target.
+rustc archives static libraries itself, so this checks the standard libraries
+without a linker. The script is embedded like `install-winget-packages.ps1`;
+see [WinGet during image builds](#winget-during-image-builds) for how to
+regenerate it.
+
+The factory artifact `windows-install-public-rust-toolchain` is not used. It
+fails at random: it reads `$LASTEXITCODE` after
+`rustup show active-toolchain | Select-Object -First 1`, which stops rustup's
+pipeline early and loses its exit code. It also has no way to add targets.
+
+WinGet is not used for Rust. `Rustlang.Rust.MSVC` MSIs include only the host
+standard library and there is no ARM64EC MSI. `Rustlang.Rustup` runs the same
+`rustup-init.exe` but would need the WinGet bootstrap on the x64 image.
+
+The vendored Node.js crates require Rust 1.86 or later (`rust-version` in
+`deps/nodejs/deps/crates/Cargo.toml`); `stable` follows the weekly rebuilds.
+
 ### 7-zip
 
 The x64 image uses `windows-AzPipeline-7zip`, which installs 7-zip through
@@ -278,15 +322,27 @@ script handles each point in order:
 The JSON carries the script base64-encoded because ImageFactory pastes the
 `Script` value into a generated command line as a double-quoted PowerShell
 string: quotes would end the string, and `$` would be expanded there. The base64
-form contains neither. After editing the script, regenerate the entry from this
-folder in PowerShell 7:
+form contains neither. The same applies to
+[`install-rust.ps1`](./install-rust.ps1) (see [Rust](#rust)). Each
+embedded script is identified by the artifact entry right before it. After
+editing a script, regenerate the entries from this folder in PowerShell 7:
 
 ```powershell
-$json = [IO.File]::ReadAllText("$PWD\windows-2025-1espt-arm64.json")
-$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([IO.File]::ReadAllText("$PWD\install-winget-packages.ps1") -replace "`r`n", "`n")))
-$value = "& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b64'))))" | ConvertTo-Json
-$json = [regex]::Replace($json, '(?s)("name": "windows-powershell-invokecommand",\s*"parameters": \{\s*"Script": )"(?:[^"\\]|\\.)*"', { param($m) $m.Groups[1].Value + $value })
-[IO.File]::WriteAllText("$PWD\windows-2025-1espt-arm64.json", $json, (New-Object Text.UTF8Encoding $false))
+$embedded = @(
+    @{ Json = 'windows-2025-1espt-arm64.json'; Script = 'install-winget-packages.ps1'; After = 'windows-1es-install-winget' }
+    @{ Json = 'windows-2025-1espt-x64.json';   Script = 'install-rust.ps1';            After = 'windows-visualstudio-bootstrapper' }
+    @{ Json = 'windows-2025-1espt-arm64.json'; Script = 'install-rust.ps1';            After = 'windows-visualstudio-bootstrapper' }
+)
+foreach ($e in $embedded) {
+    $path = "$PWD\$($e.Json)"
+    $json = [IO.File]::ReadAllText($path)
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(([IO.File]::ReadAllText("$PWD\$($e.Script)") -replace "`r`n", "`n")))
+    $value = "& ([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$b64'))))" | ConvertTo-Json
+    $re = [regex]('(?s)("name": "' + [regex]::Escape($e.After) + '"(?:,\s*"parameters": \{[^{}]*\})?\s*\},\s*\{\s*"name": "windows-powershell-invokecommand",\s*"parameters": \{\s*"Script": )"(?:[^"\\]|\\.)*"')
+    if ($re.Matches($json).Count -ne 1) { throw "$($e.Json): expected one windows-powershell-invokecommand entry after $($e.After)" }
+    $json = $re.Replace($json, { param($m) $m.Groups[1].Value + $value }, 1)
+    [IO.File]::WriteAllText($path, $json, (New-Object Text.UTF8Encoding $false))
+}
 ```
 
 ### Visual Studio background downloads
