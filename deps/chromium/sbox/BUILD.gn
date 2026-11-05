@@ -74,14 +74,11 @@ executable("sbox") {
   data_deps = [ "//v8host" ]
 }
 
-# The instrumented single-image trust-transition test (S1). ONE testonly exe that
-# is BOTH the sandbox broker/case-runner and the sandbox worker/fault-harness,
-# selected by argv, statically linking sbox_broker.cc + the sandbox trust-transition
-# core (which also carries sbox_trust_transition_test_private.cc). It proves the
-# same-image seed: the broker role spawns itself --worker and seeds the worker's
-# sandbox globals + control struct by RVA. This folded suite replaces the retired
-# two-image topology (a separate case-runner EXE + fault-injection target EXE
-# joined by the export-table relay).
+# The trust-transition runner and worker share one image. Chromium TargetProcess
+# delivers sandbox state after broker-side interception installation, before
+# resume; the broker seeds the private test-control struct. Trust-transition tests
+# run on x64 only; these targets do not run ARM64 workers. x86 uses the same
+# Chromium interception installer, but its sandbox worker runtime is unsupported.
 if (current_cpu == "x64") {
   executable("sbox_trust_transition_test") {
     testonly = true
@@ -99,6 +96,7 @@ if (current_cpu == "x64") {
       "//base",
       "//sandbox/win:sandbox_trust_transition_test",
     ]
+    data_deps = [ "//v8host" ]
     libs = [ "userenv.lib" ]  # AppContainer profile APIs (broker/case role)
 
     # Resolve statically-imported DLLs only from System32 + the app dir.

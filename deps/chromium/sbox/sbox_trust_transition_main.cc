@@ -1,20 +1,13 @@
-// sbox_trust_transition_main.cc — the instrumented single-image trust-transition
-// test. ONE binary that is BOTH the sandbox broker/case-runner and the sandbox
-// worker/fault-harness, selected by argv, statically linking the same sandbox
-// core as sbox.exe (via sbox_broker.cc). It folds the former two-image suite (a
-// separate case-runner EXE + a fault-injection target EXE joined by the retired
-// export-table relay) onto the same-image seed:
+// The instrumented trust-transition test links the same sandbox core as
+// sbox.exe into one image with broker and worker roles selected by argv.
+// The broker writes control data into the suspended worker at symbol addresses
+// validated by the equal-image-base guard.
 //
-//   * --worker : the fault-injection worker. Adopts the broker's same-image
-//                seed, reads the RVA-seeded control struct, drives the trust
-//                transition, and injects the selected fault. Calls ONLY
-//                sbox_target_*. (Was sbox_trust_transition_target.cc.)
-//   * --all / --case <name> / --policy / --exit-diagnostics / --help : the case
-//                runner. For each case it sets the next case, spawns itself
-//                --worker (the broker appends the switch), and seeds the control
-//                struct by RVA, then asserts the per-case exit code / markers.
-//                Calls ONLY sbox_broker_* + the trust-transition control API.
-//                (Was sbox_trust_transition_tests.cc.)
+//   * --worker: reads the control data, drives the trust transition, and injects
+//     selected final-mitigation or ACG faults using sbox_target_*.
+//   * --all / --case <name> / --policy / --exit-diagnostics / --help: runs cases
+//     using sbox_broker_* and the trust-transition control API, asserting exit
+//     codes and markers.
 //
 // Role dispatch is FIRST in main() so neither persona can fall through into the
 // other's init. testonly; SBOX_TRUST_TRANSITION_TESTING-gated; never shipped.
@@ -25,57 +18,160 @@
 #include <windows.h>
 
 #include <sddl.h>
+#include <tlhelp32.h>
 #include <userenv.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cwchar>
 #include <mutex>
 #include <string>
 #include <vector>
 
+#include "sandbox/win/src/handle_closer.h"
+#include "sandbox/win/src/interception.h"
+#include "sandbox/win/src/interceptors.h"
+#include "sandbox/win/src/target_interceptions.h"
 #include "sbox_core_internal.h"
 #include "sbox_trust_transition_test_private.h"
 
-// The same-image control struct: the broker role seeds it by RVA into the
-// suspended worker (sbox_broker.cc), the worker role reads it. Defined once here;
-// declared extern in the private header so both TUs reference the one symbol.
-// Not exported — addressed by same-image RVA, never by an export lookup.
+// Defined here and declared in the private header so both roles reference the
+// same unexported symbol; the broker writes it before resuming the worker.
 extern "C" SboxTrustTransitionTestControl g_sbox_trust_transition_test_control = {};
+
+namespace sandbox {
+extern "C" OriginalFunctions g_originals;
+}
+
+namespace {
+using EntryBytes = std::array<unsigned char, 16>;
+enum class EntryArch { X64, Arm64 };
+enum class EntryKind { Unpatched, Patched, Foreign };
+
+EntryKind ClassifyEntry(const EntryBytes &entry, const EntryBytes &broker,
+                        uint64_t interceptor) {
+  if (entry == broker)
+    return EntryKind::Unpatched;
+  // Both supported resolver layouts embed the broker's 64-bit address.
+  for (size_t offset = 0; offset + sizeof(interceptor) <= entry.size(); ++offset) {
+    uint64_t address = 0;
+    std::memcpy(&address, entry.data() + offset, sizeof(address));
+    if (interceptor && address == interceptor)
+      return EntryKind::Patched;
+  }
+  return EntryKind::Foreign;
+}
+
+bool RunEntryClassifierSynthetic() {
+  bool ok = true;
+  // Both resolver layouts are checked on every host without executing the bytes.
+  for (EntryArch arch : {EntryArch::X64, EntryArch::Arm64}) {
+    const EntryBytes broker{0x4c, 0x8b, 0xd1, 0xb8};
+    const uint64_t interceptor = 0x123456789abcdef0ull;
+    EntryBytes patched{};
+    if (arch == EntryArch::X64) {
+      patched[0] = 0x48;
+      patched[1] = 0xb8;
+      patched[10] = 0xff;
+      patched[11] = 0xe0;
+    } else {
+      const uint32_t instructions[] = {0x58000050, 0xd61f0200};
+      std::memcpy(patched.data(), instructions, sizeof(instructions));
+    }
+    const size_t offset = arch == EntryArch::X64 ? 2 : 8;
+    std::memcpy(patched.data() + offset, &interceptor, sizeof(interceptor));
+    EntryBytes foreign = broker;
+    foreign[0] = 0xe9;
+    const bool passed = ClassifyEntry(patched, broker, interceptor) == EntryKind::Patched &&
+        ClassifyEntry(broker, broker, interceptor) == EntryKind::Unpatched &&
+        ClassifyEntry(foreign, broker, interceptor) == EntryKind::Foreign &&
+        ClassifyEntry(patched, broker, interceptor + 1) == EntryKind::Foreign;
+    printf("[trust-transition-tests] classifier arch=%s patched/unpatched/foreign/wrong-address -> %s\n",
+           arch == EntryArch::X64 ? "x64" : "ARM64", passed ? "PASS" : "FAIL");
+    ok = passed && ok;
+  }
+  printf("[trust-transition-tests] case=entry-classifier-synthetic -> %s\n", ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool ReadRemote(HANDLE process, const void *address, void *buffer, size_t size) {
+  SIZE_T read = 0;
+  return ::ReadProcessMemory(process, address, buffer, size, &read) && read == size;
+}
+} // namespace
+
+namespace sandbox::trust_transition_test {
+Inspection InspectBeforeResume(HANDLE process) {
+  struct Hook { const char *name; const void *interceptor; InterceptorId id; };
+  const Hook hooks[] = {
+#define MONITOR(name, id) {#name, reinterpret_cast<const void *>(MAKE_SERVICE_NAME(name)), id}
+      MONITOR(NtOpenThread, OPEN_THREAD_ID),
+      MONITOR(NtOpenProcess, OPEN_PROCESS_ID),
+      MONITOR(NtOpenProcessToken, OPEN_PROCESS_TOKEN_ID),
+      MONITOR(NtOpenProcessTokenEx, OPEN_PROCESS_TOKEN_EX_ID),
+      MONITOR(NtSetInformationThread, SET_INFORMATION_THREAD_ID),
+      MONITOR(NtOpenThreadToken, OPEN_THREAD_TOKEN_ID),
+      MONITOR(NtOpenThreadTokenEx, OPEN_THREAD_TOKEN_EX_ID),
+      MONITOR(NtCreateFile, CREATE_FILE_ID),
+      MONITOR(NtOpenFile, OPEN_FILE_ID),
+      MONITOR(NtQueryAttributesFile, QUERY_ATTRIB_FILE_ID),
+      MONITOR(NtQueryFullAttributesFile, QUERY_FULL_ATTRIB_FILE_ID),
+      MONITOR(NtSetInformationFile, SET_INFO_FILE_ID),
+#undef MONITOR
+  };
+  Inspection result;
+  OriginalFunctions originals{};
+  HandleCloserConfig closer{};
+  result.valid = ReadRemote(process, &g_originals, &originals, sizeof(originals)) &&
+      ReadRemote(process, &g_handle_closer_info, &closer, sizeof(closer)) && !closer.handle_closer_enabled;
+  const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+  unsigned expected_originals = 0;
+  for (size_t i = 0; i < std::size(hooks); ++i) {
+    const Hook &hook = hooks[i];
+    const void *entry = ntdll ? reinterpret_cast<const void *>(::GetProcAddress(ntdll, hook.name)) : nullptr;
+    EntryBytes remote{}, broker{};
+    const bool read = entry && ReadRemote(process, entry, remote.data(), remote.size()) &&
+        ReadRemote(::GetCurrentProcess(), entry, broker.data(), broker.size());
+    const EntryKind kind = read ? ClassifyEntry(remote, broker,
+        reinterpret_cast<uintptr_t>(hook.interceptor)) : EntryKind::Foreign;
+    if (kind == EntryKind::Foreign) {
+      printf("[trust-transition] export=%s invalid entry: possible third-party (endpoint-security) hooking\n",
+             hook.name);
+      result.valid = false;
+    }
+    const bool patched = kind == EntryKind::Patched;
+    if (patched) {
+      result.patched |= 1u << i;
+      ++expected_originals;
+    }
+    void *original = originals.functions[hook.id];
+    if (patched != (original != nullptr))
+      result.valid = false;
+  }
+  for (void *original : originals.functions) {
+    if (!original)
+      continue;
+    ++result.originals;
+    MEMORY_BASIC_INFORMATION region{};
+    if (::VirtualQueryEx(process, original, &region, sizeof(region)) == sizeof(region) &&
+        region.State == MEM_COMMIT && region.Type == MEM_PRIVATE && region.Protect == PAGE_EXECUTE_READ)
+      ++result.rx;
+  }
+  result.valid = result.valid && result.originals == expected_originals && result.rx == expected_originals;
+  return result;
+}
+} // namespace sandbox::trust_transition_test
 
 namespace {
 
 // ===========================================================================
-// Worker role (fault-injection harness) — was sbox_trust_transition_target.cc.
+// Worker role (fault-injection harness).
 // ===========================================================================
 
 constexpr DWORD kTransitionExit = 23;
-
-using FileHookCode = std::array<std::array<unsigned char, 32>, 5>;
-
-bool ReadFileHookCode(FileHookCode &code) {
-  constexpr const char *names[] = {
-      "NtCreateFile", "NtOpenFile", "NtQueryAttributesFile", "NtQueryFullAttributesFile", "NtSetInformationFile"};
-  const HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
-  if (!ntdll) {
-    printf("[trust-transition-target] file-hook module query failed: error=%lu\n", ::GetLastError());
-    return false;
-  }
-  for (size_t i = 0; i < code.size(); ++i) {
-    const auto entry = ::GetProcAddress(ntdll, names[i]);
-    SIZE_T read = 0;
-    if (!entry ||
-        !::ReadProcessMemory(
-            ::GetCurrentProcess(), reinterpret_cast<const void *>(entry), code[i].data(), code[i].size(), &read) ||
-        read != code[i].size()) {
-      printf("[trust-transition-target] file-hook code read failed: hook=%s error=%lu\n", names[i], ::GetLastError());
-      return false;
-    }
-  }
-  return true;
-}
 
 bool Emit(SboxTarget *target, const char *marker) {
   printf("[trust-transition-target] %s\n", marker);
@@ -185,27 +281,30 @@ bool VerifyPolicyTokens(const SboxTrustTransitionPolicyExpectation &expected, bo
   }
   ::CloseHandle(process_token);
 
-  HANDLE thread_token = nullptr;
-  const bool impersonating = ::OpenThreadToken(::GetCurrentThread(), TOKEN_QUERY, FALSE, &thread_token) != FALSE;
-  const DWORD thread_error = impersonating ? ERROR_SUCCESS : ::GetLastError();
-  if (final || expected.app_container) {
-    ok = ok && !impersonating && thread_error == ERROR_NO_TOKEN;
-  } else {
-    DWORD thread_integrity = 0;
-    ok = ok && impersonating && TokenIntegrity(thread_token, thread_integrity) && thread_integrity == wanted_rid;
+  for (BOOL open_as_self : {FALSE, TRUE}) {
+    HANDLE thread_token = nullptr;
+    const bool impersonating = ::OpenThreadToken(::GetCurrentThread(), TOKEN_QUERY, open_as_self, &thread_token) != FALSE;
+    const DWORD thread_error = impersonating ? ERROR_SUCCESS : ::GetLastError();
+    if (final || expected.app_container) {
+      ok = ok && !impersonating && thread_error == ERROR_NO_TOKEN;
+    } else {
+      DWORD thread_integrity = 0;
+      ok = ok && impersonating && TokenIntegrity(thread_token, thread_integrity) && thread_integrity == wanted_rid;
+    }
+    if (thread_token)
+      ::CloseHandle(thread_token);
+    printf(
+        "[policy-target] tokens phase=%s appcontainer=%lu lpac=%d integrity=0x%lx "
+        "open_as_self=%d thread_token=%d thread_error=%lu -> %s\n",
+        final ? "final" : "initial",
+        app_container,
+        expected.lpac,
+        integrity,
+        open_as_self,
+        impersonating,
+        thread_error,
+        ok ? "PASS" : "FAIL");
   }
-  if (thread_token)
-    ::CloseHandle(thread_token);
-  printf(
-      "[policy-target] tokens phase=%s appcontainer=%lu lpac=%d integrity=0x%lx "
-      "thread_token=%d thread_error=%lu -> %s\n",
-      final ? "final" : "initial",
-      app_container,
-      expected.lpac,
-      integrity,
-      impersonating,
-      thread_error,
-      ok ? "PASS" : "FAIL");
   return ok;
 }
 
@@ -215,9 +314,12 @@ bool CheckFixtureRead(const wchar_t *directory, const wchar_t *name, bool expect
       path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
   const bool opened = file != INVALID_HANDLE_VALUE;
   const DWORD error = opened ? ERROR_SUCCESS : ::GetLastError();
+  char data[64] = {};
+  DWORD read = 0;
+  const bool read_ok = opened && ::ReadFile(file, data, sizeof(data), &read, nullptr) && read == 23 && std::memcmp(data, "sandbox policy fixture\n", 23) == 0;
   if (opened)
     ::CloseHandle(file);
-  const bool ok = opened == expected && (opened || error == ERROR_ACCESS_DENIED);
+  const bool ok = opened == expected && (!opened || read_ok) && (opened || error == ERROR_ACCESS_DENIED);
   printf(
       "[policy-target] resource=%ls expected=%s actual=%s error=%lu -> %s\n",
       name,
@@ -229,14 +331,95 @@ bool CheckFixtureRead(const wchar_t *directory, const wchar_t *name, bool expect
 }
 
 bool VerifyPolicyResources(const SboxTrustTransitionPolicyExpectation &expected) {
-  const bool allowed = CheckFixtureRead(expected.fixture_directory, L"allowed.txt", true);
+  const bool allowed = CheckFixtureRead(expected.fixture_directory, L"allowed.txt", expected.file_read_allowed != 0);
   const bool denied = CheckFixtureRead(expected.fixture_directory, L"denied.txt", false);
   const bool package = CheckFixtureRead(expected.fixture_directory, L"package.txt", expected.app_container != 0);
   // ALL APPLICATION PACKAGES can be implicit rather than listed in TokenGroups.
   // Test its actual access effect to distinguish AppContainer from LPAC.
   const bool all_apps =
       CheckFixtureRead(expected.fixture_directory, L"all-apps.txt", expected.app_container && !expected.lpac);
-  return allowed && denied && package && all_apps;
+  const std::wstring path = std::wstring(expected.fixture_directory) + L"\\allowed.txt";
+  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  const bool write_denied = file == INVALID_HANDLE_VALUE && ::GetLastError() == ERROR_ACCESS_DENIED;
+  if (file != INVALID_HANDLE_VALUE)
+    ::CloseHandle(file);
+  printf("[policy-target] resource=allowed.txt write expected=denied -> %s\n", write_denied ? "PASS" : "FAIL");
+  return allowed && denied && package && all_apps && write_denied;
+}
+
+DWORD WINAPI WarmupThread(void *) { return 73; }
+
+bool VerifyEarlyWarmup(const SboxTrustTransitionPolicyExpectation &expected) {
+  wchar_t executable[MAX_PATH] = {};
+  if (!::GetModuleFileNameW(nullptr, executable, MAX_PATH))
+    return false;
+  const std::wstring path(executable);
+  const std::wstring directory = path.substr(0, path.find_last_of(L"\\") + 1);
+  bool ok = true;
+  for (const wchar_t *name : {L"v8host.dll", L"v8jsisb.dll"}) {
+    HMODULE module = ::LoadLibraryExW((directory + name).c_str(), nullptr,
+        LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+    if (!module)
+      printf("[policy-target] stage=warmup-load module=%ls error=%lu -> FAIL\n", name, ::GetLastError());
+    ok = module != nullptr && ok;
+    // Keep modules loaded through lockdown, as the real warm-up path does.
+  }
+  // Tiny opaque snapshot/guest inputs exercise warm-up I/O, not deserialization.
+  for (const wchar_t *name : {L"snapshot.bin", L"guest.js"})
+    ok = CheckFixtureRead(expected.fixture_directory, name, true) && ok;
+  HANDLE thread = ::CreateThread(nullptr, 0, &WarmupThread, nullptr, 0, nullptr);
+  DWORD code = 0;
+  ok = thread && ::WaitForSingleObject(thread, 10000) == WAIT_OBJECT_0 &&
+      ::GetExitCodeThread(thread, &code) && code == 73 && ok;
+  if (thread)
+    ::CloseHandle(thread);
+  printf("[policy-target] early warmup loader/read/thread -> %s\n", ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool VerifyBrokerResources(const SboxTrustTransitionPolicyExpectation &expected) {
+  const bool pipe = expected.file_probe == SboxTrustTransitionFileProbe::Pipe;
+  const bool readable = expected.file_probe == SboxTrustTransitionFileProbe::Readonly ||
+      expected.file_probe == SboxTrustTransitionFileProbe::Writable;
+  const bool writable = expected.file_probe == SboxTrustTransitionFileProbe::Writable;
+  const std::wstring directory(expected.fixture_directory);
+  if (pipe) {
+    bool ok = true;
+    for (bool allowed : {true, false}) {
+      const std::wstring path = L"\\\\.\\pipe\\v8jsi-sbox-" + directory.substr(directory.find_last_of(L"\\") + 1) +
+          (allowed ? L"-allowed" : L"-denied");
+      HANDLE handle = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+      DWORD wrote = 0;
+      const DWORD error = ::GetLastError();
+      const bool passed = allowed ? handle != INVALID_HANDLE_VALUE &&
+          ::WriteFile(handle, "ping", 4, &wrote, nullptr) && wrote == 4 :
+          handle == INVALID_HANDLE_VALUE && error == ERROR_ACCESS_DENIED;
+      if (handle != INVALID_HANDLE_VALUE)
+        ::CloseHandle(handle);
+      printf("[policy-target] pipe connect-send allowed=%d -> %s\n", allowed, passed ? "PASS" : "FAIL");
+      ok = passed && ok;
+    }
+    return ok;
+  }
+  bool ok = CheckFixtureRead(expected.fixture_directory, L"broker.txt", readable);
+  const std::wstring path = directory + L"\\broker.txt";
+  HANDLE file = ::CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  DWORD wrote = 0;
+  const DWORD error = ::GetLastError();
+  const bool modified = file != INVALID_HANDLE_VALUE &&
+      ::WriteFile(file, "edit", 4, &wrote, nullptr) && wrote == 4;
+  ok = (writable ? modified : file == INVALID_HANDLE_VALUE && error == ERROR_ACCESS_DENIED) && ok;
+  if (file != INVALID_HANDLE_VALUE)
+    ::CloseHandle(file);
+  // Probe rename and delete independently of the write-only open.
+  const bool renamed = ::MoveFileExW(path.c_str(), (directory + L"\\broker-renamed.txt").c_str(), 0) != FALSE;
+  ok = (writable ? renamed : !renamed && ::GetLastError() == ERROR_ACCESS_DENIED) && ok;
+  if (!writable)
+    ok = !::DeleteFileW(path.c_str()) && ::GetLastError() == ERROR_ACCESS_DENIED && ok;
+  printf("[policy-target] broker file read=%d write/rename=%d -> %s\n", readable, writable, ok ? "PASS" : "FAIL");
+  return ok;
 }
 
 bool VerifyLpacLow() {
@@ -311,32 +494,6 @@ bool VerifyLpacLow() {
       integrity <= SECURITY_MANDATORY_LOW_RID;
 }
 
-bool VerifyThunkRx() {
-  SboxTrustTransitionThunkTelemetry telemetry = {};
-  if (!sbox_trust_transition_test_get_thunk_telemetry(&telemetry) || !telemetry.rx_complete || !telemetry.base ||
-      !telemetry.used_bytes || telemetry.used_bytes > telemetry.allocated_bytes) {
-    return false;
-  }
-  MEMORY_BASIC_INFORMATION mbi = {};
-  if (!::VirtualQuery(reinterpret_cast<void *>(telemetry.base), &mbi, sizeof(mbi))) {
-    return false;
-  }
-  const uintptr_t end = telemetry.base + telemetry.used_bytes;
-  const uintptr_t region_end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
-  const bool ok = mbi.State == MEM_COMMIT && mbi.Protect == PAGE_EXECUTE_READ && end <= region_end;
-  printf(
-      "[trust-transition-target] thunk base=0x%llx allocated=%zu used=%zu installed=%zu "
-      "rx=%d protect=0x%lx region=%zu\n",
-      static_cast<unsigned long long>(telemetry.base),
-      telemetry.allocated_bytes,
-      telemetry.used_bytes,
-      telemetry.installed_hooks,
-      telemetry.rx_complete,
-      mbi.Protect,
-      mbi.RegionSize);
-  return ok;
-}
-
 struct RequestState {
   SboxTarget *target;
   uint32_t case_id;
@@ -345,6 +502,11 @@ struct RequestState {
 
 void OnRequest(void *context, int kind, const void *data, size_t length) {
   auto *state = static_cast<RequestState *>(context);
+  if (kind == SBOX_MSG_STRING && length == 4 && std::memcmp(data, "PING", 4) == 0) {
+    if (sbox_target_test_ipc(state->target))
+      Emit(state->target, "PONG");
+    return;
+  }
   if (state->complete || kind != SBOX_MSG_STRING || length != 7 || std::memcmp(data, "REQUEST", 7) != 0) {
     return;
   }
@@ -383,15 +545,21 @@ int RunWorker() {
   printf("[trust-transition-target] pre-lockdown-ipc=ok\n");
 
   const bool policy_case = control.case_id == SBOX_TRUST_TRANSITION_CASE_POLICY_SUCCESS;
+  if (policy_case && control.policy.early_hooks == 1) {
+    if (!::RevertToSelf()) {
+      printf("[policy-target] stage=early-revert-to-self error=%lu -> FAIL\n", ::GetLastError());
+      return 53;
+    }
+    printf("[policy-target] pre-lockdown RevertToSelf=TRUE\n");
+  }
+  if (policy_case && control.policy.early_hooks == 2 && !VerifyEarlyWarmup(control.policy)) {
+    printf("[policy-target] stage=early-warmup result=failed\n");
+    return 54;
+  }
   if (policy_case && !VerifyPolicyTokens(control.policy, false)) {
     printf("[policy-target] stage=initial-token-contract result=failed\n");
     return 50;
   }
-
-  const bool verify_unused_file_hooks = control.case_id == SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS;
-  FileHookCode file_code_before = {};
-  if (verify_unused_file_hooks && !ReadFileHookCode(file_code_before))
-    return 53;
 
   const int transition = sbox_target_lower_token(target);
   if (transition != 0) {
@@ -416,19 +584,8 @@ int RunWorker() {
     printf("[trust-transition-target] stage=lpac-low-validation result=failed\n");
     return 45;
   }
-  if (!VerifyThunkRx()) {
-    printf("[trust-transition-target] stage=thunk-telemetry result=failed\n");
-    return 46;
-  }
-  if (verify_unused_file_hooks) {
-    FileHookCode file_code_after = {};
-    if (!ReadFileHookCode(file_code_after) || file_code_before != file_code_after) {
-      printf("[trust-transition-target] stage=unused-file-hooks result=changed\n");
-      return 54;
-    }
-    printf("[trust-transition-target] unused-file-hooks=unchanged\n");
-  }
-  if (policy_case && (!VerifyPolicyTokens(control.policy, true) || !VerifyPolicyResources(control.policy))) {
+  if (policy_case && (!VerifyPolicyTokens(control.policy, true) || !VerifyPolicyResources(control.policy) ||
+      (control.policy.file_probe != SboxTrustTransitionFileProbe::Default && !VerifyBrokerResources(control.policy)))) {
     printf("[policy-target] stage=final-policy-contract result=failed\n");
     return 52;
   }
@@ -446,19 +603,26 @@ int RunWorker() {
       reinterpret_cast<HANDLE>(sbox_target_inbound_event(target)),
       reinterpret_cast<HANDLE>(sbox_target_close_event(target)),
   };
-  const DWORD wait = ::WaitForMultipleObjects(2, waits, FALSE, 10000);
-  if (wait == WAIT_OBJECT_0)
-    sbox_target_drain_messages(target, &OnRequest, &state);
-  if (!state.complete) {
-    printf("[trust-transition-target] stage=synthetic-protocol result=failed wait=%lu\n", wait);
-    return 49;
-  }
+  do {
+    const DWORD wait = ::WaitForMultipleObjects(2, waits, FALSE, control.policy.ipc_lifetime ? 25000 : 10000);
+    if (wait == WAIT_OBJECT_0) {
+      sbox_target_drain_messages(target, &OnRequest, &state);
+      if (!state.complete && !control.policy.ipc_lifetime)
+        return 49;
+    }
+    else if (wait == WAIT_OBJECT_0 + 1 && control.policy.ipc_lifetime)
+      break;
+    else {
+      printf("[trust-transition-target] stage=synthetic-protocol result=failed wait=%lu\n", wait);
+      return 49;
+    }
+  } while (!state.complete);
   sbox_target_end(target);
   return 0;
 }
 
 // ===========================================================================
-// Broker / case-runner role — was sbox_trust_transition_tests.cc.
+// Broker / case-runner role.
 // ===========================================================================
 
 constexpr wchar_t kLpacProfile[] = L"V8Jsi.Sbox.TrustTransition.Test";
@@ -472,13 +636,15 @@ struct CaseSpec {
   bool lpac;
   bool acg;
   bool file_brokering = false;
+  bool readonly = true;
+  int spawn_rc = 0;
 };
 
 constexpr CaseSpec kCases[] = {
-    {SBOX_TRUST_TRANSITION_CASE_ALLOC_FAILURE, "allocation-failure", "thunk-allocation", 23, false, false, true},
-    {SBOX_TRUST_TRANSITION_CASE_FIRST_HOOK_FAILURE, "first-hook-failure", "hook-install", 23, false, false, true},
-    {SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE, "partial-hook-failure", "hook-install", 23, false, false, true},
-    {SBOX_TRUST_TRANSITION_CASE_RX_FAILURE, "rx-failure", "thunk-rx", 23, false, false, true},
+    {SBOX_TRUST_TRANSITION_CASE_ALLOC_FAILURE, "allocation-failure", nullptr, 0, false, false, true, false, true, 40},
+    {SBOX_TRUST_TRANSITION_CASE_FIRST_HOOK_FAILURE, "first-hook-failure", nullptr, 0, false, false, true, false, true, 40},
+    {SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE, "partial-hook-failure", nullptr, 0, false, false, true, false, true, 40},
+    {SBOX_TRUST_TRANSITION_CASE_RX_FAILURE, "rx-failure", nullptr, 0, false, false, true, false, true, 40},
     {SBOX_TRUST_TRANSITION_CASE_FINAL_MITIGATION_FAILURE,
      "final-mitigation-failure",
      "final-mitigation",
@@ -493,14 +659,19 @@ constexpr CaseSpec kCases[] = {
     {SBOX_TRUST_TRANSITION_CASE_ACG_OFF_SUCCESS, "ordinary-acg-off-success", nullptr, 0, true, false, false},
     {SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE,
      "required-file-hook-failure",
-     "hook-install",
-     23,
-     false,
-     false,
-     true,
-     true},
+     nullptr, 0, false, false, true, true, false, 40},
     {SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS, "unused-file-hook-success", nullptr, 0, true, false, true},
+    {SBOX_TRUST_TRANSITION_CASE_BASE_MISMATCH, "base-mismatch", nullptr, 0, false, false, true, false, true, 65},
 };
+
+const CaseSpec *FindCase(const char *name) {
+  for (const auto &spec : kCases) {
+    if (std::strcmp(name, spec.name) == 0)
+      return &spec;
+  }
+  printf("[trust-transition-tests] unknown case=%s -> FAIL\n", name);
+  std::exit(2);
+}
 
 struct Messages {
   std::mutex mutex;
@@ -563,8 +734,20 @@ bool DeleteTestProfile(bool require_existing) {
   return false;
 }
 
+bool HasInspection(const std::string &output, unsigned mask) {
+  unsigned count = 0;
+  for (unsigned bits = mask; bits; bits >>= 1)
+    count += bits & 1;
+  char expected[128] = {};
+  std::snprintf(expected, sizeof(expected),
+      "[trust-transition] pre-resume valid=1 patched=0x%x originals=%u rx=%u", mask, count, count);
+  const bool ok = Contains(output, expected);
+  printf("%s -> %s\n", expected, ok ? "PASS" : "FAIL");
+  return ok;
+}
+
 bool RunWithoutControl(const char *label) {
-  const CaseSpec &base = kCases[7];
+  const CaseSpec &base = *FindCase("ordinary-strict-success");
   SboxPolicy policy = MakePolicy(base);
   SboxSession *session = sbox_broker_spawn(TargetPath().c_str(), &policy, nullptr, nullptr);
   if (!session) {
@@ -572,12 +755,73 @@ bool RunWithoutControl(const char *label) {
     return false;
   }
   const int exit_code = sbox_broker_wait(session);
-  const bool ok = exit_code == 40;
+  const bool ok = exit_code == 40 && HasInspection(sbox_trust_transition_test_last_output(), 0x7f);
+  sbox_trust_transition_test_reset_broker();
   printf("[trust-transition-tests] %s: exit=%d expected=40 -> %s\n", label, exit_code, ok ? "PASS" : "FAIL");
   return ok;
 }
 
-bool RunCase(const CaseSpec &spec, uint64_t serial) {
+bool WaitForNoChild() {
+  const ULONGLONG deadline = ::GetTickCount64() + 5000;
+  do {
+    HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE)
+      return false;
+    PROCESSENTRY32W entry = {sizeof(entry)};
+    bool child = false;
+    BOOL found = ::Process32FirstW(snapshot, &entry);
+    while (found) {
+      if (entry.th32ParentProcessID == ::GetCurrentProcessId())
+        child = true;
+      found = ::Process32NextW(snapshot, &entry);
+    }
+    const DWORD error = ::GetLastError();
+    ::CloseHandle(snapshot);
+    if (error != ERROR_NO_MORE_FILES)
+      return false;
+    if (!child)
+      return true;
+    ::Sleep(10);
+  } while (::GetTickCount64() < deadline);
+  return false;
+}
+
+// Compare exact names, not counts: old logs must not hide a newly leaked log.
+bool SnapshotWorkerLogs(std::vector<std::wstring> &names) {
+  wchar_t dir[MAX_PATH] = {};
+  const DWORD length = ::GetTempPathW(MAX_PATH, dir);
+  if (!length || length >= MAX_PATH)
+    return false;
+  WIN32_FIND_DATAW data = {};
+  HANDLE search = ::FindFirstFileW((std::wstring(dir) + L"sbx*.tmp").c_str(), &data);
+  if (search == INVALID_HANDLE_VALUE)
+    return ::GetLastError() == ERROR_FILE_NOT_FOUND;
+  do {
+    if (!(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+      names.emplace_back(data.cFileName);
+  } while (::FindNextFileW(search, &data));
+  const DWORD error = ::GetLastError();
+  ::FindClose(search);
+  std::sort(names.begin(), names.end());
+  return error == ERROR_NO_MORE_FILES;
+}
+
+bool WorkerLogsCleanedUp(const std::vector<std::wstring> &before) {
+  std::vector<std::wstring> after;
+  if (!SnapshotWorkerLogs(after))
+    return false;
+  bool ok = true;
+  for (const auto &name : after) {
+    if (!std::binary_search(before.begin(), before.end(), name)) {
+      printf("[trust-transition-tests] leaked worker log=%ls\n", name.c_str());
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+bool RunCase(const CaseSpec &spec, uint64_t serial, bool recover = true) {
+  sbox_trust_transition_test_reset_broker();
   printf(
       "[trust-transition-tests] selected=%u name=%s serial=%llu\n",
       spec.id,
@@ -585,31 +829,43 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
       static_cast<unsigned long long>(serial));
   if (!sbox_trust_transition_test_set_next_case(spec.id, serial)) {
     printf("[trust-transition-tests] set-next failed\n");
+    sbox_trust_transition_test_reset_broker();
     return false;
   }
   if (sbox_trust_transition_test_set_next_case(spec.id, serial + 10000)) {
     printf("[trust-transition-tests] duplicate control was accepted\n");
+    sbox_trust_transition_test_reset_broker();
     return false;
   }
 
-  if (spec.lpac && !DeleteTestProfile(false))
+  if (spec.lpac && !DeleteTestProfile(false)) {
+    sbox_trust_transition_test_reset_broker();
     return false;
+  }
   SboxPolicy policy = MakePolicy(spec);
   const std::wstring file_probe = TargetPath();
-  const SboxFileRule file_rule{file_probe.c_str(), 1};
+  const SboxFileRule file_rule{file_probe.c_str(), spec.readonly ? 1 : 0};
   if (spec.file_brokering) {
     policy.file_rules = &file_rule;
     policy.file_rule_count = 1;
   }
-  Messages messages;
-  SboxSession *session = sbox_broker_spawn(TargetPath().c_str(), &policy, &OnMessage, &messages);
-  if (!session) {
-    printf("[trust-transition-tests] spawn failed\n");
+  std::vector<std::wstring> logs_before;
+  if (spec.spawn_rc && !SnapshotWorkerLogs(logs_before)) {
+    sbox_trust_transition_test_reset_broker();
     return false;
   }
-  const char request[] = "REQUEST";
-  sbox_broker_post_message(session, SBOX_MSG_STRING, request, sizeof(request) - 1);
-  const int exit_code = sbox_broker_wait(session);
+  Messages messages;
+  SboxSession *session = sbox_broker_spawn(TargetPath().c_str(), &policy, &OnMessage, &messages);
+  int exit_code = -1;
+  if (session) {
+    const char request[] = "REQUEST";
+    sbox_broker_post_message(session, SBOX_MSG_STRING, request, sizeof(request) - 1);
+    exit_code = sbox_broker_wait(session);
+  }
+  const uint32_t consumed = sandbox::trust_transition_test::Consumed();
+  // Already-consumed faults cannot distinguish disarming; worker/success cases can.
+  const bool broker_disarmed = !sandbox::trust_transition_test::Consume(spec.id) &&
+      sandbox::trust_transition_test::Consumed() == consumed;
   const bool fixture_cleanup_ok = !spec.lpac || DeleteTestProfile(true);
 
   const char *captured = sbox_trust_transition_test_last_output();
@@ -624,6 +880,28 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
   const size_t host = Count(snapshot, "HOST_OPERATION", spec.id);
   const size_t result = Count(snapshot, "RESULT", spec.id);
 
+  if (spec.spawn_rc) {
+    char failure[80] = {};
+    std::snprintf(failure, sizeof(failure), "SpawnTargetAsync failed: rc=%d ", spec.spawn_rc);
+    const bool no_child = WaitForNoChild();
+    const bool logs_cleaned_up = WorkerLogsCleanedUp(logs_before);
+    bool ok = logs_cleaned_up && broker_disarmed && !session && consumed == spec.id && Contains(output, failure) &&
+        !Contains(output, "target resume:") && !Contains(output, "pre-resume") &&
+        ready == 0 && guest == 0 && host == 0 && result == 0 && no_child && fixture_cleanup_ok &&
+        !Contains(output, "SECURITY_READY") && !Contains(output, "GUEST_ENTRY") &&
+        !Contains(output, "HOST_OPERATION") && !Contains(output, "RESULT");
+    printf("[trust-transition-tests] case=%s spawn=null:%d rc=%d consumed=%u markers=%zu/%zu/%zu/%zu no-child=%d logs-cleaned-up=%d -> %s\n",
+           spec.name, !session, spec.spawn_rc, consumed, ready, guest, host, result, no_child, logs_cleaned_up, ok ? "PASS" : "FAIL");
+    sbox_trust_transition_test_reset_broker();
+    ok = sandbox::trust_transition_test::Consumed() == SBOX_TRUST_TRANSITION_CASE_INVALID && ok;
+    if (recover) {
+      const bool recovered = RunCase(*FindCase("ordinary-strict-success"), serial + 100000);
+      printf("[trust-transition-tests] recovery after=%s -> %s\n", spec.name, recovered ? "PASS" : "FAIL");
+      ok = recovered && ok;
+    }
+    return ok;
+  }
+
   char selected[64] = {};
   std::snprintf(
       selected, sizeof(selected), "selected=%u serial=%llu", spec.id, static_cast<unsigned long long>(serial));
@@ -634,33 +912,21 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
       "consumed-control=%u serial=%llu",
       spec.id,
       static_cast<unsigned long long>(serial));
-  bool ok = exit_code == static_cast<int>(spec.exit_code) && Contains(output, selected) &&
+  bool ok = broker_disarmed && exit_code == static_cast<int>(spec.exit_code) && Contains(output, selected) &&
       Contains(output, consumed_control) && fixture_cleanup_ok;
-  ok = ok &&
-      Contains(
-           output,
-           spec.file_brokering ? "interception plan: file_brokering=1 hooks=12"
-                               : "interception plan: file_brokering=0 hooks=7");
+  ok = HasInspection(output, !spec.file_brokering ? 0x7f : spec.readonly ? 0x7ff : 0xfff) && ok;
   if (spec.success) {
-    ok = ok && ready == 1 && guest == 1 && host == 1 && result == 1 && Contains(output, "pre-lockdown-ipc=ok") &&
-        Contains(output, "final-lockdown=ok") && Contains(output, "post-lockdown-ipc=ok") &&
-        Contains(output, spec.file_brokering ? "installed=12 rx=1 protect=0x20" : "installed=7 rx=1 protect=0x20");
+    ok = ok && consumed == SBOX_TRUST_TRANSITION_CASE_INVALID && ready == 1 && guest == 1 && host == 1 &&
+        result == 1 && Contains(output, "pre-lockdown-ipc=ok") && Contains(output, "final-lockdown=ok") &&
+        Contains(output, "post-lockdown-ipc=ok");
     ok = ok && Contains(output, spec.acg ? "strict_acg_expected=true" : "strict_acg_expected=false");
     if (spec.lpac)
       ok = ok && Contains(output, "lpac=1 app_container=1") && Contains(output, "capability=present");
-    if (spec.id == SBOX_TRUST_TRANSITION_CASE_UNUSED_FILE_HOOK_SUCCESS)
-      ok = ok && Contains(output, "unused-file-hooks=unchanged") && !Contains(output, "[trust-transition] consumed=13");
   } else {
-    char consumed[32] = {};
-    std::snprintf(consumed, sizeof(consumed), "consumed=%u", spec.id);
-    ok = ok && spec.stage && Contains(output, spec.stage) && Contains(output, consumed) && ready == 0 && guest == 0 &&
+    char consumed_marker[32] = {};
+    std::snprintf(consumed_marker, sizeof(consumed_marker), "consumed=%u", spec.id);
+    ok = ok && spec.stage && Contains(output, spec.stage) && Contains(output, consumed_marker) && ready == 0 && guest == 0 &&
         host == 0 && result == 0;
-    if (spec.id == SBOX_TRUST_TRANSITION_CASE_FIRST_HOOK_FAILURE)
-      ok = ok && Contains(output, "installed=0");
-    if (spec.id == SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE)
-      ok = ok && Contains(output, "installed=1");
-    if (spec.id == SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE)
-      ok = ok && Contains(output, "hook=NtCreateFile index=7 installed=7") && Contains(output, "ntstatus=0xc0000035");
   }
   printf(
       "[trust-transition-tests] case=%s exit=%d markers=%zu/%zu/%zu/%zu -> %s\n",
@@ -671,15 +937,8 @@ bool RunCase(const CaseSpec &spec, uint64_t serial) {
       host,
       result,
       ok ? "PASS" : "FAIL");
+  sbox_trust_transition_test_reset_broker();
   return ok;
-}
-
-const CaseSpec *FindCase(const char *name) {
-  for (const auto &spec : kCases) {
-    if (std::strcmp(name, spec.name) == 0)
-      return &spec;
-  }
-  return nullptr;
 }
 
 struct PolicyFixture {
@@ -688,6 +947,8 @@ struct PolicyFixture {
   std::wstring package_sid;
   std::wstring user_sid;
   std::vector<std::wstring> files;
+  HANDLE pipes[2] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+  std::wstring pipe_path;
   bool directory_created = false;
   bool profile_created = false;
 
@@ -794,8 +1055,26 @@ struct PolicyFixture {
         MakeFile(L"all-apps.txt", L"S-1-15-2-1");
   }
 
+  bool MakePipes() {
+    pipe_path = L"\\\\.\\pipe\\v8jsi-sbox-" + directory.substr(directory.find_last_of(L"\\") + 1);
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!::ConvertStringSecurityDescriptorToSecurityDescriptorW(Descriptor(nullptr, false).c_str(),
+        SDDL_REVISION_1, &descriptor, nullptr))
+      return false;
+    SECURITY_ATTRIBUTES attributes = {sizeof(attributes), descriptor, FALSE};
+    for (int i = 0; i < 2; ++i)
+      pipes[i] = ::CreateNamedPipeW((pipe_path + (i ? L"-denied" : L"-allowed")).c_str(),
+          PIPE_ACCESS_INBOUND, PIPE_TYPE_BYTE | PIPE_WAIT, 1, 64, 64, 0, &attributes);
+    ::LocalFree(descriptor);
+    return pipes[0] != INVALID_HANDLE_VALUE && pipes[1] != INVALID_HANDLE_VALUE;
+  }
+
   bool Cleanup() {
     bool ok = true;
+    for (HANDLE pipe : pipes) {
+      if (pipe != INVALID_HANDLE_VALUE)
+        ok = ::CloseHandle(pipe) && ok;
+    }
     for (const auto &file : files) {
       if (!::DeleteFileW(file.c_str())) {
         printf("[policy-tests] fixture file cleanup failed: error=%lu\n", ::GetLastError());
@@ -803,6 +1082,12 @@ struct PolicyFixture {
       }
     }
     files.clear();
+    const std::wstring renamed = directory + L"\\broker-renamed.txt";
+    if (directory_created && ::GetFileAttributesW(renamed.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      printf("[policy-tests] unexpected renamed fixture left behind -> FAIL\n");
+      ::DeleteFileW(renamed.c_str());
+      ok = false;
+    }
     if (directory_created && !::RemoveDirectoryW(directory.c_str())) {
       printf("[policy-tests] fixture directory cleanup failed: error=%lu\n", ::GetLastError());
       ok = false;
@@ -820,6 +1105,22 @@ struct PolicyFixture {
   }
 };
 
+bool SetFixtureExpectation(const PolicyFixture &fixture, const SboxPolicy &policy,
+                           SboxTrustTransitionPolicyExpectation &expected) {
+  expected.initial_integrity = policy.integrity;
+  expected.delayed_integrity = policy.delayed_integrity;
+  expected.app_container = policy.use_app_container;
+  expected.lpac = policy.low_privilege_app_container;
+  if (fixture.directory.size() >= std::size(expected.fixture_directory) ||
+      fixture.package_sid.size() >= std::size(expected.package_sid)) {
+    printf("[policy-tests] fixture path or SID exceeds control capacity\n");
+    return false;
+  }
+  std::wcscpy(expected.fixture_directory, fixture.directory.c_str());
+  std::wcscpy(expected.package_sid, fixture.package_sid.c_str());
+  return true;
+}
+
 struct PolicySpec {
   const char *name;
   bool app_container;
@@ -829,10 +1130,15 @@ struct PolicySpec {
   bool extended_size = false;
   uint32_t platform = SBOX_TRUST_TRANSITION_PLATFORM_CURRENT;
   bool unknown_initial_token = false;
+  bool no_file_rule = false;
+  int32_t early_hooks = 0;
+  SboxTrustTransitionFileProbe file_probe = SboxTrustTransitionFileProbe::Default;
 };
 
 bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
   sbox_trust_transition_test_reset_broker();
+  // Resolve the case before creating fixtures: FindCase fails fast on an unknown name.
+  const SboxPolicy base_policy = MakePolicy(*FindCase("ordinary-strict-success"));
   PolicyFixture fixture;
   if (!fixture.Initialize(spec.app_container, serial)) {
     fixture.Cleanup();
@@ -843,7 +1149,7 @@ bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
     uint64_t future_fields[4] = {};
   } extended = {};
   SboxPolicy &policy = extended.policy;
-  policy = MakePolicy(kCases[7]);
+  policy = base_policy;
   policy.struct_size = spec.extended_size ? sizeof(extended) : sizeof(policy);
   policy.use_app_container = spec.app_container;
   policy.low_privilege_app_container = spec.lpac;
@@ -853,9 +1159,25 @@ bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
   policy.capabilities = spec.app_container ? capabilities : nullptr;
   policy.capability_count = spec.app_container ? 1 : 0;
   const std::wstring allowed_path = fixture.directory + L"\\allowed.txt";
+  std::wstring probe_path;
+  if (spec.file_probe != SboxTrustTransitionFileProbe::Default) {
+    if (!(spec.file_probe == SboxTrustTransitionFileProbe::Pipe ? fixture.MakePipes() :
+          fixture.MakeFile(L"broker.txt", nullptr))) {
+      fixture.Cleanup();
+      return false;
+    }
+    probe_path = spec.file_probe == SboxTrustTransitionFileProbe::Pipe ? L"\\??\\pipe\\" + fixture.pipe_path.substr(9) + L"-allowed" :
+        fixture.directory + (spec.file_probe == SboxTrustTransitionFileProbe::Nonmatching ? L"\\missing*" : L"\\broker*");
+  }
+  const SboxFileRule probe_rule{probe_path.c_str(), spec.file_probe == SboxTrustTransitionFileProbe::Writable ||
+      spec.file_probe == SboxTrustTransitionFileProbe::Pipe ? 0 : 1};
   const SboxFileRule allowed_rule{allowed_path.c_str(), 1};
-  policy.file_rules = spec.app_container ? nullptr : &allowed_rule;
-  policy.file_rule_count = spec.app_container ? 0 : 1;
+  policy.file_rules = (spec.app_container && spec.early_hooks != 2) || spec.no_file_rule ? nullptr : &allowed_rule;
+  policy.file_rule_count = policy.file_rules ? 1 : 0;
+  if (spec.file_probe != SboxTrustTransitionFileProbe::Default) {
+    policy.file_rules = spec.file_probe == SboxTrustTransitionFileProbe::None ? nullptr : &probe_rule;
+    policy.file_rule_count = policy.file_rules ? 1 : 0;
+  }
   if (spec.inactive_tokens) {
     policy.initial_token = SBOX_TOKEN_LOCKDOWN;
     policy.lockdown_token = SBOX_TOKEN_RESTRICTED_SAME_ACCESS;
@@ -864,23 +1186,22 @@ bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
     policy.initial_token = -1;
 
   SboxTrustTransitionPolicyExpectation expected = {};
-  expected.initial_integrity = policy.integrity;
-  expected.delayed_integrity = policy.delayed_integrity;
-  expected.app_container = spec.app_container;
-  expected.lpac = spec.lpac;
-  if (fixture.directory.size() >= std::size(expected.fixture_directory) ||
-      fixture.package_sid.size() >= std::size(expected.package_sid)) {
-    printf("[policy-tests] fixture path or SID exceeds control capacity\n");
+  expected.file_probe = spec.file_probe;
+  expected.early_hooks = spec.early_hooks;
+  expected.file_read_allowed =
+      (spec.file_probe == SboxTrustTransitionFileProbe::Default && policy.file_rule_count) || spec.app_container;
+  if (!SetFixtureExpectation(fixture, policy, expected)) {
     fixture.Cleanup();
     return false;
   }
-  std::wcscpy(expected.fixture_directory, fixture.directory.c_str());
-  std::wcscpy(expected.package_sid, fixture.package_sid.c_str());
   bool ok = sbox_trust_transition_test_set_next_policy_case(&expected, serial) &&
       sbox_trust_transition_test_set_platform(spec.platform);
   if (spec.inactive_tokens)
     ok = sbox_trust_transition_test_set_broker_fault(SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE) && ok;
 
+  if (spec.early_hooks == 2)
+    ok = fixture.MakeFile(L"snapshot.bin", spec.app_container ? kSboxTrustTransitionCapability : nullptr) &&
+        fixture.MakeFile(L"guest.js", spec.app_container ? kSboxTrustTransitionCapability : nullptr) && ok;
   Messages messages;
   SboxSession *session = ok ? sbox_broker_spawn(TargetPath().c_str(), &policy, &OnMessage, &messages) : nullptr;
   if (!session) {
@@ -907,27 +1228,96 @@ bool RunPolicyCase(const PolicySpec &spec, uint64_t serial) {
       Contains(output, "tokens phase=initial") && Contains(output, "tokens phase=final") &&
       Contains(output, "post-lockdown-ipc=ok") && Contains(output, "resource=denied.txt") &&
       Contains(output, "resource=all-apps.txt");
-  ok = ok &&
-      Contains(
-           output,
-           policy.file_rule_count ? "interception plan: file_brokering=1 hooks=12"
-                                  : "interception plan: file_brokering=0 hooks=7") &&
-      Contains(output, policy.file_rule_count ? "installed=12 rx=1 protect=0x20" : "installed=7 rx=1 protect=0x20");
+  ok = HasInspection(output, !policy.file_rule_count ? 0x7f :
+      spec.file_probe == SboxTrustTransitionFileProbe::Writable ? 0xfff : 0x7ff) && ok;
+  if (spec.file_probe == SboxTrustTransitionFileProbe::Pipe) {
+    char data[4] = {};
+    DWORD read = 0;
+    // The worker has exited: read only the bytes already buffered, without blocking.
+    DWORD available = 0;
+    const bool received = ::PeekNamedPipe(fixture.pipes[0], nullptr, 0, nullptr, &available, nullptr) && available == 4 &&
+        ::ReadFile(fixture.pipes[0], data, sizeof(data), &read, nullptr);
+    ok = received && read == 4 && std::memcmp(data, "ping", 4) == 0 && ok;
+  }
+  if (spec.file_probe == SboxTrustTransitionFileProbe::Writable) {
+    const std::wstring renamed = fixture.directory + L"\\broker-renamed.txt";
+    const bool exists = ::GetFileAttributesW(renamed.c_str()) != INVALID_FILE_ATTRIBUTES;
+    ok = exists && ok;
+    if (exists)
+      std::replace(fixture.files.begin(), fixture.files.end(), fixture.directory + L"\\broker.txt", renamed);
+  }
   if (spec.inactive_tokens) {
     ok = ok && sbox_trust_transition_test_pending_broker_fault() == SBOX_TRUST_TRANSITION_BROKER_TOKEN_FAILURE &&
         Contains(output, "do not apply; no restricted-default-DACL guarantee");
   }
+  if (!ok)
+    printf("[policy-tests] failure output:\n%s\n", output.c_str());
   ok = fixture.Cleanup() && ok;
   sbox_trust_transition_test_reset_broker();
   printf(
-      "[policy-tests] case=%s exit=%d markers=%zu/%zu/%zu/%zu -> %s\n",
+      "[policy-tests] case=%s profile=%s exit=%d markers=%zu/%zu/%zu/%zu -> %s\n",
       spec.name,
+      spec.lpac ? "lpac" : spec.app_container ? "appcontainer" : "ordinary",
       exit_code,
       ready,
       guest,
       host,
       result,
       ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool WaitForMessage(Messages &messages, const char *value) {
+  const ULONGLONG deadline = ::GetTickCount64() + 10000;
+  do {
+    {
+      std::lock_guard<std::mutex> lock(messages.mutex);
+      if (std::find(messages.values.begin(), messages.values.end(), value) != messages.values.end())
+        return true;
+    }
+    ::Sleep(10);
+  } while (::GetTickCount64() < deadline);
+  return false;
+}
+
+bool RunIpcLifetime() {
+  sbox_trust_transition_test_reset_broker();
+  const SboxPolicy base_policy = MakePolicy(*FindCase("ordinary-strict-success"));
+  PolicyFixture fixture;
+  if (!fixture.Initialize(false, 300)) {
+    fixture.Cleanup();
+    return false;
+  }
+  SboxPolicy policy = base_policy;
+  SboxTrustTransitionPolicyExpectation expected = {};
+  if (!SetFixtureExpectation(fixture, policy, expected)) {
+    fixture.Cleanup();
+    return false;
+  }
+  expected.ipc_lifetime = 1;
+  Messages messages[2];
+  SboxSession *sessions[2] = {};
+  bool ok = true;
+  for (int i = 0; i < 2; ++i) {
+    const bool armed = sbox_trust_transition_test_set_next_policy_case(&expected, 300 + i) != 0;
+    sessions[i] = armed ? sbox_broker_spawn(TargetPath().c_str(), &policy, &OnMessage, &messages[i]) : nullptr;
+    ok = sessions[i] && HasInspection(sbox_trust_transition_test_last_output(), 0x7f) &&
+        WaitForMessage(messages[i], "SECURITY_READY case=11") && ok;
+  }
+  if (sessions[0]) {
+    ok = sbox_broker_close(sessions[0]) == 0 && ok;
+    ok = sbox_broker_wait(sessions[0]) == 0 && ok;
+  }
+  if (sessions[1]) {
+    ok = sbox_broker_post_message(sessions[1], SBOX_MSG_STRING, "PING", 4) == 0 && ok;
+    ok = WaitForMessage(messages[1], "PONG") && ok;
+    ok = sbox_broker_close(sessions[1]) == 0 && ok;
+    ok = sbox_broker_wait(sessions[1]) == 0 && ok;
+  }
+  ok = WaitForNoChild() && ok;
+  ok = fixture.Cleanup() && ok;
+  sbox_trust_transition_test_reset_broker();
+  printf("[trust-transition-tests] case=ipc-session-survives-peer-close -> %s\n", ok ? "PASS" : "FAIL");
   return ok;
 }
 
@@ -952,7 +1342,8 @@ bool ExpectPolicyRejected(
     sbox_broker_wait(session);
   }
   const std::string output = sbox_trust_transition_test_last_output();
-  ok = ok && Contains(output, reason);
+  ok = ok && Contains(output, reason) && !Contains(output, "target resume:") &&
+      !Contains(output, "pre-resume");
   if (platform == SBOX_TRUST_TRANSITION_PLATFORM_PRE_RS5 || platform == SBOX_TRUST_TRANSITION_PLATFORM_UNKNOWN) {
     ok = ok && error == ERROR_OLD_WIN_VERSION;
   } else if (fault == SBOX_TRUST_TRANSITION_BROKER_NONE) {
@@ -971,7 +1362,7 @@ bool ExpectPolicyRejected(
 
 bool RunPolicyTests() {
   const std::wstring target = TargetPath();
-  const SboxPolicy ordinary = MakePolicy(kCases[7]);
+  const SboxPolicy ordinary = MakePolicy(*FindCase("ordinary-strict-success"));
   bool ok = true;
   constexpr const char *platform_cases[] = {"pre-rs5-restricted", "pre-rs5-appcontainer", "pre-rs5-lpac"};
   for (int mode = 0; mode < 3; ++mode) {
@@ -1069,6 +1460,25 @@ bool RunPolicyTests() {
       cleanup_ok ? "PASS" : "FAIL");
   ok = cleanup_ok && ok;
 
+  // A handle increase was observed only on first use, not across repeats.
+  // Warm up before measuring steady-state failed-spawn cleanup.
+  ok = RunCase(*FindCase("allocation-failure"), 999, false) && ok;
+
+  // Each case exercises a different post-creation failure and its cleanup.
+  for (const auto &spec : kCases) {
+    if (!spec.spawn_rc)
+      continue;
+    handles_before = handles_after = 0;
+    cleanup_ok = ::GetProcessHandleCount(::GetCurrentProcess(), &handles_before) != FALSE;
+    for (int attempt = 0; attempt < 16; ++attempt)
+      cleanup_ok = RunCase(spec, 1000 + attempt, false) && cleanup_ok;
+    cleanup_ok = ::GetProcessHandleCount(::GetCurrentProcess(), &handles_after) &&
+        handles_before == handles_after && cleanup_ok;
+    printf("[policy-tests] failed-spawn case=%s attempts=16 handles before=%lu after=%lu -> %s\n",
+           spec.name, handles_before, handles_after, cleanup_ok ? "PASS" : "FAIL");
+    ok = cleanup_ok && ok;
+  }
+
   SYSTEM_INFO system = {};
   ::GetSystemInfo(&system);
   auto *guarded =
@@ -1118,16 +1528,30 @@ bool RunPolicyTests() {
   uint64_t serial = 100;
   for (const auto &spec : cases)
     ok = RunPolicyCase(spec, serial++) && ok;
+  // Cross profiles with rule selection: each cell proves native denial or broker access.
+  for (int profile = 0; profile < 3; ++profile) {
+    for (SboxTrustTransitionFileProbe probe : {SboxTrustTransitionFileProbe::None, SboxTrustTransitionFileProbe::Readonly,
+             SboxTrustTransitionFileProbe::Writable, SboxTrustTransitionFileProbe::Nonmatching,
+             SboxTrustTransitionFileProbe::Pipe}) {
+      constexpr const char *profiles[] = {"ordinary", "appcontainer", "lpac"};
+      constexpr const char *probes[] = {"default", "none", "readonly", "writable", "nonmatching", "pipe"};
+      const std::string name = std::string(profiles[profile]) + "-" + probes[static_cast<int>(probe)];
+      PolicySpec spec{name.c_str(), profile != 0, profile == 2, SBOX_INTEGRITY_LOW};
+      spec.file_probe = probe;
+      ok = RunPolicyCase(spec, serial++) && ok;
+    }
+  }
   PolicySpec unknown_token{"ordinary-unknown-initial-token", false, false, SBOX_INTEGRITY_UNTRUSTED};
   unknown_token.unknown_initial_token = true;
   ok = RunPolicyCase(unknown_token, serial++) && ok;
+  ok = RunIpcLifetime() && ok;
   printf("[policy-tests] all -> %s\n", ok ? "PASS" : "FAIL");
   return ok;
 }
 
 bool RunExitDiagnostics() {
   sbox_trust_transition_test_reset_broker();
-  const SboxPolicy policy = MakePolicy(kCases[7]);
+  const SboxPolicy policy = MakePolicy(*FindCase("ordinary-strict-success"));
   SboxSession *session = sbox_broker_spawn(TargetPath().c_str(), &policy, nullptr, nullptr);
   if (!session) {
     printf("[trust-transition-tests] exit-diagnostics spawn failed\n");
@@ -1147,6 +1571,7 @@ bool RunExitDiagnostics() {
   bool ok = queried && observed.count == 1 && observed.exit_code == 40;
   const int exit_code = sbox_broker_wait(session);
   const std::string output = sbox_trust_transition_test_last_output();
+  ok = HasInspection(output, 0x7f) && ok;
   ok = ok && exit_code == 40 && Contains(output, "target created: pid=") && Contains(output, "target resume: pid=") &&
       Contains(output, "target exit observed: pid=") && Contains(output, "exit=40 (0x00000028) output=");
   printf(
@@ -1158,8 +1583,45 @@ bool RunExitDiagnostics() {
   return ok;
 }
 
+bool RunStandardInstaller() {
+  const CaseSpec *base = FindCase("ordinary-strict-success");
+  CaseSpec spec = *base;
+  spec.file_brokering = true;
+  bool ok = RunCase(spec, 2);
+  spec.readonly = false;
+  ok = RunCase(spec, 3) && ok;
+  printf("[trust-transition-tests] case=standard-installer-patches-before-resume -> %s\n", ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool RunFilePolicyAllowDeny() {
+  PolicySpec spec{"file-policy-allow-deny", false, false, SBOX_INTEGRITY_UNTRUSTED};
+  bool ok = RunPolicyCase(spec, 1);
+  spec.name = "file-policy-without-rule-denied";
+  spec.no_file_rule = true;
+  ok = RunPolicyCase(spec, 2) && ok;
+  printf("[trust-transition-tests] case=file-policy-allow-deny -> %s\n", ok ? "PASS" : "FAIL");
+  return ok;
+}
+
+bool RunEarlyHooks(bool warmup) {
+  bool ok = true;
+  // Profiles differ in whether the initial thread has an impersonation token.
+  for (int profile = 0; profile < (warmup ? 3 : 1); ++profile) {
+    PolicySpec spec{warmup ? "early-hooks-warmup-compatible" : "early-hooks-active-before-lockdown",
+                    profile != 0, profile == 2, SBOX_INTEGRITY_LOW};
+    spec.early_hooks = warmup ? 2 : 1;
+    ok = RunPolicyCase(spec, 200 + profile) && ok;
+  }
+  printf("[trust-transition-tests] case=%s -> %s\n",
+      warmup ? "early-hooks-warmup-compatible" : "early-hooks-active-before-lockdown", ok ? "PASS" : "FAIL");
+  return ok;
+}
+
 void PrintHelp() {
-  printf("Usage: sbox_trust_transition_test.exe --all | --policy | --exit-diagnostics | --case <name>\nCases:\n");
+  printf("Usage: sbox_trust_transition_test.exe --all | --policy | --exit-diagnostics | --case <name>\n"
+         "Cases:\n  entry-classifier-synthetic\n  standard-installer-patches-before-resume\n"
+         "  file-policy-allow-deny\n  early-hooks-active-before-lockdown\n  early-hooks-warmup-compatible\n  ipc-session-survives-peer-close\n");
   for (const auto &spec : kCases)
     printf("  %s\n", spec.name);
 }
@@ -1170,11 +1632,19 @@ int RunCaseRunner(int argc, char **argv) {
     return 0;
   }
   if (argc == 3 && std::strcmp(argv[1], "--case") == 0) {
+    if (std::strcmp(argv[2], "entry-classifier-synthetic") == 0)
+      return RunEntryClassifierSynthetic() ? 0 : 1;
+    if (std::strcmp(argv[2], "standard-installer-patches-before-resume") == 0)
+      return RunStandardInstaller() ? 0 : 1;
+    if (std::strcmp(argv[2], "file-policy-allow-deny") == 0)
+      return RunFilePolicyAllowDeny() ? 0 : 1;
+    if (std::strcmp(argv[2], "ipc-session-survives-peer-close") == 0)
+      return RunIpcLifetime() ? 0 : 1;
+    if (std::strcmp(argv[2], "early-hooks-active-before-lockdown") == 0)
+      return RunEarlyHooks(false) ? 0 : 1;
+    if (std::strcmp(argv[2], "early-hooks-warmup-compatible") == 0)
+      return RunEarlyHooks(true) ? 0 : 1;
     const CaseSpec *spec = FindCase(argv[2]);
-    if (!spec) {
-      PrintHelp();
-      return 2;
-    }
     return RunCase(*spec, 1) ? 0 : 1;
   }
   if (argc == 2 && std::strcmp(argv[1], "--policy") == 0)
@@ -1189,6 +1659,11 @@ int RunCaseRunner(int argc, char **argv) {
   // Measure failed-spawn cleanup before successful children can leave pending
   // job notifications that change the broker's handle count.
   bool ok = RunPolicyTests();
+  ok = RunEarlyHooks(false) && ok;
+  ok = RunEarlyHooks(true) && ok;
+  ok = RunEntryClassifierSynthetic() && ok;
+  ok = RunStandardInstaller() && ok;
+  ok = RunFilePolicyAllowDeny() && ok;
   ok = RunExitDiagnostics() && ok;
   ok = RunWithoutControl("missing-control") && ok;
   ok = !sbox_trust_transition_test_set_next_case(999, 1) && ok;

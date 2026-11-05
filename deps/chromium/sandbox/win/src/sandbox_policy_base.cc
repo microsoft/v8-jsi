@@ -25,6 +25,7 @@
 #include "base/notreached.h"
 #include "base/win/access_control_list.h"
 #include "base/win/access_token.h"
+#include "base/win/current_module.h"
 #include "base/win/sid.h"
 #include "base/win/win_util.h"
 #include "base/win/windows_handle_util.h"
@@ -35,6 +36,7 @@
 #include "sandbox/win/src/filesystem_policy.h"
 #include "sandbox/win/src/interception.h"
 #include "sandbox/win/src/job.h"
+#include "sandbox/win/src/nt_internals.h"
 #include "sandbox/win/src/policy_broker.h"
 #include "sandbox/win/src/policy_engine_processor.h"
 #include "sandbox/win/src/policy_low_level.h"
@@ -47,6 +49,10 @@
 #include "sandbox/win/src/signed_policy.h"
 #include "sandbox/win/src/target_process.h"
 #include "sandbox/win/src/top_level_dispatcher.h"
+
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+#include "sbox_trust_transition_test_private.h"
+#endif
 
 namespace sandbox {
 namespace {
@@ -110,6 +116,39 @@ bool ReplacePackageSidInDacl(HANDLE token,
 
   return sd->WriteToHandle(token, base::win::SecurityObjectType::kKernel,
                            DACL_SECURITY_INFORMATION);
+}
+
+// Interception setup and TransferVariable write at broker addresses, so
+// reject a relocated target image or ntdll.
+bool VerifySameImageLayout(HANDLE process) {
+  PROCESS_BASIC_INFORMATION info{};
+  ULONG returned = 0;
+  if (!NT_SUCCESS(::NtQueryInformationProcess(
+          process, ProcessBasicInformation, &info, sizeof(info), &returned)) ||
+      returned != sizeof(info) || !info.PebBaseAddress) {
+    return false;
+  }
+  const void* address = reinterpret_cast<const BYTE*>(info.PebBaseAddress) +
+                        offsetof(NT_PEB, ImageBaseAddress);
+  void* image_base = nullptr;
+  SIZE_T read = 0;
+  if (!::ReadProcessMemory(process, address, &image_base, sizeof(image_base),
+                           &read) ||
+      read != sizeof(image_base)) {
+    return false;
+  }
+#if defined(SBOX_TRUST_TRANSITION_TESTING)
+  if (trust_transition_test::Consume(SBOX_TRUST_TRANSITION_CASE_BASE_MISMATCH))
+    image_base = nullptr;
+#endif
+  if (image_base != &__ImageBase)
+    return false;
+  HMODULE ntdll = ::GetModuleHandleW(L"ntdll.dll");
+  MEMORY_BASIC_INFORMATION region{};
+  return ntdll &&
+         ::VirtualQueryEx(process, ntdll, &region, sizeof(region)) ==
+             sizeof(region) &&
+         region.Type == MEM_IMAGE && region.AllocationBase == ntdll;
 }
 
 bool ApplyZeroAppShimToSuspendedProcess(HANDLE process) {
@@ -633,15 +672,6 @@ base::expected<TargetTokens, ResultCode> PolicyBase::MakeTokens() {
   return TargetTokens{std::move(*impersonation), std::move(*primary)};
 }
 
-// Hosted bootstrap: the broker seeds the suspended worker by shared image RVA;
-// the worker adopts the IPC section and self-installs its interceptions.
-// Set before SpawnTargetAsync.
-bool g_sbox_hosted_mode = false;
-
-// Handle-closer configuration captured for the broker's same-image seed.
-// SetupHandleCloser is skipped in hosted mode.
-HandleCloserConfig g_sbox_hosted_handle_closer = {};
-
 ResultCode PolicyBase::InitProcess(HANDLE process_handle,
                                    ThreadPool* thread_pool,
                                    DWORD& last_error) {
@@ -678,18 +708,16 @@ ResultCode PolicyBase::InitProcess(HANDLE process_handle,
     return SBOX_ERROR_APPLY_ASLR_MITIGATIONS;
   }
 
-  // Hosted bootstrap keeps the dispatcher and shared-section IPC server, but
-  // skips fixed-address global writes and broker-side interception setup.
-  // The broker seeds the worker by RVA; the worker self-installs interceptions.
   dispatcher_ = std::make_unique<TopLevelDispatcher>(this);
-  ResultCode ret = SBOX_ALL_OK;
-  if (!g_sbox_hosted_mode) {
-    ret = SetupAllInterceptions(*target);
-    if (ret != SBOX_ALL_OK)
-      return ret;
-    if (!SetupHandleCloser(*target))
-      return SBOX_ERROR_SETUP_HANDLE_CLOSER;
-  }
+  if (!VerifySameImageLayout(target->Process()))
+    return SBOX_ERROR_INVALID_TARGET_BASE_ADDRESS;
+  ResultCode ret = SetupAllInterceptions(*target);
+
+  if (ret != SBOX_ALL_OK)
+    return ret;
+
+  if (!SetupHandleCloser(*target))
+    return SBOX_ERROR_SETUP_HANDLE_CLOSER;
 
   // Initialize the sandbox infrastructure for the target.
   ret =
@@ -698,14 +726,6 @@ ResultCode PolicyBase::InitProcess(HANDLE process_handle,
 
   if (ret != SBOX_ALL_OK)
     return ret;
-
-  if (g_sbox_hosted_mode) {
-    // Capture handle-closer configuration for the broker's same-image seed,
-    // which also carries integrity and mitigations to the worker.
-    g_sbox_hosted_handle_closer = config()->handle_closer();
-    target_ = std::move(target);
-    return SBOX_ALL_OK;
-  }
 
   IntegrityLevel delayed_integrity_level = config()->delayed_integrity_level();
   static_assert(sizeof(g_shared_delayed_integrity_level) ==

@@ -39,11 +39,6 @@
 #include <utility>
 #include <vector>
 
-// Same-image seed: the broker writes this worker's sandbox globals + message
-// channel directly at their shared RVAs while the worker is suspended, so there
-// is no exported bootstrap struct and no export-table walk. sbox_target_begin
-// adopts that seed (and fails closed if its magic is absent).
-
 // The host's private definitions of sbox.h's opaque handles. Defined at GLOBAL
 // scope (matching sbox.h's forward declarations), not in the anonymous namespace
 // below, so they are the SAME ::sbox_worker_s / ::sbox_broker_s the typedefs
