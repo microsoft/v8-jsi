@@ -776,7 +776,9 @@ extends:
           - V8JsiComputeVersion
           displayName: Tag published versions
           steps:
+          # GitHub tag pushes need checkout credentials, not System.AccessToken.
           - checkout: self
+            persistCredentials: true
 
             # Overlay the CI-computed config.json so the tags carry the computed
             # per-build versions (and prerelease builds are skipped, below).
@@ -797,10 +799,6 @@ extends:
                 Select-Object -First 1).'@id'
               if (-not $baseAddress) { throw "No PackageBaseAddress in $feedUrl" }
               if (-not $baseAddress.EndsWith('/')) { $baseAddress += '/' }
-
-              # GitHub tag-push auth: the bearer header the permission POC proved.
-              $authHeader = "AUTHORIZATION: bearer $env:SYSTEM_ACCESSTOKEN"
-              Write-Host "##vso[task.setsecret]$authHeader"
 
               $config = Get-Content "$(Build.SourcesDirectory)\config.json" | ConvertFrom-Json
               $commit = "$(Build.SourceVersion)"
@@ -844,7 +842,7 @@ extends:
                 $tag = "${id}_v${version}"
 
                 # Idempotent: never move an existing tag.
-                $existing = git -c http.extraheader="$authHeader" ls-remote --tags origin "refs/tags/$tag"
+                $existing = git ls-remote --tags origin "refs/tags/$tag"
                 if ($LASTEXITCODE -ne 0) { Write-Error "ls-remote failed for $tag"; exit 1 }
                 if ($existing) {
                   Write-Host "  tag '$tag' already exists -- no-op."
@@ -854,10 +852,11 @@ extends:
                 Write-Host "  creating tag '$tag' at $commit"
                 git tag $tag $commit
                 if ($LASTEXITCODE -ne 0) { Write-Error "git tag failed for $tag"; exit 1 }
-                git -c http.extraheader="$authHeader" push origin "refs/tags/$tag"
+                git push origin "refs/tags/$tag"
                 if ($LASTEXITCODE -ne 0) { Write-Error "git push failed for $tag"; exit 1 }
                 Write-Host "  pushed $tag"
               }
             displayName: Create and push release tags
             env:
-              SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+              GIT_TERMINAL_PROMPT: '0'
+              GCM_INTERACTIVE: Never
