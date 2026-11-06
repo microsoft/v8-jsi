@@ -808,17 +808,17 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 
   // Nuspec templates: meta + per-RID. No pre-templating — nuget pack
   // expands $version$ / $rid$ / $v8jsiName$ / etc. from -Properties at
-  // pack time.
-  copyFile(
+  // pack time. The .in suffix keeps source templates out of component detection;
+  // staging restores the .nuspec names expected by nuget pack.
+  for (const file of [
     "Microsoft.JavaScript.V8.nuspec",
-    nugetSourceDir,
-    pkgStagingPath,
-  );
-  copyFile(
     "Microsoft.JavaScript.V8.rid.nuspec",
-    nugetSourceDir,
-    pkgStagingPath,
-  );
+  ]) {
+    fs.copyFileSync(
+      path.join(nugetSourceDir, `${file}.in`),
+      path.join(pkgStagingPath, file),
+    );
+  }
 
   // ---------------------------------------------------------------------
   // Pre-template the 4 .rid.{props,targets} files for each RID staged

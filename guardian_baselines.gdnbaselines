@@ -7,7 +7,7 @@
     "guardian-baseline": {
       "name": "guardian-baseline",
       "createdDate": "2026-05-17 21:46:40Z",
-      "lastUpdatedDate": "2026-05-17 21:46:40Z"
+      "lastUpdatedDate": "2026-11-06 00:00:00Z"
     }
   },
   "results": {
@@ -27,8 +27,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 uses SHA1 only to derive template cache keys from names, not for authentication or trust decisions. This is build-time Python, not shipped engine code."
     },
     "fe00e3e31d0143f98036bd1fc992ef9c1f9a3b04762c8124dc7bf20d88772de2": {
       "signature": "fe00e3e31d0143f98036bd1fc992ef9c1f9a3b04762c8124dc7bf20d88772de2",
@@ -46,8 +46,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 uses SHA1 to invalidate cached template bytecode when its source changes, not to authenticate untrusted content. This build-time cache does not establish a security boundary."
     },
     "5607658043b638b7e1291b6e33c714ac032bf2d7cd33148b1a9f4140bff497cc": {
       "signature": "5607658043b638b7e1291b6e33c714ac032bf2d7cd33148b1a9f4140bff497cc",
@@ -65,8 +65,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 execs a fixed literal importing generator_stop to detect Python syntax support. No input is interpolated into the executed code."
     },
     "fcdb6e0c63d2a4a275302ef4a7a7b08ab8a6afcce49506479de5f549d5b523e9": {
       "signature": "fcdb6e0c63d2a4a275302ef4a7a7b08ab8a6afcce49506479de5f549d5b523e9",
@@ -84,8 +84,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 execs a fixed yield-from function literal to detect Python syntax support. No input is interpolated into the executed code."
     },
     "4b40486b262fe2bb736960951a6199047775fd3cdffd5dca3a9523c2607d0145": {
       "signature": "4b40486b262fe2bb736960951a6199047775fd3cdffd5dca3a9523c2607d0145",
@@ -103,8 +103,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 execs a fixed Python 2 raise literal to probe traceback support. This compatibility check does not execute external input."
     },
     "225a02795b088130e1b2072e04ab55baf6176e4a4551edfba909028a90c96904": {
       "signature": "225a02795b088130e1b2072e04ab55baf6176e4a4551edfba909028a90c96904",
@@ -122,8 +122,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 executes its generated traceback frame for build-time templates. The Node/V8 build uses repository-controlled templates; this Python helper is not shipped as a runtime templating service."
     },
     "86ef3b2a1bb4fc2c91bc6d41ed8b79f5e8ecfe41934e1e6af58944edfd4039ee": {
       "signature": "86ef3b2a1bb4fc2c91bc6d41ed8b79f5e8ecfe41934e1e6af58944edfd4039ee",
@@ -141,8 +141,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: executing compiled templates is the intended upstream Jinja2 implementation. The Node inspector build compiles repository-controlled templates; this Python code is not part of the shipped JavaScript runtime."
     },
     "5de5bf2eac81622efe2881f9db8e9cae032b677262ae64f87e11014970e405eb": {
       "signature": "5de5bf2eac81622efe2881f9db8e9cae032b677262ae64f87e11014970e405eb",
@@ -160,8 +160,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 uses SHA1 only for generated template module names, not to authenticate data. Templates are repository-controlled build inputs."
     },
     "a31ae201c65f4a3ef016050c2e9f456c6b5d2d5ed7a54d45ad6ff747c9995def": {
       "signature": "a31ae201c65f4a3ef016050c2e9f456c6b5d2d5ed7a54d45ad6ff747c9995def",
@@ -179,8 +179,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 execs a fixed async-generator literal to detect Python syntax support. No input is interpolated into the executed code."
     },
     "3e585752674e8c10ed599582937f890fe6db3f85bd7c1aa0a34506cd7f282657": {
       "signature": "3e585752674e8c10ed599582937f890fe6db3f85bd7c1aa0a34506cd7f282657",
@@ -198,8 +198,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream Jinja2 execs a fixed Python 2 reraise helper for interpreter compatibility. This does not execute external input."
     },
     "4b3b06912fc5a2766c85d0c792da650a8eb3de6aacb7552d1212a94fd0d8f45c": {
       "signature": "4b3b06912fc5a2766c85d0c792da650a8eb3de6aacb7552d1212a94fd0d8f45c",
@@ -217,8 +217,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream V8 Jinja2 uses SHA1 only to derive template cache keys from names, not for authentication or trust decisions. This is build-time Python, not shipped engine code."
     },
     "b3318fc513ddbbd7c4ba451321ffaf10e5b0f35c6f010e03ca578076a1fa9a67": {
       "signature": "b3318fc513ddbbd7c4ba451321ffaf10e5b0f35c6f010e03ca578076a1fa9a67",
@@ -236,8 +236,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream V8 Jinja2 uses SHA1 to invalidate cached template bytecode when its source changes, not to authenticate untrusted content. This build-time cache does not establish a security boundary."
     },
     "40633a04c8a4a6c003599b0ccd66fc6664bf815473474665d8a0d72fa5678fef": {
       "signature": "40633a04c8a4a6c003599b0ccd66fc6664bf815473474665d8a0d72fa5678fef",
@@ -255,8 +255,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream V8 Jinja2 executes its generated traceback frame for build-time templates. V8 uses repository-controlled templates; this Python helper is not shipped as a runtime templating service."
     },
     "43fd113641dd6efbecde7d5a4eb29cf4418cbe505113238ac59222a219bd95e3": {
       "signature": "43fd113641dd6efbecde7d5a4eb29cf4418cbe505113238ac59222a219bd95e3",
@@ -274,8 +274,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: executing compiled templates is the intended upstream Jinja2 implementation. V8's build compiles repository-controlled templates; this Python code is not part of the shipped JavaScript runtime."
     },
     "49073b0925e464b1665751de093cfa7d1925ce8c69dd20f2cc1b535d81d68469": {
       "signature": "49073b0925e464b1665751de093cfa7d1925ce8c69dd20f2cc1b535d81d68469",
@@ -293,8 +293,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: upstream V8 Jinja2 uses SHA1 only for generated template module names, not to authenticate data. Templates are repository-controlled build inputs."
     },
     "90bf8e6b3ed01647bb5a1197b23ccff6b381e44dc315c1fed48181f6e4d9a250": {
       "signature": "90bf8e6b3ed01647bb5a1197b23ccff6b381e44dc315c1fed48181f6e4d9a250",
@@ -304,7 +304,7 @@
         "0f6435cd4e67af20468b3f00fcd84866512f93b36c27acb9a6f3f2848c84989d"
       ],
       "target": "deps/nodejs/deps/v8/tools/dev/gm.py",
-      "line": 186,
+      "line": 202,
       "uriBaseId": "file:///D:/a/_work/1/s/",
       "memberOf": [
         "guardian-baseline"
@@ -312,8 +312,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: this upstream V8 developer helper reads the trusted local .gclient Python configuration using exec as designed. The v8-jsi build does not invoke gm.py, and it is not shipped with the engine."
     },
     "34be8af6f8b01f267ddce60e28d1f0c44bf10c9d945a6592d11cc5abeeb6eff9": {
       "signature": "34be8af6f8b01f267ddce60e28d1f0c44bf10c9d945a6592d11cc5abeeb6eff9",
@@ -331,8 +331,8 @@
       "tool": "bandit",
       "ruleId": "B102",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: this upstream V8 developer helper reads the trusted local .gclient Python configuration using exec as designed. The v8-jsi build does not invoke setup-reclient.py, and it is not shipped with the engine."
     },
     "3362b86c50a97d3845051bc5ed175e2b01279f6ce473350b85797a08ce4c4008": {
       "signature": "3362b86c50a97d3845051bc5ed175e2b01279f6ce473350b85797a08ce4c4008",
@@ -350,27 +350,8 @@
       "tool": "bandit",
       "ruleId": "B303",
       "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
-    },
-    "7cc1745f1e94cf6c159b0869adb57066d454549c367c556e7499c7aa290265fd": {
-      "signature": "7cc1745f1e94cf6c159b0869adb57066d454549c367c556e7499c7aa290265fd",
-      "alternativeSignatures": [
-        "ec1a9854b026407d3a171a6ca1d107919d9e9ebdfd1c7df7d45fa2c6e2cebd40",
-        "c131f5829fdb5db2bad35ad7daddcf413327541acc482d382681e65112bb512d",
-        "aec69b15570b7c01237eaab097a8194147e8bf449be41b1841027dbe6329bc52"
-      ],
-      "target": "deps/nodejs/deps/v8/tools/clusterfuzz/foozzie/v8_foozzie.py",
-      "line": 454,
-      "uriBaseId": "file:///D:/a/_work/1/s/",
-      "memberOf": [
-        "guardian-baseline"
-      ],
-      "tool": "bandit",
-      "ruleId": "B303",
-      "createdDate": "2026-05-17 21:46:40Z",
-      "expirationDate": "2026-11-04 05:22:23Z",
-      "justification": "This error is baselined with an expiration date of 180 days from 2026-05-18 05:22:23Z"
+      "expirationDate": "2027-05-05 00:00:00Z",
+      "justification": "Reviewed 2026-11-06: this upstream V8 build test uses MD5 to compare repeated snapshot and embedded-builtins outputs for determinism. The digest is not used for authentication, signing, or accepting untrusted files."
     }
   }
 }

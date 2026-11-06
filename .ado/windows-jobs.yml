@@ -97,6 +97,10 @@ extends:
         excludedPaths: |
           .gdn
           deps\chromium
+      componentgovernance:
+        # Scan Temporal through its parent Cargo.toml/Cargo.lock, not the vendored
+        # libraries' standalone dev/test graphs. All locked crates remain scanned.
+        ignoreDirectories: $(Build.SourcesDirectory)\deps\nodejs\deps\crates\vendor
       binskim:
         analyzeTarget: |
           $(Build.StagingDirectory)\out\pkg-staging\**\*.dll

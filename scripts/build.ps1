@@ -217,7 +217,7 @@ Copy-Item "$jsigitpath\jsi\instrumentation.h" -Destination "$OutputPath\build\na
 
 # Miscellaneous
 Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.targets" -Destination "$OutputPath\build\native\"
-Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec" -Destination $OutputPath
+Copy-Item "$SourcesPath\ReactNative.V8Jsi.Windows.nuspec.in" -Destination "$OutputPath\ReactNative.V8Jsi.Windows.nuspec"
 
 Copy-Item "$SourcesPath\config.json"    -Destination "$OutputPath\"
 Copy-Item "$SourcesPath\LICENSE"        -Destination "$OutputPath\license\"

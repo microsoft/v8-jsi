@@ -36,7 +36,9 @@ The computed configuration is a build artifact, not a new committed floor.
 ## Fields in `config.json`
 
 - `v8jsi_version` — the `MAJOR.MINOR.PATCH` value consumed by
-  `scripts/build.ts` and the `Microsoft.JavaScript.V8.nuspec` template.
+  `scripts/build.ts` and the
+  [`Microsoft.JavaScript.V8.nuspec.in`](../scripts/nuget/Microsoft.JavaScript.V8.nuspec.in)
+  template (staged as `Microsoft.JavaScript.V8.nuspec` for packing).
   CI computes it from the committed version floor and Git history.
 - `nodejs_version` — the upstream Node.js version that `deps/nodejs/`
   is currently synced to. Authoritative source of the actual vendored

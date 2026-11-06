@@ -1,0 +1,7 @@
+# CG runs Cargo from the repository root; --manifest-path does not load the
+# crate directory's configuration. Use the same vendored sources as Node.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "deps/nodejs/deps/crates/vendor"
