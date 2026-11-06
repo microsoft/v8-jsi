@@ -776,6 +776,7 @@ extends:
           - V8JsiComputeVersion
           displayName: Tag published versions
           steps:
+          # GitHub tag pushes need checkout credentials, not System.AccessToken.
           - checkout: self
             persistCredentials: true
 
