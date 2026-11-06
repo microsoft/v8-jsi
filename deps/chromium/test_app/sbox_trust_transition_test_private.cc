@@ -9,7 +9,6 @@ namespace sandbox::trust_transition_test {
 namespace {
 std::atomic<uint32_t> g_case{SBOX_TRUST_TRANSITION_CASE_INVALID};
 std::atomic<uint32_t> g_consumed{SBOX_TRUST_TRANSITION_CASE_INVALID};
-SboxTrustTransitionThunkTelemetry g_telemetry = {};
 std::atomic<uint32_t> g_platform{SBOX_TRUST_TRANSITION_PLATFORM_CURRENT};
 std::atomic<uint32_t> g_broker_fault{SBOX_TRUST_TRANSITION_BROKER_NONE};
 } // namespace
@@ -24,22 +23,26 @@ bool Consume(uint32_t case_id) {
   return true;
 }
 
-uint32_t CurrentCase() {
-  return g_case.load();
+bool HookFault(int num_thunks, const std::string& function) {
+  return (num_thunks == 0 &&
+          Consume(SBOX_TRUST_TRANSITION_CASE_FIRST_HOOK_FAILURE)) ||
+         (num_thunks == 1 &&
+          Consume(SBOX_TRUST_TRANSITION_CASE_PARTIAL_HOOK_FAILURE)) ||
+         (function == "NtCreateFile" &&
+          Consume(SBOX_TRUST_TRANSITION_CASE_REQUIRED_FILE_HOOK_FAILURE));
+}
+
+void Disarm() {
+  g_case.store(SBOX_TRUST_TRANSITION_CASE_INVALID);
+}
+
+uint32_t Consumed() {
+  return g_consumed.load();
 }
 
 void Initialize(uint32_t case_id) {
   g_consumed.store(SBOX_TRUST_TRANSITION_CASE_INVALID);
-  g_telemetry = {};
   g_case.store(case_id);
-}
-
-void SetThunkTelemetry(const SboxTrustTransitionThunkTelemetry &telemetry) {
-  g_telemetry = telemetry;
-}
-
-SboxTrustTransitionThunkTelemetry GetThunkTelemetry() {
-  return g_telemetry;
 }
 
 uint32_t Platform() {

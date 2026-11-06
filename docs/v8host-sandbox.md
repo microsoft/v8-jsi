@@ -28,6 +28,13 @@ The engine DLLs are built separately; see the [project guide](../AGENTS.md).
 The [plugin overview](../deps/chromium/v8host/README.md) describes the internal
 lifecycle. Use the untrusted tier for untrusted JavaScript.
 
+Chromium's broker-side interception installer patches the suspended worker before
+resume, so hooks are active from process start, including warm-up. Launch fails
+if the worker image or ntdll is relocated relative to the broker. Launch also
+fails if thunk allocation or RX sealing fails, or any hook fails to install.
+Strict ACG for Untrusted workers is a delayed mitigation applied at `LowerToken`,
+after warm-up; Trusted/JIT workers leave ACG off.
+
 ## Architectures and installation
 
 The deployment architecture contract is:
@@ -40,6 +47,8 @@ The deployment architecture contract is:
 | ARM64EC on ARM64 Windows | ARM64 | The process loads the x64-built client DLL; no ARM64EC-compiled client DLL is provided. |
 
 Unsupported combinations include 32-bit Windows and any x86 broker or worker.
+x86 is compiled with the same Chromium interception installer, but sandbox workers
+on x86 are not supported or qualified; x86 clients use the x64 payload shown above.
 An x64 client on ARM64 Windows resolves by the same rule as ARM64EC (the sibling
 `arm64` payload), but it is not qualified. The NuGet `UseV8Sandbox` option
 supports x64 and ARM64 consumers only; x86 and ARM64EC consumers need the

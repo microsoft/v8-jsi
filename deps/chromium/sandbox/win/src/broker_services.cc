@@ -35,8 +35,6 @@
 
 namespace sandbox {
 
-extern bool g_sbox_hosted_mode;
-
 namespace {
 
 // Utility function to associate a completion port to a job object.
@@ -494,9 +492,13 @@ void BrokerServicesBase::SpawnTargetAsync(const base::CommandLine& command_line,
 
 base::expected<BrokerServicesBase::CreateTargetInfo, ResultCode>
 BrokerServicesBase::PreSpawnTarget(PolicyBase* policy_base) {
-  // Only hosted bootstrap supports a sandbox implementation in a separate DLL.
-  if (!g_sbox_hosted_mode && CURRENT_MODULE() != ::GetModuleHandleW(nullptr)) {
-    ::SetLastError(ERROR_NOT_SUPPORTED);
+  // This code should only be called from the exe, ensure that this is always
+  // the case.
+  HMODULE exe_module = nullptr;
+  CHECK(::GetModuleHandleEx(
+      /*dwFlags=*/GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, nullptr,
+      &exe_module));
+  if (CURRENT_MODULE() != exe_module) {
     return base::unexpected(SBOX_ERROR_INVALID_LINK_STATE);
   }
   if (!policy_base) {

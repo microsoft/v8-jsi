@@ -430,7 +430,7 @@ config("compiler") {
     cflags += [ "-fno-math-errno" ]
   }
 
-  # v8-jsi: harden the Windows clang build. These binaries (sbox.dll/v8host.exe)
+  # v8-jsi: harden the Windows clang build. These binaries (sbox.exe/v8host.dll)
   # host or broker untrusted JS, so the toolchain-level mitigations are
   # warranted. Mirrors the flag set in src/v8jsi_settings.gypi:
   #   /Qspectre   -- Spectre v1 speculative-load hardening. Must be paired with
@@ -2051,7 +2051,7 @@ config("runtime_library") {
   # so clang emits MSVC-style intrinsic calls and the statically-linked MSVC
   # vcruntime (kept static by our Hybrid CRT) provides them -- exactly how the
   # Node.js/v8jsi.dll clang-cl build links (no compiler-rt). Dropping this on win
-  # unblocks the x86 + arm64 sbox.dll builds with the existing x64-host VS clang.
+  # supports the x86 + arm64 sandbox builds with the x64-host VS clang.
   # The non-win paths are unchanged.
   if (is_clang && !is_win && !(is_a_target_toolchain && is_cronet_build)) {
     configs += [ "//build/config/clang:compiler_builtins" ]

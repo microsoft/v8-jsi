@@ -662,9 +662,7 @@ interface SandboxBinary {
 }
 
 // The sandbox binaries. Their export surfaces live in stela.config.json:
-//   sbox.exe    — the single-image container: exports NOTHING. SBOX_STATIC makes
-//                 the statically-linked sbox_* core resolve at link time rather
-//                 than through the EXE's export table.
+//   sbox.exe    — the single-image container: exports NOTHING.
 //   v8host.dll  — the engine payload: exports the sbox plugin-ABI entry plus
 //                 the v8host client API (src/public/v8host_client.h).
 const sandboxBinaries: SandboxBinary[] = [
@@ -769,7 +767,7 @@ function checkReleaseTrust(outDir: string): boolean {
   console.log("\n=== Release trust policy (no developer hooks) ===\n");
   const markers = ["V8HOST_BROKER_API_TEST", "SBOX_TEST_LIFECYCLE_FAILURE", "SBOX_TEST_LIFECYCLE_HELD_EVENT",
     "V8HOST_GUEST_JS", "SBOX_TIER", "V8HOST_ENGINE_DLL", "V8HOST_SNAPSHOT", "V8HOST_PERF",
-    "SBOX_FORCE_RELOCATE", "--pipe-bench", "sbox_bench"];
+    "--pipe-bench", "sbox_bench"];
   let ok = true;
   for (const file of ["sbox.exe", "v8host.dll"]) {
     const filePath = path.join(outDir, file);

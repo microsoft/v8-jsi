@@ -4,10 +4,10 @@
 
 // [v8-jsi sandbox: Rust dropped] Upstream routes base::JSONReader through the
 // Rust serde_json_lenient parser, which forces a Rust toolchain into the build.
-// The sandbox engine (sbox.dll) never reaches JSONReader (verified: 0 bytes in
-// the linked image), so this file is reduced to a C++-only no-op that keeps the
-// JSONReader API linkable without any Rust dependency. If a shared-base consumer
-// ever needs JSON parsing, restore a real C++ parser here instead of the stub.
+// sbox.exe and v8host.dll link no JSONReader code (verified from their PDBs),
+// so this C++-only no-op stub keeps the API linkable without Rust.
+// If a shared-base consumer ever needs JSON parsing, restore a real C++ parser
+// here instead of the stub.
 
 #include "base/json/json_reader.h"
 

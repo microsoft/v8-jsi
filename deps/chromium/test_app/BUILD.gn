@@ -1,6 +1,4 @@
-# The legacy generic broker test harness (test_app / test_app_signed) was removed
-# with the two-image sbox.dll + v8host.exe topology. This directory now only hosts
-# the trust-transition test's private header + impl
+# The trust-transition test's private header + impl
 # (sbox_trust_transition_test_private.{h,cc}): the header is pulled in via the
 # //test_app include dir by //sbox:sbox_trust_transition_test, and the impl
 # is compiled into //sandbox/win:sandbox_trust_transition_test. No targets here.

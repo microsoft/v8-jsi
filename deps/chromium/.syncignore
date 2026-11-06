@@ -5,22 +5,21 @@
 # patterns are root-anchored to this file's directory = the vendored root).
 #
 # An excluded path drops from BOTH the upstream and local listings, so it is
-# neither pulled nor deleted. The one-time removal of already-vendored files was
-# done by `git rm` (the source-prune commits); these patterns stop the next
-# `fork-sync` from re-pulling them.
+# neither pulled nor deleted. sync-config.json sets `keepLocalDeletions`, so
+# files we pruned with `git rm` stay pruned on every roll without a pattern
+# here; these patterns filter NEW upstream files by category so a roll does not
+# pull them in the first place. Followed git submodules (`submodules` in
+# sync-config.json) are synced like any other path and trimmed by the same
+# patterns.
 #
 # IDIOM: exclude directory *contents* with `dir/**` (never a bare `dir/`) so the
 # directory itself stays un-excluded and `!` negations inside it can re-include.
 # Order matters (last match wins): category/library excludes first, then the
-# build-file re-includes, then the submodule + local-only excludes LAST so they
-# override the build-file re-include.
+# build-file re-includes, then the local-only excludes LAST so they override
+# the build-file re-include.
 #
-# Two jobs:
-#   (1) Freeze foreign (git-submodule) third_party content — chromium/src tracks
-#       these as gitlinks, so a chromium/src-only sync would delete our vendored
-#       copies as orphans. Frozen until fork-sync handles submodules.
-#   (2) Keep the native (chromium/src) tree pruned to the build closure: drop
-#       tests / other-platform / docs / unused components; keep all build files.
+# Job: keep the tree pruned to the build closure — drop tests / other-platform /
+# docs / unused components; keep all build files.
 
 # =====================================================================
 # (2a) Vestigial native libs — keep only GN/gen build files (so the GN graph
@@ -115,6 +114,10 @@
 # Two base closure files that live under a test/ path or match *_test.cc.
 !/base/check_is_test.cc
 !/base/test/scoped_logging_settings.h
+# perfetto's proto library and trace_processor build Android/Fuchsia sources
+# unconditionally, so the platform drops above must not hide them.
+!/third_party/perfetto/protos/**
+!/third_party/perfetto/src/trace_processor/importers/fuchsia/fuchsia_record.*
 
 # =====================================================================
 # rust: full drop (INCLUDING *.gn/*.gni/*.py) — placed AFTER the build-file
@@ -123,24 +126,6 @@
 # =====================================================================
 /third_party/rust/**
 /third_party/protobuf-javascript/**
-
-# =====================================================================
-# (1) Foreign repos (git submodules in chromium/src) — freeze whole subtree.
-#     Placed AFTER the build-file re-includes so nothing inside them (incl.
-#     their BUILD.gn, which lives in the submodule, not chromium/src) is
-#     re-included and then deleted as an orphan.
-# =====================================================================
-/third_party/boringssl/src/**
-/third_party/compiler-rt/src/**
-/third_party/googletest/src/**
-/third_party/icu/**
-/third_party/libc++/src/**
-/third_party/libc++abi/src/**
-/third_party/libunwind/src/**
-/third_party/llvm-libc/src/**
-/third_party/nasm/**
-/third_party/perfetto/**
-/third_party/re2/src/**
 
 # =====================================================================
 # Local-only files (not upstream) — protect from both pull and orphan-delete.

@@ -24,9 +24,7 @@
 #include "base/win/scoped_handle.h"
 
 extern "C" {
-// Not exported: this DLL publishes only its own public C API. The
-// GetModuleHandle(NULL) lookup below resolves against the host executable (which
-// does not link base), so this DLL's own export would never be consumed.
+// Not exported: the exact-export gate requires sbox.exe to export nothing.
 void* GetHandleVerifier();
 
 void* GetHandleVerifier() {

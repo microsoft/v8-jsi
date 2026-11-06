@@ -202,23 +202,6 @@ class InterceptionManager {
   std::list<InterceptionData> interceptions_;
 };
 
-// Hosted (decoupled-DLL) mode: self-install the ntdll service-call interceptions
-// in the CURRENT process. In hosted mode the broker is a DIFFERENT binary and
-// cannot remotely patch the child's not-yet-mapped sandbox.dll, so the child
-// patches its own ntdll instead. Installs the SetupBasicInterceptions()
-// process/thread/token hardening hooks (including the NtSetInformationThread
-// premature-RevertToSelf guard). When the trusted policy requests file
-// brokering, also installs the filesystem dispatcher's hooks. Only
-// INTERCEPTION_SERVICE_CALL hooks are installed (no EAT / interception-agent /
-// NtMapViewOfSection hot-patch — those exist only to catch calls made by other
-// DLLs while the loader runs, which is irrelevant here since the proxied calls
-// happen after the target's own code is running). Must be called after
-// TargetServices::Init() and BEFORE LowerToken(): ACG (ProhibitDynamicCode)
-// forbids creating/altering executable memory afterward, and LowerToken sets the
-// RevertedToSelf state the NtSetInformationThread interceptor depends on.
-// Returns SBOX_ALL_OK on success.
-ResultCode SelfInstallInterceptions(bool file_brokering);
-
 // This macro simply calls interception_manager.AddToPatchedFunctions with
 // the given service to intercept (INTERCEPTION_SERVICE_CALL), and assumes that
 // the interceptor is called "TargetXXX", where XXX is the name of the service.

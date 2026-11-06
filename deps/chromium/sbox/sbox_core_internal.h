@@ -19,27 +19,17 @@
 // package/capabilities, a job, and integrity levels; it does not combine that
 // identity with the ordinary mode's token-level or restricted-default-DACL
 // settings. File rules are an additional broker-mediated access channel.
-#ifndef SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
-#define SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
+#ifndef SBOX_CORE_INTERNAL_H_
+#define SBOX_CORE_INTERNAL_H_
 
 #include <cstddef>
 #include <cstdint>
 #include "sbox.h"
 
-#if defined(SBOX_STATIC)
-// The broker/target core is linked directly into an executable (the product
-// sbox.exe and the trust-transition test both compile sbox_broker.cc), so the
-// sbox_* ABI is resolved at link time, not across a DLL boundary. Plain
-// extern "C" keeps the symbols out of the export table (the EXE must export
-// nothing). Checked BEFORE SBOX_DLL_IMPL because sbox_broker.cc self-defines that.
+// Link-time internal symbols; sbox.exe must export nothing.
 #define SBOX_CORE_API extern "C"
-#elif defined(SBOX_DLL_IMPL)
-#define SBOX_CORE_API extern "C" __declspec(dllexport)
-#else
-#define SBOX_CORE_API extern "C" __declspec(dllimport)
-#endif
 
-// --- abstract, ABI-safe levels (mapped to sandbox enums inside the DLL) ---
+// --- abstract, ABI-safe levels (mapped to sandbox enums inside the core) ---
 // Token levels, most- to least-restrictive (mirrors Chromium's TokenLevel 1:1).
 // Unknown -> RESTRICTED_SAME_ACCESS.
 enum SboxTokenLevel {
@@ -62,17 +52,17 @@ typedef struct SboxFileRule {
   int32_t readonly;        // 1 = read-only access; 0 = any access
 } SboxFileRule;
 
-// The policy the broker host describes; the DLL compiles it into sandbox rules.
-// Engine-generic: ACG (prohibit_dynamic_code) is an OS mitigation the DLL
+// The policy the broker host describes; the core compiles it into sandbox rules.
+// Engine-generic: ACG (prohibit_dynamic_code) is an OS mitigation the core
 // applies; whether the guest can survive it (e.g. running V8 jitless) is the
-// target EXE's concern, not the DLL's.
+// plugin's concern, not the core's.
 typedef struct SboxPolicy {
   uint32_t struct_size;           // size in bytes; at least sizeof(SboxPolicy)
   int32_t initial_token;          // SboxTokenLevel; ordinary mode only
   int32_t lockdown_token;         // SboxTokenLevel; ordinary mode only
   int32_t integrity;              // SboxIntegrityLevel; AppContainer requires LOW
   int32_t delayed_integrity;      // SboxIntegrityLevel (applied at LowerToken)
-  int32_t prohibit_dynamic_code;  // 1 = arm ACG (MITIGATION_DYNAMIC_CODE_DISABLE)
+  int32_t prohibit_dynamic_code;  // 1 = ACG (applied at LowerToken)
   const SboxFileRule* file_rules;
   size_t file_rule_count;
   int32_t use_app_container;  // 1 = create or reuse an AppContainer profile
@@ -105,18 +95,10 @@ typedef struct SboxPolicy {
 // The current complete structure is required. Smaller structures are rejected;
 // larger structures may append fields, but this version reads only this prefix.
 
-// Same-image handoff: the broker and target are the SAME statically-linked
-// image, so every sandbox global sits at the same RVA in both. While the target
-// is suspended the broker writes its sandbox globals (and a small channel seed)
-// directly at those shared RVAs — there is no exported bootstrap struct and no
-// export-table walk. The only per-process unknown is the target's ASLR base,
-// read from one documented PEB field, which keeps the scheme independent of
-// where the image loads in either process.
-
 // --- broker role (used by sbox.exe) ---
 // Spawn `target_exe` as a locked-down sandbox target per `policy`, wire the
-// broker<->target IPC channel, relay the bootstrap, run it to completion, and
-// return the target's exit code (0 = the target reported success).
+// broker<->target IPC channel, run it to completion, and return the target's
+// exit code (0 = the target reported success).
 SBOX_CORE_API int sbox_broker_run(const wchar_t* target_exe, const SboxPolicy* policy);
 
 // Opaque handles (defined inside the sbox core).
@@ -144,12 +126,12 @@ typedef void (*SboxMessageCb)(void* ctx, int kind, const void* data, size_t len)
 // One broker process may spawn MANY targets: the first sbox_broker_spawn (or
 // sbox_broker_run) initializes the process-wide broker once, and every later
 // spawn reuses it. Each returned SboxSession is fully independent (its own
-// process/thread/log/IPC section/message channel/reader thread), so N sessions
+// process/thread/log/message channel/reader thread), so N sessions
 // coexist and can be waited on / closed in any order.
 //
 // THREAD-SAFETY: sbox_broker_spawn is thread-safe -- it may be called
 // concurrently from multiple threads. The underlying Chromium spawn path
-// requires every spawn to run on a single thread, so the DLL marshals the actual
+// requires every spawn to run on a single thread, so the core marshals the actual
 // spawn onto one internal launcher thread and blocks the caller until it
 // completes. Spawns are thus serialized internally (briefly), but the spawned
 // targets run fully in parallel and callers do NOT need to coordinate. The
@@ -195,19 +177,18 @@ SBOX_CORE_API void* sbox_target_close_event(SboxTarget* target);
 
 // --- target role (used by the sbox.exe worker) ---
 
-// Adopt the broker's same-image seed (written into this image's sandbox globals
-// while the process was suspended), init the sandbox target services, and stand
-// up the IPC client. Returns NULL on failure, including a missing seed (fail
-// closed). Call BEFORE doing any guest warmup; the returned handle is used for
-// the calls below.
+// Initialize sandbox target services and the IPC client. Returns NULL on failure.
+// Call BEFORE doing any guest warmup. Chromium's broker-side installer has
+// already patched the suspended worker and sealed thunks RX before resume;
+// image/ntdll layout mismatches or installation failures prevent launch.
 SBOX_CORE_API SboxTarget* sbox_target_begin(void);
 
 // Prove the broker<->target IPC channel (a cross-call ping). Returns 1 on OK.
 SBOX_CORE_API int sbox_target_test_ipc(SboxTarget* target);
 
-// Install the ntdll file interceptions (so denied, policy-allowed opens auto-
-// route to the broker) and drop to the restricted token + delayed integrity +
-// mitigations. Call AFTER all guest warmup (ACG forbids patching/codegen after).
+// Call AFTER all guest warmup. Drops to the lockdown token and delayed integrity,
+// applies delayed mitigations, and verifies strict ACG when prohibit_dynamic_code
+// is set.
 SBOX_CORE_API int sbox_target_lower_token(SboxTarget* target);
 
 // Worker-only: return the broker's opaque plugin_data blob (carried inline in
@@ -224,4 +205,4 @@ SBOX_CORE_API int sbox_target_acg_enabled(SboxTarget* target);
 // Release the target handle (does not terminate the process).
 SBOX_CORE_API void sbox_target_end(SboxTarget* target);
 
-#endif  // SANDBOX_DLL_SBOX_CORE_INTERNAL_H_
+#endif  // SBOX_CORE_INTERNAL_H_

@@ -15,6 +15,13 @@ broker/worker/runtime topology (`v8host_broker_*`, `v8host_worker_*`,
 the sandbox core** — it reaches the message channel only through the
 `sbox_worker_api` function pointers the container hands it.
 
+Chromium's broker-side interception installer patches the suspended same-image
+worker before resume. Hooks are active from process start, including warm-up.
+Launch fails without resuming the worker if its image or ntdll is relocated,
+if thunk allocation or RX sealing fails, or any hook fails to install. x86 builds
+use the same Chromium installer, but x86 sandbox workers are not supported or
+qualified; x86 clients use x64 payloads.
+
 ## Status: real V8/JSI engine
 
 The current `v8host.dll` is built from
@@ -22,7 +29,8 @@ The current `v8host.dll` is built from
 the `LowerToken` boundary and exposed as the plugin vtable:
 
 - **`configure` (broker):** describes the sandbox the worker will run in — arms
-  ACG and sets integrity for the Untrusted (jitless) tier, leaves ACG off for
+  delayed strict ACG (applied at `LowerToken`) and sets integrity for the
+  Untrusted (jitless) tier, leaves ACG off for
   Trusted (JIT), declares the engine DLL for the broker to Authenticode-verify,
   and encodes the run profile (engine DLL, jitless flag, optional snapshot path)
   into the opaque `plugin_data` the container carries to the worker. The tier and
@@ -96,6 +104,11 @@ runtime created (warmup, pre-lockdown)`, `LowerToken survived`,
 `exec-alloc(post)=BLOCKED (ACG in force) (err=1655)`, the guest `JS evaluated =
 OK`, the broker's `worker reply = "js echo: ping from broker"` (real guest JS
 executed under lockdown), and `worker_exit=0 ... -> PASS`.
+
+Trust-transition warm-up and cross-architecture tests require a separately built
+`v8jsisb.dll` copied beside the output binaries. Cross-architecture tests hardlink
+the engine from each payload build output into their generated layouts. The
+sandbox build does not build or copy the V8 engine.
 
 ## Public topology tests
 
