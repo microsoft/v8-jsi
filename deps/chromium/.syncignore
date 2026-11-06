@@ -128,7 +128,8 @@
 /third_party/protobuf-javascript/**
 
 # =====================================================================
-# Local-only files (not upstream) — protect from both pull and orphan-delete.
+# Local-only files — protect from both pull and orphan-delete.
+# Also exclude chrome contents except the upstream-owned version file.
 # Placed LAST so the build-file re-include above does not expose their *.gn.
 # =====================================================================
 /sync-config.json
@@ -142,3 +143,4 @@
 /test_app/**
 /jsi_cpp/**
 /chrome/**
+!/chrome/VERSION
