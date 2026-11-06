@@ -33,6 +33,11 @@ CI runs `node scripts\compute-version.ts --write` and overlays the computed
 `config.json.v8jsi_version` therefore does not change the CI version line.
 The computed configuration is a build artifact, not a new committed floor.
 
+The release-tag job retains the GitHub checkout credentials with
+`persistCredentials: true` and reuses them for Git operations. It does not use
+the Azure DevOps `System.AccessToken` to authenticate GitHub. Interactive Git
+authentication is disabled so credential failures fail promptly.
+
 ## Fields in `config.json`
 
 - `v8jsi_version` — the `MAJOR.MINOR.PATCH` value consumed by
