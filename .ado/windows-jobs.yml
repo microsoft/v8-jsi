@@ -112,6 +112,8 @@ extends:
         exclusionPatterns: |
           '**/*.*'
       suppression:
+        # Keep reviewed false positives here; a baseline's fixed lifetime cannot
+        # be renewed by extending its expiration date.
         suppressionFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnsuppress
       codeql:
         compiled:
