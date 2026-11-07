@@ -510,7 +510,6 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
 
   // [v8-jsi sandbox: Rust dropped] Rust logging integration removed.
   // internal::init_rust_logging();
-  internal::update_rust_log_level(g_min_log_level);
 
   // Ignore file options unless logging to file is set.
   if ((g_logging_destination & LOG_TO_FILE) == 0) {
@@ -549,7 +548,6 @@ bool BaseInitLoggingImpl(const LoggingSettings& settings) {
 
 void SetMinLogLevel(int level) {
   g_min_log_level = std::min(LOGGING_FATAL, level);
-  internal::update_rust_log_level(g_min_log_level);
 }
 
 int GetMinLogLevel() {
