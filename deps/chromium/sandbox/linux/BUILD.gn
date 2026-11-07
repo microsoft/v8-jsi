@@ -263,7 +263,7 @@ component("seccomp_bpf") {
     ]
   }
 
-  # Clang warngs that Syscall::Call() cannot get -fstack-clash-protection
+  # Clang warns that Syscall::Call() cannot get -fstack-clash-protection
   # since the inline asm clobbers the stack pointer. This is fine.
   cflags = [ "-Wno-stack-protector" ]
 }

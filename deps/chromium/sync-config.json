@@ -32,6 +32,7 @@
     "third_party/sqlite",
     "third_party/zlib",
     "tools/.gitignore",
+    "tools/.ruff.toml",
     "tools/.style.yapf",
     "tools/DEPS",
     "tools/DIR_METADATA",
