@@ -53,8 +53,32 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//components/skills/public/skills_metrics.h:SkillsDialogEntryPoint) -->
 
+<!-- LINT.IfChange(SkillsLoadingStage) -->
+
+<variants name="SkillsLoadingStage">
+  <variant name="COOKIE_SYNC"
+      summary="Time spent copying cookies from main profile."/>
+  <variant name="GUEST_DATA_FETCH"
+      summary="Time spent fetching initial skills data from Contrib service."/>
+  <variant name="GUEST_FRAMEWORK"
+      summary="Time to bootstrap the Angular framework."/>
+  <variant name="GUEST_WEB_CLIENT"
+      summary="Time to load and render initial skills data."/>
+  <variant name="HANDSHAKE"
+      summary="Time to establish postMessage connection."/>
+  <variant name="HOST_DATA_FETCH"
+      summary="Time spent fetching editor data (editor path only) and
+               provided skills over Mojo."/>
+  <variant name="HOST_LOAD"
+      summary="Time from browser open to the start of host page init."/>
+  <variant name="NAVIGATION"
+      summary="Time for webview to load and commit URL."/>
+</variants>
+
+<!-- LINT.ThenChange(//chrome/browser/resources/skills/v2/skills_webview_bridge_constants.ts:LoadingStage) -->
+
 <histogram name="Skills.Dialog.PromptRefinementOutcome"
-    enum="SkillsPromptRefinementOutcome" expires_after="2027-02-01">
+    enum="SkillsPromptRefinementOutcome" expires_after="2027-04-04">
   <owner>howardcha@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -69,7 +93,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Dialog.{DialogType}{EntryPointAndState}.Action"
-    enum="SkillsDialogAction" expires_after="2027-02-01">
+    enum="SkillsDialogAction" expires_after="2027-04-04">
   <owner>michelleabreo@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -84,7 +108,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Downloader.FirstParty.FetchResult"
-    enum="SkillsFetchResult" expires_after="2027-02-01">
+    enum="SkillsFetchResult" expires_after="2027-04-04">
   <owner>aashnas@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -94,7 +118,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Downloader.FirstParty.HttpResponseCode"
-    enum="HttpResponseCode" expires_after="2027-02-01">
+    enum="HttpResponseCode" expires_after="2027-04-04">
   <owner>aashnas@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>The HTTP response code received when downloading skills.</summary>
@@ -122,7 +146,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Management.Error" enum="SkillsManagementError"
-    expires_after="2027-02-01">
+    expires_after="2027-04-04">
   <owner>aashnas@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -132,7 +156,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Management.FirstParty.DownloadRequestStatus"
-    enum="SkillsDownloadRequestStatus" expires_after="2027-02-01">
+    enum="SkillsDownloadRequestStatus" expires_after="2027-04-04">
   <owner>aashnas@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -142,7 +166,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Management.{Page}.Action" enum="SkillsManagementAction"
-    expires_after="2027-02-01">
+    expires_after="2027-04-04">
   <owner>aashnas@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -152,7 +176,7 @@ chromium-metrics-reviews@google.com.
   <token key="Page" variants="Page"/>
 </histogram>
 
-<histogram name="Skills.Refine.Latency" units="ms" expires_after="2027-02-01">
+<histogram name="Skills.Refine.Latency" units="ms" expires_after="2027-04-04">
   <owner>howardcha@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -166,7 +190,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.Refine.Result" enum="SkillsRefineResult"
-    expires_after="2027-02-01">
+    expires_after="2027-04-04">
   <owner>michelleabreo@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -177,8 +201,20 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Skills.Save.Result" enum="SkillsSaveResult"
+<histogram name="Skills.Save.DerivedSource" enum="SkillsDerivedSource"
     expires_after="2027-02-01">
+  <owner>esalma@google.com</owner>
+  <owner>austinzzr@google.com</owner>
+  <owner>cbe-productivity-eng@google.com</owner>
+  <summary>
+    Records the source of a derived skill when it is successfully saved. Emitted
+    in SkillsServiceImpl::SetAndSaveSkill when the skill is derived from an
+    Enterprise or First Party skill.
+  </summary>
+</histogram>
+
+<histogram name="Skills.Save.Result" enum="SkillsSaveResult"
+    expires_after="2027-04-04">
   <owner>michelleabreo@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -190,7 +226,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Skills.UserSkills.Count" units="skills"
-    expires_after="2027-02-01">
+    expires_after="2027-04-04">
   <owner>michelleabreo@google.com</owner>
   <owner>skills-eng@google.com</owner>
   <summary>
@@ -198,6 +234,46 @@ chromium-metrics-reviews@google.com.
     measure adoption depth over time. This metric is recorded, potentially
     multiple times (once per profile) with every UMA log by
     SkillsMetricsProvider.
+  </summary>
+</histogram>
+
+<histogram name="Skills.Webview.Handshake.Result" enum="Boolean"
+    expires_after="2027-04-04">
+  <owner>michelleabreo@google.com</owner>
+  <owner>skills-eng@google.com</owner>
+  <summary>
+    Records whether the postMessage handshake between the Skills host and guest
+    Webview succeeded or timed out (after 5 seconds).
+  </summary>
+</histogram>
+
+<histogram name="Skills.Webview.LoadingStageDuration.{Stage}" units="ms"
+    expires_after="2027-04-04">
+  <owner>michelleabreo@google.com</owner>
+  <owner>skills-eng@google.com</owner>
+  <summary>
+    Records the duration of the {Stage} loading stage for the Skills Webview V2.
+  </summary>
+  <token key="Stage" variants="SkillsLoadingStage"/>
+</histogram>
+
+<histogram name="Skills.Webview.TotalInitLatency" units="ms"
+    expires_after="2027-04-04">
+  <owner>michelleabreo@google.com</owner>
+  <owner>skills-eng@google.com</owner>
+  <summary>
+    Records the total initialization latency of the Skills Webview V2 on
+    startup, from the beginning of init() to handshake completion.
+  </summary>
+</histogram>
+
+<histogram name="Skills.Webview.WriteLatency" units="ms"
+    expires_after="2027-02-01">
+  <owner>michelleabreo@google.com</owner>
+  <owner>skills-eng@google.com</owner>
+  <summary>
+    Records the time taken for the guest Webview to successfully save/update a
+    skill over the network.
   </summary>
 </histogram>
 

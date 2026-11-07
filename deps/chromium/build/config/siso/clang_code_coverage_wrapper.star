@@ -25,6 +25,12 @@ _COVERAGE_FLAGS = [
     # MacOS. Please refer to crbug.com/796290 for more details.
     "-mllvm",
     "-limited-coverage-experimental=true",
+    # Disable GlobalMerge when instrumenting for code coverage. On macOS arm64,
+    # GlobalMerge reorders Mach-O profile sections in -O3 targets, causing
+    # continuous coverage mode's mmap() to zero out adjacent global variables
+    # at startup. See crbug.com/562085582 for details.
+    "-mllvm",
+    "-enable-global-merge=false",
 ]
 
 # Files that should not be built with coverage flags by default.
@@ -136,6 +142,8 @@ _DEFAULT_COVERAGE_EXCLUSION_LIST = [
     "../../base/allocator/partition_allocator/src/partition_alloc/partition_page.cc",
     "../../base/allocator/partition_allocator/src/partition_alloc/partition_root.cc",
     "../../base/allocator/partition_allocator/src/partition_alloc/partition_stats.cc",
+    "../../base/allocator/partition_allocator/src/partition_alloc/partition_tls.cc",
+    "../../base/allocator/partition_allocator/src/partition_alloc/partition_tls_posix.cc",
     "../../base/allocator/partition_allocator/src/partition_alloc/partition_tls_win.cc",
     "../../base/allocator/partition_allocator/src/partition_alloc/pointers/empty.cc",
     "../../base/allocator/partition_allocator/src/partition_alloc/pointers/instance_tracer.cc",
@@ -210,10 +218,10 @@ _COVERAGE_EXCLUSION_LIST_MAP = {
         # These files caused a static initializer to be generated, which
         # shouldn't.
         # TODO(crbug.com/41474559): Remove when the bug is fixed.
-        "../../chrome/browser/media/router/providers/cast/cast_internal_message_util.cc",  #pylint: disable=line-too-long
-        "../../components/media_router/common/providers/cast/channel/cast_channel_enum.cc",  #pylint: disable=line-too-long
-        "../../components/media_router/common/providers/cast/channel/cast_message_util.cc",  #pylint: disable=line-too-long
-        "../../components/media_router/common/providers/cast/cast_media_source.cc",  #pylint: disable=line-too-long
+        "../../chrome/browser/media/router/providers/cast/cast_internal_message_util.cc",
+        "../../components/media_router/common/providers/cast/channel/cast_channel_enum.cc",
+        "../../components/media_router/common/providers/cast/channel/cast_message_util.cc",
+        "../../components/media_router/common/providers/cast/cast_media_source.cc",
         "../../ui/events/keycodes/dom/keycode_converter.cc",
     ] + _DEFAULT_COVERAGE_EXCLUSION_LIST,
     "chromeos": [

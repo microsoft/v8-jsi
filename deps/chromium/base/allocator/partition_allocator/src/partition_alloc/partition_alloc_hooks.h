@@ -7,10 +7,11 @@
 
 #include <atomic>
 #include <cstddef>
+#include <optional>
 
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
-#include "partition_alloc/partition_alloc_constants.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 
 namespace partition_alloc {
 
@@ -31,9 +32,11 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PartitionAllocHooks {
   typedef bool AllocationOverrideHook(void** out,
                                       AllocFlags flags,
                                       size_t size,
-                                      const char* type_name);
+                                      const char* type_name,
+                                      std::optional<size_t> alignment,
+                                      bool use_brp);
   // If it returns true, then the allocation was overridden and has been freed.
-  typedef bool FreeOverrideHook(void* address);
+  typedef bool FreeOverrideHook(void* address, FreeFlags flags);
   // If it returns true, the underlying allocation is overridden and *out holds
   // the size of the underlying allocation.
   typedef bool ReallocOverrideHook(size_t* out, void* address);
@@ -51,11 +54,23 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PartitionAllocHooks {
                                FreeOverrideHook* free_hook,
                                ReallocOverrideHook realloc_hook);
 
-  // Helper method to check whether hooks are enabled. This is an optimization
-  // so that if a function needs to call observer and override hooks in two
-  // different places this value can be cached and only loaded once.
-  static bool AreHooksEnabled() {
-    return hooks_enabled_.load(std::memory_order_relaxed);
+  static bool IsAllocationOverrideHookEnabled() {
+    return allocation_override_hook_.load(std::memory_order_relaxed);
+  }
+  static bool IsAllocationObserverHookEnabled() {
+    return allocation_observer_hook_.load(std::memory_order_relaxed);
+  }
+  static bool IsFreeOverrideHookEnabled() {
+    return free_override_hook_.load(std::memory_order_relaxed);
+  }
+  static bool IsFreeObserverHookEnabled() {
+    return free_observer_hook_.load(std::memory_order_relaxed);
+  }
+  static bool IsReallocOverrideHookEnabled() {
+    return realloc_override_hook_.load(std::memory_order_relaxed);
+  }
+  static bool IsReallocObserverHookEnabled() {
+    return realloc_observer_hook_enabled_.load(std::memory_order_relaxed);
   }
 
   static void AllocationObserverHookIfEnabled(
@@ -63,11 +78,13 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PartitionAllocHooks {
   static bool AllocationOverrideHookIfEnabled(void** out,
                                               AllocFlags flags,
                                               size_t size,
-                                              const char* type_name);
+                                              const char* type_name,
+                                              std::optional<size_t> alignment,
+                                              bool use_brp);
 
   static void FreeObserverHookIfEnabled(
       const FreeNotificationData& notification_data);
-  static bool FreeOverrideHookIfEnabled(void* address);
+  static bool FreeOverrideHookIfEnabled(void* address, FreeFlags flags);
 
   static void ReallocObserverHookIfEnabled(
       const FreeNotificationData& free_notification_data,
@@ -84,7 +101,7 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PartitionAllocHooks {
   // Single bool that is used to indicate whether observer or allocation hooks
   // are set to reduce the numbers of loads required to check whether hooking is
   // enabled.
-  static std::atomic<bool> hooks_enabled_;
+  static std::atomic<bool> realloc_observer_hook_enabled_;
 
   // Lock used to synchronize Set*Hooks calls.
   static std::atomic<AllocationObserverHook*> allocation_observer_hook_;

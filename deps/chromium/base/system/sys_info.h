@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "base/base_export.h"
-#include "base/byte_count.h"
 #include "base/byte_size.h"
 #include "base/functional/callback_forward.h"
 #include "base/gtest_prod_util.h"
@@ -98,13 +97,6 @@ class BASE_EXPORT SysInfo {
   // will return the lesser of the actual physical memory, or 512MB.
   static ByteSize AmountOfTotalPhysicalMemory();
 
-  // Deprecated: Prefer AmountOfTotalPhysicalMemory(), which returns a ByteSize.
-  // ByteCount is deprecated.
-  // TODO(crbug.com/448661443): Migrate all callers and remove this.
-  static ByteCount AmountOfPhysicalMemory() {
-    return AmountOfTotalPhysicalMemory().AsDeprecatedByteCount();
-  }
-
   // Return the number of bytes of current available physical memory on the
   // machine.
   // (The amount of memory that can be allocated without any significant
@@ -167,6 +159,16 @@ class BASE_EXPORT SysInfo {
   // empty string on other platforms.
   static std::string SocManufacturer();
 
+#if BUILDFLAG(IS_ANDROID)
+  // Returns the hardware manufacturer name of the current machine
+  // synchronously. This is only supported on Android as Windows and Linux
+  // would require IO operations and other platforms are static.
+  static std::string HardwareManufacturer();
+
+  // Returns true if the device has support for large process counts.
+  static bool HasLargeProcessCountSupport();
+#endif
+
 #if BUILDFLAG(IS_MAC)
   struct HardwareModelNameSplit {
     std::string category;
@@ -226,6 +228,17 @@ class BASE_EXPORT SysInfo {
   static void OperatingSystemVersionNumbers(int32_t* major_version,
                                             int32_t* minor_version,
                                             int32_t* bugfix_version);
+
+#if BUILDFLAG(IS_APPLE)
+  // Returns the iOS/macOS build version, which is a structured alphanumeric
+  // string (e.g. 20A2411, 11A465, 9A2264r). Build versions are useful to
+  // differentiate between different releases of iOS/macOS that have the same
+  // major/minor/bugfix version numbers. For example, beta releases have the
+  // same version number but different build versions, as do releases of the OS
+  // that support new hardware before support is rolled into the mainline OS
+  // branch.
+  static std::string OperatingSystemBuildVersion();
+#endif  // BUILDFLAG(IS_APPLE)
 
 #if BUILDFLAG(IS_POSIX)
   // Struct containing the the kernel version number of the host operating
@@ -303,7 +316,7 @@ class BASE_EXPORT SysInfo {
   // Call ResetChromeOSVersionInfoForTest() to restore the previous values.
   // Prefer base::test::ScopedChromeOSVersionInfo to calling this function.
   static void SetChromeOSVersionInfoForTest(const std::string& lsb_release,
-                                            const Time& lsb_release_time);
+                                            Time lsb_release_time);
 
   // Undoes the function above.
   static void ResetChromeOSVersionInfoForTest();
@@ -336,18 +349,12 @@ class BASE_EXPORT SysInfo {
   // devices with similar hardware components.
   static std::string GetAndroidHardwareClass();
 
-  // Returns the SDK API level that the device initially launched with.
-  static std::string GetAndroidFirstApiLevel();
+  // Returns the android.os.Build.FINGERPRINT. This corresponds to the
+  // ro.build.fingerprint system property.
+  static std::string GetAndroidBuildFingerprint();
 #endif  // BUILDFLAG(IS_ANDROID)
 
 #if BUILDFLAG(IS_IOS)
-  // Returns the iOS build number string which is normally an alphanumeric
-  // string like 12E456. This build number can differentiate between different
-  // versions of iOS that may have the same major/minor/bugfix version numbers.
-  // For example, iOS beta releases have the same version number but different
-  // build number strings.
-  static std::string GetIOSBuildNumber();
-
   // Overrides the hardware model name. The overridden value is used instead of
   // `StringSysctl({CTL_HW, HW_MACHINE})`. `name` should not be empty.
   static void OverrideHardwareModelName(std::string name);

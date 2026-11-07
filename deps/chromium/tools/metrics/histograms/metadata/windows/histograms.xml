@@ -36,6 +36,8 @@ chromium-metrics-reviews@google.com.
   <variant name=".DefaultBrowserModalDialogWithSettingsImage"
       summary=", from the default browser modal dialog, with the settings
                image showing"/>
+  <variant name=".DefaultBrowserVisualGuidedSetter"
+      summary=", from the visual guided setter"/>
   <variant name=".FirstRunExperience"
       summary=", from the first run experience"/>
   <variant name=".PinToTaskbarInfoBar"
@@ -45,6 +47,15 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <!-- LINT.ThenChange(//chrome/browser/win/taskbar_manager.h:PinAppToTaskbarChannel) -->
+
+<!-- LINT.IfChange(PlatformExperienceDelegatedTaskName) -->
+
+<variants name="PlatformExperienceDelegatedTaskName">
+  <variant name="RegisterSearchPromotion"
+      summary="Register search promotion task"/>
+</variants>
+
+<!-- LINT.ThenChange(//chrome/browser/platform_experience/delegated_tasks/delegated_task.h:DelegatedTaskType) -->
 
 <histogram name="Windows.AcLayersLoaded" enum="BooleanLoaded"
     expires_after="2026-05-04">
@@ -57,19 +68,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Windows.AutoDeElevateResult" enum="Hresult"
-    expires_after="2026-08-30">
-  <owner>wfh@chromium.org</owner>
-  <owner>ssmole@microsoft.com</owner>
-  <summary>
-    Records the HRESULT from the attempt to automatically de-elevate the browser
-    process, which only happens on startup, if it's launched with an elevated
-    linked process token.
-  </summary>
-</histogram>
-
 <histogram name="Windows.CetAvailable" enum="BooleanAvailable"
-    expires_after="2026-09-09">
+    expires_after="2027-03-21">
   <owner>ajgo@chromium.org</owner>
   <owner>wfh@chromium.org</owner>
   <summary>
@@ -80,7 +80,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.CetEnabled" enum="BooleanEnabled"
-    expires_after="2026-09-09">
+    expires_after="2027-03-21">
   <owner>ajgo@chromium.org</owner>
   <owner>wfh@chromium.org</owner>
   <summary>
@@ -126,8 +126,40 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Windows.DuplicateProcess.Duration.{Thread}"
+    units="microseconds" expires_after="2027-09-01">
+  <owner>fdoray@chromium.org</owner>
+  <owner>chrdavis@microsoft.com</owner>
+  <owner>src/base/OWNERS</owner>
+  <summary>
+    Time spent inside ::DuplicateHandle() while duplicating a process handle in
+    base::Process::Duplicate(). Recorded on every call that reaches the system
+    call, which excludes duplication of the current process' pseudo handle.
+    Handle operations serialize on the per-process handle table lock and, for
+    process objects, the system-wide process table lock, so duplication contends
+    with file and process creation machine-wide and is prone to priority
+    inversion; third-party security software registering ObRegisterCallbacks()
+    callbacks for PsProcessType adds further inline work. Used to find callers
+    on latency-sensitive threads and to verify in the field that removing them
+    helps. See https://crbug.com/40716800.
+
+    Recorded on {Thread}.
+
+    Warning: this metric may include reports from clients with low resolution
+    clocks (i.e. on Windows, ref. |TimeTicks::IsHighResolution()|). Such reports
+    will cause this metric to have an abnormal distribution.
+  </summary>
+  <token key="Thread">
+    <variant name="OtherThread"
+        summary="threads not running a UI message pump"/>
+    <variant name="UIThread"
+        summary="threads running a UI message pump, where the resulting stall
+                 is visible to the user as jank or a hang"/>
+  </token>
+</histogram>
+
 <histogram name="Windows.Enclave.{Type}.Available" enum="BooleanAvailable"
-    expires_after="2026-08-30">
+    expires_after="2027-02-07">
   <owner>ajgo@chromium.org</owner>
   <owner>wfh@chromium.org</owner>
   <summary>
@@ -152,7 +184,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Windows.Experimental.Pdh.ProcessV2.{Counter}.{ProcessType}{StartupState}"
-    units="counter value" expires_after="2026-10-25">
+    units="counter value" expires_after="2027-03-07">
   <owner>spvm@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -204,12 +236,22 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.FeatureNotificationsSettingChange"
-    enum="BooleanEnabled" expires_after="2026-07-14">
+    enum="BooleanEnabled" expires_after="2027-07-14">
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
     Reported when the user toggles the feature notifications setting in Chrome's
     System settings. Its value represents what the setting was changed to.
+  </summary>
+</histogram>
+
+<histogram name="Windows.FilePathWatcher.ReadDirectoryChangesError"
+    enum="WinGetLastError" expires_after="2027-09-07">
+  <owner>grt@chromium.org</owner>
+  <owner>memmott@chromium.org</owner>
+  <summary>
+    Records the error from an asynchronous or synchronous ReadDirectoryChangesW
+    failure while a FilePathWatcher is active.
   </summary>
 </histogram>
 
@@ -245,7 +287,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.InstallerDownloader.DestinationMatches" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -255,7 +297,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.InstallerDownloader.DownloadSucceed" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -266,7 +308,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.InstallerDownloader.FailureReason"
-    enum="InstallerDownloaderFailureReason" expires_after="2026-09-06">
+    enum="InstallerDownloaderFailureReason" expires_after="2027-03-28">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -277,7 +319,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.InstallerDownloader.InfobarShown" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -288,7 +330,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.InstallerDownloader.InterruptReason"
-    enum="InterruptReason" expires_after="2026-09-20">
+    enum="InterruptReason" expires_after="2027-02-14">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -299,13 +341,47 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Windows.InstallerDownloader.Reengagement.InfobarShown"
+    units="cycle" expires_after="2027-08-01">
+  <owner>songhaoli@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Records which re-engagement campaign cycle (1, 2, or 3) was active when the
+    Installer Downloader infobar was shown. Logged when the infobar is shown (at
+    most once per browser session).
+  </summary>
+</histogram>
+
+<histogram name="Windows.InstallerDownloader.Reengagement.RequestAccepted"
+    units="cycle" expires_after="2027-08-01">
+  <owner>songhaoli@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Records which re-engagement campaign cycle (1, 2, or 3) was active when the
+    user accepted the Installer Downloader infobar prompt. Logged at most once
+    per campaign (only if accepted).
+  </summary>
+</histogram>
+
 <histogram name="Windows.InstallerDownloader.RequestAccepted" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>koretadaniel@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
     Records the user’s response to the infobar. Logged exactly once per prompt:
     - true: user accepted the prompt. - false: user dismissed the prompt.
+  </summary>
+</histogram>
+
+<histogram name="Windows.InstallerDownloader.TotalShowCount" units="count"
+    expires_after="2027-08-01">
+  <owner>songhaoli@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Records the cumulative number of times the Installer Downloader infobar was
+    shown to the user across all cycles. Logged once per user when the campaign
+    ends (either because the user accepted, or because all allowed cycles were
+    exhausted).
   </summary>
 </histogram>
 
@@ -324,6 +400,21 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Windows.IsolatedBrowser.LaunchResult" enum="Hresult"
+    expires_after="2027-02-28">
+  <owner>wfh@chromium.org</owner>
+  <owner>chrome-platform-security-core@google.com</owner>
+  <summary>
+    Records the HRESULT when an attempt to launch an isolated browser process is
+    made during startup. Recorded on startup in the browser process once metrics
+    reporting has initialized, only if isolation was requested. On launch
+    success, S_OK is recorded by the isolated browser process itself (the
+    launcher stub process terminates without initializing metrics). On launch
+    failure, the failure HRESULT is recorded by the browser process falling back
+    to running unisolated.
+  </summary>
+</histogram>
+
 <histogram name="Windows.IsPinnedToTaskbar" enum="IsPinnedToTaskbarResult"
     expires_after="never">
 <!-- expires-never: Used to assess Chrome usage on Windows -->
@@ -336,8 +427,19 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Windows.IsPinnedToTaskbar3" enum="IsPinnedToTaskbarResult"
+    expires_after="2027-02-24">
+  <owner>songhaoli@chromium.org</owner>
+  <owner>davidbienvenu@chromium.org</owner>
+  <summary>
+    Indicates whether Chrome (chrome.exe) is pinned to the Windows taskbar for
+    the current user, queried using IPinnedList3. Recorded 45s after startup on
+    a background sequence when the WindowsIsPinnedToTaskbar3 feature is enabled.
+  </summary>
+</histogram>
+
 <histogram name="Windows.OneDriveSyncState.{SyncedState}" enum="BooleanEnabled"
-    expires_after="2026-09-06">
+    expires_after="2027-02-07">
   <owner>koretadaniel@chromium.org</owner>
   <owner>iclelland@chromium.org</owner>
   <summary>
@@ -355,7 +457,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.OpenWithLauncherResult" enum="OpenWithLauncherResult"
-    expires_after="2026-10-04">
+    expires_after="2027-02-07">
   <owner>jessemckenna@google.com</owner>
   <owner>davidbienvenu@chromium.org</owner>
   <summary>
@@ -374,6 +476,34 @@ chromium-metrics-reviews@google.com.
     Records whether or not parallel DLL loading is enabled for the browser
     process executable. This is recorded once per browser session, on startup.
   </summary>
+</histogram>
+
+<histogram name="Windows.ParentalControls.FetchResult" enum="BooleanSuccess"
+    expires_after="2027-02-28">
+  <owner>ljjlee@google.com</owner>
+  <owner>chrome-kids-eng@google.com</owner>
+  <summary>
+    Records whether the system was able to successfully determine the Microsoft
+    parental control settings. See
+    https://learn.microsoft.com/en-us/windows/win32/api/wpcapi/nf-wpcapi-iwpcsettings-getrestrictions
+    for details.
+  </summary>
+</histogram>
+
+<histogram name="Windows.ParentalControls.{Setting}" enum="Boolean"
+    expires_after="2027-02-28">
+  <owner>ljjlee@google.com</owner>
+  <owner>chrome-kids-eng@google.com</owner>
+  <summary>
+    Records the status of the Windows Parental Controls {Setting} setting.
+    Recorded once during startup when platform parental controls are initialized
+    or queried, only if the parental control settings were successfully
+    determined.
+  </summary>
+  <token key="Setting">
+    <variant name="LoggingRequired"/>
+    <variant name="WebFiltered"/>
+  </token>
 </histogram>
 
 <histogram name="Windows.ParentProcessNameHash" enum="ProcessNameHash"
@@ -423,7 +553,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.PdhQueryErrorCode" enum="PDH_STATUS"
-    expires_after="2026-09-09">
+    expires_after="2027-03-21">
   <owner>spvm@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -431,19 +561,32 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Windows.PdhQueryResultCStatus" enum="PDH_STATUS"
-    expires_after="2026-09-09">
-  <owner>spvm@chromium.org</owner>
-  <owner>etienneb@chromium.org</owner>
-  <owner>catan-team@chromium.org</owner>
+<histogram
+    name="Windows.PlatformExperienceHelper.DelegatedTasks.{TaskName}.Duration"
+    units="ms" expires_after="2027-07-27">
+  <owner>alsan@chromium.org</owner>
+  <owner>chrome-desktop-ui-waterloo@google.com</owner>
   <summary>
-    Records the CStatus inside PDH_FMT_COUNTERVALUE values which
-    ::PdhGetFormattedCounterValue() returned due to internal error.
+    Records the execution duration of the {TaskName} delegated task run by the
+    platform experience helper.
   </summary>
+  <token key="TaskName" variants="PlatformExperienceDelegatedTaskName"/>
+</histogram>
+
+<histogram
+    name="Windows.PlatformExperienceHelper.DelegatedTasks.{TaskName}.Status"
+    enum="DelegatedTaskStatus" expires_after="2027-07-27">
+  <owner>alsan@chromium.org</owner>
+  <owner>chrome-desktop-ui-waterloo@google.com</owner>
+  <summary>
+    Records the outcome status of running the {TaskName} delegated task via the
+    platform experience helper.
+  </summary>
+  <token key="TaskName" variants="PlatformExperienceDelegatedTaskName"/>
 </histogram>
 
 <histogram name="Windows.PlatformExperienceHelper.InstallerLaunchStatus.System"
-    enum="SystemInstallerLaunchStatus" expires_after="2026-10-11">
+    enum="SystemInstallerLaunchStatus" expires_after="2027-02-14">
   <owner>alsan@chromium.org</owner>
   <owner>chrome-desktop-ui-waterloo@google.com</owner>
   <summary>
@@ -453,7 +596,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.PlatformExperienceHelper.InstallerLaunchStatus.User"
-    enum="UserInstallerLaunchStatus" expires_after="2026-10-25">
+    enum="UserInstallerLaunchStatus" expires_after="2027-02-28">
   <owner>alsan@chromium.org</owner>
   <owner>chrome-desktop-ui-waterloo@google.com</owner>
   <summary>
@@ -463,7 +606,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.ProcessorFamily" enum="ProcessorFamily"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>rkc@chromium.org</owner>
   <owner>vnagarnaik@google.com</owner>
   <owner>rockot@chromium.org</owner>
@@ -496,8 +639,42 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Windows.RunningIsolated" enum="BooleanEnabled"
+    expires_after="2027-02-28">
+  <owner>wfh@chromium.org</owner>
+  <owner>chrome-platform-security-core@google.com</owner>
+  <summary>
+    Reports true if the browser process is running isolated from other apps
+    running as the current user, false otherwise. Reported in every UMA log
+    upload.
+  </summary>
+</histogram>
+
+<histogram name="Windows.ScreenWin.ReentrantDisplayInfoChanged" enum="Boolean"
+    expires_after="2027-07-01">
+  <owner>davidbienvenu@chromium.org</owner>
+  <owner>ui-dev@chromium.org</owner>
+  <summary>
+    Recorded when a re-entrant call to update display information occurs on
+    Windows (e.g. during display change notifications). Records true if the
+    re-entrant display information vector differs from the initial pass, and
+    false if the display information is unchanged.
+  </summary>
+</histogram>
+
+<histogram name="Windows.SetWindowsHookEx.Result" enum="WinGetLastError"
+    expires_after="2027-06-01">
+  <owner>jackmil@google.com</owner>
+  <owner>robliao@chromium.org</owner>
+  <summary>
+    Records the result of calling SetWindowsHookEx inside
+    SafeAcceptFileDialogEventHandler every time a hook registration is
+    attempted.
+  </summary>
+</histogram>
+
 <histogram name="Windows.ShouldPinToTaskbarResult{PinAppToTaskbarChannel}"
-    enum="TaskbarPinResult" expires_after="2026-10-11">
+    enum="TaskbarPinResult" expires_after="2027-02-14">
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
@@ -508,7 +685,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.TaskbarPinFromFRESucceeded" enum="Boolean"
-    expires_after="2026-10-11">
+    expires_after="2027-02-14">
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
@@ -520,7 +697,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.TaskbarPinFromSettingsSucceeded" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
@@ -531,13 +708,26 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Windows.TaskbarPinResult{PinAppToTaskbarChannel}"
-    enum="TaskbarPinResult" expires_after="2026-10-11">
+    enum="TaskbarPinResult" expires_after="2027-02-14">
   <owner>davidbienvenu@chromium.org</owner>
   <owner>jessemckenna@google.com</owner>
   <summary>
     The result of calling PinAppToTaskbar(), logged when it is
     called{PinAppToTaskbarChannel}. It is called when the user has agreed to pin
     Chrome (or an installed web app) to the taskbar.
+  </summary>
+</histogram>
+
+<histogram name="Windows.TaskbarShortcutMigrationCount" units="shortcuts"
+    expires_after="2027-03-28">
+  <owner>songhaoli@chromium.org</owner>
+  <owner>davidbienvenu@chromium.org</owner>
+  <summary>
+    The number of taskbar and implicit app shortcuts migrated (to fix their
+    AppUserModelID or add --source-shortcut-location=taskbar) during a taskbar
+    pin migration scan. Recorded once per MigrateTaskbarPins() run. A value of 0
+    indicates that all existing taskbar shortcuts were already properly
+    configured.
   </summary>
 </histogram>
 
@@ -554,8 +744,44 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Windows.Win11HardwareRequirements.{Type}Check"
-    enum="BooleanEnabled" expires_after="2026-10-25">
+<histogram name="Windows.VmDetection.Agreement" enum="VmDetectionAgreement"
+    expires_after="2027-06-30">
+  <owner>sorin@chromium.org</owner>
+  <owner>ganesh@chromium.org</owner>
+  <summary>
+    Which of the CPUID-based and SMBIOS-based implementations detected a virtual
+    machine guest. The Hyper-V root partition, an unrecognized CPUID hypervisor,
+    ARM64 and unreadable firmware tables all count as not detected. Generic VM
+    firmware strings from an unrecognized vendor count as detected. Recorded
+    each time browser activity is reported, at most once every 5 hours.
+  </summary>
+</histogram>
+
+<histogram name="Windows.VmDetection.FirmwareVmVendor" enum="FirmwareVmVendor"
+    expires_after="2027-06-30">
+  <owner>sorin@chromium.org</owner>
+  <owner>ganesh@chromium.org</owner>
+  <summary>
+    The virtualization vendor identified from the SMBIOS/firmware strings.
+    Recorded each time browser activity is reported, at most once every 5 hours.
+    The cloud vendor buckets (Google Compute Engine, Amazon EC2, Alibaba Cloud,
+    Nutanix) may include bare-metal machines, which report the same firmware
+    strings as that vendor's VMs.
+  </summary>
+</histogram>
+
+<histogram name="Windows.VmDetection.HypervisorType" enum="HypervisorType"
+    expires_after="2027-06-30">
+  <owner>sorin@chromium.org</owner>
+  <owner>ganesh@chromium.org</owner>
+  <summary>
+    The hypervisor identified via the CPUID hypervisor leaves. Recorded each
+    time browser activity is reported, at most once every 5 hours.
+  </summary>
+</histogram>
+
+<histogram name="Windows.Win11HardwareRequirements2.{Type}Check"
+    enum="BooleanEnabled" expires_after="2027-03-07">
   <owner>estalin@chromium.org</owner>
   <owner>davidbienvenu@chromium.org</owner>
   <summary>
@@ -571,8 +797,8 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="Windows.Win11UpgradeEligible" enum="BooleanEnabled"
-    expires_after="2026-10-25">
+<histogram name="Windows.Win11UpgradeEligible2" enum="BooleanEnabled"
+    expires_after="2027-03-21">
   <owner>estalin@chromium.org</owner>
   <owner>davidbienvenu@chromium.org</owner>
   <summary>

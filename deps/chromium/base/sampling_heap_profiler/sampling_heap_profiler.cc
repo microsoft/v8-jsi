@@ -12,14 +12,20 @@
 #include "base/compiler_specific.h"
 #include "base/containers/to_vector.h"
 #include "base/debug/stack_trace.h"
+#include "base/feature_list.h"
+#include "base/features.h"
 #include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/sampling_heap_profiler/lock_free_address_hash_set.h"
 #include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
+#include "base/sampling_heap_profiler/sampling_heap_churn_profiler.h"
 #include "base/threading/thread_local_storage.h"
 #include "base/trace_event/heap_profiler_allocation_context_tracker.h"  // no-presubmit-check
+#include "base/trace_event/process_memory_dump.h"
 #include "build/build_config.h"
 #include "partition_alloc/shim/allocator_shim.h"
 
@@ -131,46 +137,90 @@ StackUnwinder ChooseStackUnwinder() {
 
 }  // namespace
 
-SamplingHeapProfiler::Sample::Sample(size_t size,
-                                     size_t total,
-                                     uint32_t ordinal)
-    : size(size), total(total), ordinal(ordinal) {}
+SamplingHeapProfiler::Sample::Sample(size_t size, size_t total)
+    : size(size), total(total) {}
 
-SamplingHeapProfiler::Sample::Sample(const Sample&) = default;
 SamplingHeapProfiler::Sample::~Sample() = default;
 
-SamplingHeapProfiler::SamplingHeapProfiler() = default;
+SamplingHeapProfiler::Sample::Sample(const Sample&) = default;
+
+SamplingHeapProfiler::Sample& SamplingHeapProfiler::Sample::operator=(
+    const Sample&) = default;
+
+SamplingHeapProfiler::SamplingHeapProfiler()
+    : churn_profiler_(base::WrapUnique(new SamplingHeapChurnProfiler())) {}
+
 SamplingHeapProfiler::~SamplingHeapProfiler() {
   if (record_thread_names_.load(std::memory_order_acquire)) {
     base::ThreadIdNameManager::GetInstance()->RemoveObserver(this);
   }
 }
 
-uint32_t SamplingHeapProfiler::Start() {
+std::optional<SamplingHeapProfiler::Session> SamplingHeapProfiler::Start(
+    base::ByteSize sampling_interval,
+    Priority priority) {
   const auto unwinder = ChooseStackUnwinder();
   if (unwinder == StackUnwinder::kUnavailable) {
     LOG(WARNING) << "Sampling heap profiler: Stack unwinding is not available.";
-    return 0;
+    return std::nullopt;
   }
   unwinder_.store(unwinder, std::memory_order_release);
 
   AutoLock lock(start_stop_mutex_);
-  if (!running_sessions_++) {
+  SessionId session_id = session_id_generator_.GenerateNextId();
+  uint32_t start_ordinal = last_sample_ordinal_.load(std::memory_order_acquire);
+
+  sessions_[session_id] = {.sampling_interval = sampling_interval,
+                           .priority = priority};
+
+  if (sessions_.size() == 1) {
     PoissonAllocationSampler::Get()->AddSamplesObserver(this);
   }
-  return last_sample_ordinal_.load(std::memory_order_acquire);
+
+  UpdateSamplingInterval();
+
+  return Session(session_id, start_ordinal);
 }
 
-void SamplingHeapProfiler::Stop() {
+void SamplingHeapProfiler::Stop(const Session& session) {
   AutoLock lock(start_stop_mutex_);
-  DCHECK_GT(running_sessions_, 0);
-  if (!--running_sessions_) {
+  auto it = sessions_.find(session.id);
+  CHECK(it != sessions_.end());
+  sessions_.erase(it);
+
+  if (sessions_.empty()) {
     PoissonAllocationSampler::Get()->RemoveSamplesObserver(this);
   }
+  UpdateSamplingInterval();
 }
 
-void SamplingHeapProfiler::SetSamplingInterval(size_t sampling_interval_bytes) {
-  PoissonAllocationSampler::Get()->SetSamplingInterval(sampling_interval_bytes);
+void SamplingHeapProfiler::UpdateSamplingInterval() {
+  base::ByteSize min_interactive_interval = base::ByteSize::Max();
+  base::ByteSize min_background_interval = base::ByteSize::Max();
+
+  for (const auto& [id, info] : sessions_) {
+    if (info.sampling_interval.is_zero()) {
+      continue;
+    }
+    if (info.priority == Priority::kInteractive) {
+      min_interactive_interval =
+          std::min(min_interactive_interval, info.sampling_interval);
+    } else {
+      min_background_interval =
+          std::min(min_background_interval, info.sampling_interval);
+    }
+  }
+
+  base::ByteSize chosen_interval =
+      base::ByteSize(PoissonAllocationSampler::kDefaultSamplingIntervalBytes);
+  if (!min_interactive_interval.is_max()) {
+    chosen_interval = min_interactive_interval;
+  } else if (!min_background_interval.is_max()) {
+    chosen_interval = min_background_interval;
+  }
+
+  PoissonAllocationSampler::Get()->SetSamplingInterval(
+      checked_cast<size_t>(chosen_interval.InBytes()));
 }
 
 void SamplingHeapProfiler::EnableRecordThreadNames() {
@@ -223,7 +273,7 @@ void SamplingHeapProfiler::SampleAdded(void* address,
   DCHECK(PoissonAllocationSampler::ScopedMuteThreadSamples::IsMuted());
   uint32_t previous_last =
       last_sample_ordinal_.fetch_add(1, std::memory_order_acq_rel);
-  Sample sample(size, total, previous_last + 1);
+  Sample sample(size, total);
   sample.allocator = type;
   CaptureNativeStack(context, &sample);
   AutoLock lock(mutex_);
@@ -241,7 +291,9 @@ void SamplingHeapProfiler::SampleAdded(void* address,
   // the sampling heap profiler failed to observe the destruction -- possibly
   // because the sampling heap profiler was temporarily disabled. We should
   // override the old entry.
-  samples_.insert_or_assign(address, std::move(sample));
+  samples_.insert_or_assign(
+      address,
+      OrderedSample{.sample = std::move(sample), .ordinal = previous_last + 1});
 }
 
 void SamplingHeapProfiler::CaptureNativeStack(const char* context,
@@ -255,6 +307,7 @@ void SamplingHeapProfiler::CaptureNativeStack(const char* context,
   if (record_thread_names_.load(std::memory_order_acquire)) {
     sample->thread_name = CachedThreadName();
   }
+  sample->tid = base::PlatformThread::CurrentId();
 
   if (!context) {
     const auto* tracker =
@@ -273,23 +326,56 @@ const char* SamplingHeapProfiler::RecordString(const char* string) {
 void SamplingHeapProfiler::SampleRemoved(void* address) {
   DCHECK(base::PoissonAllocationSampler::ScopedMuteThreadSamples::IsMuted());
   base::AutoLock lock(mutex_);
-  samples_.erase(address);
+  auto it = samples_.find(address);
+  if (it != samples_.end()) {
+    if (churn_profiler_->ShouldRecordAllocFree()) {
+      churn_profiler_->RecordAllocFree(std::move(it->second.sample));
+    }
+    samples_.erase(it);
+  }
 }
 
 std::vector<SamplingHeapProfiler::Sample> SamplingHeapProfiler::GetSamples(
-    uint32_t profile_id) {
+    std::optional<Session> session) {
   // Make sure the sampler does not invoke |SampleAdded| or |SampleRemoved|
   // on this thread. Otherwise it could have end up with a deadlock.
   // See crbug.com/882495
   PoissonAllocationSampler::ScopedMuteThreadSamples no_samples_scope;
-  AutoLock lock(mutex_);
-  std::vector<Sample> samples;
-  samples.reserve(samples_.size());
-  for (auto& it : samples_) {
-    Sample& sample = it.second;
-    if (sample.ordinal > profile_id) {
-      samples.push_back(sample);
+  uint32_t start_ordinal = session ? session->start_ordinal : 0;
+
+  std::vector<std::pair<void*, Sample>> active_samples;
+  {
+    AutoLock lock(mutex_);
+    active_samples.reserve(samples_.size());
+    for (const auto& [address, ordered_sample] : samples_) {
+      if (ordered_sample.ordinal > start_ordinal) {
+        active_samples.push_back({address, ordered_sample.sample});
+      }
     }
+  }
+  std::vector<Sample> samples;
+  samples.reserve(active_samples.size());
+  for (auto& pair : active_samples) {
+    Sample& sample = pair.second;
+    if (base::FeatureList::IsEnabled(features::kHeapProfilerIncludeResidency)) {
+      if (sample.size != 0) {
+        std::optional<size_t> resident_bytes =
+            trace_event::ProcessMemoryDump::CountResidentBytes(pair.first,
+                                                               sample.size);
+        if (resident_bytes.has_value()) {
+          // For each page in the virtual address range, it may entirely be
+          // resident (`mincore`), but only the parts of the allocation that
+          // overlap with that page are included.  The statistical `total`
+          // attributed to the stack (scaled by downsampling factor) is scaled
+          // by the ratio of the actual sample's residency to statistically
+          // approximate residency.
+          sample.resident_total = base::checked_cast<size_t>(
+              std::llround(static_cast<double>(sample.total) * *resident_bytes /
+                           sample.size));
+        }
+      }
+    }
+    samples.push_back(std::move(sample));
   }
   return samples;
 }

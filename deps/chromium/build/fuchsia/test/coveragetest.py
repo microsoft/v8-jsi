@@ -10,19 +10,28 @@ import os
 import sys
 import unittest
 
-import coverage  # pylint: disable=import-error
+import coverage
 
 # The files need to have sufficient coverages.
 COVERED_FILES = [
-    'compatible_utils.py', 'deploy_to_fuchsia.py', 'flash_device.py',
-    'log_manager.py', 'publish_package.py', 'serve_repo.py'
+    'compatible_utils.py',
+    'deploy_to_fuchsia.py',
+    'flash_device.py',
+    'log_manager.py',
+    'publish_package.py',
+    'serve_repo.py',
 ]
 
 # The files will be tested without coverage requirements.
 TESTED_FILES = [
-    'bundled_test_runner.py', 'common.py', 'component_storage.py',
-    'ffx_emulator.py', 'modification_waiter.py', 'monitors.py',
-    'serial_boot_device.py', 'version.py'
+    'bundled_test_runner.py',
+    'common.py',
+    'component_storage.py',
+    'ffx_emulator.py',
+    'modification_waiter.py',
+    'monitors.py',
+    'serial_boot_device.py',
+    'version.py',
 ]
 
 
@@ -33,17 +42,15 @@ def main():
     if os.name == 'nt':
         return 0
 
-    cov = coverage.coverage(data_file=None,
-                            include=COVERED_FILES,
-                            config_file=True)
+    cov = coverage.coverage(
+        data_file=None, include=COVERED_FILES, config_file=True
+    )
     cov.start()
 
     for file in COVERED_FILES + TESTED_FILES:
         print('Testing ' + file + ' ...')
-        # pylint: disable=import-outside-toplevel
         # import tests after coverage start to also cover definition lines.
         module = importlib.import_module(file.replace('.py', '_unittests'))
-        # pylint: enable=import-outside-toplevel
 
         tests = unittest.TestLoader().loadTestsFromModule(module)
         if not unittest.TextTestRunner().run(tests).wasSuccessful():

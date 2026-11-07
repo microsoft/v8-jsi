@@ -118,7 +118,6 @@ media/formats/mpeg/adts_stream_parser.h
 media/formats/mpeg/mpeg1_audio_stream_parser.h
 media/formats/mpeg/mpeg_audio_stream_parser_base.h
 media/gpu/media_gpu_export.h
-mojo/core/broker_messages.h
 mojo/core/system_impl_export.h
 mojo/public/cpp/bindings/strong_associated_binding_set.h
 mojo/public/cpp/bindings/tests/mojo_test_blink_export.h
@@ -203,6 +202,5 @@ ui/gl/gl_bindings_api_autogen_egl.h
 ui/gl/gl_bindings_api_autogen_gl.h
 ui/gl/gl_bindings_api_autogen_glx.h
 ui/gl/gpu_preference.h
-ui/gl/gpu_switching_observer.h
 ui/gl/progress_reporter.h
 ui/ozone/public/ozone_switches.h

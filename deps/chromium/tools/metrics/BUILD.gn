@@ -7,11 +7,11 @@ import("//tools/json_to_struct/json_to_struct.gni")
 import("//tools/metrics/histograms/histograms_xml_files.gni")
 
 # Only include histograms_xml if we have access to dirmd data, which
-# is used to populate ownership information. This is only set to false
-# for non-git checkouts.
+# is used to populate ownership information.
+# dirmd doesn't work in non-git checkout.
 # TODO(crbug.com/329080012): Remove this once dirmd works in non-git
 # checkouts.
-if (generate_location_tags) {
+if (path_exists("//.git")) {
   action("histograms_xml") {
     script = "histograms/merge_xml.py"
     output = "$root_out_dir/histograms.xml"
@@ -41,11 +41,11 @@ group("metrics_metadata") {
   ]
 
   # Only include histograms_xml if we have access to dirmd data, which
-  # is used to populate ownership information. This is only set to false
-  # for non-git checkouts.
-  # TODO(crbug.com/329080012): Remove this once dirmd works in non-git
-  # checkouts.
-  if (generate_location_tags) {
+  # is used to populate ownership information. This is disabled
+  # for non-git checkouts, as dirmd doesn't work on non-git checkout.
+  # TODO(crbug.com/329080012): Remove this condition once dirmd works
+  # in non-git checkouts.
+  if (path_exists("//.git")) {
     deps += [ ":histograms_xml" ]
   }
 }
@@ -120,9 +120,13 @@ group("metrics_python_tests") {
     "//tools/metrics/histograms/generate_flag_enums_test.py",
     "//tools/metrics/histograms/histogram_ownership.py",
     "//tools/metrics/histograms/histogram_configuration_model.py",
-    "//tools/metrics/histograms/histogram_configuration_model_test_enums.py",
-    "//tools/metrics/histograms/histogram_configuration_model_test_histograms.py",
+    "//tools/metrics/histograms/histogram_configuration_model_enums_test.py",
+    "//tools/metrics/histograms/histogram_configuration_model_histograms_test.py",
     "//tools/metrics/histograms/histogram_paths.py",
+    "//tools/metrics/histograms/histogram_utils.py",
+    "//tools/metrics/histograms/histogram_utils_unittest.py",
+    "//tools/metrics/histograms/histogram_validation.py",
+    "//tools/metrics/histograms/histogram_validation_test.py",
     "//tools/metrics/histograms/merge_xml.py",
     "//tools/metrics/histograms/merge_xml_test.py",
     "//tools/metrics/histograms/populate_enums.py",
@@ -131,6 +135,8 @@ group("metrics_python_tests") {
     "//tools/metrics/histograms/pretty_print_test.py",
     "//tools/metrics/histograms/print_expanded_histograms.py",
     "//tools/metrics/histograms/print_expanded_histograms_test.py",
+    "//tools/metrics/histograms/print_histogram_names.py",
+    "//tools/metrics/histograms/setup_modules.py",
     "//tools/metrics/histograms/validate_token.py",
     "//tools/metrics/histograms/validate_token_test.py",
 
@@ -164,12 +170,16 @@ group("metrics_python_tests") {
     "//tools/json_to_struct/aggregation_test.py",
     "//tools/json_to_struct/element_generator_test.py",
     "//tools/json_to_struct/struct_generator_test.py",
+    "//tools/metrics/PRESUBMIT.py",
+    "//tools/metrics/PRESUBMIT_test.py",
     "//tools/metrics/actions/PRESUBMIT_test.py",
     "//tools/metrics/histograms/presubmit_caching_support_test.py",
     "//tools/metrics/histograms/split_xml_unittest.py",
     "//tools/metrics/python_support/setup_modules_lib_test.py",
     "//tools/metrics/python_support/dependency_solver_test.py",
     "//tools/metrics/python_support/tests_helpers_test.py",
+    "//tools/metrics/python_support/quote_checker.py",
+    "//tools/metrics/python_support/quote_checker_test.py",
   ]
 
   data += JSON_TO_STRUCT_FILES + JSON_TO_STRUCT_TEST_FILES

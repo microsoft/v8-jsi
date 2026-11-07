@@ -27,6 +27,7 @@ ui-canary/ui-stable branch.
 """
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -57,6 +58,12 @@ def get_latest_release(changelog_path):
 
 def get_git_sha1(commitish):
   """Returns the SHA1 of the provided commit-ish"""
+  # Embedders / forks can override the SCM revision via env var so the
+  # version string baked into the build identifies their checkout
+  # instead of perfetto's git HEAD.
+  override = os.environ.get('PERFETTO_VERSION_HEADER_OVERRIDE_SCM_REVISION')
+  if override:
+    return override
   commit_sha1 = SCM_REV_NOT_AVAILABLE
   git_dir = os.path.join(PROJECT_ROOT, '.git')
   if os.path.exists(git_dir):
@@ -89,6 +96,8 @@ def main():
   parser.add_argument('--cpp_out', help='Path of the generated .h file.')
   parser.add_argument('--ts_out', help='Path of the generated .ts file.')
   parser.add_argument('--stdout', help='Write to stdout', action='store_true')
+  parser.add_argument(
+      '--json', help='Emit {version, sha1} JSON to stdout', action='store_true')
   parser.add_argument('--changelog', help='Path to CHANGELOG.')
   args = parser.parse_args()
 
@@ -136,6 +145,9 @@ def main():
 
   if args.stdout:
     print(version)
+
+  if args.json:
+    print(json.dumps({'version': version, 'sha1': head_sha1}))
 
 
 if __name__ == '__main__':

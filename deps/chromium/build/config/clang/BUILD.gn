@@ -53,6 +53,9 @@ clang_plugin("raw_ptr_check") {
     # The plugin is built directly into clang, so there's no need to load it
     # dynamically.
     plugin = "raw-ptr-plugin"
+    if (clang_raw_ptr_plugin_config_file != "") {
+      inputs = [ clang_raw_ptr_plugin_config_file ]
+    }
     plugin_arguments = [
       "check-raw-ptr-to-stack-allocated",
       "disable-check-raw-ptr-to-stack-allocated-error",
@@ -79,9 +82,21 @@ clang_plugin("raw_ptr_check") {
       plugin_arguments += [ "check-raw-ref-fields" ]
     }
 
+    if (enable_check_container_fields) {
+      if (clang_raw_ptr_plugin_config_file != "") {
+        plugin_arguments +=
+            [ "config-path=" +
+              rebase_path(clang_raw_ptr_plugin_config_file, root_build_dir) ]
+      }
+    }
+
     # TODO(crbug.com/330759291): once this has landed and simmered for
     # a while, bake in the resultant settings and remove all this.
     plugin_arguments += [ "no-special-treatment-for-oilpanized-paths" ]
+
+    # TODO(crbug.com/335556942): once this has landed and simmered for
+    # a while, bake in the resultant settings and remove all this.
+    plugin_arguments += [ "check-raw-ptr-in-blink" ]
   }
 }
 
@@ -92,7 +107,7 @@ clang_plugin("find_bad_constructs") {
     plugin = "find-bad-constructs"
     plugin_arguments = [
       "check-stack-allocated",
-      "check-std-ranges-pipe-operator",
+      "relax-ctor-checks-for-aggregates",
     ]
 
     if (is_linux || is_chromeos || is_android || is_fuchsia) {
@@ -162,6 +177,7 @@ group("llvm-symbolizer_data") {
 template("clang_lib") {
   if (!defined(invoker.libname) || is_wasm) {
     not_needed(invoker, "*")
+
     config(target_name) {
     }
   } else {
@@ -230,6 +246,9 @@ template("clang_lib") {
         } else {
           assert(false)  # Unhandled cpu type
         }
+      } else if (current_os == "aix") {
+        _dir = "aix"
+        _suffix = "-powerpc64"
       } else {
         assert(false)  # Unhandled target platform
       }

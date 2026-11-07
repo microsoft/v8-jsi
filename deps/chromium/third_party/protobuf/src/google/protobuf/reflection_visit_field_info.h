@@ -57,10 +57,10 @@ class iterator_range {
   // Users who need to know the "size" of a non-random-access iterator_range
   // should pass the range to `absl::c_distance()` instead.
   template <class It = IteratorT>
-  typename std::enable_if<std::is_base_of<std::random_access_iterator_tag,
-                                          typename std::iterator_traits<
-                                              It>::iterator_category>::value,
-                          size_t>::type
+  std::enable_if_t<
+      std::is_base_of_v<std::random_access_iterator_tag,
+                        typename std::iterator_traits<It>::iterator_category>,
+      size_t>
   size() const {
     return std::distance(begin_iterator_, end_iterator_);
   }
@@ -205,29 +205,6 @@ struct DynamicExtensionInfoHelper {
     ext.ptr.message_value->Clear();
   }
 
-  static const Message& GetLazyMessage(const Extension& ext,
-                                       const Message& prototype, Arena* arena) {
-    return DownCastMessage<Message>(
-        ext.ptr.lazymessage_value->GetMessage(prototype, arena));
-  }
-  static const Message& GetLazyMessageIgnoreUnparsed(const Extension& ext,
-                                                     const Message& prototype,
-                                                     Arena* arena) {
-    return DownCastMessage<Message>(
-        ext.ptr.lazymessage_value->GetMessageIgnoreUnparsed(prototype, arena));
-  }
-  static Message& MutableLazyMessage(Extension& ext, const Message& prototype,
-                                     Arena* arena) {
-    return DownCastMessage<Message>(
-        *ext.ptr.lazymessage_value->MutableMessage(prototype, arena));
-  }
-  static void ClearLazyMessage(Extension& ext) {
-    ext.is_cleared = true;
-    return ext.ptr.lazymessage_value->Clear();
-  }
-  static size_t ByteSizeLongLazyMessage(const Extension& ext) {
-    return ext.ptr.lazymessage_value->ByteSizeLong();
-  }
 };
 
 ////////////////////////////////////////////////////////////////////////
@@ -650,39 +627,6 @@ struct SingularLazyMessageDynamicExtensionInfo {
   static constexpr bool is_lazy = true;       // NOLINT
 };
 
-template <typename ExtensionT>
-struct LazyMessageDynamicExtensionInfo
-    : SingularLazyMessageDynamicExtensionInfo {
-  LazyMessageDynamicExtensionInfo(ExtensionT& e, int n, bool mset,
-                                  const Message& p, Arena* a)
-      : ext(e), ext_number(n), is_message_set(mset), prototype(p), arena(a) {}
-
-  int number() const { return ext_number; }
-  FieldDescriptor::Type type() const {
-    return static_cast<FieldDescriptor::Type>(ext.type);
-  }
-  const Message& Get() const {
-    return DynamicExtensionInfoHelper::GetLazyMessage(ext, prototype, arena);
-  }
-  const Message& GetIgnoreUnparsed() const {
-    return DynamicExtensionInfoHelper::GetLazyMessageIgnoreUnparsed(
-        ext, prototype, arena);
-  }
-  Message& Mutable() {
-    return DynamicExtensionInfoHelper::MutableLazyMessage(ext, prototype,
-                                                          arena);
-  }
-  void Clear() { DynamicExtensionInfoHelper::ClearLazyMessage(ext); }
-  size_t FieldByteSize() const {
-    return DynamicExtensionInfoHelper::ByteSizeLongLazyMessage(ext);
-  }
-
-  ExtensionT& ext;
-  int ext_number;
-  bool is_message_set;
-  const Message& prototype;
-  Arena* arena;
-};
 
 ////////////////////////////////////////////////////////////////////////
 // Repeated fields
@@ -704,12 +648,16 @@ struct RepeatedEntityDynamicFieldInfoBase {
   }
   iterator_range<typename RepeatedField<FieldT>::iterator> Mutable() {
     ABSL_DCHECK(!field->is_extension());
-    auto& rep =
-        *reflection->MutableRepeatedFieldInternal<FieldT>(&message, field);
+    auto& rep = *reflection->MutableRepeatedFieldInternal<FieldT>(
+        &message, field, Reflection::GetRepeatedFieldIntent::kHiddenOrInternal);
     return {rep.begin(), rep.end()};
   }
   void Clear() {
-    reflection->MutableRepeatedFieldInternal<FieldT>(&message, field)->Clear();
+    reflection
+        ->MutableRepeatedFieldInternal<FieldT>(
+            &message, field,
+            Reflection::GetRepeatedFieldIntent::kHiddenOrInternal)
+        ->Clear();
   }
 
   const Reflection* reflection;
@@ -806,12 +754,15 @@ struct RepeatedPtrEntityDynamicFieldInfoBase {
   }
   iterator_range<typename RepeatedPtrField<FieldT>::iterator> Mutable() {
     ABSL_DCHECK(!field->is_extension());
-    auto& rep =
-        *reflection->MutableRepeatedPtrFieldInternal<FieldT>(&message, field);
+    auto& rep = *reflection->MutableRepeatedPtrFieldInternal<FieldT>(
+        &message, field, Reflection::GetRepeatedFieldIntent::kHiddenOrInternal);
     return {rep.begin(), rep.end()};
   }
   void Clear() {
-    reflection->MutableRepeatedPtrFieldInternal<FieldT>(&message, field)
+    reflection
+        ->MutableRepeatedPtrFieldInternal<FieldT>(
+            &message, field,
+            Reflection::GetRepeatedFieldIntent::kHiddenOrInternal)
         ->Clear();
   }
 

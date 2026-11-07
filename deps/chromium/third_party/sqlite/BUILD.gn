@@ -5,6 +5,7 @@
 import("//build/config/dcheck_always_on.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+import("//third_party/libprotobuf-mutator/fuzzable_proto_library.gni")
 import("//third_party/protobuf/proto_library.gni")
 import("//third_party/sqlite/sqlite_chromium_configuration_flags.gni")
 import("//third_party/sqlite/sqlite_common_configuration_flags.gni")
@@ -144,6 +145,9 @@ config("sqlite_warnings") {
       # fts3EvalSelectDeferred sqlite3Fts3InitHashTable
       # sqlite3Fts3InitTok).
       "-Wno-unused-function",
+
+      # SQLite uses sprintf.
+      "-Wno-deprecated-declarations",
     ]
 
     if (is_debug || dcheck_always_on) {
@@ -256,15 +260,16 @@ component("chromium_sqlite3") {
   }
 
   deps = [ "//third_party/icu" ]
+  check_includes_strict = CHECK_INCLUDES_STRICT_PUBLIC_INCLUDES_PRIVATE
 }
 
 # Similar to component("chromium_sqlite") above, but uses the developer tools
 # options at config("dev_sqlite3_compile_options").
 #
 # This target uses source_set instead of component intentionally because turning
-# it into a shared library will result in symbol collisions with "chromium_sqlite".
-# Given that this config is effectively test-only, we should link it statically
-# and allow "chromium_sqlite" to be the only shared library.
+# it into a shared library will result in symbol collisions with
+# "chromium_sqlite". Given that this config is effectively test-only, we should
+# link it statically and allow "chromium_sqlite" to be the only shared library.
 # TODO(altimin): mark this component as testonly = true.
 source_set("dev_sqlite3") {
   visibility = [ ":*" ]
@@ -335,6 +340,7 @@ source_set("dev_sqlite3") {
   }
 
   deps = [ "//third_party/icu" ]
+  check_includes_strict = CHECK_INCLUDES_STRICT_PUBLIC_INCLUDES_PRIVATE
 }
 
 config("sqlite_export") {
@@ -475,6 +481,7 @@ fuzzer_test("sqlite3_lpm_fuzzer") {
   ]
   deps = [
     ":sqlite3_lpm_fuzzer_core",
+    ":sqlite3_lpm_fuzzer_input_fuzzable",
     "//base",
     "//third_party/libprotobuf-mutator",
   ]
@@ -484,6 +491,9 @@ fuzzer_test("sqlite3_lpm_fuzzer") {
     "len_control=0",
   ]
   seed_corpus = "fuzz/lpm_fuzzer_seed_corpus/"
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 # FTS3-focused LPM-based fuzzer test.
@@ -495,6 +505,7 @@ fuzzer_test("sqlite3_fts3_lpm_fuzzer") {
   ]
   deps = [
     ":sqlite3_lpm_fuzzer_core",
+    ":sqlite3_lpm_fuzzer_input_fuzzable",
     "//base",
     "//third_party/libprotobuf-mutator",
   ]
@@ -506,6 +517,9 @@ fuzzer_test("sqlite3_fts3_lpm_fuzzer") {
     "max_len=2111000",
     "len_control=0",
   ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("sqlite3_shadow_table_fuzzer") {
@@ -522,10 +536,14 @@ fuzzer_test("sqlite3_select_printf_lpm_fuzzer") {
   ]
   deps = [
     ":sqlite3_lpm_fuzzer_core",
+    ":sqlite3_lpm_fuzzer_input_fuzzable",
     "//base",
     "//third_party/libprotobuf-mutator",
   ]
   libfuzzer_options = [ "max_len=111000" ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("sqlite3_select_strftime_lpm_fuzzer") {
@@ -536,10 +554,14 @@ fuzzer_test("sqlite3_select_strftime_lpm_fuzzer") {
   ]
   deps = [
     ":sqlite3_lpm_fuzzer_core",
+    ":sqlite3_lpm_fuzzer_input_fuzzable",
     "//base",
     "//third_party/libprotobuf-mutator",
   ]
   libfuzzer_options = [ "max_len=111000" ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("sqlite3_select_expr_lpm_fuzzer") {
@@ -550,6 +572,7 @@ fuzzer_test("sqlite3_select_expr_lpm_fuzzer") {
   ]
   deps = [
     ":sqlite3_lpm_fuzzer_core",
+    ":sqlite3_lpm_fuzzer_input_fuzzable",
     "//base",
     "//third_party/libprotobuf-mutator",
   ]
@@ -557,6 +580,9 @@ fuzzer_test("sqlite3_select_expr_lpm_fuzzer") {
     "max_len=111000",
     "len_control=0",
   ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 config("sqlite3_fts3_lpm_fuzzer_config") {
@@ -570,7 +596,7 @@ config("lpm_fuzzer_omit_non_websql") {
   ]
 }
 
-proto_library("sqlite3_lpm_fuzzer_input") {
+fuzzable_proto_library("sqlite3_lpm_fuzzer_input") {
   sources = [
     "fuzz/icu_codes.proto",
     "fuzz/sql_queries.proto",

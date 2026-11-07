@@ -18,12 +18,11 @@
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/sequence_checker.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 
 namespace base {
-
-class SequencedTaskRunner;
 
 // Helper for atomically writing a file to ensure that it won't be corrupted by
 // *application* crash during write (implemented as create, flush, rename).
@@ -83,18 +82,42 @@ class BASE_EXPORT ImportantFileWriter {
       std::string_view data,
       std::string_view histogram_suffix = std::string_view());
 
+  // If `file_path` does not exist, attempts to restore it by renaming the most
+  // recent temporary file in its parent directory whose name prefix matches
+  // `file_path`'s base name (i.e. a leftover temp file written by an
+  // ImportantFileWriter for that path). Does nothing if `file_path` already
+  // exists or if no matching temporary file is found. The outcome is recorded
+  // in the "ImportantFile.MissingFileRestoreResult{ImportantFileClients}"
+  // histogram only when `file_path` is missing.
+  static void RestoreMissingFileIfNeeded(
+      const FilePath& file_path,
+      std::string_view histogram_suffix = std::string_view());
+
+  // Tag type for constructors below to indicate that file I/O operations should
+  // be executed synchronously on the current sequence (which must allow
+  // blocking).
+  struct BlockCurrentSequenceTag {
+    explicit BlockCurrentSequenceTag() = default;
+  };
+  static constexpr BlockCurrentSequenceTag kBlockCurrentSequence{};
+
+  using TaskRunnerOrBlockCurrentSequence =
+      std::variant<scoped_refptr<SequencedTaskRunner>, BlockCurrentSequenceTag>;
+
   // Initialize the writer.
   // |path| is the name of file to write.
-  // |task_runner| is the SequencedTaskRunner instance where on which we will
-  // execute file I/O operations.
-  // All non-const methods, ctor and dtor must be called on the same thread.
+  // |task_runner| is either the SequencedTaskRunner instance on which we will
+  // execute file I/O operations, or `kBlockCurrentSequence` to execute file I/O
+  // operations synchronously on the current sequence (which must allow
+  // blocking).
+  // All non-const methods, ctor and dtor must be called on the same sequence.
   ImportantFileWriter(const FilePath& path,
-                      scoped_refptr<SequencedTaskRunner> task_runner,
+                      TaskRunnerOrBlockCurrentSequence task_runner,
                       std::string_view histogram_suffix = std::string_view());
 
   // Same as above, but with a custom commit interval.
   ImportantFileWriter(const FilePath& path,
-                      scoped_refptr<SequencedTaskRunner> task_runner,
+                      TaskRunnerOrBlockCurrentSequence task_runner,
                       TimeDelta interval,
                       std::string_view histogram_suffix = std::string_view());
 
@@ -111,8 +134,9 @@ class BASE_EXPORT ImportantFileWriter {
   // been started.
   bool HasPendingWrite() const;
 
-  // Save |data| to target filename. Does not block. If there is a pending write
-  // scheduled by ScheduleWrite(), it is cancelled.
+  // Save |data| to target filename. Does not block (unless constructed with
+  // `kBlockCurrentSequence`). If there is a pending write scheduled by
+  // ScheduleWrite(), it is cancelled.
   void WriteNow(std::string data);
 
   // Schedule a save to target filename. Data will be serialized and saved
@@ -123,11 +147,14 @@ class BASE_EXPORT ImportantFileWriter {
   // ImportantFileWriter.
   void ScheduleWrite(DataSerializer* serializer);
 
-  // Same as above but uses the BackgroundDataSerializer API.
+  // Same as above but uses the BackgroundDataSerializer API. Must not be called
+  // when constructed with `kBlockCurrentSequence`.
   void ScheduleWriteWithBackgroundDataSerializer(
       BackgroundDataSerializer* serializer);
 
-  // Serialize data pending to be saved and execute write on background thread.
+  // Serialize data pending to be saved and execute write on background thread
+  // (or synchronously on the current sequence if constructed with
+  // `kBlockCurrentSequence`).
   void DoScheduledWrite();
 
   // Registers |before_next_write_callback| and |after_next_write_callback| to
@@ -203,8 +230,10 @@ class BASE_EXPORT ImportantFileWriter {
   // Path being written to.
   const FilePath path_;
 
-  // TaskRunner for the thread on which file I/O can be done.
-  const scoped_refptr<SequencedTaskRunner> task_runner_;
+  // TaskRunner for the thread on which file I/O can be done, or
+  // `kBlockCurrentSequence` if file I/O is done synchronously on the current
+  // sequence.
+  const TaskRunnerOrBlockCurrentSequence task_runner_;
 
   // Timer used to schedule commit after ScheduleWrite.
   OneShotTimer timer_;
@@ -213,7 +242,9 @@ class BASE_EXPORT ImportantFileWriter {
   raw_ptr<OneShotTimer> timer_override_ = nullptr;
 
   // Serializer which will provide the data to be saved.
-  std::variant<std::monostate, DataSerializer*, BackgroundDataSerializer*>
+  std::variant<std::monostate,
+               raw_ptr<DataSerializer>,
+               raw_ptr<BackgroundDataSerializer>>
       serializer_;
 
   // Time delta after which scheduled data will be written to disk.

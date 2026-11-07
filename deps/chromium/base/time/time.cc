@@ -20,12 +20,6 @@
 
 namespace base {
 
-namespace {
-
-TimeTicks g_shared_time_ticks_at_unix_epoch;
-
-}  // namespace
-
 namespace internal {
 
 std::atomic<TimeNowFunction> g_time_now_function{
@@ -46,6 +40,9 @@ std::atomic<LiveTicksNowFunction> g_live_ticks_now_function{
 
 std::atomic<ThreadTicksNowFunction> g_thread_ticks_now_function{
     &subtle::ThreadTicksNowIgnoringOverride};
+
+std::atomic<RealTicksNowFunction> g_real_ticks_now_function{
+    &subtle::RealTicksNowIgnoringOverride};
 
 }  // namespace internal
 
@@ -166,16 +163,17 @@ bool Time::FromMillisecondsSinceUnixEpoch(int64_t unix_milliseconds,
   // microseconds since the Windows epoch (1601), avoiding overflows.
   CheckedNumeric<int64_t> checked_microseconds_win_epoch = unix_milliseconds;
   checked_microseconds_win_epoch *= kMicrosecondsPerMillisecond;
-  checked_microseconds_win_epoch += kTimeTToMicrosecondsOffset;
+  checked_microseconds_win_epoch += kMicrosecondsFromWindowsToUnixEpoch;
   *time = Time(checked_microseconds_win_epoch.ValueOrDefault(0));
   return checked_microseconds_win_epoch.IsValid();
 }
 
 int64_t Time::ToRoundedDownMillisecondsSinceUnixEpoch() const {
   constexpr int64_t kEpochOffsetMillis =
-      kTimeTToMicrosecondsOffset / kMicrosecondsPerMillisecond;
-  static_assert(kTimeTToMicrosecondsOffset % kMicrosecondsPerMillisecond == 0,
-                "assumption: no epoch offset sub-milliseconds");
+      kMicrosecondsFromWindowsToUnixEpoch / kMicrosecondsPerMillisecond;
+  static_assert(
+      kMicrosecondsFromWindowsToUnixEpoch % kMicrosecondsPerMillisecond == 0,
+      "assumption: no epoch offset sub-milliseconds");
 
   // Compute the milliseconds since UNIX epoch without the possibility of
   // under/overflow. Round the result towards -infinity.
@@ -218,35 +216,6 @@ TimeTicks TimeTicks::LowResolutionNow() {
       std::memory_order_relaxed)();
 }
 
-// static
-// This method should be called once at process start and before
-// TimeTicks::UnixEpoch is accessed. It is intended to make the offset between
-// unix time and monotonic time consistent across processes.
-void TimeTicks::SetSharedUnixEpoch(TimeTicks ticks_at_epoch) {
-  DCHECK(g_shared_time_ticks_at_unix_epoch.is_null());
-  g_shared_time_ticks_at_unix_epoch = ticks_at_epoch;
-}
-
-// static
-TimeTicks TimeTicks::UnixEpoch() {
-  struct StaticUnixEpoch {
-    StaticUnixEpoch()
-        : epoch(
-              g_shared_time_ticks_at_unix_epoch.is_null()
-                  ? subtle::TimeTicksNowIgnoringOverride() -
-                        (subtle::TimeNowIgnoringOverride() - Time::UnixEpoch())
-                  : g_shared_time_ticks_at_unix_epoch) {
-      // Prevent future usage of `g_shared_time_ticks_at_unix_epoch`.
-      g_shared_time_ticks_at_unix_epoch = TimeTicks::Max();
-    }
-
-    const TimeTicks epoch;
-  };
-
-  static StaticUnixEpoch static_epoch;
-  return static_epoch.epoch;
-}
-
 std::ostream& operator<<(std::ostream& os, TimeTicks time_ticks) {
   // This function formats a TimeTicks object as "bogo-microseconds".
   // The origin and granularity of the count are platform-specific, and may very
@@ -280,6 +249,62 @@ std::ostream& operator<<(std::ostream& os, LiveTicks live_ticks) {
   const TimeDelta as_time_delta = live_ticks - LiveTicks();
   return os << as_time_delta.InMicroseconds() << " bogo-live-microseconds";
 }
+
+// RealTicks ------------------------------------------------------------------
+
+namespace time_internal {
+
+// static
+RealTicks RealTicks::Now() {
+  return internal::g_real_ticks_now_function.load(std::memory_order_relaxed)();
+}
+
+std::ostream& operator<<(std::ostream& os, RealTicks real_ticks) {
+  const TimeDelta as_time_delta = real_ticks - RealTicks();
+  return os << as_time_delta.InMicroseconds() << " bogo-real-microseconds";
+}
+
+LiveAndRealTicks SampleLiveAndRealTicks() {
+  // TODO(crbug.com/565753727): The current implementation is platform
+  // agnostic, but this function can be made more robust on Darwin by
+  // leveraging CLOCK_MONOTONIC_RAW_APPROX to detect preemption.
+
+  constexpr int kMaxAttempts = 3;
+  // A threshold to ensure the thread was not preempted between clock reads.
+  // Back-to-back clock reads take only tens of nanoseconds on native hardware,
+  // so 50 µs is orders of magnitude smaller than typical OS thread preemption
+  // intervals (1–10 ms), reliably detecting if a context switch occurred
+  // between reads. At the same time, 50 µs provides enough headroom for
+  // virtualized test environments (e.g., heavily loaded CQ bots where
+  // clock reading like CLOCK_BOOTTIME may require a full kernel syscall) to
+  // avoid spurious retries.
+  constexpr TimeDelta kMaxInterClockReadDuration = Microseconds(50);
+
+  LiveTicks live;
+  RealTicks real;
+  TimeDelta max_error;
+
+  for (int i = 0; i < kMaxAttempts; ++i) {
+    live = LiveTicks::Now();
+    real = RealTicks::Now();
+    const LiveTicks live_check = LiveTicks::Now();
+    const TimeDelta read_duration = live_check - live;
+    // Add 1 µs to account for independent truncation: each clock truncates to
+    // microseconds independently. If the suspend offset is not a whole number
+    // of microseconds, the two clocks cross microsecond boundaries at different
+    // times, so `real - live` can vary by up to 1 µs even with zero read
+    // latency.
+    max_error = read_duration + Microseconds(1);
+
+    if (read_duration <= kMaxInterClockReadDuration) {
+      break;
+    }
+  }
+
+  return {live, real, max_error};
+}
+
+}  // namespace time_internal
 
 // ThreadTicks ----------------------------------------------------------------
 

@@ -9,15 +9,17 @@
 
 #include <tbs.h>
 
+#include <optional>
 #include <string_view>
 
+#include "base/byte_size.h"
 #include "base/cpu.h"
 #include "base/files/file_path.h"
 #include "base/path_service.h"
-#include "base/scoped_native_library.h"
 #include "base/strings/string_util.h"
 #include "base/system/sys_info.h"
 #include "base/threading/scoped_thread_priority.h"
+#include "base/win/delayload_helpers.h"
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
 #include "build/build_config.h"
@@ -86,25 +88,20 @@ bool IsUEFISecureBootCapable() {
 }
 
 bool IsTPM20Supported() {
-  SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
+  static const bool is_tbs_availabe = [] {
+    SCOPED_MAY_LOAD_LIBRARY_AT_BACKGROUND_PRIORITY();
 
-  // Using dynamic loading instead of using linker support for delay
-  // loading to prevent failed loads being treated as a fatal failure which
-  // can happen in rare cases due to missing or corrupted DLL file.
-  ScopedNativeLibrary tbs_library(LoadSystemLibrary(L"tbs.dll"));
-  if (!tbs_library.is_valid()) {
+    // Resolve all delay-loaded imports for tbs.dll on the first call to
+    // prevent failed loads being treated as a fatal failure later, which
+    // can happen in rare cases due to missing or corrupted DLL file.
+    return LoadAllImportsForDllUnchecked("tbs.dll").value_or(false);
+  }();
+
+  if (!is_tbs_availabe) {
     return false;
   }
-
-  decltype(Tbsi_GetDeviceInfo)* tbsi_get_device_info_proc =
-      reinterpret_cast<decltype(Tbsi_GetDeviceInfo)*>(
-          tbs_library.GetFunctionPointer("Tbsi_GetDeviceInfo"));
-  if (!tbsi_get_device_info_proc) {
-    return false;
-  }
-
   TPM_DEVICE_INFO tpm_info{};
-  TBS_RESULT result = tbsi_get_device_info_proc(sizeof(tpm_info), &tpm_info);
+  TBS_RESULT result = ::Tbsi_GetDeviceInfo(sizeof(tpm_info), &tpm_info);
   return result == TBS_SUCCESS && tpm_info.tpmVersion >= TPM_VERSION_20;
 }
 
@@ -115,35 +112,33 @@ bool HardwareEvaluationResult::IsEligible() const {
 }
 
 HardwareEvaluationResult EvaluateWin11HardwareRequirements() {
-  static constexpr int64_t kMinTotalDiskSpace = 64 * 1024 * 1024;
-  // TODO(crbug.com/429140103): This was migrated as-is to 4MiB in ByteSize but
-  // the legacy code potentially intended 4GiB, needs investigation.
-  static constexpr ByteSize kMinTotalPhysicalMemory = MiBU(4);
+  static constexpr ByteSize kMinTotalDiskSpace = GiB(64);
+  static constexpr ByteSize kMinTotalPhysicalMemory = GiB(4);
 
-  static const HardwareEvaluationResult evaluate_win11_upgrade_eligibility =
-      [] {
-        HardwareEvaluationResult result;
+  static const HardwareEvaluationResult eligibility = [] {
+    HardwareEvaluationResult result;
 
-        result.cpu = IsWin11SupportedProcessor(
-            CPU(), OSInfo::GetInstance()->processor_vendor_name());
+    result.cpu = IsWin11SupportedProcessor(
+        CPU(), OSInfo::GetInstance()->processor_vendor_name());
 
-        result.memory =
-            SysInfo::AmountOfTotalPhysicalMemory() >= kMinTotalPhysicalMemory;
+    result.memory =
+        SysInfo::AmountOfTotalPhysicalMemory() >= kMinTotalPhysicalMemory;
 
-        FilePath system_path;
-        result.disk = PathService::Get(DIR_SYSTEM, &system_path) &&
-                      SysInfo::AmountOfTotalDiskSpace(
-                          FilePath(system_path.GetComponents()[0]))
-                              .value_or(-1) >= kMinTotalDiskSpace;
+    FilePath system_path;
+    if (PathService::Get(DIR_SYSTEM, &system_path)) {
+      std::optional<SysInfo::DiskSpaceInfo> disk_info =
+          SysInfo::AmountOfDiskSpace(FilePath(system_path.GetComponents()[0]));
+      result.disk = disk_info && disk_info->total >= kMinTotalDiskSpace;
+    }
 
-        result.firmware = IsUEFISecureBootCapable();
+    result.firmware = IsUEFISecureBootCapable();
 
-        result.tpm = IsTPM20Supported();
+    result.tpm = IsTPM20Supported();
 
-        return result;
-      }();
+    return result;
+  }();
 
-  return evaluate_win11_upgrade_eligibility;
+  return eligibility;
 }
 
 }  // namespace base::win

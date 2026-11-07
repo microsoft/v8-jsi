@@ -37,15 +37,7 @@
           'http/tests/devtools',
         ],
         'swarming': {
-          'shards': 2,
-        },
-      },
-      'devtools_frontend_linux_blink_light_rel_fastbuild': {
-        'args': [
-          'http/tests/devtools',
-        ],
-        'swarming': {
-          'shards': 2,
+          'shards': 4,
         },
       },
     },
@@ -53,7 +45,6 @@
   'blink_wpt_tests': {
     'remove_from': [
       'devtools_frontend_linux_blink_light_rel',
-      'devtools_frontend_linux_blink_light_rel_fastbuild',
     ],
     'modifications': {
       'V8 Blink Linux Future': {
@@ -169,17 +160,6 @@
       },
     },
   },
-  'expected_color_pixel_passthrough_test JACUZZI_RELEASE_LKGM': {
-    'modifications': {
-      'ChromeOS FYI Release Skylab (jacuzzi)': {
-        'args': [
-          # Skylab currently doesn't support use of LUCI_CONTEXT, so Gold cannot
-          # automatically get the service account to authenticate with.
-          '--service-account=/creds/service_accounts/skylab-drone.json',
-        ],
-      },
-    },
-  },
   'expected_color_pixel_validating_test': {
     'replacements': {
       # The V8 builders pass the V8 revision for ${got_revision}, so instead
@@ -265,6 +245,11 @@
         ],
       },
     },
+  },
+  'openscreen_unittests': {
+    'remove_from': [
+      'chromium_win_x64',
+    ],
   },
   'ozone_unittests': {
     'modifications': {
@@ -358,17 +343,6 @@
           # now since we are manually applying the number of jobs above.
           '$$MAGIC_SUBSTITUTION_GPUParallelJobs': None,
         },
-      },
-    },
-  },
-  'pixel_skia_gold_passthrough_test JACUZZI_RELEASE_LKGM': {
-    'modifications': {
-      'ChromeOS FYI Release Skylab (jacuzzi)': {
-        'args': [
-          # Skylab currently doesn't support use of LUCI_CONTEXT, so Gold cannot
-          # automatically get the service account to authenticate with.
-          '--service-account=/creds/service_accounts/skylab-drone.json',
-        ],
       },
     },
   },

@@ -14,9 +14,12 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/compiler/java/java_features.pb.h"
+#include "google/protobuf/compiler/java/generator.h"
 #include "google/protobuf/compiler/java/names.h"
 #include "google/protobuf/compiler/java/options.h"
 #include "google/protobuf/descriptor.h"
@@ -312,8 +315,7 @@ int FixedSize(FieldDescriptor::Type type);
 
 // Comparators used to sort fields in MessageGenerator
 struct FieldOrderingByNumber {
-  inline bool operator()(const FieldDescriptor* a,
-                         const FieldDescriptor* b) const {
+  bool operator()(const FieldDescriptor* a, const FieldDescriptor* b) const {
     return a->number() < b->number();
   }
 };
@@ -325,9 +327,9 @@ struct ExtensionRangeOrdering {
   }
 };
 
-// Sort the fields of the given Descriptor by number into a new[]'d array
-// and return it. The caller should delete the returned array.
-const FieldDescriptor** SortFieldsByNumber(const Descriptor* descriptor);
+// Sort the fields of the given Descriptor by number into the vector.
+std::vector<const FieldDescriptor*> SortFieldsByNumber(
+    const Descriptor* descriptor);
 
 // Does this message class have any packed fields?
 inline bool HasPackedFields(const Descriptor* descriptor) {
@@ -347,6 +349,18 @@ bool IsRealOneof(const FieldDescriptor* descriptor);
 
 inline bool HasHasbit(const FieldDescriptor* descriptor) {
   return descriptor->has_presence() && !descriptor->real_containing_oneof();
+}
+
+// Whether unknown enum values are kept (i.e., not stored in UnknownFieldSet
+// but in the message and can be queried using additional getters that return
+// ints.
+inline bool SupportUnknownEnumValue(const FieldDescriptor* field) {
+  if (JavaGenerator::GetResolvedSourceFeatures(*field)
+          .GetExtension(pb::java)
+          .legacy_closed_enum()) {
+    return false;
+  }
+  return field->enum_type() != nullptr && !field->enum_type()->is_closed();
 }
 
 // Check whether a message has repeated fields.

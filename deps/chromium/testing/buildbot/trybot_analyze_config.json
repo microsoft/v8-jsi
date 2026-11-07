@@ -1,4 +1,9 @@
 {
+  "android": {
+    "exclusions": [
+      "chrome/android/profiles/newest.txt"
+    ]
+  },
   "android_webview": {
     "exclusions": [
       "android_webview/.*"
@@ -8,15 +13,14 @@
     "exclusions": [
       ".*isolate",
       ".vpython",
+      "vpython\\.toml.*",
       "build/check_gn_headers.py",
       "build/check_gn_headers_allowlist.txt",
       "build/config/siso/.*",
       "build/get_landmines.py",
       "build/gn_helpers.py",
-      "build/mac_toolchain.py",
       "build/toolchain/.*py",
       "build/util/lib/common/unittest_util.py",
-      "build/vs_toolchain.py",
       "DEPS",
       "infra/scripts/.*",
       "infra/orchestrator/BUILD.gn",
@@ -38,11 +42,23 @@
   },
   "chromium": {
     "exclusions": [
-      ".*/README.chromium",
       "buildtools/checkdeps/.*",
-      "chrome/android/profiles/newest.txt",
-      "chrome/browser/resources/.*(css|html|js)",
-      "chrome/browser/ui/webui/.*browsertest.*js",
+      "chrome/browser/resources/chromeos/about_os_credits.html",
+      "chrome/browser/resources/chromeos/arc_overview_tracing/.*(css|html|js)",
+      "chrome/browser/resources/chromeos/arc_power_control/.*(css|html|js)",
+      "chrome/browser/resources/chromeos/arc_support/.*(css|html|js)",
+      "chrome/browser/resources/chromeos/chrome_urls_disabled_page/app.html",
+      "chrome/browser/resources/chromeos/contact_center_insights/.*(css|html|js)",
+      "chrome/browser/resources/chromeos/guest_session_tab.html",
+      "chrome/browser/resources/chromeos/mako/.*(css|html|js)",
+      "chrome/browser/resources/chromeos/mobile_setup_portal.html",
+      "chrome/browser/resources/dev_ui/dev_ui_loader_error.html",
+      "chrome/browser/resources/hangout_services/.*(css|html|js)",
+      "chrome/browser/resources/network_speech_synthesis/.*(css|html|js)",
+      "chrome/browser/resources/new_tab_page_incognito_guest/.*(css|html|js)",
+      "chrome/browser/resources/page_not_available_for_guest/app.html",
+      "chrome/browser/resources/page_not_aventerprise/incognito_navigation_blocked_page/incognito_blocked.html",
+      "chrome/browser/resources/reading_mode_gdocs_helper/.*(css|html|js)",
       "mojo/tools/.*",
       "net/data/.*",
       "third_party/accessibility-audit/axs_testing.js",
@@ -62,8 +78,7 @@
       "tools/perf/.*",
       "tools/telemetry/.*",
       "tools/traffic_annotation/scripts/.*",
-      "tools/ubsan/.*",
-      "ui/webui/resources/.*(css|html|js)"
+      "tools/ubsan/.*"
     ],
     "ignores": [
       "tools/perf/cbb_ref_info/.*"
@@ -82,6 +97,7 @@
   },
   "ios": {
     "exclusions": [
+      "build/mac_toolchain.py",
       "ios/build/bots/.*",
       "tools/clang/dsymutil/bin/dsymutil.arm64.sha1",
       "tools/clang/dsymutil/bin/dsymutil.x64.sha1"
@@ -96,6 +112,7 @@
   },
   "mac": {
     "exclusions": [
+      "build/mac_toolchain.py",
       "tools/clang/dsymutil/bin/dsymutil.arm64.sha1",
       "tools/clang/dsymutil/bin/dsymutil.x64.sha1"
     ]
@@ -105,7 +122,8 @@
       "build/toolchain/win/rc/win/rc.exe.sha1",
       "build/toolchain/win/rc/rc.py",
       "build/toolchain/win/midl.py",
-      "build/toolchain/win/ml.py"
+      "build/toolchain/win/ml.py",
+      "build/vs_toolchain.py"
     ]
   }
 }

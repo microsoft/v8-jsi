@@ -138,6 +138,29 @@ struct alignas(8) TracePacketData {
 };
 static_assert(sizeof(TracePacketData) % 8 == 0);
 
+// Used by the ftrace push path. Carries the original event timestamp (in trace
+// time) alongside the sorter-visible ts.
+//
+// For events whose tokenizer synthesises a custom ts (e.g. retiming a kgsl
+// cmdbatch_retired to its GPU start), `raw_ts` preserves the original event
+// time so drop-window checks in the parser see when the event actually
+// happened, not where it was placed. For all other events the field is left as
+// the kUnset sentinel and consumes no extra storage in the token buffer (the
+// descriptor records its presence in a single bit).
+struct alignas(8) FtraceData {
+  static constexpr int64_t kRawTsUnset = std::numeric_limits<int64_t>::max();
+
+  TraceBlobView packet;
+  RefPtr<PacketSequenceStateGeneration> sequence_state;
+  int64_t raw_ts = kRawTsUnset;
+  // Custom tokenizers that forge a different sorter timestamp push each
+  // event twice: once at raw_ts for the ftrace_event table, and once at
+  // the forged timestamp for event-specific parsing.
+  bool insert_ftrace_event = true;
+  bool parse_event = true;
+};
+static_assert(sizeof(FtraceData) % 8 == 0);
+
 struct alignas(8) TrackEventData {
   TrackEventData(TraceBlobView pv,
                  RefPtr<PacketSequenceStateGeneration> generation)
@@ -171,6 +194,15 @@ struct alignas(8) LegacyV8CpuProfileEvent {
   uint32_t callsite_id;
 };
 static_assert(sizeof(LegacyV8CpuProfileEvent) % 8 == 0);
+
+// A single Chrome StreamingProfilePacket sample, pushed through the sorter at
+// its resolved per-sample timestamp.
+struct alignas(8) StreamingProfileSampleEvent {
+  RefPtr<PacketSequenceStateGeneration> sequence_state;
+  uint64_t callstack_iid;
+  int32_t process_priority;
+};
+static_assert(sizeof(StreamingProfileSampleEvent) % 8 == 0);
 
 }  // namespace perfetto::trace_processor
 

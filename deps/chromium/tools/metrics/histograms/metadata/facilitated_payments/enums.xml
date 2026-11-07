@@ -39,6 +39,48 @@ reviewer.
 
 <!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:A2AFlowExitedReason) -->
 
+<!-- LINT.IfChange(FacilitatedPayments.AccountLinking.FlowExitedReason) -->
+
+<enum name="FacilitatedPayments.AccountLinking.FlowExitedReason">
+  <int value="0" label="Screen not shown"/>
+  <int value="1" label="Screen was closed not by the user"/>
+  <int value="2" label="Screen was closed by the user"/>
+  <int value="3" label="User clicked the No Thanks button"/>
+  <int value="4" label="Wallet is not installed"/>
+  <int value="5" label="Wallet version is not supported"/>
+  <int value="6"
+      label="User opted out of the flow using the Settings page pref"/>
+  <int value="7" label="No screen lock or biometric setup"/>
+  <int value="8"
+      label="User's account was determined to be ineligible by the server"/>
+  <int value="9" label="User switched to a different tab"/>
+  <int value="10" label="User navigated to a different website"/>
+  <int value="11" label="Max strikes reached"/>
+  <int value="12" label="Required delay after last strike not met"/>
+  <int value="13" label="Client token is not available"/>
+  <int value="14" label="Payments network interface is not available"/>
+  <int value="15" label="GetDetailsForCreatePaymentInstrument request failed"/>
+  <int value="16" label="User is ineligible per Payments backend"/>
+  <int value="17" label="Action token is not available"/>
+  <int value="18" label="User logged out"/>
+  <int value="19" label="API client not available"/>
+  <int value="20" label="User canceled in GMSCore"/>
+  <int value="21" label="GMSCore flow failed"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:AccountLinkingFlowExitedReason) -->
+
+<!-- LINT.IfChange(FacilitatedPayments.AccountLinking.PromptUserAction) -->
+
+<enum name="FacilitatedPayments.AccountLinking.PromptUserAction">
+  <int value="0" label="Shown"/>
+  <int value="1" label="Accepted"/>
+  <int value="2" label="Declined"/>
+  <int value="3" label="Dismissed"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:AccountLinkingPromptUserAction) -->
+
 <!-- LINT.IfChange(FacilitatedPayments.EwalletFlowExitedReason) -->
 
 <enum name="FacilitatedPayments.EwalletFlowExitedReason">
@@ -66,6 +108,15 @@ reviewer.
 </enum>
 
 <!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:EwalletFlowExitedReason) -->
+
+<!-- LINT.IfChange(FacilitatedPayments.EwalletNewAccountLinkingFlowExitedReason) -->
+
+<enum name="FacilitatedPayments.EwalletNewAccountLinkingFlowExitedReason">
+  <int value="0" label="No supported eWallet creation option"/>
+  <int value="1" label="Multiple supported eWallet creation options found"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:EwalletNewAccountLinkingFlowExitedReason) -->
 
 <enum name="FacilitatedPayments.EwalletScheme">
   <int value="0" label="Invalid merchant paymnet link"/>
@@ -104,26 +155,6 @@ reviewer.
 
 <!-- LINT.ThenChange(/components/facilitated_payments/core/utils/facilitated_payments_ui_utils.h:PaymentLinkFopSelectorAction) -->
 
-<!-- LINT.IfChange(FacilitatedPayments.Pix.AccountLinking.FlowExitedReason) -->
-
-<enum name="FacilitatedPayments.Pix.AccountLinking.FlowExitedReason">
-  <int value="0" label="Screen not shown"/>
-  <int value="1" label="Screen was closed not by the user"/>
-  <int value="2" label="Screen was closed by the user"/>
-  <int value="3" label="User clicked the No Thanks button"/>
-  <int value="4" label="Wallet is not installed"/>
-  <int value="5" label="Wallet version is not supported"/>
-  <int value="6"
-      label="User opted out of the flow using the Settings page pref"/>
-  <int value="7" label="No screen lock or biometric setup"/>
-  <int value="8"
-      label="User's account was determined to be ineligible by the server"/>
-  <int value="9" label="User switched to a different tab"/>
-  <int value="10" label="User navigated to a different website"/>
-</enum>
-
-<!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:PixAccountLinkingFlowExitedReason) -->
-
 <!-- LINT.IfChange(FacilitatedPayments.Pix.IframeUrlType) -->
 
 <enum name="FacilitatedPayments.Pix.IframeUrlType">
@@ -150,21 +181,10 @@ reviewer.
 
 <!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:PixCodeRustValidationResult) -->
 
-<!-- LINT.IfChange(FacilitatedPayments.PixCodeValidationResult) -->
-
-<enum name="FacilitatedPayments.PixCodeValidationResult">
-  <int value="0" label="Dynamic"/>
-  <int value="1" label="Static"/>
-  <int value="2" label="Invalid"/>
-  <int value="3" label="Validator failed"/>
-</enum>
-
-<!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:PixCodeValidationResult) -->
-
 <!-- LINT.IfChange(FacilitatedPayments.PixFlowExitedReason) -->
 
 <enum name="FacilitatedPayments.PixFlowExitedReason">
-  <int value="0" label="Code validator failed"/>
+  <int value="0" label="(Obsolete) Code validator failed. Removed in M156."/>
   <int value="1" label="Invalid code"/>
   <int value="2"
       label="User opted out of the flow using the Settings page pref"/>
@@ -192,6 +212,10 @@ reviewer.
   <int value="19" label="Static code was copied and is not supported"/>
   <int value="20" label="Pix code copied in a non-allowlisted iframe"/>
   <int value="21" label="Payflow has already started"/>
+  <int value="22"
+      label="Pix code was copied in a same-origin iframe but the merchant is
+             not allowlisted"/>
+  <int value="23" label="Pix code was copied in an error document frame"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/facilitated_payments/core/metrics/facilitated_payments_metrics.h:PixFlowExitedReason) -->

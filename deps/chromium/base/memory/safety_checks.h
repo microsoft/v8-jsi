@@ -9,9 +9,11 @@
 
 #include "base/base_export.h"
 #include "base/compiler_specific.h"
-#include "base/memory/advanced_memory_safety_checks.h"
+#include "base/memory/sanitized_object.h"
 #include "base/memory/stack_allocated.h"
+#include "base/pending_task.h"
 #include "partition_alloc/buildflags.h"
+#include "partition_alloc/safety_checks.h"  // nogncheck
 
 #if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 #include "base/allocator/scheduler_loop_quarantine_support.h"
@@ -19,44 +21,46 @@
 
 namespace base {
 
-// Utility function to detect Double-Free or Out-of-Bounds writes.
-// This function can be called to memory assumed to be valid.
-// If not, this may crash (not guaranteed).
-// This is useful if you want to investigate crashes at `free()`,
-// to know which point at execution it goes wrong.
-BASE_EXPORT void CheckHeapIntegrity(const void* ptr);
-
 // The function here is called right before crashing with
 // `DoubleFreeOrCorruptionDetected()`. We provide an address for the slot start
 // to the function, and it may use that for debugging purpose.
 void SetDoubleFreeOrCorruptionDetectedFn(void (*fn)(uintptr_t));
 
-// Utility class to exclude deallocation from optional safety checks when an
-// instance is on the stack. Can be applied to performance critical functions.
-class BASE_EXPORT ScopedSafetyChecksExclusion {
+using partition_alloc::ScopedSafetyChecksExclusion;
+
+#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+using base::allocator::QuarantineTaskType;
+using base::allocator::SchedulerLoopQuarantineScanPolicyUpdater;
+struct ScopedSchedulerLoopQuarantineTaskScope {
   STACK_ALLOCATED();
 
  public:
-  // Make this non-trivially-destructible to suppress unused variable warning.
-  ~ScopedSafetyChecksExclusion() {}  // NOLINT(modernize-use-equals-default)
+  ALWAYS_INLINE explicit ScopedSchedulerLoopQuarantineTaskScope(
+      const PendingTask& pending_task)
+      : task_scope_(pending_task.ipc_interface_name != nullptr ||
+                            pending_task.ipc_hash != 0
+                        ? QuarantineTaskType::kMojoIPC
+                        : QuarantineTaskType::kNormal) {}
 
- private:
-#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-  base::allocator::ScopedSchedulerLoopQuarantineExclusion
-      opt_out_scheduler_loop_quarantine_;
-#endif  // PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  base::allocator::ScopedSchedulerLoopQuarantineTaskScope task_scope_;
 };
-
-#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
-using base::allocator::SchedulerLoopQuarantineScanPolicyUpdater;
-using base::allocator::ScopedSchedulerLoopQuarantineDisallowScanlessPurge;
 #else
+enum class QuarantineTaskType {
+  kNormal,
+  kMojoIPC,
+};
 class SchedulerLoopQuarantineScanPolicyUpdater {
  public:
   ALWAYS_INLINE void DisallowScanlessPurge() {}
   ALWAYS_INLINE void AllowScanlessPurge() {}
 };
-class ScopedSchedulerLoopQuarantineDisallowScanlessPurge {};
+struct ScopedSchedulerLoopQuarantineTaskScope {
+  STACK_ALLOCATED();
+
+ public:
+  constexpr explicit ScopedSchedulerLoopQuarantineTaskScope(
+      const PendingTask& pending_task) {}
+};
 #endif  // PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 
 }  // namespace base

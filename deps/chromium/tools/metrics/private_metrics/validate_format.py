@@ -10,14 +10,15 @@ from xml.dom import minidom
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.private_metrics.private_metrics_validations as private_metrics_validations
 
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument('filepath', help="relative path to XML file")
+  parser.add_argument('filepath', help='relative path to XML file')
   # The following optional flags are used by common/presubmit_util.py
-  parser.add_argument('--presubmit', action="store_true")
+  parser.add_argument('--presubmit', action='store_true')
 
   args = parser.parse_args()
 
@@ -26,9 +27,6 @@ def main():
   if filepath.endswith('dwa.xml'):
     root_tag = 'dwa-configuration'
     validation = private_metrics_validations.DwaXmlValidation
-  elif filepath.endswith('dkm.xml'):
-    root_tag = 'dkm-configuration'
-    validation = private_metrics_validations.DkmXmlValidation
   else:
     print(f'Unsupported file: {filepath}', file=sys.stderr)
     sys.exit(1)
@@ -38,14 +36,17 @@ def main():
     [config] = document.getElementsByTagName(root_tag)
     validator = validation(config)
 
-    owner_check_success, owner_check_errors = validator.checkEventsHaveOwners()
+    owner_check_success, owner_check_errors = (
+      validator.check_events_have_owners()
+    )
     metric_check_success, metric_check_errors = (
-        validator.checkMetricTypeIsSpecified())
+      validator.check_metric_type_is_specified()
+    )
 
-    results = dict()
+    results = {}
 
-    if (not owner_check_success or not metric_check_success):
-      results['Errors'] = (owner_check_errors + metric_check_errors)
+    if not owner_check_success or not metric_check_success:
+      results['Errors'] = owner_check_errors + metric_check_errors
 
     if 'Errors' in results:
       return results

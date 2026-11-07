@@ -8,12 +8,14 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "partition_alloc/internal/partition_root_internal_forward.h"
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
 #include "partition_alloc/partition_alloc_base/thread_annotations.h"
 #include "partition_alloc/partition_alloc_check.h"
 #include "partition_alloc/partition_alloc_constants.h"
 #include "partition_alloc/partition_alloc_forward.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/partition_page_constants.h"
 
 namespace partition_alloc::internal {
@@ -36,7 +38,7 @@ struct PartitionBucket {
 
   SlotSpanMetadata* empty_slot_spans_head;
   SlotSpanMetadata* decommitted_slot_spans_head;
-  uint32_t slot_size;
+  size_t slot_size;
   uint32_t num_system_pages_per_slot_span
       : kPartitionNumSystemPagesPerSlotSpanBits;
   uint32_t num_full_slot_spans : 24;
@@ -66,7 +68,7 @@ struct PartitionBucket {
 
   // Public API.
   PA_COMPONENT_EXPORT(PARTITION_ALLOC)
-  void Init(uint32_t new_slot_size);
+  void Init(size_t new_slot_size);
 
   // Sets |is_already_zeroed| to true if the allocation was satisfied by
   // requesting (a) new page(s) from the operating system, or false otherwise.
@@ -82,7 +84,8 @@ struct PartitionBucket {
                     size_t raw_size,
                     size_t slot_span_alignment,
                     SlotSpanMetadata** slot_span,
-                    bool* is_already_zeroed)
+                    bool* is_already_zeroed,
+                    bool* stored_raw_size)
           PA_EXCLUSIVE_LOCKS_REQUIRED(PartitionRootLock(root));
 
   PA_ALWAYS_INLINE bool CanStoreRawSize() const { return can_store_raw_size; }

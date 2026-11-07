@@ -8,19 +8,23 @@
 #include "partition_alloc/buildflags.h"
 
 #if PA_BUILDFLAG(USE_ALLOCATOR_SHIM)
+#include <limits>
+
 #include "partition_alloc/partition_alloc.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/shim/allocator_dispatch.h"
 #include "partition_alloc/shim/allocator_shim.h"
 
 namespace allocator_shim {
 
+inline constexpr size_t kDefaultPartitionIndex = 0;
 #if PA_BUILDFLAG(ENABLE_AUTO_PARTITIONING)
+inline constexpr size_t kPointerPartitionIndex = 1;
 inline constexpr size_t kNumPartitions = 2;
 #else
 inline constexpr size_t kNumPartitions = 1;
 #endif
-inline constexpr size_t kDefaultPartitionIndex = 0;
 
 namespace internal {
 
@@ -30,13 +34,18 @@ class PA_COMPONENT_EXPORT(ALLOCATOR_SHIM) PartitionAllocMalloc {
   // allocators are effectively set in stone.
   static bool AllocatorConfigurationFinalized();
 
-  // TODO(crbug.com/477186304): Remove default value for `alloc_token`, once all
-  // callers are updated and verified to make configuration for all roots.
+  // TODO(crbug.com/477186304): Remove default value for `partition_index`, once
+  // all callers are updated and verified to make configuration for all roots.
   static partition_alloc::PartitionRoot* Allocator(
-      AllocToken alloc_token = AllocToken(kDefaultPartitionIndex));
+      size_t partition_index = kDefaultPartitionIndex);
   // May return |nullptr|, will never return the same pointer as  |Allocator()|.
   static partition_alloc::PartitionRoot* OriginalAllocator(
-      AllocToken alloc_token = AllocToken(kDefaultPartitionIndex));
+      size_t partition_index = kDefaultPartitionIndex);
+  // Returns the dedicated PartitionRoot for allocations that are intended to be
+  // quarantined and leaked upon free. Will never return nullptr, and will never
+  // return the same pointer as |Allocator()|. Allocations routed here are never
+  // reused after being freed.
+  static partition_alloc::PartitionRoot* IntendedLeakAllocator();
 };
 
 template <partition_alloc::AllocFlags base_alloc_flags,
@@ -64,6 +73,11 @@ class PartitionAllocFunctionsInternal {
                         AllocToken alloc_token,
                         void* context);
 
+  static void* MemalignUnchecked(size_t alignment,
+                                 size_t size,
+                                 AllocToken alloc_token,
+                                 void* context);
+
   static void* AlignedAlloc(size_t size,
                             size_t alignment,
                             AllocToken alloc_token,
@@ -73,6 +87,12 @@ class PartitionAllocFunctionsInternal {
                                      size_t alignment,
                                      AllocToken alloc_token,
                                      void* context);
+
+  static void* AlignedCallocUnchecked(size_t n,
+                                      size_t size,
+                                      size_t alignment,
+                                      AllocToken alloc_token,
+                                      void* context);
 
   static void* AlignedRealloc(void* address,
                               size_t size,
@@ -137,6 +157,7 @@ class PartitionAllocFunctionsInternal {
         &Calloc,                    // alloc_zero_initialized_function
         &CallocUnchecked,           // alloc_zero_initialized_unchecked_function
         &Memalign,                  // alloc_aligned_function
+        &MemalignUnchecked,         // alloc_aligned_unchecked_function
         &Realloc,                   // realloc_function
         &ReallocUnchecked,          // realloc_unchecked_function
         &Free,                      // free_function
@@ -162,6 +183,7 @@ class PartitionAllocFunctionsInternal {
 #endif
         &AlignedAlloc,             // aligned_malloc_function
         &AlignedAllocUnchecked,    // aligned_malloc_unchecked_function
+        &AlignedCallocUnchecked,   // aligned_calloc_unchecked_function
         &AlignedRealloc,           // aligned_realloc_function
         &AlignedReallocUnchecked,  // aligned_realloc_unchecked_function
         &AlignedFree,              // aligned_free_function
@@ -201,7 +223,13 @@ PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
 void InstallCustomDispatchForTesting(AllocatorDispatch* dispatch);
 
 PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
+void InstallCustomDispatchForTesting(const AllocatorDispatch* dispatch);
+
+PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
 void UninstallCustomDispatch();
+
+PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
+const AllocatorDispatch* GetCustomDispatchForTesting();
 
 #if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
 // Provide a ConfigurePartitions() helper, to mimic what Chromium uses. This way
@@ -234,25 +262,33 @@ PA_ALWAYS_INLINE void ConfigurePartitionsForTesting() {
       partition_alloc::internal::SchedulerLoopQuarantineConfig();
   auto scheduler_loop_quarantine_thread_local_config =
       partition_alloc::internal::SchedulerLoopQuarantineConfig();
-  auto scheduler_loop_quarantine_for_advanced_memory_safety_checks_config =
+  auto scheduler_loop_quarantine_for_sanitized_object_config =
       partition_alloc::internal::SchedulerLoopQuarantineConfig();
 
   auto eventually_zero_freed_memory = EventuallyZeroFreedMemory(false);
-  auto enable_free_with_size = allocator_shim::EnableFreeWithSize(
-      PA_BUILDFLAG(SHIM_SUPPORTS_SIZED_DEALLOC));
-  auto enable_strict_free_size_check =
-      allocator_shim::EnableStrictFreeSizeCheck(true);
+  auto enable_tighter_aligned_alloc_bound =
+      EnableTighterAlignedAllocBound(false);
 
-  ConfigurePartitions(
-      enable_brp, brp_extra_extras_size, enable_memory_tagging,
-      memory_tagging_reporting_mode, distribution,
-      scheduler_loop_quarantine_global_config,
-      scheduler_loop_quarantine_thread_local_config,
-      scheduler_loop_quarantine_for_advanced_memory_safety_checks_config,
-      eventually_zero_freed_memory, enable_free_with_size,
-      enable_strict_free_size_check);
+  ConfigurePartitions(enable_brp, brp_extra_extras_size, enable_memory_tagging,
+                      memory_tagging_reporting_mode, distribution,
+                      scheduler_loop_quarantine_global_config,
+                      scheduler_loop_quarantine_thread_local_config,
+                      scheduler_loop_quarantine_for_sanitized_object_config,
+                      eventually_zero_freed_memory,
+                      enable_tighter_aligned_alloc_bound);
 }
 #endif  // PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+
+// AllocToken with TypeHashPointerSplit mode assigns the bottom
+// half ID-space for pointer-less types and the top half for
+// pointer-containing types. In practice this is just the first bit is zero if
+// pointer-less. See: https://clang.llvm.org/docs/AllocToken.html
+inline constexpr size_t kAllocTokenHasPointerBit =
+    static_cast<size_t>(1) << (std::numeric_limits<size_t>::digits - 1);
+
+PA_ALWAYS_INLINE bool AllocTokenHasPointerValue(AllocToken alloc_token) {
+  return (alloc_token.value() & kAllocTokenHasPointerBit) != 0;
+}
 
 }  // namespace allocator_shim
 

@@ -26,12 +26,6 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
-<enum name="AutomaticBeaconOutcome">
-  <int value="0" label="Success"/>
-  <int value="1" label="No transient user activation"/>
-  <int value="2" label="Cross origin frame to mapped URL not opted in"/>
-</enum>
-
 <!-- LINT.IfChange(BackForwardCacheEntryMatchResult) -->
 
 <enum name="BackForwardCacheEntryMatchResult">
@@ -41,7 +35,7 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Match found and index match"/>
 </enum>
 
-<!-- LINT.ThenChange(//content/browser/renderer_host/back_forward_cache_impl.h:BackForwardCacheEntryMatchResult) -->
+<!-- LINT.ThenChange(//content/browser/back_forward_cache/back_forward_cache_impl.h:BackForwardCacheEntryMatchResult) -->
 
 <enum name="BackForwardCacheEvictedAfterDocumentRestoredReason">
   <int value="0" label="Restored"/>
@@ -150,6 +144,12 @@ chromium-metrics-reviews@google.com.
   <int value="74"
       label="Pages with web locks in bfcache encountered a lock contention"/>
   <int value="75" label="Forward cache is disabled"/>
+  <int value="76" label="Rfh EnforceInsecureNavigationsSet"/>
+  <int value="77" label="Rfh EnforceInsecureRequestPolicy"/>
+  <int value="78" label="Rfh HadStickyUserActivationBeforeNavigationChanged"/>
+  <int value="79" label="Rfh UpdateAdFrameStatus"/>
+  <int value="80" label="Rfh DidChangeName"/>
+  <int value="81" label="Rfh DidChangeOpener"/>
 </enum>
 
 <!-- LINT.ThenChange(//content/public/browser/back_forward_cache.h:NotRestoredReason) -->
@@ -171,6 +171,15 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Non-http/https scheme"/>
   <int value="1" label="Http(s) scheme"/>
 </enum>
+
+<!-- LINT.IfChange(ConnectionEstablishmentInitiator) -->
+
+<enum name="ConnectionEstablishmentInitiator">
+  <int value="0" label="kPreconnect"/>
+  <int value="1" label="kRequest"/>
+</enum>
+
+<!-- LINT.ThenChange(//services/network/public/mojom/connection_change_observer_client.mojom:ConnectionEstablishmentInitiator) -->
 
 <!-- LINT.IfChange(CookieChangeCause) -->
 
@@ -226,7 +235,7 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Cookies Not Changed"/>
 </enum>
 
-<!-- LINT.ThenChange(//content/browser/renderer_host/navigator.cc:DuplicateNavsCookieStatus) -->
+<!-- LINT.ThenChange(//content/common/content_navigation_policy.h:DuplicateNavsCookieStatus) -->
 
 <enum name="EarlyRFHSwapType">
   <int value="0" label="No early swap"/>
@@ -262,11 +271,34 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//content/public/browser/error_navigation_trigger.h:ErrorNavigationTrigger) -->
 
-<enum name="FencedFrameAutomaticBeaconEventType">
-  <int value="0" label="reserved.top_navigation"/>
-  <int value="1" label="reserved.top_navigation_start"/>
-  <int value="2" label="reserved.top_navigation_commit"/>
+<!-- LINT.IfChange(FastFetchEligibilityReason) -->
+
+<enum name="FastFetchEligibilityReason">
+  <int value="0" label="Eligible"/>
+  <int value="1" label="Not in outermost main frame"/>
+  <int value="2" label="Not GET method"/>
+  <int value="3" label="Not HTTPS scheme"/>
+  <int value="4" label="Is reload"/>
+  <int value="5" label="Is history navigation"/>
+  <int value="6" label="DevTools attached"/>
+  <int value="7" label="Has signed exchange"/>
+  <int value="8" label="Has service worker"/>
+  <int value="9" label="Same document"/>
+  <int value="10" label="Is prerender"/>
+  <int value="11" label="Is prerender activation"/>
 </enum>
+
+<!-- LINT.ThenChange(//content/browser/loader/navigation_fast_fetch_manager.h:EligibilityReason) -->
+
+<!-- LINT.IfChange(FastFetchNavigationOutcome) -->
+
+<enum name="FastFetchNavigationOutcome">
+  <int value="0" label="Committed"/>
+  <int value="1" label="Failed"/>
+  <int value="2" label="Cancelled"/>
+</enum>
+
+<!-- LINT.ThenChange(//content/browser/loader/navigation_fast_fetch_manager.h:NavigationOutcome) -->
 
 <!-- LINT.IfChange(HistoryNavigationDirection) -->
 
@@ -276,21 +308,12 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Same entry (e.g. session restore)"/>
 </enum>
 
-<!-- LINT.ThenChange(//content/browser/renderer_host/back_forward_cache_metrics.h:HistoryNavigationDirection) -->
+<!-- LINT.ThenChange(//content/browser/back_forward_cache/back_forward_cache_metrics.h:HistoryNavigationDirection) -->
 
 <enum name="HistoryNavType">
   <int value="0" label="kMainFrame"/>
   <int value="1" label="kMainFrameAndSubframe"/>
   <int value="2" label="kSubframe"/>
-</enum>
-
-<enum name="LinkPreviewZoomUsage">
-  <int value="0"
-      label="kOnlyDefaultUsed: A preview was started with default zoom level
-             and not changed."/>
-  <int value="1"
-      label="kNonDefaultUsed: A preview was shown with non default zoom level
-             in some timing in a preview lifecycle."/>
 </enum>
 
 <enum name="MojoInterfaceName">
@@ -307,6 +330,25 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Browser mapped urn::uuid is rendered in fenced frame"/>
   <int value="1" label="Browser mapped urn::uuid is rendered in iframe"/>
 </enum>
+
+<!-- LINT.IfChange(NavigationInitiatorType) -->
+
+<enum name="NavigationInitiatorType">
+  <int value="0" label="Other"/>
+  <int value="1" label="Bookmark Bar"/>
+  <int value="2" label="New Tab Page"/>
+  <int value="3" label="Omnibox Direct URL Input"/>
+  <int value="4" label="Omnibox Default Search Engine"/>
+  <int value="5" label="Link Click"/>
+  <int value="6" label="Forward"/>
+  <int value="7" label="Backward"/>
+  <int value="8" label="Reload"/>
+  <int value="9" label="Context Menu Search"/>
+  <int value="10" label="Context Menu Open Link"/>
+  <int value="11" label="Form Submission"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/page_load_metrics/browser/navigation_initiator.h:PageLoadMetricsNavigationInitiator|//chrome/browser/page_load_metrics/chrome_navigation_initiator.h:ChromeNavigationInitiator) -->
 
 <enum name="NavigationIsGuest">
   <int value="0" label="Not a guest navigation"/>
@@ -333,6 +375,37 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="kRestoreSession"/>
   <int value="2" label="kCopyStateFrom"/>
   <int value="3" label="kCrashedSubframe"/>
+</enum>
+
+<enum name="NavigationPageTransitionDecodedType">
+  <int value="0" label="Link"/>
+  <int value="1" label="Typed"/>
+  <int value="2" label="Auto bookmark"/>
+  <int value="3" label="Auto subframe"/>
+  <int value="4" label="Manual subframe"/>
+  <int value="5" label="Generated"/>
+  <int value="6" label="Auto toplevel"/>
+  <int value="7" label="Form submit"/>
+  <int value="8" label="Reload"/>
+  <int value="9" label="Keyword"/>
+  <int value="10" label="Keyword generated"/>
+  <int value="33554432" label="From address bar"/>
+  <int value="33554433" label="From address bar | Typed"/>
+  <int value="33554434" label="From address bar | Auto bookmark"/>
+  <int value="33554435" label="From address bar | Auto subframe"/>
+  <int value="33554436" label="From address bar | Manual subframe"/>
+  <int value="33554437" label="From address bar | Generated"/>
+  <int value="33554438" label="From address bar | Auto toplevel"/>
+  <int value="33554439" label="From address bar | Form submit"/>
+  <int value="33554440" label="From address bar | Reload"/>
+  <int value="33554441" label="From address bar | Keyword"/>
+  <int value="33554442" label="From address bar | Keyword generated"/>
+  <int value="67108864" label="Home page"/>
+  <int value="67108866" label="Home page | Auto bookmark"/>
+  <int value="134217728" label="From API"/>
+  <int value="134217729" label="From API | Typed"/>
+  <int value="134217734" label="From API | Auto toplevel"/>
+  <int value="1073741824" label="Client redirect"/>
 </enum>
 
 <!-- LINT.IfChange(NavigationRequestSchemeType) -->
@@ -452,6 +525,7 @@ chromium-metrics-reviews@google.com.
   <int value="18" label="Captured Empty Bitmap From Embedder"/>
   <int value="19" label="Forward transition animation not supported"/>
   <int value="20" label="Failed read back"/>
+  <int value="21" label="Size Exceeds Limit"/>
 </enum>
 
 <!-- LINT.ThenChange(//content/browser/renderer_host/navigation_transitions/navigation_transition_data.h:CacheHitOrMissReason)-->
@@ -1657,7 +1731,7 @@ chromium-metrics-reviews@google.com.
   <int value="10" label="kTrustTokenParams"/>
   <int value="11" label="kWebBundleToken"/>
   <int value="12" label="kRequestContextType"/>
-  <int value="13" label="kImpressionHasValue"/>
+  <int value="13" label="kImpressionHasValue (Obsolete)"/>
   <int value="14" label="kInitiatorOrigin"/>
   <int value="15" label="kTransition"/>
   <int value="16" label="kNavigationType"/>
@@ -1673,35 +1747,6 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//content/browser/preloading/prerender/prerender_host.h:ActivationNavigationParamsMatch) -->
-
-<enum name="PrerenderActivationTransitionMismatchType">
-  <int value="0" label="Link"/>
-  <int value="1" label="Typed"/>
-  <int value="2" label="Auto bookmark"/>
-  <int value="3" label="Auto subframe"/>
-  <int value="4" label="Manual subframe"/>
-  <int value="5" label="Generated"/>
-  <int value="6" label="Auto toplevel"/>
-  <int value="7" label="Form submit"/>
-  <int value="8" label="Reload"/>
-  <int value="9" label="Keyword"/>
-  <int value="10" label="Keyword generated"/>
-  <int value="33554432" label="From address bar"/>
-  <int value="33554433" label="From address bar | Typed"/>
-  <int value="33554434" label="From address bar | Auto bookmark"/>
-  <int value="33554435" label="From address bar | Auto subframe"/>
-  <int value="33554436" label="From address bar | Manual subframe"/>
-  <int value="33554437" label="From address bar | Generated"/>
-  <int value="33554438" label="From address bar | Auto toplevel"/>
-  <int value="33554439" label="From address bar | Form submit"/>
-  <int value="33554440" label="From address bar | Reload"/>
-  <int value="33554441" label="From address bar | Keyword"/>
-  <int value="33554442" label="From address bar | Keyword generated"/>
-  <int value="67108864" label="Home page"/>
-  <int value="67108866" label="Home page | Auto bookmark"/>
-  <int value="134217728" label="From API"/>
-  <int value="134217729" label="From API | Typed"/>
-</enum>
 
 <enum name="PrerenderCancelledInterface">
   <int value="0" label="kUnknown"/>
@@ -1729,7 +1774,7 @@ chromium-metrics-reviews@google.com.
       label="extensions.mojom.EventRouter (Obsolete in M122)"/>
   <int value="-71187962" label="supervised_user.mojom.SupervisedUserCommands"/>
   <int value="-10666109" label="chrome.mojom.PluginInfoHost"/>
-  <int value="-4973921" label="blink.mojom.AttributionHost"/>
+  <int value="-4973921" label="blink.mojom.AttributionHost (Obsolete in M152)"/>
   <int value="191605727" label="content.mojom.PepperHost"/>
   <int value="828689080" label="blink.mojom.BlobURLStore (Obsolete)"/>
   <int value="1054828948" label="extensions.mojom.GuestView"/>
@@ -1845,6 +1890,8 @@ chromium-metrics-reviews@google.com.
   <int value="10" label="Running in Isolated Web App"/>
   <int value="11" label="Running in Kiosk Session"/>
   <int value="12" label="Low memory device"/>
+  <int value="13" label="Disabled by blackout"/>
+  <int value="14" label="Disabled on startup"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/preloading/prerender/prerender_manager.h:PrewarmDecision) -->
@@ -2009,6 +2056,7 @@ Called by update_scheduler_enums.py.-->
   <int value="69" label="WebBluetooth"/>
   <int value="70" label="WebAuthentication"/>
   <int value="71" label="SharedWorkerMessage"/>
+  <int value="72" label="WebUSB"/>
 </enum>
 
 <!-- LINT.ThenChange(//third_party/blink/public/mojom/scheduler/web_scheduler_tracked_feature.mojom:WebSchedulerTrackedFeature)-->

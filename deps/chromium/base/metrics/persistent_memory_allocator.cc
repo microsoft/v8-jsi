@@ -13,6 +13,7 @@
 
 #include "base/bits.h"
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/debug/alias.h"
 #include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
@@ -31,6 +32,7 @@
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
 
+#include "base/features.h"
 #include "base/win/winbase_shim.h"
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 #include <sys/mman.h>
@@ -53,7 +55,7 @@ constexpr uint32_t kGlobalCookie = 0x408305DC;
 
 // The current version of the metadata. If updates are made that change the
 // metadata, the version number can be queried to operate in a backward-
-// compatible manner until the memory segment is completely re-initalized.
+// compatible manner until the memory segment is completely re-initialized.
 // Note: If you update the metadata in a non-backwards compatible way, reset
 // `kCompatibleVersions`. Otherwise, add the previous version.
 constexpr uint32_t kGlobalVersion = 3;
@@ -954,7 +956,9 @@ PersistentMemoryAllocator::GetBlock(Reference ref,
       return nullptr;
     }
     const uint32_t block_size = block->size;
-    if (block_size < size) {
+    if (block_size < size || block_size <= sizeof(BlockHeader) ||
+        block_size % kAllocAlignment != 0) {
+      // The serialized `block_size` either underflows or misaligns the block.
       return nullptr;
     }
     // Find a validate the end of the block.
@@ -1195,8 +1199,8 @@ FilePersistentMemoryAllocator::FilePersistentMemoryAllocator(
     std::string_view name,
     AccessMode access_mode)
     : PersistentMemoryAllocator(
-          Memory(const_cast<uint8_t*>(file->data()), MEM_FILE),
-          max_size != 0 ? max_size : file->length(),
+          Memory(file->mutable_bytes().data(), MEM_FILE),
+          max_size != 0 ? max_size : file->mutable_bytes().size(),
           0,
           id,
           name,
@@ -1209,7 +1213,8 @@ FilePersistentMemoryAllocator::~FilePersistentMemoryAllocator() = default;
 bool FilePersistentMemoryAllocator::IsFileAcceptable(
     const MemoryMappedFile& file,
     bool readonly) {
-  return IsMemoryAcceptable(file.data(), file.length(), 0, readonly);
+  const base::span<const uint8_t> bytes = file.bytes();
+  return IsMemoryAcceptable(bytes.data(), bytes.size(), 0, readonly);
 }
 
 void FilePersistentMemoryAllocator::Cache() {
@@ -1254,18 +1259,26 @@ void FilePersistentMemoryAllocator::FlushPartial(size_t length, bool sync) {
   scoped_blocking_call.emplace(FROM_HERE, base::BlockingType::MAY_BLOCK);
   BOOL success = ::FlushViewOfFile(data(), length);
   DPCHECK(success);
-#elif BUILDFLAG(IS_APPLE)
-  // On OSX, "invalidate" removes all cached pages, forcing a re-read from
-  // disk. That's not applicable to "flush" so omit it.
+  // FlushViewOfFile() writes modified pages only to the operating system's
+  // file cache, not to physical storage. For synchronous flushes, commit the
+  // cache buffers to disk via FlushFileBuffers() to guarantee durability
+  // against sudden power loss or system crashes if the feature is enabled.
+  if (sync && mapped_file_->file().IsValid() &&
+      base::FeatureList::IsEnabled(features::kFlushFileBuffersOnSyncFlush)) {
+    ::FlushFileBuffers(mapped_file_->file().GetPlatformFile());
+  }
+#elif BUILDFLAG(IS_FUCHSIA)
+  // Fuchsia's POSIX compatibility layer does not implement msync().
+#elif BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_POSIX)
+  // MS_INVALIDATE is omitted because it forces cached mapped pages to be
+  // dropped, triggering unnecessary page faults and re-reads on subsequent
+  // accesses. On POSIX and Apple platforms (Linux, ChromeOS, Android, macOS,
+  // iOS), MAP_SHARED mappings operate directly on the kernel's unified page
+  // cache, so other processes already observe writes without requiring cache
+  // invalidation.
   int result =
       ::msync(const_cast<void*>(data()), length, sync ? MS_SYNC : MS_ASYNC);
-  DCHECK_NE(EINVAL, result);
-#elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
-  // On POSIX, "invalidate" forces _other_ processes to recognize what has
-  // been written to disk and so is applicable to "flush".
-  int result = ::msync(const_cast<void*>(data()), length,
-                       MS_INVALIDATE | (sync ? MS_SYNC : MS_ASYNC));
-  DCHECK_NE(EINVAL, result);
+  DPCHECK(result == 0);
 #else
 #error Unsupported OS.
 #endif

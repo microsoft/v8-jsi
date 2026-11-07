@@ -14,8 +14,10 @@
 
 #include "absl/strings/internal/escaping.h"
 
+#include <cstddef>
 #include <limits>
 
+#include "absl/base/config.h"
 #include "absl/base/internal/endian.h"
 #include "absl/base/internal/raw_logging.h"
 

@@ -18,6 +18,7 @@
 #include "base/memory/memory_pressure_level.h"
 #include "base/memory/scoped_refptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/memory_coordinator/memory_limit.h"
 #include "base/observer_list_types.h"
 #include "base/sequence_checker.h"
 #include "base/threading/thread_checker.h"
@@ -38,7 +39,7 @@ enum class MemoryPressureListenerTag {
   kVulkanInProcessContextProvider = 5,
   // kDemuxerManager = 6,
   // kFrameEvictionManager = 7,
-  kSlopBucket = 8,
+  // kSlopBucket = 8,
   kDiscardableSharedMemoryManager = 9,
   // kSharedStorageManager = 10,
   // kStagingBufferPool = 11,
@@ -66,12 +67,12 @@ enum class MemoryPressureListenerTag {
   // kGpuChildThread = 33,
   // kNavigationEntryScreenshotManager = 34,
   kGlicKeyedService = 35,
-  kRenderThreadImpl = 36,
+  // kRenderThreadImpl = 36,  // Deprecated
   kSpareRenderProcessHostManagerImpl = 37,
   // kDOMStorageContextWrapper = 38,
   // kGpuProcessHost = 39,
   kPrerenderHostRegistry = 40,
-  kUrgentPageDiscardingPolicy = 41,
+  // kUrgentPageDiscardingPolicy = 41,
   // kTabLoader = 42,
   kBackgroundTabLoadingPolicy = 43,
   // kThumbnailCache = 44,
@@ -80,14 +81,14 @@ enum class MemoryPressureListenerTag {
   kLruRendererCache = 47,
   // kCastMemoryPressureControllerImpl = 48,
   kFontGlobalContext = 49,
-  kClientDiscardableSharedMemoryManager = 50,
+  // kClientDiscardableSharedMemoryManager = 50,
   kMemoryReclaimerPressureListener = 51,
   kSkiaGraphicsPressureListener = 52,
   kBlinkIsolatesPressureListener = 53,
   kUniqueFontSelector = 54,
   kParkableStringManager = 55,
   kPlainTextPainter = 56,
-  kMemoryCache = 57,
+  // kMemoryCache = 57,
   kResource = 58,
   // kResourceFetcher = 59,
   kGlicProfileManager = 60,
@@ -177,10 +178,7 @@ class BASE_EXPORT MemoryPressureListener : public CheckedObserver {
   // See base/memory_coordinator/memory_consumer.h for more details on the
   // memory limit. This is a helper function to facilitate the migration to
   // MemoryConsumer.
-  int GetMemoryLimit() const;
-
-  // Same as `GetMemoryLimit()`, but expressed as a ratio.
-  double GetMemoryLimitRatio() const;
+  MemoryLimit GetMemoryLimit() const;
 
  protected:
   virtual void OnMemoryPressure(MemoryPressureLevel memory_pressure_level) = 0;

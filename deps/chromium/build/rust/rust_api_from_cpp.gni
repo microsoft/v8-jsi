@@ -1,0 +1,331 @@
+# Copyright 2022 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/rust.gni")
+import("//build/rust/gni_impl/crubit_shared_args.gni")
+import("//build/rust/gni_impl/libclang_args.gni")
+import("//build/rust/rust_static_library.gni")
+import("//build/toolchain/kythe.gni")
+import("//build_overrides/crubit.gni")
+
+# Crubit features enabled for all `rust_api_from_cpp` targets.
+# See also: https://github.com/google/crubit/blob/main/features/README.md
+_globally_enabled_crubit_features = [
+  "supported",
+
+  # `assume_lifetimes` makes Crubit apply Rust's lifetime elision rules to C++
+  # references (e.g. `this` becomes `&self`).  This will become the default
+  # Crubit behavior "soon", but for now this is an opt-in (to enable
+  # incremental migration of other Crubit clients).  For more details see the
+  # "References and lifetimes" section in
+  # `docs/rust/crubit/rust_api_from_cpp.md`.
+  "assume_lifetimes",
+]
+
+# Template to generate and build Rust bindings for a set of C++ headers using
+# Crubit's `rust_api_from_cpp` (aka `rs_bindings_from_cc`) tool.  For
+# additional instructions and examples for using this template please see
+# `//docs/rust/crubit/rust_api_from_cpp.md`.
+#
+# This template expands into a `rust_static_library` containing the Rust crate
+# that provides Rust APIs wrapping/binding C++ API from `public_headers`.  (It
+# also expands to some internal targets - e.g. C++ `source_set` with C++ thunks
+# needed to support the bindings.)
+#
+# The generated `out/.../gen/.../<target>.rs` can be inspected to see:
+# * The shape of the generated bindings (i.e. the Rust APIs that correspond to
+#   or wrap the C++ APIs from `public_headers`)
+# * The comments that describe errors that may have prevented generating
+#   additional bindings
+#
+# Parameters:
+#
+#   bindings_target:
+#     The C++ target (e.g. a `source_set`) that Rust bindings should be
+#     generated for.
+#
+#     `public_configs` of `bindings_target` (e.g. providing `-D` or `-I` flags)
+#     are used when parsing `public_headers` and when compiling the generated
+#     C++ thunks.
+#
+#   public_headers:
+#     The .h files to generate bindings for.
+#
+#     Implementation note: This doesn't just take *all* the headers of the
+#     `bindings_target`, because typically only a *subset* of headers provides
+#     the *public* API that bindings are needed for.
+#
+#   deps: (optional)
+#     Other `rust_api_from_cpp` targets that the bindings need to depend on.
+#
+#     `//docs/rust/crubit/rust_api_from_cpp.md` contains more info and
+#     examples, but basically, if public APIs from `public_headers` depend on
+#     types from other targets, then `deps` should list the `rust_api_from_cpp`
+#     targets that generate bindings for types from these other targets.
+template("rust_api_from_cpp") {
+  assert(enable_rust_api_from_cpp)
+
+  # At this point `rs_bindings_from_cc` is only distributed with the Chromium
+  # Rust toolchain.
+  assert(enable_rust && use_chromium_rust_toolchain)
+
+  # PDFium, V8 and other "2nd-party" Chromium projects don't yet have their own
+  # `//build_overrides/crubit.gni` build file.  Until this is fixed, we assert
+  # that `rust_api_from_cpp` template can only be used in Chromium builds.
+  assert(build_with_chromium)
+
+  # Mandatory parameter: bindings_target.
+  assert(defined(invoker.bindings_target),
+         "Must specify the C/C++ target to make bindings for.")
+  _bindings_target = invoker.bindings_target
+
+  # Mandatory/unavoidable parameter: target_name
+  _lib_target_name = target_name
+  _current_lib_target_full_label =
+      get_label_info(":${_lib_target_name}", "label_no_toolchain")
+  _cc_impl_target_name = "${_lib_target_name}_cc_impl"
+
+  # Mandatory parameter: public_headers.
+  assert(defined(invoker.public_headers),
+         "Must specify the public C/C++ headers to make bindings for.")
+  _rebased_public_headers = []
+  foreach(hdr, invoker.public_headers) {
+    _rebased_public_headers += [ rebase_path(hdr, root_build_dir) ]
+  }
+
+  # Optional parameter: testonly.
+  _testonly = false
+  if (defined(invoker.testonly)) {
+    _testonly = invoker.testonly
+  }
+
+  # Optional parameter: visibility.
+  if (defined(invoker.visibility)) {
+    _visibility = invoker.visibility
+  }
+
+  # Optional parameter: deps.
+  #
+  # TODO(crbug.com/40226863): Can we somehow assert that `_deps` only contains
+  # targets created via `rust_api_from_cpp`?
+  _deps = []
+  if (defined(invoker.deps)) {
+    _deps = invoker.deps
+  }
+
+  # Various names and paths that are shared across multiple targets defined
+  # in the template here.
+  _gen_bindings_target_name = "${_lib_target_name}_gen_bindings"
+  _gen_metadata_target_name = "${_lib_target_name}_gen_metadata"
+  _metadata_target_name = "${_lib_target_name}_crubit_metadata"
+  _metadata_path = "${target_gen_dir}/${_lib_target_name}_meta.json"
+  _flagfile_path = "${target_out_dir}/${_gen_bindings_target_name}.flagfile"
+  _rs_out_path = "${target_gen_dir}/${_lib_target_name}.rs"
+  _cc_out_path = "${target_gen_dir}/${_lib_target_name}_impl.cc"
+
+  # Crubit needs to know the crate name of the generated bindings (and of their
+  # `_deps`) to refer to them from the generated code - see `c` below.
+  #
+  # NOTE: TargetName=>CrateName mangling algorithm should be kept in sync with
+  # `rust_target.gni` (see the NOTE there; `chromium::import!` relies on it).
+  _dir_hash = string_hash(get_label_info(":${_lib_target_name}", "dir"))
+  _lib_target_crate_name = "${_lib_target_name}_${_dir_hash}"
+
+  # Metadata targets (see `_metadata_target_name` below) of `_deps`.
+  _deps_metadata_targets = []
+  foreach(_dep, _deps) {
+    _dep_dir = get_label_info(_dep, "dir")
+    _dep_name = get_label_info(_dep, "name")
+    _dep_toolchain = get_label_info(_dep, "toolchain")
+    _deps_metadata_targets +=
+        [ "${_dep_dir}:${_dep_name}_crubit_metadata(${_dep_toolchain})" ]
+  }
+
+  # Calculating the `--target_args` snippet for the *current* target
+  # and putting it into GN's `metadata`.
+  #
+  # This is a pure metadata target: it only depends on the metadata targets of
+  # `_deps` (and not on any actions or libraries).  This way, when generating
+  # bindings that depend on this target, `rs_bindings_from_cc` doesn't wait
+  # for the bindings of this target to be generated and compiled.
+  group(_metadata_target_name) {
+    testonly = _testonly
+    deps = _deps_metadata_targets
+
+    metadata = {
+      # The data below corresponds to a single-target entry inside
+      # `--target_args` cmdline argument of `rs_bindings_from_cc`.
+      crubit_target_and_args = [
+        {
+          t = _current_lib_target_full_label
+          h = _rebased_public_headers
+          f = _globally_enabled_crubit_features
+          c = _lib_target_crate_name
+        },
+      ]
+    }
+  }
+
+  # Gathering `--target_args` data from *all* transitive dependencies and
+  # putting them into the file at `_metadata_path`.
+  #
+  # The metadata walk only visits the metadata targets (and therefore doesn't
+  # care about all the `deps` or `public_deps` of the `_bindings_target`; see
+  # also the doc comment about `rust_api_from_cpp.deps` attribute at the top
+  # of this file).
+  generated_file(_gen_metadata_target_name) {
+    testonly = _testonly
+    visibility = [ ":${_gen_bindings_target_name}" ]
+
+    deps = [ ":${_metadata_target_name}" ]
+
+    outputs = [ _metadata_path ]
+    output_conversion = "json"
+    data_keys = [ "crubit_target_and_args" ]
+  }
+
+  source_set(_cc_impl_target_name) {
+    testonly = _testonly
+    visibility = [ ":${_lib_target_name}" ]
+
+    sources = [ _cc_out_path ]
+    deps = [
+      ":${_gen_bindings_target_name}",
+      "//build/rust/crubit:rust_api_from_cpp_bindings_cpp_deps",
+      _bindings_target,
+    ]
+
+    # Chromium already covers `chromium/src/` and `out/Release/gen` in the
+    # include path, but we need to explicitly add `out/Release` below.  This
+    # is needed, because `--public_headers` passed to Crubit use paths relative
+    # to the `out/Release` directory.  See also b/239238801.
+    include_dirs = [ root_build_dir ]
+
+    configs -= crubit_gn_configs_to_remove
+    configs += crubit_gn_support_configs_to_add
+  }
+
+  # Exposing the generated Rust bindings.
+  rust_static_library(_lib_target_name) {
+    testonly = _testonly
+    if (defined(_visibility)) {
+      visibility = _visibility
+    }
+
+    deps = _deps
+    deps += [
+      ":${_cc_impl_target_name}",
+      ":${_gen_bindings_target_name}",
+      "//build/rust/crubit:rust_api_from_cpp_bindings_rs_deps",
+    ]
+
+    # Explicitly setting `crate_name` guarantees that it matches the name passed
+    # to Crubit (via `c` in the metadata above).
+    crate_name = _lib_target_crate_name
+    crate_root = _rs_out_path
+    sources = [ crate_root ]
+
+    # Crubit-generated crates are Chromium-agnostic, so they shouldn't use
+    # Chromium-specific dependencies nor lints.
+    no_allocator_crate = true
+    no_chromium_prelude = true
+    no_clippy = true
+
+    # Allow `unsafe` for FFI.
+    allow_unsafe = true
+
+    # Crubit-generated bindings are not Chromium code, and they rely on some
+    # unstable features.
+    configs -= crubit_gn_configs_to_remove
+    configs += crubit_gn_support_configs_to_add
+  }
+
+  # Invoking Crubit's `rs_bindings_from_cc` tool to generate Rust bindings.
+  action(_gen_bindings_target_name) {
+    testonly = _testonly
+    visibility = [
+      ":${_cc_impl_target_name}",
+      ":${_lib_target_name}",
+    ]
+
+    script = "//build/rust/gni_impl/rust_api_from_cpp_wrapper.py"
+    inputs = [
+      "//build/rust/gni_impl/filter_clang_args.py",
+      _metadata_path,
+      rust_api_from_cpp_exe_path,
+      rustfmt_exe_path,
+      rustfmt_config_path,
+    ]
+
+    # Public headers are inputs to this action rather than sources,
+    # so GN does not consider this target an owner of the headers.
+    #
+    # TODO(crbug.com/40226863): Add a `depfile` (as `rust_bindgen_generator`
+    # does) when `rs_bindings_from_cc` can write one.  Until then, incremental
+    # builds do not rerun this action when a header that is only included
+    # indirectly (i.e. not listed in `public_headers`) changes.
+    inputs += invoker.public_headers
+    outputs = [
+      _rs_out_path,
+      _cc_out_path,
+
+      # Written by `rust_api_from_cpp_wrapper.py` (see `--flagfile-path`).
+      _flagfile_path,
+    ]
+
+    # Depending on `_bindings_target` provides its `public_configs` (e.g.
+    # `{{defines}}` and `{{include_dirs}}` needed to parse `public_headers`) and
+    # ensures that headers generated by its dependencies exist.
+    deps = [
+      ":${_gen_metadata_target_name}",
+      _bindings_target,
+    ]
+    args = [
+      # `rust_api_from_cpp_wrapper.py` flags:
+      "--rust-api-from-cpp-exe-path",
+      rebase_path(rust_api_from_cpp_exe_path, root_build_dir),
+      "--flagfile-path",
+      rebase_path(_flagfile_path, root_build_dir),
+      "--target-args-path",
+      rebase_path(_metadata_path, root_build_dir),
+
+      # This `--` is consumed by `argparse` in the wrapper script.  The second
+      # `--` (further below) separates `rs_bindings_from_cc` flags from Clang
+      # args.
+      "--",
+
+      # `rs_bindings_from_cc` flags (written into the flagfile):
+      "--rs_out=" + rebase_path(_rs_out_path, root_build_dir),
+      "--cc_out=" + rebase_path(_cc_out_path, root_build_dir),
+      "--public_headers=" + string_join(",", _rebased_public_headers),
+      "--target=${_current_lib_target_full_label}",
+      "--crubit_support_path_format=${crubit_support_path_format}",
+      "--rustfmt_exe_path=" + rebase_path(rustfmt_exe_path, root_build_dir),
+      "--rustfmt_config_path=" +
+          rebase_path(rustfmt_config_path, root_build_dir),
+    ]
+
+    # TODO(https://crbug.com/40226863): Use
+    # `rust_enable_generated_code_formatting` (see https://crrev.com/c/8494684)
+    # to decide whether to format the impl/thunks-containing C++ files (i.e.
+    # whether to pass `clang_format_exe_path` below).
+    if (defined(clang_format_exe_path)) {
+      inputs += [ clang_format_exe_path ]
+      args += [ "--clang_format_exe_path=" +
+                rebase_path(clang_format_exe_path, root_build_dir) ]
+    }
+
+    if (enable_kythe_annotations) {
+      args += [
+        "--kythe_annotations",
+        "--kythe_default_corpus=${kythe_corpus}",
+      ]
+    }
+
+    # Several important compiler flags come from default_compiler_configs
+    # (and those may not be inherited via `public_configs` of `bindings_target`)
+    configs = default_compiler_configs
+    args += [ "--" ] + libclang_args_for_cpp
+  }
+}

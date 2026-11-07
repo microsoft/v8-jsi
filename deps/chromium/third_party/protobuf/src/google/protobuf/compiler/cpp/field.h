@@ -15,14 +15,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "google/protobuf/compiler/cpp/field_layout.h"
 #include "google/protobuf/compiler/cpp/helpers.h"
 #include "google/protobuf/compiler/cpp/options.h"
 #include "google/protobuf/cpp_features.pb.h"
@@ -51,8 +52,7 @@ class FieldGeneratorBase {
   // variable instead of calling GetArena()'
   enum class GeneratorFunction { kMergeFrom };
 
-  FieldGeneratorBase(const FieldDescriptor* field, const Options& options,
-                     MessageSCCAnalyzer* scc_analyzer);
+  FieldGeneratorBase(const FieldDescriptor* field, const Options& options);
 
   FieldGeneratorBase(const FieldGeneratorBase&) = delete;
   FieldGeneratorBase& operator=(const FieldGeneratorBase&) = delete;
@@ -120,6 +120,8 @@ class FieldGeneratorBase {
 
   virtual void GeneratePrivateMembers(io::Printer* p) const = 0;
 
+  virtual void GenerateSecondaryPrivateMembers(io::Printer* p) const {}
+
   virtual void GenerateStaticMembers(io::Printer* p) const {}
 
   virtual void GenerateAccessorDeclarations(io::Printer* p) const = 0;
@@ -139,8 +141,6 @@ class FieldGeneratorBase {
   virtual void GenerateCopyConstructorCode(io::Printer* p) const;
 
   virtual void GenerateSwappingCode(io::Printer* p) const = 0;
-
-  virtual void GenerateConstructorCode(io::Printer* p) const = 0;
 
   virtual void GenerateDestructorCode(io::Printer* p) const {}
 
@@ -200,11 +200,11 @@ class FieldGeneratorBase {
  protected:
   const FieldDescriptor* field_;
   const Options& options_;
-  MessageSCCAnalyzer* scc_;
   absl::flat_hash_map<absl::string_view, std::string> variables_;
 
   pb::CppFeatures::StringType GetDeclaredStringType() const;
 
+  static io::Printer::Sub InternalMetadataOffsetSub(io::Printer* p);
 
  private:
   bool should_split_ = false;
@@ -291,6 +291,14 @@ class FieldGenerator {
   void GeneratePrivateMembers(io::Printer* p) const {
     auto vars = PushVarsForCall(p);
     impl_->GeneratePrivateMembers(p);
+  }
+
+  // Prints the secondary private members needed to represent this field.
+  //
+  // These are placed inside the class definition after everything else.
+  void GenerateSecondaryPrivateMembers(io::Printer* p) const {
+    auto vars = PushVarsForCall(p);
+    impl_->GenerateSecondaryPrivateMembers(p);
   }
 
   // Prints static members needed to represent this field.
@@ -397,16 +405,6 @@ class FieldGenerator {
     impl_->GenerateSwappingCode(p);
   }
 
-  // Generates initialization code for private members declared by
-  // GeneratePrivateMembers().
-  //
-  // These go into the message class's SharedCtor() method, invoked by each of
-  // the generated constructors.
-  void GenerateConstructorCode(io::Printer* p) const {
-    auto vars = PushVarsForCall(p);
-    impl_->GenerateConstructorCode(p);
-  }
-
   // Generates any code that needs to go in the class's SharedDtor() method,
   // invoked by the destructor.
   void GenerateDestructorCode(io::Printer* p) const {
@@ -428,11 +426,11 @@ class FieldGenerator {
   // GeneratePrivateMembers().
   //
   // These go into the SharedCtor's aggregate initialization of the _impl_
-  // struct and must follow the syntax `decltype($field$){$default$}`.
+  // struct and must follow the syntax `decltype($field_$){$default$}`.
   // Does not include `:` or `,` separators. Default values should be specified
   // here when possible.
   //
-  // NOTE: We use `decltype($field$)` for both explicit construction and the
+  // NOTE: We use `decltype($field_$)` for both explicit construction and the
   // fact that it's self-documenting. Pre-C++17, copy elision isn't guaranteed
   // in aggregate initialization so a valid copy/move constructor must exist
   // (even though it's not used). Because of this, we need to comment out the
@@ -446,7 +444,7 @@ class FieldGenerator {
   // GeneratePrivateMembers().
   //
   // These go into the constexpr constructor's aggregate initialization of the
-  // _impl_ struct and must follow the syntax `/*decltype($field$)*/{}` (see
+  // _impl_ struct and must follow the syntax `/*decltype($field_$)*/{}` (see
   // above). Does not include `:` or `,` separators.
   void GenerateConstexprAggregateInitializer(io::Printer* p) const {
     auto vars = PushVarsForCall(p);
@@ -457,7 +455,7 @@ class FieldGenerator {
   // GeneratePrivateMembers().
   //
   // These go into the copy constructor's aggregate initialization of the _impl_
-  // struct and must follow the syntax `decltype($field$){from.$field$}` (see
+  // struct and must follow the syntax `decltype($field_$){from.$field_$}` (see
   // above). Does not include `:` or `,` separators.
   void GenerateCopyAggregateInitializer(io::Printer* p) const {
     auto vars = PushVarsForCall(p);
@@ -481,7 +479,6 @@ class FieldGenerator {
     impl_->GenerateByteSize(p);
   }
 
-
   // Generates lines to call IsInitialized() for eligible message fields. Non
   // message fields won't need to override this function.
   void GenerateIsInitialized(io::Printer* p) const {
@@ -502,9 +499,7 @@ class FieldGenerator {
  private:
   friend class FieldGeneratorTable;
   FieldGenerator(const FieldDescriptor* field, const Options& options,
-                 MessageSCCAnalyzer* scc_analyzer,
-                 std::optional<uint32_t> hasbit_index,
-                 std::optional<uint32_t> inlined_string_index);
+                 absl::optional<uint32_t> hasbit_index);
 
   std::unique_ptr<FieldGeneratorBase> impl_;
   std::vector<io::Printer::Sub> field_vars_;
@@ -521,9 +516,7 @@ class FieldGeneratorTable {
   FieldGeneratorTable(const FieldGeneratorTable&) = delete;
   FieldGeneratorTable& operator=(const FieldGeneratorTable&) = delete;
 
-  void Build(const Options& options, MessageSCCAnalyzer* scc_analyzer,
-             absl::Span<const int32_t> has_bit_indices,
-             absl::Span<const int32_t> inlined_string_indices);
+  void Build(const Options& options, const FieldLayout& field_layout);
 
   const FieldGenerator& get(const FieldDescriptor* field) const {
     ABSL_CHECK_EQ(field->containing_type(), descriptor_);

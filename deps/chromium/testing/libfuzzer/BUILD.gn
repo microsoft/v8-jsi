@@ -24,7 +24,15 @@ buildflag_header("buildflags") {
     "ARCHIVE_SEED_CORPUS=$archive_seed_corpus",
     "REGISTER_FUZZTESTS_IN_TEST_SUITES=$register_fuzztests_in_test_suites",
     "USE_CENTIPEDE=$use_centipede",
+    "USE_FUZZTEST_WRAPPER=$use_fuzztest_wrapper",
   ]
+}
+
+# This target allows support libraries (not defined via the fuzzer_test
+# template) to depend on libfuzzer_exports.h, which is needed for files
+# that define LLVMFuzzerInitialize.
+source_set("libfuzzer_exports") {
+  sources = [ "libfuzzer_exports.h" ]
 }
 
 # Temporary target for legacy reasons. Some third party repos explicitly
@@ -54,8 +62,8 @@ source_set("libfuzzer_main") {
 }
 
 if (fuzzing_engine_supports_custom_main) {
-  # Depend on this if you want to use LLVMFuzzerRunDriver from within an existing
-  # executable
+  # Depend on this if you want to use LLVMFuzzerRunDriver from within an
+  # existing executable
   group("fuzzing_engine_no_main") {
     testonly = true
     deps = [

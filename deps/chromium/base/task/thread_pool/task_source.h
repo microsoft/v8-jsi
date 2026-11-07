@@ -10,7 +10,7 @@
 #include "base/base_export.h"
 #include "base/containers/intrusive_heap.h"
 #include "base/dcheck_is_on.h"
-#include "base/memory/raw_ptr_exclusion.h"
+#include "base/memory/raw_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/stack_allocated.h"
 #include "base/sequence_token.h"
@@ -163,7 +163,8 @@ class BASE_EXPORT TaskSource : public RefCountedThreadSafe<TaskSource> {
   // |traits| is metadata that applies to all Tasks in the TaskSource.
   TaskSource(const TaskTraits& traits,
              TaskSourceExecutionMode execution_mode,
-             ThreadType originating_thread_type);
+             ThreadType originating_thread_type,
+             bool inherit_by_default = false);
   TaskSource(const TaskSource&) = delete;
   TaskSource& operator=(const TaskSource&) = delete;
 
@@ -255,6 +256,7 @@ class BASE_EXPORT TaskSource : public RefCountedThreadSafe<TaskSource> {
   std::atomic<ThreadType> thread_type_racy_;
 
   const ThreadType originating_thread_type_;
+  const bool inherit_by_default_;
 
   // Synchronizes access to all members.
   mutable CheckedLock lock_{UniversalPredecessor()};
@@ -352,9 +354,9 @@ class BASE_EXPORT RegisteredTaskSource {
 #endif  // DCHECK_IS_ON()
 
   scoped_refptr<TaskSource> task_source_;
-  // RAW_PTR_EXCLUSION: Performance reasons (visible in sampling profiler
-  // stacks).
-  RAW_PTR_EXCLUSION TaskTracker* task_tracker_ = nullptr;
+  // Uses UnprotectedInRelease: Performance reasons (visible in sampling
+  // profiler stacks).
+  raw_ptr<TaskTracker, UnprotectedInRelease> task_tracker_ = nullptr;
 };
 
 // A pair of Transaction and RegisteredTaskSource. Useful to carry a

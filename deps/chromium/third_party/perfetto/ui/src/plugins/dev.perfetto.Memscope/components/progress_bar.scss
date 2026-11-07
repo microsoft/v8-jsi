@@ -1,0 +1,74 @@
+// Copyright (C) 2026 The Android Open Source Project
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Horizontal "X of Y used" meter: colored fill on a grey track, with an
+// optional label (left) and value/suffix (right). Without a label it renders
+// as a compact inline bar (fixed-width track + percentage) for table cells.
+.pf-progress {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--pf-font-size-s);
+  color: var(--pf-color-text-muted);
+}
+
+.pf-progress__label {
+  font-weight: 600;
+}
+
+.pf-progress__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--pf-col-border);
+  overflow: hidden;
+}
+
+.pf-progress__fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--pf-color-accent, #4285f4);
+  transition: width 0.3s ease;
+}
+
+.pf-progress__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--pf-color-text);
+  white-space: nowrap;
+}
+
+.pf-progress__suffix {
+  color: var(--pf-color-text-muted);
+  font-weight: 400;
+}
+
+.pf-progress--compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  .pf-progress__track {
+    width: 80px;
+    flex-shrink: 0;
+  }
+
+  .pf-progress__value {
+    min-width: 30px;
+    text-align: right;
+    font-size: var(--pf-font-size-xs);
+    font-weight: 400;
+    color: var(--pf-color-text-muted);
+  }
+}

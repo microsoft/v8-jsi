@@ -44,12 +44,16 @@ chromium-metrics-reviews@google.com.
   <int value="9" label="'Use passkey on a different device' link"/>
   <int value="10"
       label="'(Obsolete) Create plus address' link in the address sheet"/>
-  <int value="11" label="'Select plus address' link in the address sheet"/>
-  <int value="12" label="'Manage plus addresses' link in the address sheet"/>
+  <int value="11"
+      label="'(Obsolete) Select plus address' link in the address sheet"/>
+  <int value="12"
+      label="'(Obsolete) Manage plus addresses' link in the address sheet"/>
   <int value="13"
       label="'(Obsolete) Create plus address' link in the password sheet"/>
-  <int value="14" label="'Select plus address' link in the password sheet"/>
-  <int value="15" label="'Manage plus addresses' link in the password sheet"/>
+  <int value="14"
+      label="'(Obsolete) Select plus address' link in the password sheet"/>
+  <int value="15"
+      label="'(Obsolete) Manage plus addresses' link in the password sheet"/>
   <int value="16" label="'Manage loyalty cards' link"/>
   <int value="17" label="'Verify it's you' link"/>
   <int value="18" label="'Autofill suggestion from accessory sheet"/>
@@ -84,7 +88,7 @@ chromium-metrics-reviews@google.com.
   <int value="17" label="CREDENTIAL_USERNAME"/>
   <int value="18" label="CREDENTIAL_PASSWORD"/>
   <int value="19" label="PASSKEY"/>
-  <int value="20" label="PLUS_ADDRESS"/>
+  <int value="20" label="(Obsolete) PLUS_ADDRESS"/>
   <int value="21" label="LOYALTY_CARD"/>
 </enum>
 
@@ -203,31 +207,6 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Authentication was finished."/>
 </enum>
 
-<enum name="AutofillSuggestionTriggerSource">
-  <int value="0" label="Unknown"/>
-  <int value="1" label="Form control element clicked"/>
-  <int value="2" label="Textarea focused without click"/>
-  <int value="3" label="Content editable clicked"/>
-  <int value="4" label="Text field's value did change"/>
-  <int value="5" label="Text field did receive keydown"/>
-  <int value="6" label="Open text data list chooser"/>
-  <int value="7" label="Show cards from account"/>
-  <int value="8" label="Password manager"/>
-  <int value="9" label="iOS"/>
-  <int value="10" label="Manual fallback address"/>
-  <int value="11" label="(Deprecated in M133) Manual fallback payments"/>
-  <int value="12" label="Manual fallback passwords"/>
-  <int value="13" label="(Deprecated in M133) Manual fallback plus addresses"/>
-  <int value="14" label="Show prompt after dialog closed non manual fallback"/>
-  <int value="15" label="Compose dialog lost focus"/>
-  <int value="16" label="Compose delayed proactive nudge"/>
-  <int value="17" label="Password manager processed focused field"/>
-  <int value="18" label="Autofill AI"/>
-  <int value="19" label="Plus address update in browser process"/>
-  <int value="20" label="Proactive password recovery"/>
-  <int value="21" label="Glic"/>
-</enum>
-
 <enum name="AutoSigninFirstRun">
   <int value="0" label="No action"/>
   <int value="1" label="Turn off"/>
@@ -318,9 +297,10 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="Passkey from a security key"/>
   <int value="14" label="Passkey hybrid or security key"/>
   <int value="15" label="Passkey unknown source"/>
+  <int value="16" label="Passkey stored in GPM facilitated through iOS UI"/>
 </enum>
 
-<!-- LINT.ThenChange(//components/password_manager/core/browser/password_manager_metrics_util.h:BrowserAssistedLoginType) -->
+<!-- LINT.ThenChange(//components/password_manager/core/common/browser_assisted_login_type.h:BrowserAssistedLoginType) -->
 
 <enum name="ChangePasswordFormFinderError">
   <int value="0" label="Failed to capture page content"/>
@@ -562,15 +542,7 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Rejected, no frame for id"/>
   <int value="5" label="Rejected, no trusted URL"/>
   <int value="6" label="Rejected, can't extract form data"/>
-</enum>
-
-<enum name="HistogramExportResult">
-  <int value="0" label="Success"/>
-  <int value="1" label="(obsolete) User aborted"/>
-  <int value="2" label="Writing to disk failed"/>
-  <int value="3" label="Could not find consumer for exporting"/>
-  <int value="4" label="(obsolete) Screen lock is not set up"/>
-  <int value="5" label="Activity destroyed while not visible"/>
+  <int value="7" label="Rejected, no user interaction"/>
 </enum>
 
 <enum name="HttpPasswordMigrationMode">
@@ -594,6 +566,29 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="User typed or autofilled values"/>
 </enum>
 
+<!-- LINT.IfChange(LoginCheckError) -->
+
+<enum name="LoginCheckError">
+  <int value="0" label="Login failed (credential error)"/>
+  <int value="1" label="Forgot password page detected"/>
+  <int value="2" label="Server error (model execution failed)"/>
+  <int value="3" label="Failed to parse response"/>
+  <int value="4" label="Timeout"/>
+  <int value="5" label="Unknown error"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/password_manager/password_change/login_state_checker.h:LoginCheckError) -->
+
+<!-- LINT.IfChange(LoginCheckResult) -->
+
+<enum name="LoginCheckResult">
+  <int value="0" label="Success (User is logged in)"/>
+  <int value="1" label="Logged out (Maximum attempts reached)"/>
+  <int value="2" label="Error (Server error / timeout / parsing error)"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/password_manager/password_change/login_state_checker.h:LoginCheckResult) -->
+
 <enum name="LoginDatabaseEncryptionStatus">
   <int value="0" label="No issues"/>
   <int value="1"
@@ -601,6 +596,8 @@ chromium-metrics-reviews@google.com.
              database"/>
   <int value="2" label="Encryption is not available"/>
 </enum>
+
+<!-- LINT.IfChange(LoginDatabaseInitError) -->
 
 <enum name="LoginDatabaseInitError">
   <int value="0" label="Init success"/>
@@ -617,6 +614,8 @@ chromium-metrics-reviews@google.com.
   <int value="11" label="Foreign key init error"/>
   <int value="12" label="Password notes table failed initialization"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/password_store/login_database.cc:DatabaseInitError) -->
 
 <enum name="LoginsChangedTrigger">
   <summary>
@@ -700,11 +699,38 @@ chromium-metrics-reviews@google.com.
   <int value="30" label="Autofill and passwords settings page"/>
 </enum>
 
+<!-- LINT.IfChange(OnDeviceEncryptionStateHistogramBucket) -->
+
+<enum name="OnDeviceEncryptionStateHistogramBucket">
+  <int value="0" label="On-device encryption not enabled"/>
+  <int value="1" label="Device not ready"/>
+  <int value="2" label="Device ready"/>
+  <int value="3" label="Password and passkey sync disabled"/>
+  <int value="4" label="Profile not signed in"/>
+  <int value="5" label="Profile sign-in pending"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/ode/on_device_encryption_data_type_specific_metrics_reporter.h:OnDeviceEncryptionStateHistogramBucket) -->
+
+<!-- LINT.IfChange(PasskeysMigrationStatus) -->
+
 <enum name="PasskeysMigrationStatus">
   <int value="0" label="Passkey created"/>
   <int value="1" label="Passkey updated"/>
   <int value="2" label="Invalid passkey"/>
 </enum>
+
+<!-- LINT.ThenChange(//ios/chrome/browser/credential_provider/model/credential_provider_migrator.h:PasskeysMigrationStatus) -->
+
+<!-- LINT.IfChange(PasskeysSignalMigrationAction) -->
+
+<enum name="PasskeysSignalMigrationAction">
+  <int value="0" label="Passkey hidden"/>
+  <int value="1" label="Passkey restored"/>
+  <int value="2" label="Passkey details updated"/>
+</enum>
+
+<!-- LINT.ThenChange(//ios/chrome/browser/credential_provider/model/credential_provider_migrator.h:PasskeysSignalMigrationAction) -->
 
 <enum name="PasswordAddLoginSyncError">
   <int value="0" label="None"/>
@@ -817,6 +843,8 @@ chromium-metrics-reviews@google.com.
   <int value="10" label="Throttled"/>
   <int value="11" label="Signup form"/>
   <int value="12" label="Non-password login"/>
+  <int value="13" label="Invisible password field"/>
+  <int value="14" label="Disabled by user"/>
 </enum>
 
 <!-- LINT.ThenChange(/chrome/browser/password_manager/chrome_password_change_service.h) -->
@@ -928,16 +956,11 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="Safety Check Notification"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/resources/settings/autofill_page/password_manager_proxy.ts:PasswordCheckReferrer, //components/password_manager/core/browser/ui/password_check_referrer.h:PasswordCheckReferrer) -->
-
-<enum name="PasswordCheckResolutionAction">
-  <int value="0" label="Opened a site to change password manually"/>
-  <int value="1"
-      label="(DEPRECATED IN M111) Started an automated password change flow"/>
-  <int value="2" label="Removed a password"/>
-  <int value="3" label="Edited a password"/>
-  <int value="4" label="Did nothing"/>
-</enum>
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/password_manager/side_bar.ts:PasswordCheckReferrer,
+  //chrome/browser/resources/settings/autofill_page/passwords/password_manager_proxy.ts:PasswordCheckReferrer,
+  //components/password_manager/core/browser/ui/password_check_referrer.h:PasswordCheckReferrer
+) -->
 
 <enum name="PasswordCheckUIUserActionAndroid">
   <int value="0" label="Start check automatically"/>
@@ -955,12 +978,16 @@ chromium-metrics-reviews@google.com.
   <int value="12" label="Deleted password"/>
 </enum>
 
+<!-- LINT.IfChange(PasswordDecryptionResult) -->
+
 <enum name="PasswordDecryptionResult">
   <int value="0" label="Failed"/>
   <int value="1" label="Succeeded"/>
   <int value="2" label="Succeeded by skipping"/>
   <int value="3" label="Succeeded by ignoring failure"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/password_store/login_database_posix.cc:PasswordDecryptionResult) -->
 
 <enum name="PasswordDropdownDuplicateCredentialsType">
   <summary>
@@ -994,17 +1021,12 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="Sign in with another WebAuthn device"/>
   <int value="8" label="Backup password"/>
   <int value="9" label="Trouble signing in"/>
+  <int value="10" label="WebAuthn passkey QR code"/>
 </enum>
 
 <enum name="PasswordDropdownState">
   <int value="0" label="Password suggestions"/>
   <int value="1" label="Passwords and generate new password"/>
-</enum>
-
-<enum name="PasswordExportEvent">
-  <int value="0" label="The user selected password export option"/>
-  <int value="1" label="Password export dismissed by the user"/>
-  <int value="2" label="Password export confirmed by the user"/>
 </enum>
 
 <enum name="PasswordFillingReauthPromoShown">
@@ -1052,11 +1074,17 @@ chromium-metrics-reviews@google.com.
   <int value="15" label="Generated password deleted by autofilling"/>
 </enum>
 
+<!-- LINT.IfChange(PasswordGenerationPopupShown) -->
+
 <enum name="PasswordGenerationPopupShown">
   <int value="0" label="Not shown"/>
   <int value="1" label="Shown automatically"/>
   <int value="2" label="Shown manually"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/password_form_metrics_recorder.h:PasswordGenerationPopupShown) -->
+
+<!-- LINT.IfChange(PasswordGenerationUserEvent) -->
 
 <enum name="PasswordGenerationUserEvent">
   <int value="0" label="Password accepted"/>
@@ -1064,6 +1092,8 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Password deleted"/>
   <int value="3" label="Password rejected in modal dialog (obsolete)"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/password_form_metrics_recorder.h:GeneratedPasswordStatus) -->
 
 <enum name="PasswordLeakDetectionDialogDismissalReason">
   <int value="0" label="No direct user interaction"/>
@@ -1081,6 +1111,19 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Network error"/>
   <int value="5" label="Quota limit"/>
 </enum>
+
+<!-- LINT.IfChange(PasswordLeakDetectionUrlType) -->
+
+<enum name="PasswordLeakDetectionUrlType">
+  <int value="0" label="HTTPS"/>
+  <int value="1" label="Localhost"/>
+  <int value="2" label="HTTP"/>
+  <int value="3" label="Private or Intranet IP"/>
+  <int value="4" label="Android App"/>
+  <int value="5" label="Other"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/password_manager/core/browser/leak_detection/leak_detection_types.h:LeakDetectionUrlType) -->
 
 <enum name="PasswordLeakLookupResponseResult">
   <int value="0" label="Success"/>
@@ -1475,7 +1518,24 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Relaunch Chrome"/>
   <int value="5" label="Move passwords"/>
   <int value="6" label="(Obsolete) Enable screenlock reauth before filling"/>
+  <int value="7" label="Passkey unlock promo"/>
+  <int value="8" label="Account-aware sign-in promo"/>
 </enum>
+
+<!-- LINT.IfChange(SaveWithTrustedVaultErrorOutcome) -->
+
+<enum name="PasswordManagerSaveWithTrustedVaultErrorOutcome">
+  <int value="0" label="Saved successfully after key retrieval"/>
+  <int value="1" label="Message timed out"/>
+  <int value="2" label="User dismissed the prompt"/>
+  <int value="3" label="Device lock UI canceled"/>
+  <int value="4" label="New store error"/>
+  <int value="5" label="Never save for this site"/>
+  <int value="6" label="Key retrieval failed or canceled"/>
+  <int value="7" label="Tab destroyed before resolution"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/password_manager/core/browser/password_manager_metrics_util.h:SaveWithTrustedVaultErrorOutcome) -->
 
 <enum name="PasswordManagerShortcutMetric">
   <int value="0" label="User clicked Add shortcut from the UI."/>
@@ -1768,6 +1828,7 @@ chromium-metrics-reviews@google.com.
   <int value="12" label="Passkey copy display name button clicked"/>
   <int value="13" label="Passkey card delete button clicked"/>
   <int value="14" label="Passkey edit button clicked"/>
+  <int value="15" label="Change password button clicked"/>
 </enum>
 
 <enum name="PasswordVsOtpFormType">
@@ -1801,6 +1862,34 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="SYNC_CREDENTIALS"/>
   <int value="6" label="SAVING_ON_HTTP_AFTER_HTTPS"/>
 </enum>
+
+<!-- LINT.IfChange(RemoteActorCredentialSharingFailureReason) -->
+
+<enum name="RemoteActorCredentialSharingFailureReason">
+  <int value="0" label="Invalid parameters"/>
+  <int value="1" label="Passbox upload failed"/>
+  <int value="2" label="Permission grant failed"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/password_manager/remote_actor/remote_actor_credential_sharing_service_impl.h:RemoteActorCredentialSharingFailureReason) -->
+
+<!-- LINT.IfChange(RemoteActorCredentialSharingResult) -->
+
+<enum name="RemoteActorCredentialSharingResult">
+  <int value="0" label="Other error"/>
+  <int value="1" label="Success"/>
+  <int value="2" label="User identity or sync state invalid"/>
+  <int value="3" label="No sync or account storage"/>
+  <int value="4" label="No passwords found"/>
+  <int value="5" label="User cancelled dialog"/>
+  <int value="6" label="Authenticator failed"/>
+  <int value="7" label="Sharing service unavailable"/>
+  <int value="8" label="Sharing failed"/>
+  <int value="9" label="Request already in progress"/>
+  <int value="10" label="Blocked by policy"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/password_manager/remote_actor/remote_actor_credential_sharing_impl.h:RemoteActorCredentialSharingResult) -->
 
 <enum name="ReusedPasswordType">
   <int value="0" label="Saved password"/>

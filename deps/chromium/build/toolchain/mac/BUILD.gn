@@ -21,7 +21,6 @@ template("mac_toolchain") {
     toolchain_args = {
       forward_variables_from(invoker.toolchain_args, "*")
       current_os = "mac"
-
       if (target_os == "ios") {
         # Use LLD for the host part of a chrome/ios build.
         use_lld = true

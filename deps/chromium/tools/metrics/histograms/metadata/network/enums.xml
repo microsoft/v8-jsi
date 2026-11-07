@@ -371,6 +371,8 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="ViaSmds"/>
 </enum>
 
+<!-- LINT.IfChange(ESimSetupFlowResult) -->
+
 <enum name="ESimSetupFlowResult">
   <int value="0" label="SUCCESS"/>
   <int value="1" label="INSTALL_FAIL"/>
@@ -381,6 +383,8 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="CANCELLED_NO_PROFILES"/>
   <int value="7" label="NO_NETWORK"/>
 </enum>
+
+<!-- LINT.ThenChange(//ash/webui/common/resources/cellular_setup/esim_flow_ui.ts:EsimSetupFlowResult) -->
 
 <enum name="ESimUserInstallMethod">
   <int value="0" label="ViaSmds"/>
@@ -431,6 +435,17 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Success"/>
   <int value="1" label="Failure"/>
 </enum>
+
+<!-- LINT.IfChange(GPCSignalSourceType) -->
+
+<enum name="GPCSignalSourceType">
+  <int value="0" label="WorkerNavigation"/>
+  <int value="1" label="FrameNavigation"/>
+  <int value="2" label="SubresourceFetch"/>
+  <int value="3" label="WorkerSubresourceFetch"/>
+</enum>
+
+<!-- LINT.ThenChange(//third_party/blink/public/common/global_privacy_control/global_privacy_control_util.h:GPCSignalSourceType) -->
 
 <enum name="HermesResponseStatus">
   <summary>
@@ -1170,6 +1185,15 @@ chromium-metrics-reviews@google.com.
   <int value="20" label="OWE"/>
 </enum>
 
+<!-- LINT.IfChange(NetworkServiceClearHttpCacheMode) -->
+
+<enum name="NetworkServiceClearHttpCacheMode">
+  <int value="0" label="Physical"/>
+  <int value="1" label="Logical"/>
+</enum>
+
+<!-- LINT.ThenChange(//services/network/network_context.h:ClearHttpCacheMode) -->
+
 <enum name="NetworkServiceCorsPreflightMethodAllowed">
   <int value="0" label="Both Disallowed"/>
   <int value="1" label="Only normalized_method allowed"/>
@@ -1440,8 +1464,8 @@ chromium-metrics-reviews@google.com.
   <int value="26" label="request_body"/>
   <int value="27" label="keepalive"/>
   <int value="28" label="browsing_topics"/>
-  <int value="29" label="ad_auction_headers"/>
-  <int value="30" label="shared_storage_writable_eligible"/>
+  <int value="29" label="ad_auction_headers (deprecated)"/>
+  <int value="30" label="shared_storage_writable_eligible (deprecated)"/>
   <int value="31" label="has_user_gesture"/>
   <int value="32" label="enable_load_timing"/>
   <int value="33" label="enable_upload_progress"/>
@@ -1469,10 +1493,10 @@ chromium-metrics-reviews@google.com.
   <int value="55" label="net_log_reference_info"/>
   <int value="56" label="target_ip_address_space (deprecated)"/>
   <int value="57" label="storage_access_api_status"/>
-  <int value="58" label="attribution_reporting_support"/>
-  <int value="59" label="attribution_reporting_eligibility"/>
+  <int value="58" label="attribution_reporting_support (deprecated)"/>
+  <int value="59" label="attribution_reporting_eligibility (deprecated)"/>
   <int value="60" label="shared_dictionary_writer_enabled"/>
-  <int value="61" label="attribution_reporting_src_token"/>
+  <int value="61" label="attribution_reporting_src_token (deprecated)"/>
   <int value="62" label="is_ad_tagged"/>
   <int value="63" label="keepalive_token"/>
   <int value="64" label="expected_public_keys"/>
@@ -1480,9 +1504,13 @@ chromium-metrics-reviews@google.com.
   <int value="66" label="client_side_content_decoding_enabled"/>
   <int value="67" label="allow_unsafe_redirect_schemes (deprecated)"/>
   <int value="68" label="is_reload_navigation"/>
+  <int value="69" label="revalidation_etag"/>
+  <int value="70" label="revalidation_last_modified"/>
 </enum>
 
 <!-- LINT.ThenChange(//services/network/prefetch_matches.cc:FieldsForUma) -->
+
+<!-- LINT.IfChange(PSimSetupFlowResult) -->
 
 <enum name="PSimSetupFlowResult">
   <int value="0" label="SUCCESS"/>
@@ -1492,9 +1520,10 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="CANCELLED_CARRIER_PORTAL"/>
   <int value="5" label="CANCELLED_PORTAL_ERROR"/>
   <int value="6" label="CARRIER_PORTAL_TIMEOUT"/>
-  <int value="7" label="TIMEOUT_FINISH_ACTIVATION"/>
-  <int value="8" label="NETWORK_ERROR"/>
+  <int value="7" label="NETWORK_ERROR"/>
 </enum>
+
+<!-- LINT.ThenChange(//ash/webui/common/resources/cellular_setup/psim_flow_ui.ts:PsimSetupFlowResult) -->
 
 <enum name="RegulatoryDomain">
   <int value="1" label="00"/>
@@ -2249,7 +2278,7 @@ chromium-metrics-reviews@google.com.
   <int value="63" label="x-webchannel-content-type"/>
 </enum>
 
-<!-- LINT.ThenChange(//services/network/request_header_to_enum.h:RequestHeader) -->
+<!-- LINT.ThenChange(//services/network/public/cpp/request_header_to_enum.h:RequestHeader) -->
 
 <enum name="SharedDictionaryDocumentRequestCacheResult">
   <int value="0" label="Cache Miss"/>

@@ -15,6 +15,7 @@
 #include "google/protobuf/compiler/java/java_features.pb.h"
 #include "google/protobuf/compiler/java/context.h"
 #include "google/protobuf/compiler/java/generator.h"
+#include "google/protobuf/compiler/java/helpers.h"
 #include "google/protobuf/compiler/java/name_resolver.h"
 #include "google/protobuf/compiler/java/names.h"
 #include "google/protobuf/descriptor.h"
@@ -27,18 +28,6 @@ namespace google {
 namespace protobuf {
 namespace compiler {
 namespace java {
-
-// Whether unknown enum values are kept (i.e., not stored in UnknownFieldSet
-// but in the message and can be queried using additional getters that return
-// ints.
-inline bool SupportUnknownEnumValue(const FieldDescriptor* field) {
-  if (JavaGenerator::GetResolvedSourceFeatures(*field)
-          .GetExtension(pb::java)
-          .legacy_closed_enum()) {
-    return false;
-  }
-  return field->enum_type() != nullptr && !field->enum_type()->is_closed();
-}
 
 inline bool CheckUtf8(const FieldDescriptor* descriptor) {
   if (JavaGenerator::GetResolvedSourceFeatures(*descriptor)
@@ -60,10 +49,6 @@ inline bool CheckLargeEnum(const EnumDescriptor* descriptor) {
 
 void GenerateLarge(
     io::Printer* printer, const EnumDescriptor* descriptor,
-    std::vector<const EnumValueDescriptor*> canonical_values,
-    std::vector<
-        std::pair<const EnumValueDescriptor*, const EnumValueDescriptor*>>
-        aliases,
     bool immutable_api, Context* context, ClassNameResolver* name_resolver);
 
 // Only the lowest two bytes of the return value are used. The lowest byte

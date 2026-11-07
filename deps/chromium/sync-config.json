@@ -1,7 +1,7 @@
 {
   "repo": "https://chromium.googlesource.com/chromium/src",
   "branch": "main",
-  "commit": "a1956b5dc600da374ac77dae6723e664488f09c2",
+  "commit": "9a31f0acec1854d44e49a73fbf8017598151a583",
   "sparsePaths": [
     "LICENSE",
     "base",
@@ -95,6 +95,6 @@
     "third_party/re2/src": {}
   },
   "keepLocalDeletions": true,
-  "tag": "149.0.7827.149",
-  "lastSync": "2026-06-16T18:18:01.667Z"
+  "tag": "157.0.8103.39",
+  "lastSync": "2026-11-07T05:08:02.211Z"
 }

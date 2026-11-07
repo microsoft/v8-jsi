@@ -12,19 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import sys
-import signal
 import dataclasses as dc
-from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Union
 
 from perfetto.common.exceptions import PerfettoException
 from perfetto.common.query_result_iterator import QueryResultIterator
-from perfetto.trace_processor.http import TraceProcessorHttp
+from perfetto.trace_processor.backend import TraceProcessorBackend
+from perfetto.trace_processor.backend_factory import create_http_backend
+from perfetto.trace_processor.backend_factory import create_remote_backend
 from perfetto.trace_processor.platform import PlatformDelegate
 from perfetto.trace_processor.protos import ProtoFactory
-from perfetto.trace_processor.shell import load_shell
+from perfetto.trace_processor.shell import TraceProcessorHttpSubprocess
 from perfetto.trace_uri_resolver import registry
 from perfetto.trace_uri_resolver.registry import ResolverRegistry
 
@@ -58,9 +56,21 @@ class SqlPackage:
 @dc.dataclass
 class TraceProcessorConfig:
   # The path to the trace processor binary. If not specified, the trace
-  # processor will be automatically downloaded and run from the latest
-  # avaialble prebuilts.
+  # processor version pinned to (and shipped with) this package is downloaded
+  # and run. See `fetch_latest_trace_processor` to override this.
   bin_path: Optional[str] = None
+
+  # If True (and `bin_path` is not set), fetch the latest available
+  # trace_processor prebuilt from get.perfetto.dev instead of using the version
+  # pinned to this package. This trades reproducibility for always being on the
+  # newest build.
+  #
+  # Note: this option is best-effort and may be ignored on platforms which
+  # source the binary in a different way. In particular, inside Google3 the
+  # PlatformDelegate is swapped out (see PLATFORM_DELEGATE above) and the
+  # trace_processor binary always comes from internal infra, so this flag has
+  # no effect there.
+  fetch_latest_trace_processor: bool = False
 
   # If True, the trace processor will use a unique port for each instance.
   unique_port: bool = True
@@ -83,7 +93,7 @@ class TraceProcessorConfig:
 
   # The timeout in seconds for the trace processor binary starting up. If the
   # binary does not start within this time, an exception will be raised.
-  load_timeout: int = 2
+  load_timeout: int = 30
 
   # Any extra flags to pass to the trace processor binary.
   # Warning: this is a low-level option and should be used with caution.
@@ -96,6 +106,12 @@ class TraceProcessorConfig:
   # `INCLUDE PERFETTO MODULE` PerfettoSQL statements.
   add_sql_packages: Optional[List[Union[str, SqlPackage]]] = None
 
+  # If True, SQL functions may access files visible to a locally launched
+  # Trace Processor shell. Do not enable this when executing untrusted SQL.
+  # This option cannot grant access to a Trace Processor connected via
+  # `remote` or `addr`.
+  enable_sql_file_access: bool = False
+
   def __init__(
       self,
       bin_path: Optional[str] = None,
@@ -104,9 +120,11 @@ class TraceProcessorConfig:
       ingest_ftrace_in_raw: bool = False,
       enable_dev_features=False,
       resolver_registry: Optional[ResolverRegistry] = None,
-      load_timeout: int = 2,
+      load_timeout: int = 30,
       extra_flags: Optional[List[str]] = None,
       add_sql_packages: Optional[List[Union[str, SqlPackage]]] = None,
+      fetch_latest_trace_processor: bool = False,
+      enable_sql_file_access: bool = False,
   ):
     self.bin_path = bin_path
     self.unique_port = unique_port
@@ -117,6 +135,8 @@ class TraceProcessorConfig:
     self.load_timeout = load_timeout
     self.extra_flags = extra_flags
     self.add_sql_packages = add_sql_packages
+    self.fetch_latest_trace_processor = fetch_latest_trace_processor
+    self.enable_sql_file_access = enable_sql_file_access
 
 
 class TraceProcessor:
@@ -128,7 +148,8 @@ class TraceProcessor:
                addr: Optional[str] = None,
                config: TraceProcessorConfig = TraceProcessorConfig(),
                file_path: Optional[str] = None,
-               metadata: Optional[Dict[str, str]] = None):
+               metadata: Optional[Dict[str, str]] = None,
+               remote: Optional[str] = None):
     """Create a trace processor instance.
 
     Args:
@@ -152,10 +173,16 @@ class TraceProcessor:
 
         Custom resolvers can be provided to handle URIs via
         |config.resolver_registry|.
-      addr: address of a running trace processor instance. Useful to query an
-        already loaded trace.
+      remote: a running trace processor instance to connect to. Useful to
+        query an already loaded trace. Accepts the same values as the
+        `trace_processor --remote` flag: a session name started with
+        `trace_processor server unix --name <name>`, a Unix socket path, or the
+        host:port of an HTTP server.
       config: configuration options which customize functionality of trace
         processor and the Python binding.
+      addr (deprecated): address of a running trace processor instance. Use
+        |remote| instead of this field: specifying both will cause an
+        exception to be thrown. Always treated as an HTTP address (host:port).
       file_path (deprecated): path to a trace file to load. Use
         |trace| instead of this field: specifying both will cause
         an exception to be thrown.
@@ -164,13 +191,24 @@ class TraceProcessor:
     if trace and file_path:
       raise TraceProcessorException(
           "trace and file_path cannot both be specified.")
+    if addr and remote:
+      raise TraceProcessorException("addr and remote cannot both be specified.")
+    if (remote or addr) and config.enable_sql_file_access:
+      raise TraceProcessorException(
+          "enable_sql_file_access cannot grant file access to a remote Trace "
+          "Processor; the server must be started with "
+          "--allow-sql-file-access.")
 
     self.config = config
     self.platform_delegate = PLATFORM_DELEGATE()
     self.protos = ProtoFactory(self.platform_delegate)
     self.resolver_registry = config.resolver_registry or \
       self.platform_delegate.default_resolver_registry()
-    self.http = self._create_tp_http(addr)
+    self._backend = self._create_backend(remote, addr)
+    # Deprecated: only kept for backwards compatibility, as external code reads
+    # |self.http| directly. Use |self._backend| inside this class.
+    # TODO(gabiyev): remove once external users have migrated.
+    self.http = self._backend
 
     if trace or file_path:
       try:
@@ -180,7 +218,7 @@ class TraceProcessor:
         raise ex
 
   def query(self, sql: str):
-    """Executes passed in SQL query using class defined HTTP API, and returns
+    """Executes passed in SQL query on the trace processor backend, and returns
     the response as a QueryResultIterator. Raises TraceProcessorException if
     the response returns with an error.
 
@@ -193,7 +231,7 @@ class TraceProcessor:
       as_pandas_dataframe() function, or a polars dataframe by calling
       as_polars_dataframe(), after calling query.
     """
-    response = self.http.execute_query(sql)
+    response = self._backend.execute_query(sql)
     if response.error:
       raise TraceProcessorException(response.error)
 
@@ -226,7 +264,7 @@ class TraceProcessor:
     Returns:
       The trace summary data as a proto message
     """
-    response = self.http.trace_summary(specs, metric_ids, metadata_query_id)
+    response = self._backend.trace_summary(specs, metric_ids, metadata_query_id)
     if response.error:
       raise TraceProcessorException(response.error)
 
@@ -237,7 +275,7 @@ class TraceProcessor:
   def enable_metatrace(self):
     """Enable metatrace for the currently running trace_processor.
     """
-    return self.http.enable_metatrace()
+    return self._backend.enable_metatrace()
 
   def disable_and_read_metatrace(self):
     """Disable and return the metatrace formed from the currently running
@@ -245,7 +283,7 @@ class TraceProcessor:
     returns the serialized bytes of the metatrace data directly. Raises
     TraceProcessorException if the response returns with an error.
     """
-    response = self.http.disable_and_read_metatrace()
+    response = self._backend.disable_and_read_metatrace()
     if response.error:
       raise TraceProcessorException(response.error)
 
@@ -265,13 +303,34 @@ class TraceProcessor:
     Returns:
       The metrics data as a proto message
     """
-    response = self.http.compute_metric(metrics)
+    response = self._backend.compute_metric(metrics)
     if response.error:
       raise TraceProcessorException(response.error)
 
     metrics = self.protos.TraceMetrics()
     metrics.ParseFromString(response.metrics)
     return metrics
+
+  def export(self, output_path: str, export_format: str):
+    """Exports the contents of Trace Processor.
+
+    The exact contents exported are defined by `export_format`. `arrow_tar` is
+    a tar of standard Arrow files with cross-version compatibility guarantees
+    for external consumers, but it cannot be loaded back into Trace Processor.
+    `perfetto` can be loaded by a fresh Trace Processor instance from the same
+    version. Loading it in a different version may work but is not guaranteed.
+    `sqlite` writes all SQL-visible tables and views into a standard SQLite
+    database; the database is materialized on the server and streamed to
+    `output_path`, so the server must support file access.
+    Output is streamed directly to
+    disk without materializing the complete archive in memory.
+
+    Args:
+      output_path: Path to write the export to.
+      export_format: Either `arrow_tar`, `perfetto` or `sqlite`.
+    """
+    with open(output_path, 'wb') as f:
+      self._backend.export(f, export_format)
 
   @property
   def metadata(self) -> Dict[str, str]:
@@ -286,24 +345,23 @@ class TraceProcessor:
     """
     return self._metadata
 
-  def _create_tp_http(self, addr: str) -> TraceProcessorHttp:
-    if addr:
-      p = urlparse(addr)
-      parsed = p.netloc if p.netloc else p.path
-      return TraceProcessorHttp(parsed, protos=self.protos)
+  @property
+  def subprocess(self):
+    """The trace_processor_shell process, or None when connected remotely.
 
-    url, self.subprocess, self._tp_stdout, self._tp_stderr = load_shell(
-        self.config.bin_path,
-        self.config.unique_port,
-        self.config.verbose,
-        self.config.ingest_ftrace_in_raw,
-        self.config.enable_dev_features,
-        self.platform_delegate,
-        self.config.load_timeout,
-        self.config.extra_flags,
-        self.config.add_sql_packages,
-    )
-    return TraceProcessorHttp(url, protos=self.protos)
+    Deprecated: only kept for backwards compatibility, as external code reads
+    it directly.
+    """
+    return getattr(getattr(self, '_backend', None), 'subprocess', None)
+
+  def _create_backend(self, remote: Optional[str],
+                      addr: Optional[str]) -> TraceProcessorBackend:
+    if addr:
+      return create_http_backend(addr, protos=self.protos)
+    if remote:
+      return create_remote_backend(remote, protos=self.protos)
+    return TraceProcessorHttpSubprocess(self.config, self.platform_delegate,
+                                        self.protos)
 
   def _parse_trace(self, trace: TraceReference):
     resolved_lst = self.resolver_registry.resolve(trace)
@@ -321,11 +379,11 @@ class TraceProcessor:
     # Capture metadata from the resolved trace
     self._metadata = resolved.metadata
     for chunk in resolved.generator:
-      result = self.http.parse(chunk)
+      result = self._backend.parse(chunk)
       if result.error:
         raise TraceProcessorException(
             f'Failed while parsing trace. Error message: {result.error}')
-    self.http.notify_eof()
+    self._backend.notify_eof()
 
   def __enter__(self):
     return self
@@ -335,26 +393,11 @@ class TraceProcessor:
     self.close()
     return False
 
-  def close(self):
-    if hasattr(self, 'subprocess') and self.subprocess:
-      # On Windows, we need to send a break signal to terminate the whole process group.
-      # On other platforms, killing the parent process is sufficient.
-      if sys.platform == 'win32':
-        self.subprocess.send_signal(signal.CTRL_BREAK_EVENT)
-      else:
-        self.subprocess.kill()
-      self.subprocess.wait()
-      # Set to None so __del__ doesn't call this again.
-      self.subprocess = None
-      if hasattr(self, '_tp_stdout') and self._tp_stdout:
-        self._tp_stdout.close()
-        self._tp_stdout = None
-      if hasattr(self, '_tp_stderr') and self._tp_stderr:
-        self._tp_stderr.close()
-        self._tp_stderr = None
-
-    if hasattr(self, 'http'):
-      self.http.conn.close()
-
   def __del__(self):
+    # Fallback for callers that skip close()/the context manager, so temp files
+    # and the connection don't leak (as a "ResourceWarning: unclosed file").
     self.close()
+
+  def close(self):
+    if hasattr(self, '_backend'):
+      self._backend.close()

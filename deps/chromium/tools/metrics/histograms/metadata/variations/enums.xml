@@ -55,13 +55,23 @@ chromium-metrics-reviews@google.com.
   <int value="1003" label="No such file"/>
 </enum>
 
+<!-- LINT.IfChange(LimitedEntropySourceState) -->
+
+<enum name="LimitedEntropySourceState">
+  <int value="0" label="Unset"/>
+  <int value="1" label="Set and valid"/>
+  <int value="2" label="Set and invalid"/>
+</enum>
+
+<!-- LINT.ThenChange(//android_webview/browser/aw_feature_list_creator.cc:LimitedEntropySourceState) -->
+
 <!-- LINT.IfChange(SeedSource) -->
 
 <enum name="SeedSource">
   <int value="0" label="No Source"/>
   <int value="1" label="Local State"/>
   <int value="2" label="Seed File"/>
-  <int value="3" label="Old Seed File"/>
+  <int value="3" label="Old Seed File (Obsolete)"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/variations/seed_reader_writer.h:SeedSource) -->
@@ -91,7 +101,7 @@ chromium-metrics-reviews@google.com.
 <enum name="VariationSeedSignature">
   <int value="0" label="Signature Missing"/>
   <int value="1" label="Signature Decode Failed"/>
-  <int value="2" label="Invalid Signature"/>
+  <int value="2" label="Invalid Public Key (Obsolete 2026-06)"/>
   <int value="3" label="Invalid Signature for Seed"/>
   <int value="4" label="Valid Signature for Seed"/>
 </enum>
@@ -217,6 +227,79 @@ chromium-metrics-reviews@google.com.
              Mainly used for testing / developer."/>
 </enum>
 
+<!-- LINT.IfChange(VariationsPrepareRuntimeMutableChangesResult) -->
+
+<enum name="VariationsPrepareRuntimeMutableChangesResult">
+  <int value="0" label="Unknown">Reserved value. This should not be used.</int>
+  <int value="1" label="Success">
+    A runtime mutable change was successfully prepared.
+  </int>
+  <int value="2" label="Simulated Group Is Null">
+    The simulated trial is null, e.g. if the study had no randomized experiments
+    at all.
+  </int>
+  <int value="3" label="Simulated Group Not Found">
+    The selected group does not exist in the given seed (e.g., if the group was
+    forced from the command line).
+  </int>
+  <int value="4" label="Not Strict Killswitch (Deprecated 09/2026)">
+    The experiment is not a strict killswitch (e.g., it enables features). No
+    longer recorded: runtime mutability now supports enabling features.
+  </int>
+  <int value="5" label="Not starts_active">
+    The study is not activated on startup (starts_active).
+  </int>
+  <int value="6" label="Not permanent consistency">
+    The study does not have permanent consistency.
+  </int>
+  <int value="7" label="Already Applied">
+    The runtime mutable experiment has already been applied.
+  </int>
+  <int value="8" label="Non-Runtime Mutable Feature">
+    The experiment references a feature that does not have runtime mutability
+    enabled.
+  </int>
+  <int value="9" label="Feature Overridden From Command Line">
+    The experiment references a feature that is overridden from the command
+    line.
+  </int>
+  <int value="10" label="Features Not Controlled By Same Trial">
+    The features specified are currently controlled by different trials.
+  </int>
+  <int value="11" label="Controlling Trial Has Other Features">
+    The trial currently controlling the features specified also specifies other
+    features not in the runtime mutable experiment.
+  </int>
+  <int value="12" label="Trial Name Collision">
+    A trial or runtime override with the same name already exists, and is not
+    being replaced.
+  </int>
+  <int value="13" label="Controlling Trial Not Found">
+    The controlling trial could not be found.
+  </int>
+  <int value="14"
+      label="Prepare Feature State Update Failed (Deprecated 09/2026)">
+    Preparing the feature state update failed. No longer recorded: this is now
+    CHECK()ed instead.
+  </int>
+  <int value="15" label="Runtime Experiment Has Google Web ID">
+    The runtime mutable experiment has a Google web experiment ID.
+  </int>
+  <int value="16" label="Overridden Trial Has Google Web ID">
+    The trial being overridden has a Google web experiment ID.
+  </int>
+  <int value="17" label="Runtime Experiment Has Params (Deprecated 09/2026)">
+    The runtime mutable experiment has params. No longer recorded: runtime
+    mutability now supports experiment params.
+  </int>
+  <int value="18" label="Feature Both Enabled And Disabled">
+    The experiment specifies the same feature in both enable_feature and
+    disable_feature.
+  </int>
+</enum>
+
+<!-- LINT.ThenChange(//components/variations/metrics.h:VariationsPrepareRuntimeMutableChangesResult) -->
+
 <enum name="VariationsResourceRequestsAllowedState">
   <int value="0" label="Requests allowed"/>
   <int value="1" label="Requests not allowed (Obsolete 11/2013)"/>
@@ -233,6 +316,50 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="All variations are restricted"/>
 </enum>
 
+<enum name="VariationsRestrictModeLookupResult">
+  <int value="0" label="Restrict mode set"/>
+  <int value="1" label="Restrict mode not set"/>
+  <int value="2" label="Platform services unavailable"/>
+  <int value="3" label="API unsupported"/>
+  <int value="4" label="API not connected"/>
+  <int value="5" label="Timeout"/>
+  <int value="6" label="Error"/>
+</enum>
+
+<!-- LINT.IfChange(VariationsRotateUmaLogResult) -->
+
+<enum name="VariationsRotateUmaLogResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Too early (initial log not yet uploaded)"/>
+  <int value="2" label="Recording disabled"/>
+  <int value="3" label="Reporting disabled"/>
+  <int value="4" label="Not supported"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/metrics/metrics_service.h:RotateUmaLogResult) -->
+
+<enum name="VariationsRuntimeMutabilityResult">
+  <int value="0" label="Unknown">Reserved value. This should not be used.</int>
+  <int value="1" label="Success">
+    A runtime-update was successfully applied.
+  </int>
+  <int value="2" label="Failure">
+    A runtime-update was rejected because the targeted feature was not found to
+    be enabled for runtime mutability.
+  </int>
+  <int value="3" label="Failure - State Not Supported">
+    A runtime-update was rejected because the requested feature state is not
+    supported. V0, for example, only supports the disabling of runtime-mutable
+    features.
+  </int>
+  <int value="4" label="Failure - Command Line Override">
+    The runtime-mutability of a feature has been disabled because the feature's
+    state was set via a command-line override. This is not an error, per se, but
+    is still worth logging to understand whether runtime mutability is being
+    affected by command-line overrides.
+  </int>
+</enum>
+
 <enum name="VariationsSafeModeCachedFlagsBehavior">
   <int value="0" label="Unknown"/>
   <int value="1" label="Not engaged - below threshold"/>
@@ -241,12 +368,17 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Engaged - without safe values"/>
 </enum>
 
+<!-- LINT.IfChange(UpdateSeedDateResult) -->
+
 <enum name="VariationsSeedDateChange">
   <int value="0" label="No previous date"/>
   <int value="1" label="New date older than old date"/>
   <int value="2" label="Same day"/>
   <int value="3" label="Day changed"/>
+  <int value="4" label="No new date (untrusted or absent server date)"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/variations/metrics.h:UpdateSeedDateResult) -->
 
 <!-- LINT.IfChange(VariationsSeedLoadResult) -->
 
@@ -271,6 +403,8 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//components/variations/metrics.h:LoadSeedResult) -->
 
+<!-- LINT.IfChange(VariationsSeedStoreResult) -->
+
 <enum name="VariationsSeedStoreResult">
   <int value="0" label="Success"/>
   <int value="1" label="Failed - Empty Seed (obsolete)"/>
@@ -288,7 +422,10 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="Non-Gzip Delta Count"/>
   <int value="14" label="Gzip Full Count"/>
   <int value="15" label="Non-Gzip Full Count"/>
+  <int value="16" label="Failed - Uncompressed Size Limit Exceeded"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/variations/metrics.h:StoreSeedResult) -->
 
 <enum name="VariationsSeedUsage">
   <int value="0" label="Regular seed used"/>
@@ -318,7 +455,7 @@ chromium-metrics-reviews@google.com.
 <enum name="VariationsStateEncryptionStatus">
   <int value="0" label="Success"/>
   <int value="1" label="Input empty"/>
-  <int value="2" label="Hpke setup failure"/>
+  <int value="2" label="Hpke setup failure (Obsolete 2026-06)"/>
   <int value="3" label="Hpke seal failure"/>
 </enum>
 

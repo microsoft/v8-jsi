@@ -15,6 +15,7 @@
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/third_party/icu/icu_utf.h"
@@ -101,16 +102,6 @@ TrimPositions TrimStringT(T input,
   return static_cast<TrimPositions>(
       (first_good_char == 0 ? TRIM_NONE : TRIM_LEADING) |
       (last_good_char == last_char ? TRIM_NONE : TRIM_TRAILING));
-}
-
-template <typename T, typename CharT = typename T::value_type>
-T TrimStringPieceT(T input, T trim_chars, TrimPositions positions) {
-  size_t begin =
-      (positions & TRIM_LEADING) ? input.find_first_not_of(trim_chars) : 0;
-  size_t end = (positions & TRIM_TRAILING)
-                   ? input.find_last_not_of(trim_chars) + 1
-                   : input.size();
-  return input.substr(std::min(begin, input.size()), end - begin);
 }
 
 template <typename T, typename CharT = typename T::value_type>
@@ -211,6 +202,83 @@ bool DoIsStringASCII(const Char* characters, size_t length) {
   }
 
   return !(all_char_bits & non_ascii_bit_mask);
+}
+
+template <class Char>
+size_t FindFirstNonASCII(const Char* characters, size_t length) {
+  // Bitmasks to detect non ASCII characters for character sizes of 8, 16 and 32
+  // bits.
+  constexpr auto NonASCIIMasks = std::to_array<MachineWord>({
+      0,
+      MachineWord(0x8080808080808080ULL),
+      MachineWord(0xFF80FF80FF80FF80ULL),
+      0,
+      MachineWord(0xFFFFFF80FFFFFF80ULL),
+  });
+
+  if (!length) {
+    return 0;
+  }
+  constexpr MachineWord non_ascii_bit_mask = NonASCIIMasks[sizeof(Char)];
+  static_assert(non_ascii_bit_mask, "Error: Invalid Mask");
+  MachineWord all_char_bits = 0;
+  const Char* const start = characters;
+  const Char* end = UNSAFE_TODO(characters + length);
+
+  auto find_first_non_ascii = [start](const Char* ptr) {
+    while (static_cast<std::make_unsigned_t<Char>>(*ptr) <= 0x7F) {
+      ptr = UNSAFE_TODO(ptr + 1);
+    }
+    return static_cast<size_t>(ptr - start);
+  };
+
+  // Prologue: align the input.
+  const Char* prologue_start = characters;
+  while (!IsMachineWordAligned(characters) && characters < end) {
+    all_char_bits |= UNSAFE_TODO(static_cast<MachineWord>(*characters++));
+  }
+  if (all_char_bits & non_ascii_bit_mask) {
+    return find_first_non_ascii(prologue_start);
+  }
+
+  // Compare the values of CPU word size.
+  constexpr size_t chars_per_word = sizeof(MachineWord) / sizeof(Char);
+  constexpr int batch_count = 16;
+  // Process batches until the remaining amount of characters is smaller than a
+  // full batch size.
+  while (static_cast<size_t>(end - characters) >=
+         batch_count * chars_per_word) {
+    const Char* batch_start = characters;
+    all_char_bits = 0;
+    for (int i = 0; i < batch_count; ++i) {
+      all_char_bits |= *(reinterpret_cast<const MachineWord*>(characters));
+      UNSAFE_TODO(characters += chars_per_word);
+    }
+    if (all_char_bits & non_ascii_bit_mask) {
+      return find_first_non_ascii(batch_start);
+    }
+  }
+
+  // Process the remaining words.
+  const Char* remainder_start = characters;
+  all_char_bits = 0;
+  // Loop until the remaining byte count is lower than the amount of bytes in a
+  // word.
+  while (static_cast<size_t>(end - characters) >= chars_per_word) {
+    all_char_bits |= *(reinterpret_cast<const MachineWord*>(characters));
+    UNSAFE_TODO(characters += chars_per_word);
+  }
+
+  // Process the remaining bytes.
+  while (characters < end) {
+    all_char_bits |= UNSAFE_TODO(static_cast<MachineWord>(*characters++));
+  }
+
+  if (all_char_bits & non_ascii_bit_mask) {
+    return find_first_non_ascii(remainder_start);
+  }
+
+  return length;
 }
 
 template <bool (*Validator)(base_icu::UChar32)>
@@ -473,43 +541,6 @@ inline typename string_type::value_type* WriteIntoT(string_type* str,
   str->reserve(length_with_null);
   str->resize(length_with_null - 1);
   return str->data();
-}
-
-// Generic version for all JoinString overloads. |list_type| must be a sequence
-// (base::span or std::initializer_list) of strings/StringPieces (std::string,
-// std::u16string, std::string_view or std::u16string_view). |CharT| is either
-// char or char16_t.
-template <typename list_type,
-          typename T,
-          typename CharT = typename T::value_type>
-static std::basic_string<CharT> JoinStringT(list_type parts, T sep) {
-  if (std::empty(parts)) {
-    return std::basic_string<CharT>();
-  }
-
-  // Pre-allocate the eventual size of the string. Start with the size of all of
-  // the separators (note that this *assumes* parts.size() > 0).
-  size_t total_size = (parts.size() - 1) * sep.size();
-  for (const auto& part : parts) {
-    total_size += part.size();
-  }
-  std::basic_string<CharT> result;
-  result.reserve(total_size);
-
-  auto iter = parts.begin();
-  CHECK(iter != parts.end());
-  result.append(*iter);
-  UNSAFE_TODO(++iter);
-
-  for (; iter != parts.end(); UNSAFE_TODO(++iter)) {
-    result.append(sep);
-    result.append(*iter);
-  }
-
-  // Sanity-check that we pre-allocated correctly.
-  DCHECK_EQ(total_size, result.size());
-
-  return result;
 }
 
 // StringViewLike will match both std::basic_string_view<Char> and

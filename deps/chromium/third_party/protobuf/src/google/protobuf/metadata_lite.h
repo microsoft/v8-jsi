@@ -11,6 +11,7 @@
 #include <string>
 
 #include "absl/base/optimization.h"
+#include "absl/log/absl_check.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/port.h"
 
@@ -118,14 +119,14 @@ class PROTOBUF_EXPORT InternalMetadata {
 
   template <typename T>
   PROTOBUF_NDEBUG_INLINE void MergeFrom(const InternalMetadata& other) {
-    if (other.have_unknown_fields()) {
+    if (ABSL_PREDICT_FALSE(other.have_unknown_fields())) {
       DoMergeFrom<T>(other.unknown_fields<T>(nullptr));
     }
   }
 
   template <typename T>
   PROTOBUF_NDEBUG_INLINE void Clear() {
-    if (have_unknown_fields()) {
+    if (ABSL_PREDICT_FALSE(have_unknown_fields())) {
       DoClear<T>();
     }
   }
@@ -145,7 +146,19 @@ class PROTOBUF_EXPORT InternalMetadata {
 
   template <typename U>
   U* PtrValue() const {
-    return reinterpret_cast<U*>(ptr_ & kPtrValueMask);
+    if constexpr (std::is_same_v<U, Arena>) {
+      // No mask to remove.
+      ABSL_DCHECK_EQ(ptr_ & kPtrTagMask, 0);
+      return reinterpret_cast<U*>(ptr_);
+    } else {
+      static_assert(kPtrTagMask == 1);
+      ABSL_DCHECK_EQ(ptr_ & kPtrTagMask, kPtrTagMask);
+      // We can remove the mask via -1, which is smaller asm and can be merged
+      // with other arithmetic operations.
+      // Eg PtrValue<Container>()->unknown_fields can merge the offset into the
+      // mask removal.
+      return reinterpret_cast<U*>(ptr_ - kPtrTagMask);
+    }
   }
 
   // If ptr_'s tag is kTagContainer, it points to an instance of this struct.
@@ -215,8 +228,8 @@ extern template PROTOBUF_EXPORT void
 InternalMetadata::DoClear<UnknownFieldSet>();
 extern template PROTOBUF_EXPORT void
 InternalMetadata::DoMergeFrom<UnknownFieldSet>(const UnknownFieldSet& other);
-extern template PROTOBUF_EXPORT void
-InternalMetadata::DoSwap<UnknownFieldSet>(UnknownFieldSet* other);
+extern template PROTOBUF_EXPORT void InternalMetadata::DoSwap<UnknownFieldSet>(
+    UnknownFieldSet* other);
 extern template PROTOBUF_EXPORT void
 InternalMetadata::DeleteOutOfLineHelper<UnknownFieldSet>();
 extern template PROTOBUF_EXPORT UnknownFieldSet*

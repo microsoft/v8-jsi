@@ -13,6 +13,8 @@
 
 #include "base/check.h"
 #include "base/check_op.h"
+#include "base/containers/span.h"
+#include "base/files/file_tracing.h"
 #include "base/files/file_util.h"
 #include "base/immediate_crash.h"
 #include "base/metrics/histogram_functions.h"
@@ -321,19 +323,12 @@ File File::Duplicate() const {
 
   SCOPED_FILE_TRACE("Duplicate");
 
-  HANDLE other_handle = nullptr;
-
-  if (!::DuplicateHandle(GetCurrentProcess(),  // hSourceProcessHandle
-                         GetPlatformFile(),
-                         GetCurrentProcess(),  // hTargetProcessHandle
-                         &other_handle,
-                         0,      // dwDesiredAccess ignored due to SAME_ACCESS
-                         FALSE,  // !bInheritHandle
-                         DUPLICATE_SAME_ACCESS)) {
+  ScopedPlatformFile other_file = file_.Duplicate();
+  if (!other_file.is_valid()) {
     return File(GetLastFileError());
   }
 
-  return File(ScopedPlatformFile(other_handle), async());
+  return File(std::move(other_file), async());
 }
 
 bool File::DeleteOnClose(bool delete_on_close) {

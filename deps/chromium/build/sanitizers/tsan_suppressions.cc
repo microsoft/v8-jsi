@@ -21,6 +21,7 @@ char kTSanDefaultSuppressions[] =
     // Since we don't instrument them, we cannot reason about the
     // synchronization in them.
     "race:libdbus*.so\n"
+    "deadlock:libdbus*.so\n"
     "race:libdconfsettings*.so\n"
     "race:libflashplayer.so\n"
     "race:libgio*.so\n"
@@ -66,7 +67,6 @@ char kTSanDefaultSuppressions[] =
 
     // http://crbug.com/695929
     "race:base::i18n::IsRTL\n"
-    "race:base::i18n::SetICUDefaultLocale\n"
 
     // http://crbug.com/927330
     "race:net::(anonymous namespace)::g_network_change_notifier\n"
@@ -106,6 +106,15 @@ char kTSanDefaultSuppressions[] =
     // addresses for the same physical memory address used for cross-process
     // mutexes.
     "mutex:vk::OpaqueFdExternalSemaphore::\n"
+
+    // https://anglebug.com/552070343
+    // ANGLE points the Vulkan loader at the SwiftShader (or mock) ICD with
+    // setenv() on the GPU thread during eglInitialize(). With the GPU
+    // in-process, as on the TSan bots, that races with environ readers on
+    // other browser threads, e.g. base::LaunchProcess() on the process
+    // launcher thread. Test-only configuration on desktop; the fix is for
+    // ANGLE to select the ICD without modifying the environment.
+    "race:angle::vk::ScopedVkLoaderEnvironment::ScopedVkLoaderEnvironment\n"
 
     // End of suppressions.
     ;  // Please keep this semicolon.

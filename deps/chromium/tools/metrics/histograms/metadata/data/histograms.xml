@@ -37,53 +37,6 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="ConnectivityDetector.DefaultHttpProbeResult.{Client}"
-    enum="ProbeResult" expires_after="2023-04-20">
-  <owner>curranmax@chromium.org</owner>
-  <owner>tbansal@chromium.org</owner>
-  <owner>jianli@chromium.org</owner>
-  <summary>
-    Result of the HTTP Probe made by connectivity detector. Recorded everytime
-    the probe to the default URL completes (in either success or failure) or
-    timeouts.
-  </summary>
-  <token key="Client">
-    <variant name="OfflineDetector"/>
-    <variant name="OfflineIndicatorController"/>
-  </token>
-</histogram>
-
-<histogram name="ConnectivityDetector.FallbackHttpProbeResult.{Client}"
-    enum="ProbeResult" expires_after="2023-04-20">
-  <owner>curranmax@chromium.org</owner>
-  <owner>tbansal@chromium.org</owner>
-  <owner>jianli@chromium.org</owner>
-  <summary>
-    Result of the HTTP Probe made by connectivity detector. Recorded everytime
-    the probe to the fallback URL completes (in either success or failure) or
-    timeouts.
-  </summary>
-  <token key="Client">
-    <variant name="OfflineDetector"/>
-    <variant name="OfflineIndicatorController"/>
-  </token>
-</histogram>
-
-<histogram name="ConnectivityDetector.SentHttpProbe.{Client}" units="count"
-    expires_after="2023-04-20">
-  <owner>curranmax@chromium.org</owner>
-  <owner>tbansal@chromium.org</owner>
-  <owner>jianli@chromium.org</owner>
-  <owner>src/chrome/browser/data_saver/OWNERS</owner>
-  <summary>
-    Count of times when a HTTP Probe was made by connectivity detector.
-  </summary>
-  <token key="Client">
-    <variant name="OfflineDetector"/>
-    <variant name="OfflineIndicatorController"/>
-  </token>
-</histogram>
-
 <histogram name="DataUse.AppTabState{DataUse_AppTabState_Dimensions}"
     units="bytes" expires_after="2023-05-07">
   <owner>spelchat@chromium.org</owner>
@@ -105,7 +58,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="DataUse.BytesReceived3.Delegate" units="bytes"
-    expires_after="2026-09-06">
+    expires_after="2026-11-15">
   <owner>curranmax@chromium.org</owner>
   <owner>ryansturm@chromium.org</owner>
   <owner>spelchat@chromium.org</owner>
@@ -126,17 +79,6 @@ chromium-metrics-reviews@google.com.
     Count of total bytes sent by the Chrome on the network, as reported by the
     network delegate. With network servicification this is recorded when
     requests complete.
-  </summary>
-</histogram>
-
-<histogram name="DataUse.ContentType.UserTrafficKB" enum="DataUseContentType"
-    expires_after="2023-03-05">
-  <owner>spelchat@chromium.org</owner>
-  <owner>curranmax@chromium.org</owner>
-  <owner>chrome-brapp-loading@google.com</owner>
-  <summary>
-    Data use of user traffic by different content types. Recorded in KB when
-    network bytes are received by Chrome.
   </summary>
 </histogram>
 

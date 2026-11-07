@@ -19,8 +19,56 @@ reviewer.
 
 <histograms>
 
+<variants name="PrivateAiChromeProxyStatus">
+  <variant name="WithoutProxy"
+      summary="the Chrome profile does not have a proxy configured"/>
+  <variant name="WithProxy"
+      summary="the Chrome profile has a proxy configured"/>
+</variants>
+
+<!-- LINT.IfChange(PrivateAiFeatures) -->
+
+<variants name="PrivateAiFeatures">
+  <variant name="AutomatedPasswordChange"/>
+  <variant name="ContextualCueing"/>
+  <variant name="DemoGenerateContent"/>
+  <variant name="FormsAi"/>
+  <variant name="ZeroStateSuggestion"/>
+</variants>
+
+<!-- LINT.ThenChange(//components/private_ai/proto/private_ai.proto:FeatureName) -->
+
+<histogram name="PrivateAi.Client.ClientAttestationRequestFailureReason"
+    enum="PrivateAiStatusCode" expires_after="2027-03-28">
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <summary>
+    Records the underlying status code (error reason) when the initial client
+    attestation request fails. This error is rewritten as
+    kClientAttestationPresumedRejectedByServer on the main request status code
+    metric, and this histogram tracks the original failure reason of the
+    request.
+  </summary>
+</histogram>
+
+<histogram name="PrivateAi.Client.ConnectionResult.{ChromeProxyStatus}"
+    enum="NetErrorCodes" expires_after="2027-03-28">
+  <owner>georgeseb@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <summary>
+    Records the net error code (or net::OK on success) when establishing the
+    transport WebSocket connection for Private AI via ConnectionProxy through an
+    isolated NetworkContext. Recorded once per connection attempt when
+    {ChromeProxyStatus}. Direct connections without ConnectionProxy are not
+    recorded.
+  </summary>
+  <token key="ChromeProxyStatus" variants="PrivateAiChromeProxyStatus"/>
+</histogram>
+
 <histogram name="PrivateAi.Client.FeatureName" enum="PrivateAiFeatureName"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -32,8 +80,22 @@ reviewer.
   </summary>
 </histogram>
 
+<histogram name="PrivateAi.Client.RequestLatency.{FeatureName}" units="ms"
+    expires_after="2027-02-07">
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <summary>
+    Records the latency of a request sent from the Private AI Client. This is
+    the time from when the request is sent to when the response is received or
+    the request times out. Recorded for every request. The suffix on the
+    histogram name indicates the feature: {FeatureName}
+  </summary>
+  <token key="FeatureName" variants="PrivateAiFeatures"/>
+</histogram>
+
 <histogram name="PrivateAi.Client.RequestLatency.{Status}" units="ms"
-    expires_after="2026-11-25">
+    expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -53,7 +115,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Client.RequestSize" units="bytes"
-    expires_after="2026-11-25">
+    expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -66,7 +128,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Client.RequestStatusCode" enum="PrivateAiStatusCode"
-    expires_after="2026-11-25">
+    expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -78,8 +140,20 @@ reviewer.
   </summary>
 </histogram>
 
+<histogram name="PrivateAi.Client.RequestStatusCode.{FeatureName}"
+    enum="PrivateAiStatusCode" expires_after="2027-03-28">
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <summary>
+    Records the outcome of a Private AI request. Recorded for every request that
+    expects a response. Suffix indicates the feature: {FeatureName}
+  </summary>
+  <token key="FeatureName" variants="PrivateAiFeatures"/>
+</histogram>
+
 <histogram name="PrivateAi.Client.ResponseSize.Success" units="bytes"
-    expires_after="2026-11-25">
+    expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -91,8 +165,8 @@ reviewer.
   </summary>
 </histogram>
 
-<histogram name="PrivateAi.Client.ServerErrorCode" enum="GoogleRpcCode"
-    expires_after="2026-12-01">
+<histogram name="PrivateAi.Client.ServerStatusCode" enum="GoogleRpcCode"
+    expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -107,7 +181,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Client.WebSocketCloseCode" enum="WebSocketCloseCode"
-    expires_after="2026-12-10">
+    expires_after="2027-02-14">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -120,8 +194,54 @@ reviewer.
   </summary>
 </histogram>
 
+<histogram name="PrivateAi.Client.WebSocketConnectionError.NetError"
+    enum="NetErrorCodes" expires_after="2027-03-28">
+  <owner>lamzin@google.com</owner>
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <summary>
+    Records the net error code when the WebSocket opening handshake with the
+    Private AI server fails, i.e. the WebSocket connection cannot be
+    established, e.g. because of a DNS, proxy or TLS error. For example,
+    ERR_FAILED is recorded if the server responded to the handshake with an
+    unexpected HTTP status code, see
+    PrivateAi.Client.WebSocketConnectionError.ResponseCode. Recorded every time
+    the WebSocket opening handshake fails. Errors on an established WebSocket
+    connection are not recorded here. Unrelated to the secure channel handshake.
+  </summary>
+</histogram>
+
+<histogram name="PrivateAi.Client.WebSocketConnectionError.ResponseCode"
+    enum="HttpResponseCode" expires_after="2027-03-28">
+  <owner>lamzin@google.com</owner>
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <summary>
+    Records the HTTP response code when the WebSocket opening handshake with the
+    Private AI server fails after an HTTP response was received, e.g. because
+    the server rejected the upgrade request with a status code other than 101.
+    Not recorded if no HTTP response was received, e.g. because of a network
+    error; see PrivateAi.Client.WebSocketConnectionError.NetError for these
+    failures.
+  </summary>
+</histogram>
+
+<histogram name="PrivateAi.Client.WebSocketSessionDuration.ClosedByServer"
+    units="ms" expires_after="2027-02-14">
+  <owner>nikhiljakhar@google.com</owner>
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <owner>saeideid@google.com</owner>
+  <summary>
+    Records the duration of a WebSocket connection starting from when the
+    connection is established to when it is closed by the server. Recorded when
+    the connection is closed by the server.
+  </summary>
+</histogram>
+
 <histogram name="PrivateAi.OakSessionSandboxStability.{CallName}"
-    enum="BooleanSuccess" expires_after="2026-12-01">
+    enum="BooleanSuccess" expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -140,7 +260,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.ConfigHttp.RequestLatency" units="ms"
-    expires_after="2026-12-01">
+    expires_after="2027-04-04">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -153,7 +273,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.ConfigHttp.ResponseCode"
-    enum="HttpResponseCode" expires_after="2026-12-01">
+    enum="HttpResponseCode" expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -166,7 +286,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.FeatureTokenManager.ServedFromCache"
-    enum="Boolean" expires_after="2026-12-01">
+    enum="Boolean" expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -179,7 +299,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.FeatureTokenManager.TokensFetched"
-    units="count" expires_after="2026-12-01">
+    units="count" expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -192,7 +312,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.TokenFetcher.GetAuthnTokens.Result"
-    enum="PrivateAiPhosphorGetAuthnTokensResult" expires_after="2026-12-01">
+    enum="PrivateAiPhosphorGetAuthnTokensResult" expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -204,7 +324,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.Phosphor.TokenFetcher.OAuthTokenFetchLatency"
-    units="ms" expires_after="2026-12-01">
+    units="ms" expires_after="2027-04-04">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -215,8 +335,21 @@ reviewer.
   </summary>
 </histogram>
 
+<histogram
+    name="PrivateAi.SecureChannel.ConnectionEstablishmentLatency.Success"
+    units="ms" expires_after="2027-02-07">
+  <owner>arabm@google.com</owner>
+  <owner>dullweber@chromium.org</owner>
+  <owner>lamzin@google.com</owner>
+  <summary>
+    Records the latency of the whole connection establishment process for the
+    secure channel. This measures the duration from when the secure channel
+    starts its establishment process to when it is successfully established.
+  </summary>
+</histogram>
+
 <histogram name="PrivateAi.SecureChannel.GetAttestationRequestLatency.{Status}"
-    units="ms" expires_after="2026-11-25">
+    units="ms" expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -235,7 +368,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.SecureChannel.GetHandshakeMessageLatency.{Status}"
-    units="ms" expires_after="2026-11-25">
+    units="ms" expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -253,7 +386,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.SecureChannel.RequestsPerSession" units="requests"
-    expires_after="2026-11-28">
+    expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -267,7 +400,7 @@ reviewer.
 
 <histogram
     name="PrivateAi.SecureChannel.SendAttestationRequestLatency.{Status}"
-    units="ms" expires_after="2026-11-25">
+    units="ms" expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -287,7 +420,7 @@ reviewer.
 </histogram>
 
 <histogram name="PrivateAi.SecureChannel.SendHandshakeRequestLatency.{Status}"
-    units="ms" expires_after="2026-11-25">
+    units="ms" expires_after="2027-03-28">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
@@ -306,8 +439,8 @@ reviewer.
   </token>
 </histogram>
 
-<histogram name="PrivateAi.SecureChannel.SessionDuration" units="ms"
-    expires_after="2026-11-28">
+<histogram name="PrivateAi.SecureChannel.SessionDuration2" units="ms"
+    expires_after="2027-02-07">
   <owner>nikhiljakhar@google.com</owner>
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>

@@ -9,6 +9,7 @@
 #ifndef PARTITION_ALLOC_SHIM_SHIM_ALLOC_FUNCTIONS_H_
 #define PARTITION_ALLOC_SHIM_SHIM_ALLOC_FUNCTIONS_H_
 
+#include <bit>
 #include <cerrno>
 
 #include "partition_alloc/build_config.h"
@@ -57,10 +58,9 @@ extern "C" {
 //       just suicide printing a message).
 //     - Assume it did succeed if it returns, in which case reattempt the alloc.
 
-PA_ALWAYS_INLINE void* ShimCppNew(
-    size_t size,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimCppNew(size_t size,
+                                  allocator_shim::AllocToken alloc_token =
+                                      allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* context = nullptr;
@@ -82,7 +82,7 @@ PA_ALWAYS_INLINE void* ShimCppNew(
 PA_ALWAYS_INLINE void* ShimCppNewNoThrow(
     size_t size,
     allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+        allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* context = nullptr;
@@ -96,7 +96,7 @@ PA_ALWAYS_INLINE void* ShimCppAlignedNew(
     size_t size,
     size_t alignment,
     allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+        allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* context = nullptr;
@@ -112,6 +112,21 @@ PA_ALWAYS_INLINE void* ShimCppAlignedNew(
   }
 
   return ptr;
+}
+
+PA_ALWAYS_INLINE void* ShimCppAlignedNewNoThrow(
+    size_t size,
+    size_t alignment,
+    allocator_shim::AllocToken alloc_token =
+        allocator_shim::kDefaultAllocToken) {
+  const allocator_shim::AllocatorDispatch* const chain_head =
+      allocator_shim::internal::GetChainHead();
+  void* context = nullptr;
+#if PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  context = malloc_default_zone();
+#endif
+  return chain_head->alloc_aligned_unchecked_function(alignment, size,
+                                                      alloc_token, context);
 }
 
 PA_ALWAYS_INLINE void ShimCppDelete(void* address) {
@@ -160,11 +175,10 @@ PA_ALWAYS_INLINE void ShimCppDeleteWithSizeAndAlignment(void* address,
 }
 #endif  // PA_BUILDFLAG(SHIM_SUPPORTS_SIZED_DEALLOC)
 
-PA_ALWAYS_INLINE void* ShimMalloc(
-    size_t size,
-    void* context,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimMalloc(size_t size,
+                                  void* context,
+                                  allocator_shim::AllocToken alloc_token =
+                                      allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr = chain_head->alloc_function(size, alloc_token, context);
@@ -178,12 +192,11 @@ PA_ALWAYS_INLINE void* ShimMalloc(
   return ptr;
 }
 
-PA_ALWAYS_INLINE void* ShimCalloc(
-    size_t n,
-    size_t size,
-    void* context,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimCalloc(size_t n,
+                                  size_t size,
+                                  void* context,
+                                  allocator_shim::AllocToken alloc_token =
+                                      allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr = chain_head->alloc_zero_initialized_function(n, size, alloc_token,
@@ -199,12 +212,11 @@ PA_ALWAYS_INLINE void* ShimCalloc(
   return ptr;
 }
 
-PA_ALWAYS_INLINE void* ShimRealloc(
-    void* address,
-    size_t size,
-    void* context,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimRealloc(void* address,
+                                   size_t size,
+                                   void* context,
+                                   allocator_shim::AllocToken alloc_token =
+                                       allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr = chain_head->realloc_function(address, size, alloc_token, context);
@@ -220,12 +232,11 @@ PA_ALWAYS_INLINE void* ShimRealloc(
   return ptr;
 }
 
-PA_ALWAYS_INLINE void* ShimMemalign(
-    size_t alignment,
-    size_t size,
-    void* context,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimMemalign(size_t alignment,
+                                    size_t size,
+                                    void* context,
+                                    allocator_shim::AllocToken alloc_token =
+                                        allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr =
@@ -241,16 +252,14 @@ PA_ALWAYS_INLINE void* ShimMemalign(
   return ptr;
 }
 
-PA_ALWAYS_INLINE int ShimPosixMemalign(
-    void** res,
-    size_t alignment,
-    size_t size,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE int ShimPosixMemalign(void** res,
+                                       size_t alignment,
+                                       size_t size,
+                                       allocator_shim::AllocToken alloc_token =
+                                           allocator_shim::kDefaultAllocToken) {
   // posix_memalign is supposed to check the arguments. See tc_posix_memalign()
   // in tc_malloc.cc.
-  if (((alignment % sizeof(void*)) != 0) ||
-      !partition_alloc::internal::base::bits::HasSingleBit(alignment))
+  if (((alignment % sizeof(void*)) != 0) || !std::has_single_bit(alignment))
       [[unlikely]] {
     return EINVAL;
   }
@@ -262,18 +271,16 @@ PA_ALWAYS_INLINE int ShimPosixMemalign(
   return ENOMEM;
 }
 
-PA_ALWAYS_INLINE void* ShimValloc(
-    size_t size,
-    void* context,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimValloc(size_t size,
+                                  void* context,
+                                  allocator_shim::AllocToken alloc_token =
+                                      allocator_shim::kDefaultAllocToken) {
   return ShimMemalign(GetCachedPageSize(), size, context, alloc_token);
 }
 
-PA_ALWAYS_INLINE void* ShimPvalloc(
-    size_t size,
-    allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+PA_ALWAYS_INLINE void* ShimPvalloc(size_t size,
+                                   allocator_shim::AllocToken alloc_token =
+                                       allocator_shim::kDefaultAllocToken) {
   // pvalloc(0) should allocate one page, according to its man page.
   size_t page_size = GetCachedPageSize();
   if (size == 0) [[unlikely]] {
@@ -347,7 +354,7 @@ PA_ALWAYS_INLINE void* ShimAlignedMalloc(
     size_t alignment,
     void* context,
     allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+        allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr = chain_head->aligned_malloc_function(size, alignment, alloc_token,
@@ -369,7 +376,7 @@ PA_ALWAYS_INLINE void* ShimAlignedRealloc(
     size_t alignment,
     void* context,
     allocator_shim::AllocToken alloc_token =
-        allocator_shim::AllocToken(allocator_shim::kDefaultPartitionIndex)) {
+        allocator_shim::kDefaultAllocToken) {
   const allocator_shim::AllocatorDispatch* const chain_head =
       allocator_shim::internal::GetChainHead();
   void* ptr = chain_head->aligned_realloc_function(address, size, alignment,

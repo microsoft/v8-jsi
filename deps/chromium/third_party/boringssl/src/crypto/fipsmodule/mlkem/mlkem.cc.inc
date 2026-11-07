@@ -55,6 +55,20 @@ inline void prf(uint8_t *out, size_t out_len, const uint8_t in[33]) {
   BORINGSSL_keccak(out, out_len, in, 33, boringssl_shake256);
 }
 
+#if defined(HAVE_KECCAK_X2)
+inline void prf_x2(uint8_t *outs[2], size_t out_len,
+                   const uint8_t *ins[2] /* 33 each */) {
+  BORINGSSL_keccak_short_x2(outs, out_len, ins, 33, boringssl_shake256);
+}
+#endif
+
+#if defined(HAVE_KECCAK_X4)
+inline void prf_x4(uint8_t *outs[4], size_t out_len,
+                   const uint8_t *ins[4] /* 33 each */) {
+  BORINGSSL_keccak_short_x4(outs, out_len, ins, 33, boringssl_shake256);
+}
+#endif
+
 // Section 4.1
 void hash_h(uint8_t out[32], const uint8_t *in, size_t len) {
   BORINGSSL_keccak(out, 32, in, len, boringssl_sha3_256);
@@ -77,8 +91,8 @@ void kdf(uint8_t out[MLKEM_SHARED_SECRET_BYTES],
 
 // Constants that are common across all sizes.
 #define DEGREE 256
-const size_t kBarrettMultiplier = 5039;
-const unsigned kBarrettShift = 24;
+const size_t kBarrettMultiplier = 1290167;
+const unsigned kBarrettShift = 32;
 const uint16_t kPrime = 3329;
 const int kLog2Prime = 12;
 const uint16_t kHalfPrime = (/*kPrime=*/3329 - 1) / 2;
@@ -205,19 +219,22 @@ inline uint16_t reduce_once(uint16_t x) {
   // We usually add value barriers to selects because Clang turns consecutive
   // selects with the same condition into a branch instead of CMOV/CSEL. This
   // condition does not occur in ML-KEM, so omitting it seems to be safe so far,
-  // but see |scalar_centered_binomial_distribution_eta_2_with_prf|.
+  // but see `scalar_centered_binomial_distribution_eta_2_with_prf`.
   return (mask & x) | (~mask & subtracted);
 }
 
-// constant time reduce x mod kPrime using Barrett reduction. x must be less
-// than kPrime + 2×kPrime².
-inline uint16_t reduce(uint32_t x) {
-  declassify_assert(x < kPrime + 2u * kPrime * kPrime);
+// reduce_partial returns a number equivalent to x mod kPrime. The output is
+// less than 2 * kPrime. `x` can be any `uint32_t`.
+inline uint32_t reduce_partial(uint32_t x) {
   uint64_t product = (uint64_t)x * kBarrettMultiplier;
   uint32_t quotient = (uint32_t)(product >> kBarrettShift);
   uint32_t remainder = x - quotient * kPrime;
-  return reduce_once(remainder);
+  return remainder;
 }
+
+// constant time reduce x mod kPrime using Barrett reduction. `x` can be any
+// `uint32_t`.
+inline uint16_t reduce(uint32_t x) { return reduce_once(reduce_partial(x)); }
 
 inline void scalar_zero(scalar *out) { OPENSSL_memset(out, 0, sizeof(*out)); }
 
@@ -229,25 +246,35 @@ inline void vector_zero(vector<RANK> *out) {
 // In place number theoretic transform of a given scalar.
 // Note that MLKEM's kPrime 3329 does not have a 512th root of unity, so this
 // transform leaves off the last iteration of the usual FFT code, with the 128
-// relevant roots of unity being stored in |kNTTRoots|. This means the output
+// relevant roots of unity being stored in `kNTTRoots`. This means the output
 // should be seen as 128 elements in GF(3329^2), with the coefficients of the
-// elements being consecutive entries in |s->c|.
+// elements being consecutive entries in `s->c`.
 inline void scalar_ntt(scalar *s) {
   // Manually unrolled loop to maximize vectorization.
-#define ITER(step, offset)                                   \
-  {                                                          \
-    int k = 0;                                               \
-    for (int i = 0; i < step; i++) {                         \
-      const uint32_t step_root = kNTTRoots[i + step];        \
-      for (int j = k; j < k + offset; j++) {                 \
-        uint16_t odd = reduce(step_root * s->c[j + offset]); \
-        uint16_t even = s->c[j];                             \
-        s->c[j] = reduce_once(odd + even);                   \
-        s->c[j + offset] = reduce_once(even - odd + kPrime); \
-      }                                                      \
-      k += 2 * offset;                                       \
-    }                                                        \
+  //
+  // Intermediate values of `s` are not fully reduced. `ITER` writes to every
+  // element of `s` exactly once. Each write adds less than 2*kPrime to some
+  // value from the previous iteration. After seven iterations, each element
+  // will be less than 15*kPrime. This fits in `uint16_t`, so we never overflow.
+#define ITER(step, offset)                                                    \
+  {                                                                           \
+    int k = 0;                                                                \
+    for (int i = 0; i < step; i++) {                                          \
+      const uint32_t step_root = kNTTRoots[step + i];                         \
+      for (int j = k; j < k + offset; j++) {                                  \
+        uint32_t even = s->c[j];                                              \
+        /* `reduce_partial` works on values up to 2^32.                       \
+         * `step_root < kPrime` because it's static data. `s->c[...] < 2^16`  \
+         * because it's 16-bit. */                                            \
+        uint32_t odd =                                                        \
+            reduce_partial(uint32_t{step_root} * uint32_t{s->c[j + offset]}); \
+        s->c[j] = even + odd;                                                 \
+        s->c[j + offset] = even + 2 * kPrime - odd;                           \
+      }                                                                       \
+      k += 2 * offset;                                                        \
+    }                                                                         \
   }
+
   // for (int step = 1; step < DEGREE / 2; step <<= 1)
   ITER(1, 128)
   ITER(2, 64)
@@ -258,6 +285,11 @@ inline void scalar_ntt(scalar *s) {
   ITER(64, 2)
   static_assert(DEGREE == 256);
 #undef ITER
+
+  // Now `s` is correct but the elements are not fully reduced. Reduce them.
+  for (int i = 0; i < DEGREE; i++) {
+    s->c[i] = reduce(s->c[i]);
+  }
 }
 
 template <int RANK>
@@ -271,36 +303,53 @@ inline void vector_ntt(vector<RANK> *a) {
 // entries of s->v being interpreted as elements of GF(3329^2). Just as with the
 // number theoretic transform, this leaves off the first step of the normal iFFT
 // to account for the fact that 3329 does not have a 512th root of unity, using
-// the precomputed 128 roots of unity stored in |kInverseNTTRoots|.
+// the precomputed 128 roots of unity stored in `kInverseNTTRoots`.
+//
+// FIPS 203, Algorithm 10 (`NTT^-1`).
 void scalar_inverse_ntt(scalar *s) {
   // Manually unrolled loop to maximize vectorization.
-#define ITER(step, offset)                                            \
-  {                                                                   \
-    int k = 0;                                                        \
-    for (int i = 0; i < step; i++) {                                  \
-      uint32_t step_root = kInverseNTTRoots[i + step];                \
-      for (int j = k; j < k + offset; j++) {                          \
-        uint16_t odd = s->c[j + offset];                              \
-        uint16_t even = s->c[j];                                      \
-        s->c[j] = reduce_once(odd + even);                            \
-        s->c[j + offset] = reduce(step_root * (even - odd + kPrime)); \
-      }                                                               \
-      k += 2 * offset;                                                \
-    }                                                                 \
+  //
+  // Intermediate values are not fully reduced. `ITER` writes to every element
+  // exactly once. Each write either adds two values from the previous
+  // iteration, or is at most 2 * kPrime. After seven iterations, each element
+  // will be less than 2^7 * kPrime = 128 * kPrime. This fits in `uint32_t`, so
+  // we never overflow.
+  uint32_t c[DEGREE];
+#define ITER(step, offset, src)                                              \
+  {                                                                          \
+    int k = 0;                                                               \
+    for (int i = 0; i < step; i++) {                                         \
+      const uint32_t step_root = kInverseNTTRoots[step + i];                 \
+      for (int j = k; j < k + offset; j++) {                                 \
+        uint32_t even = (src)[j];                                            \
+        uint32_t odd = (src)[j + offset];                                    \
+        c[j] = odd + even;                                                   \
+        /* `reduce_partial` works on values up to 2^32.                      \
+         * `step_root < kPrime` because it's static data. The other term is  \
+         * less than 2^32, and does not overflow because `odd` is at most    \
+         * 128 * kPrime per the above. */                                    \
+        c[j + offset] = reduce_partial(uint32_t{step_root} *                 \
+                                       uint32_t{128 * kPrime + even - odd}); \
+      }                                                                      \
+      k += 2 * offset;                                                       \
+    }                                                                        \
   }
+
   // for (int offset = 2; offset < DEGREE; offset <<= 1)
-  ITER(64, 2)
-  ITER(32, 4)
-  ITER(16, 8)
-  ITER(8, 16)
-  ITER(4, 32)
-  ITER(2, 64)
-  ITER(1, 128)
+  ITER(64, 2, s->c)
+  ITER(32, 4, c)
+  ITER(16, 8, c)
+  ITER(8, 16, c)
+  ITER(4, 32, c)
+  ITER(2, 64, c)
+  ITER(1, 128, c)
   static_assert(DEGREE == 256);
 #undef ITER
 
+  // The final multiplication by `kInverseDegree` also fully reduces the
+  // partially-reduced values above.
   for (int i = 0; i < DEGREE; i++) {
-    s->c[i] = reduce(s->c[i] * kInverseDegree);
+    s->c[i] = reduce(c[i] * kInverseDegree);
   }
 }
 
@@ -327,7 +376,7 @@ inline void scalar_sub(scalar *lhs, const scalar *rhs) {
 // 3329 does not have a 512th root of unity, this means we have to interpret
 // the 2*ith and (2*i+1)th entries of the scalar as elements of GF(3329)[X]/(X^2
 // - 17^(2*bitreverse(i)+1)) The value of 17^(2*bitreverse(i)+1) mod 3329 is
-// stored in the precomputed |kModRoots| table. Note that our Barrett transform
+// stored in the precomputed `kModRoots` table. Note that our Barrett transform
 // only allows us to multiply two reduced numbers together, so we need some
 // intermediate reduction steps, even if an uint64_t could hold 3 multiplied
 // numbers.
@@ -387,7 +436,45 @@ inline void scalar_inner_product(scalar *out, const vector<RANK> *lhs,
   }
 }
 
-// Algorithm 6 from the spec. Rejection samples a Keccak stream to get
+inline void scalar_from_keccak_block_vartime(scalar *out, int *done,
+                                             const uint8_t block[168]) {
+  // kStep is the number of loop iterations to do at once. May need to become
+  // platform dependent at some point. Must be a compile-time constant - if we
+  // ever need to runtime dispatch on it, it has to be made a template argument.
+  const size_t kStep = 2;
+
+  // Branchless sampling as long as there is enough space in the output buffer
+  // even if all sampled numbers are < `kPrime`.
+  size_t i = 0;
+  for (; i <= size_t{168 - 3 * kStep} && *done <= int{DEGREE - 2 * kStep};
+       i += 3 * kStep) {
+    uint16_t d[2 * kStep];
+    for (size_t k = 0; k < kStep; ++k) {
+      size_t di = 2 * k;
+      size_t bi = i + 3 * k;
+      d[di] = block[bi] + 256 * (block[bi + 1] % 16);
+      d[di + 1] = block[bi + 1] / 16 + 16 * block[bi + 2];
+    }
+    for (size_t k = 0; k < 2 * kStep; ++k) {
+      out->c[*done] = d[k];
+      *done += d[k] < kPrime;
+    }
+  }
+
+  // Branchful "tail".
+  for (; i < 168 && *done < DEGREE; i += 3) {
+    uint16_t d1 = block[i] + 256 * (block[i + 1] % 16);
+    uint16_t d2 = block[i + 1] / 16 + 16 * block[i + 2];
+    if (d1 < kPrime) {
+      out->c[(*done)++] = d1;
+    }
+    if (d2 < kPrime && *done < DEGREE) {
+      out->c[(*done)++] = d2;
+    }
+  }
+}
+
+// Algorithm 7 from the spec. Rejection samples a Keccak stream to get
 // uniformly distributed elements. This is used for matrix expansion and only
 // operates on public inputs.
 inline void scalar_from_keccak_vartime(scalar *out,
@@ -400,40 +487,64 @@ inline void scalar_from_keccak_vartime(scalar *out,
   while (done < DEGREE) {
     uint8_t block[168];
     BORINGSSL_keccak_squeeze(keccak_ctx, block, sizeof(block));
-    for (size_t i = 0; i < sizeof(block) && done < DEGREE; i += 3) {
-      uint16_t d1 = block[i] + 256 * (block[i + 1] % 16);
-      uint16_t d2 = block[i + 1] / 16 + 16 * block[i + 2];
-      if (d1 < kPrime) {
-        out->c[done++] = d1;
-      }
-      if (d2 < kPrime && done < DEGREE) {
-        out->c[done++] = d2;
-      }
-    }
+    scalar_from_keccak_block_vartime(out, &done, block);
   }
 }
 
-// Algorithm 7 from the spec, with eta fixed to two and the PRF call
-// included. Creates binominally distributed elements by sampling 2*|eta| bits,
-// and setting the coefficient to the count of the first bits minus the count of
-// the second bits, resulting in a centered binomial distribution. Since eta is
-// two this gives -2/2 with a probability of 1/16, -1/1 with probability 1/4,
-// and 0 with probability 3/8.
-void scalar_centered_binomial_distribution_eta_2_with_prf(
-    scalar *out, const uint8_t input[33]) {
-  uint8_t entropy[128];
-  static_assert(sizeof(entropy) == 2 * /*kEta=*/2 * DEGREE / 8);
-  prf(entropy, sizeof(entropy), input);
+#if defined(HAVE_KECCAK_X2)
+inline void scalar_from_keccak_vartime_x2(scalar *out[2],
+                                          BORINGSSL_keccak_st keccak_ctx[2]) {
+  assert(keccak_ctx[0].squeeze_offset == 0);
+  assert(keccak_ctx[0].rate_bytes == 168);
+  assert(keccak_ctx[1].squeeze_offset == 0);
+  assert(keccak_ctx[1].rate_bytes == 168);
+  static_assert(168 % 3 == 0, "block and coefficient boundaries do not align");
 
+  int done[2] = {0, 0};
+  while (done[0] < DEGREE || done[1] < DEGREE) {
+    uint8_t block[2][168];
+    uint8_t *blocks[] = {block[0], block[1]};
+    BORINGSSL_keccak_squeeze_x2(keccak_ctx, blocks, sizeof(block[0]));
+    scalar_from_keccak_block_vartime(out[0], &done[0], block[0]);
+    scalar_from_keccak_block_vartime(out[1], &done[1], block[1]);
+  }
+}
+#endif
+
+#if defined(HAVE_KECCAK_X4)
+inline void scalar_from_keccak_vartime_x4(scalar *out[4],
+                                          BORINGSSL_keccak_st keccak_ctx[]) {
+  for (int i = 0; i < 4; i++) {
+    assert(keccak_ctx[i].squeeze_offset == 0);
+    assert(keccak_ctx[i].rate_bytes == 168);
+  }
+  static_assert(168 % 3 == 0, "block and coefficient boundaries do not align");
+
+  int done[4] = {0, 0, 0, 0};
+  while (done[0] < DEGREE || done[1] < DEGREE || done[2] < DEGREE ||
+         done[3] < DEGREE) {
+    uint8_t block[4][168];
+    uint8_t *blocks[] = {block[0], block[1], block[2], block[3]};
+    BORINGSSL_keccak_squeeze_x4(keccak_ctx, blocks, sizeof(block[0]));
+    scalar_from_keccak_block_vartime(out[0], &done[0], block[0]);
+    scalar_from_keccak_block_vartime(out[1], &done[1], block[1]);
+    scalar_from_keccak_block_vartime(out[2], &done[2], block[2]);
+    scalar_from_keccak_block_vartime(out[3], &done[3], block[3]);
+  }
+}
+#endif
+
+static void scalar_centered_binomial_distribution_eta_2(
+    scalar *out, const uint8_t entropy[128]) {
   for (int i = 0; i < DEGREE; i += 2) {
     uint8_t byte = entropy[i / 2];
 
     uint16_t value = (byte & 1) + ((byte >> 1) & 1);
     value -= ((byte >> 2) & 1) + ((byte >> 3) & 1);
-    // Add |kPrime| if |value| underflowed. See |reduce_once| for a discussion
+    // Add `kPrime` if `value` underflowed. See `reduce_once` for a discussion
     // on why the value barrier is omitted. While this could have been written
     // reduce_once(value + kPrime), this is one extra addition and small range
-    // of |value| tempts some versions of Clang to emit a branch.
+    // of `value` tempts some versions of Clang to emit a branch.
     uint16_t mask = 0u - (value >> 15);
     out->c[i] = ((value + kPrime) & mask) | (value & ~mask);
 
@@ -446,40 +557,177 @@ void scalar_centered_binomial_distribution_eta_2_with_prf(
   }
 }
 
+// Algorithm 8 from the spec, with eta fixed to two and the PRF call
+// included. Creates binominally distributed elements by sampling 2*`eta` bits,
+// and setting the coefficient to the count of the first bits minus the count of
+// the second bits, resulting in a centered binomial distribution. Since eta is
+// two this gives -2/2 with a probability of 1/16, -1/1 with probability 1/4,
+// and 0 with probability 3/8.
+void scalar_centered_binomial_distribution_eta_2_with_prf(
+    scalar *out, const uint8_t input[33]) {
+  uint8_t entropy[128];
+  static_assert(sizeof(entropy) == 2 * /*kEta=*/2 * DEGREE / 8);
+  prf(entropy, sizeof(entropy), input);
+  scalar_centered_binomial_distribution_eta_2(out, entropy);
+}
+
+#if defined(HAVE_KECCAK_X2)
+// scalar_centered_binomial_distribution_eta_2_with_prf_x2 computes two blocks
+// of scalar_centered_binomial_distribution_eta_2_with_prf.
+static void scalar_centered_binomial_distribution_eta_2_with_prf_x2(
+    scalar out[2], uint8_t input[33]) {
+  uint8_t entropy[2][128];
+  static_assert(sizeof(entropy[0]) == 2 * /*kEta=*/2 * DEGREE / 8);
+
+  uint8_t input1[33];
+  OPENSSL_memcpy(input1, input, 33);
+  ++input1[32];  // Counter.
+
+  uint8_t *entropies[] = {entropy[0], entropy[1]};
+  const uint8_t *inputs[2] = {input, input1};
+  prf_x2(entropies, sizeof(entropy[0]), inputs);
+
+  for (int k = 0; k < 2; k++) {
+    scalar_centered_binomial_distribution_eta_2(&out[k], entropy[k]);
+  }
+}
+#endif
+
+#if defined(HAVE_KECCAK_X4)
+// scalar_centered_binomial_distribution_eta_2_with_prf_x4 computes four blocks
+// of scalar_centered_binomial_distribution_eta_2_with_prf.
+static void scalar_centered_binomial_distribution_eta_2_with_prf_x4(
+    scalar out[4], uint8_t input[33]) {
+  uint8_t entropy[4][128];
+  static_assert(sizeof(entropy[0]) == 2 * /*kEta=*/2 * DEGREE / 8);
+
+  uint8_t inputs[4][33];
+  for (int i = 0; i < 4; i++) {
+    OPENSSL_memcpy(inputs[i], input, 33);
+    inputs[i][32] += i;
+  }
+  uint8_t *entropies[] = {entropy[0], entropy[1], entropy[2], entropy[3]};
+  const uint8_t *input_ptrs[4] = {inputs[0], inputs[1], inputs[2], inputs[3]};
+  prf_x4(entropies, sizeof(entropy[0]), input_ptrs);
+
+  for (int k = 0; k < 4; k++) {
+    scalar_centered_binomial_distribution_eta_2(&out[k], entropy[k]);
+  }
+}
+#endif
+
 // Generates a secret vector by using
-// |scalar_centered_binomial_distribution_eta_2_with_prf|, using the given seed
-// appending and incrementing |counter| for entry of the vector.
+// `scalar_centered_binomial_distribution_eta_2_with_prf`, using the given seed
+// appending and incrementing `counter` for entry of the vector.
 template <int RANK>
 void vector_generate_secret_eta_2(vector<RANK> *out, uint8_t *counter,
                                   const uint8_t seed[32]) {
   uint8_t input[33];
   OPENSSL_memcpy(input, seed, 32);
-  for (int i = 0; i < RANK; i++) {
+
+  int i = 0;
+#if defined(HAVE_KECCAK_X4)
+  if (BORINGSSL_have_keccak_x4()) {
+    for (; i + 4 <= RANK; i += 4) {
+      input[32] = *counter;
+      *counter += 4;
+      scalar_centered_binomial_distribution_eta_2_with_prf_x4(&out->v[i],
+                                                              input);
+    }
+  }
+#endif
+#if defined(HAVE_KECCAK_X2)
+  for (; i + 2 <= RANK; i += 2) {
+    input[32] = *counter;
+    *counter += 2;
+    scalar_centered_binomial_distribution_eta_2_with_prf_x2(&out->v[i], input);
+  }
+#endif
+
+  for (; i < RANK; i++) {
     input[32] = (*counter)++;
     scalar_centered_binomial_distribution_eta_2_with_prf(&out->v[i], input);
   }
 }
+
+template <int RANK>
+void matrix_expand_step(scalar *out, uint8_t input[34], int i) {
+  input[32] = i / RANK;
+  input[33] = i % RANK;
+  BORINGSSL_keccak_st keccak_ctx;
+  BORINGSSL_keccak_init(&keccak_ctx, boringssl_shake128);
+  BORINGSSL_keccak_absorb(&keccak_ctx, input, 34);
+  scalar_from_keccak_vartime(out, &keccak_ctx);
+}
+
+#if defined(HAVE_KECCAK_X2)
+template <int RANK>
+void matrix_expand_step_x2(matrix<RANK> *out, uint8_t input[34], int i) {
+  input[32] = i / RANK;
+  input[33] = i % RANK;
+  uint8_t input1[34];
+  OPENSSL_memcpy(input1, input, 32);
+  input1[32] = (i + 1) / RANK;
+  input1[33] = (i + 1) % RANK;
+  BORINGSSL_keccak_st keccak_ctx[2];
+  BORINGSSL_keccak_init(&keccak_ctx[0], boringssl_shake128);
+  BORINGSSL_keccak_init(&keccak_ctx[1], boringssl_shake128);
+  BORINGSSL_keccak_absorb(&keccak_ctx[0], input, 34);
+  BORINGSSL_keccak_absorb(&keccak_ctx[1], input1, 34);
+  scalar *outs[] = {&out->v[i / RANK][i % RANK],
+                    &out->v[(i + 1) / RANK][(i + 1) % RANK]};
+  scalar_from_keccak_vartime_x2(outs, keccak_ctx);
+}
+#endif
+
+#if defined(HAVE_KECCAK_X4)
+template <int RANK>
+void matrix_expand_step_x4(matrix<RANK> *out, uint8_t input[34], int i) {
+  uint8_t inputs[4][34];
+  BORINGSSL_keccak_st keccak_ctx[4];
+  for (int k = 0; k < 4; k++) {
+    OPENSSL_memcpy(inputs[k], input, 32);
+    inputs[k][32] = (i + k) / RANK;
+    inputs[k][33] = (i + k) % RANK;
+    BORINGSSL_keccak_init(&keccak_ctx[k], boringssl_shake128);
+    BORINGSSL_keccak_absorb(&keccak_ctx[k], inputs[k], 34);
+  }
+  scalar *outs[] = {&out->v[i / RANK][i % RANK],
+                    &out->v[(i + 1) / RANK][(i + 1) % RANK],
+                    &out->v[(i + 2) / RANK][(i + 2) % RANK],
+                    &out->v[(i + 3) / RANK][(i + 3) % RANK]};
+  scalar_from_keccak_vartime_x4(outs, keccak_ctx);
+}
+#endif
 
 // Expands the matrix of a seed for key generation and for encaps-CPA.
 template <int RANK>
 void matrix_expand(matrix<RANK> *out, const uint8_t rho[32]) {
   uint8_t input[34];
   OPENSSL_memcpy(input, rho, 32);
-  for (int i = 0; i < RANK; i++) {
-    for (int j = 0; j < RANK; j++) {
-      input[32] = i;
-      input[33] = j;
-      BORINGSSL_keccak_st keccak_ctx;
-      BORINGSSL_keccak_init(&keccak_ctx, boringssl_shake128);
-      BORINGSSL_keccak_absorb(&keccak_ctx, input, sizeof(input));
-      scalar_from_keccak_vartime(&out->v[i][j], &keccak_ctx);
+
+  int i = 0;
+#if defined(HAVE_KECCAK_X4)
+  if (BORINGSSL_have_keccak_x4()) {
+    for (; i + 4 <= RANK * RANK; i += 4) {
+      matrix_expand_step_x4<RANK>(out, input, i);
     }
+  }
+#endif
+#if defined(HAVE_KECCAK_X2)
+  for (; i + 2 <= RANK * RANK; i += 2) {
+    matrix_expand_step_x2<RANK>(out, input, i);
+  }
+#endif
+
+  for (; i < RANK * RANK; i++) {
+    matrix_expand_step<RANK>(&out->v[i / RANK][i % RANK], input, i);
   }
 }
 
-// Encodes a scalar of 256 |BITS|-bit words into 32*|BITS| bytes by splitting
+// Encodes a scalar of 256 `BITS`-bit words into 32*`BITS` bytes by splitting
 // and joining into bytes using LSB-first bit order (i.e. opposite to standard
-// reading order). See below for examples. If an input is >= 1 << |BITS|, the
+// reading order). See below for examples. If an input is >= 1 << `BITS`, the
 // result is undefined.
 template <int BITS>
 void scalar_encode(uint8_t *out, const scalar *s);
@@ -605,7 +853,7 @@ void scalar_encode<1>(uint8_t out[32], const scalar *s) {
   }
 }
 
-// Encodes an entire vector into 32*|RANK|*|bits| bytes. Note that since 256
+// Encodes an entire vector into 32*`RANK`*`bits` bytes. Note that since 256
 // (DEGREE) is divisible by 8, the individual vector entries will always fill a
 // whole number of bytes, so we do not need to worry about bit packing here.
 template <int bits, int RANK>
@@ -615,14 +863,15 @@ void vector_encode(uint8_t *out, const vector<RANK> *a) {
   }
 }
 
-// The inverse of |scalar_encode|. Returns 1 iff the encoded scalar is valid,
-// i.e. all components are < |kPrime|. Otherwise, returns 0 and the value of
-// |out| is undefined.
+// scalar_decode parses `DEGREE * BITS` bits from `in` into `DEGREE` values in
+// `out`. This is the inverse of `scalar_encode`. This is only defined for `BITS
+// < 12`. Otherwise, the decoding is fallible and must use `scalar_decode_12`
+// instead.
 template <int BITS>
-int scalar_decode(scalar *out, const uint8_t *in);
+void scalar_decode(scalar *out, const uint8_t *in);
 
 template <>
-int scalar_decode<10>(scalar *out, const uint8_t in[320]) {
+void scalar_decode<10>(scalar *out, const uint8_t in[320]) {
   for (int i = 0; i < DEGREE; i += 4) {
     uint16_t s0 = (uint16_t)(in[0] | ((in[1] & 0x03) << 8));
     uint16_t s1 = (uint16_t)((in[1] >> 2) | ((in[2] & 0x0f) << 6));
@@ -634,28 +883,10 @@ int scalar_decode<10>(scalar *out, const uint8_t in[320]) {
     out->c[i + 3] = s3;
     in += 5;
   }
-  return 1;
 }
 
 template <>
-int scalar_decode<12>(scalar *out, const uint8_t in[384]) {
-  for (int i = 0; i < DEGREE; i += 2) {
-    uint16_t s0 = (uint16_t)(in[0] | ((in[1] & 0x0f) << 8));
-    uint16_t s1 = (uint16_t)((in[1] >> 4) | (in[2] << 4));
-    if (constant_time_declassify_int((s0 | s1) >= kPrime)) {
-      if (s0 >= kPrime || s1 >= kPrime) {
-        return 0;
-      }
-    }
-    out->c[i] = s0;
-    out->c[i + 1] = s1;
-    in += 3;
-  }
-  return 1;
-}
-
-template <>
-int scalar_decode<4>(scalar *out, const uint8_t in[128]) {
+void scalar_decode<4>(scalar *out, const uint8_t in[128]) {
   for (int i = 0; i < DEGREE; i += 2) {
     uint16_t s0 = (uint16_t)(in[0] & 0x0f);
     uint16_t s1 = (uint16_t)(in[0] >> 4);
@@ -664,14 +895,10 @@ int scalar_decode<4>(scalar *out, const uint8_t in[128]) {
     out->c[i + 1] = s1;
     in += 1;
   }
-  return 1;
 }
 
-// scalar_decode parses |DEGREE * bits| bits from |in| into |DEGREE| values in
-// |out|. It returns one on success and zero if any parsed value is >=
-// |kPrime|.
 template <>
-int scalar_decode<11>(scalar *out, const uint8_t in[352]) {
+void scalar_decode<11>(scalar *out, const uint8_t in[352]) {
   for (int i = 0; i < DEGREE; i += 8) {
     uint16_t s0 = (uint16_t)(in[0] | ((in[1] & 0x07) << 8));
     uint16_t s1 = (uint16_t)((in[1] >> 3) | ((in[2] & 0x3f) << 5));
@@ -693,11 +920,10 @@ int scalar_decode<11>(scalar *out, const uint8_t in[352]) {
     out->c[i + 7] = s7;
     in += 11;
   }
-  return 1;
 }
 
 template <>
-int scalar_decode<5>(scalar *out, const uint8_t in[160]) {
+void scalar_decode<5>(scalar *out, const uint8_t in[160]) {
   for (int i = 0; i < DEGREE; i += 8) {
     uint16_t s0 = (uint16_t)(in[0] & 0x1f);
     uint16_t s1 = (uint16_t)((in[0] >> 5) | ((in[1] & 0x03) << 3));
@@ -718,38 +944,66 @@ int scalar_decode<5>(scalar *out, const uint8_t in[160]) {
     out->c[i + 7] = s7;
     in += 5;
   }
-  return 1;
 }
 
 template <>
-int scalar_decode<1>(scalar *out, const uint8_t in[32]) {
+void scalar_decode<1>(scalar *out, const uint8_t in[32]) {
   for (int i = 0; i < DEGREE; i += 8) {
     uint8_t in_byte = in[i / 8];
     for (int j = 0; j < 8; j++) {
       out->c[i + j] = (in_byte >> j) & 1;
     }
   }
+}
+
+// The inverse of `scalar_encode<12>`. Returns 1 iff the encoded scalar is
+// valid, i.e. all components are < `kPrime`. Otherwise, returns 0 and the value
+// of `out` is undefined.
+int scalar_decode_12(scalar *out, const uint8_t in[384]) {
+  for (int i = 0; i < DEGREE; i += 2) {
+    uint16_t s0 = (uint16_t)(in[0] | ((in[1] & 0x0f) << 8));
+    uint16_t s1 = (uint16_t)((in[1] >> 4) | (in[2] << 4));
+    // This is only used with secret input when parsing the test-only
+    // semi-expanded format. Leaking information about invalid inputs is OK.
+    if (constant_time_declassify_int(s0 >= kPrime) ||
+        constant_time_declassify_int(s1 >= kPrime)) {
+      return 0;
+    }
+    out->c[i] = s0;
+    out->c[i + 1] = s1;
+    in += 3;
+  }
   return 1;
 }
 
-// Decodes 32*|RANK|*|bits| bytes from |in| into |out|. It returns one on
-// success or zero if any parsed value is >= |kPrime|.
+// Decodes 32*`RANK`*`bits` bytes from `in` into `out`. This only supports `bits
+// < 12`, necessary for decoding to be infallible.
 template <int bits, int RANK>
-inline int vector_decode(vector<RANK> *out, const uint8_t *in) {
+inline void vector_decode(vector<RANK> *out, const uint8_t *in) {
+  static_assert(bits < 12);
   for (int i = 0; i < RANK; i++) {
-    if (!scalar_decode<bits>(&out->v[i], in + i * bits * DEGREE / 8)) {
+    scalar_decode<bits>(&out->v[i], in + i * bits * DEGREE / 8);
+  }
+}
+
+// Decodes 32*`RANK`*12 bytes from `in` into `out` It returns one on success or
+// zero if any parsed value is >= `kPrime`.
+template <int RANK>
+inline int vector_decode_12(vector<RANK> *out, const uint8_t *in) {
+  for (int i = 0; i < RANK; i++) {
+    if (!scalar_decode_12(&out->v[i], in + i * 12 * DEGREE / 8)) {
       return 0;
     }
   }
   return 1;
 }
 
-// Compresses (lossily) an input |x| mod 3329 into |bits| many bits by grouping
+// Compresses (lossily) an input `x` mod 3329 into `bits` many bits by grouping
 // numbers close to each other together. The formula used is
-// round(2^|bits|/kPrime*x) mod 2^|bits|.
+// round(2^`bits`/kPrime*x) mod 2^`bits`.
 // Uses Barrett reduction to achieve constant time. Since we need both the
 // remainder (for rounding) and the quotient (as the result), we cannot use
-// |reduce| here, but need to do the Barrett reduction directly.
+// `reduce` here, but need to do the Barrett reduction directly.
 inline uint16_t compress(uint16_t x, int bits) {
   uint32_t shifted = (uint32_t)x << bits;
   uint64_t product = (uint64_t)shifted * kBarrettMultiplier;
@@ -766,19 +1020,19 @@ inline uint16_t compress(uint16_t x, int bits) {
   return quotient & ((1 << bits) - 1);
 }
 
-// Decompresses |x| by using an equi-distant representative. The formula is
-// round(kPrime/2^|bits|*x). Note that 2^|bits| being the divisor allows us to
+// Decompresses `x` by using an equi-distant representative. The formula is
+// round(kPrime/2^`bits`*x). Note that 2^`bits` being the divisor allows us to
 // implement this logic using only bit operations.
 inline uint16_t decompress(uint16_t x, int bits) {
   uint32_t product = (uint32_t)x * kPrime;
   uint32_t power = 1 << bits;
-  // This is |product| % power, since |power| is a power of 2.
+  // This is `product` % power, since `power` is a power of 2.
   uint32_t remainder = product & (power - 1);
-  // This is |product| / power, since |power| is a power of 2.
+  // This is `product` / power, since `power` is a power of 2.
   uint32_t lower = product >> bits;
-  // The rounding logic works since the first half of numbers mod |power| have a
-  // 0 as first bit, and the second half has a 1 as first bit, since |power| is
-  // a power of 2. As a 12 bit number, |remainder| is always positive, so we
+  // The rounding logic works since the first half of numbers mod `power` have a
+  // 0 as first bit, and the second half has a 1 as first bit, since `power` is
+  // a power of 2. As a 12 bit number, `remainder` is always positive, so we
   // will shift in 0s for a right shift.
   return lower + (remainder >> (bits - 1));
 }
@@ -913,7 +1167,7 @@ void mlkem_generate_key_external_seed(uint8_t *out_encoded_public_key,
 }
 
 // Encrypts a message with given randomness to
-// the ciphertext in |out|. Without applying the Fujisaki-Okamoto transform this
+// the ciphertext in `out`. Without applying the Fujisaki-Okamoto transform this
 // would not result in a CCA secure scheme, since lattice schemes are vulnerable
 // to decryption failure oracles.
 template <int RANK>
@@ -986,14 +1240,14 @@ void mlkem_decap(uint8_t out_shared_secret[MLKEM_SHARED_SECRET_BYTES],
   mlkem_decap_no_self_test(out_shared_secret, ciphertext, priv);
 }
 
-// mlkem_parse_public_key_with_trailing_data parses |in| into |pub| but leaves
-// trailing data in |in| for the caller.
+// mlkem_parse_public_key_with_trailing_data parses `in` into `pub` but leaves
+// trailing data in `in` for the caller.
 template <int RANK>
 int mlkem_parse_public_key_with_trailing_data(public_key<RANK> *pub, CBS *in) {
   CBS orig_in = *in;
   CBS t_bytes;
   if (!CBS_get_bytes(in, &t_bytes, encoded_vector_size(RANK)) ||
-      !vector_decode<kLog2Prime>(&pub->t, CBS_data(&t_bytes)) ||
+      !vector_decode_12(&pub->t, CBS_data(&t_bytes)) ||
       !CBS_copy_bytes(in, pub->rho, sizeof(pub->rho))) {
     return 0;
   }
@@ -1017,7 +1271,7 @@ template <int RANK>
 int mlkem_parse_private_key(private_key<RANK> *priv, CBS *in) {
   CBS s_bytes, public_key_hash;
   if (!CBS_get_bytes(in, &s_bytes, encoded_vector_size(RANK)) ||
-      !vector_decode<kLog2Prime>(&priv->s, CBS_data(&s_bytes)) ||
+      !vector_decode_12(&priv->s, CBS_data(&s_bytes)) ||
       !mlkem_parse_public_key_with_trailing_data(&priv->pub, in) ||
       // We compute the public key hash ourselves, but check it matched.
       !CBS_get_bytes(in, &public_key_hash, sizeof(priv->pub.public_key_hash)) ||
@@ -1428,8 +1682,8 @@ const MLKEM1024_public_key *bssl::BCM_mlkem1024_public_of_private(
   return mlkem::public_key_1024_to_external(&priv->pub);
 }
 
-// Calls |MLKEM768_encap_external_entropy| with random bytes from
-// |BCM_rand_bytes|
+// Calls `MLKEM768_encap_external_entropy` with random bytes from
+// `BCM_rand_bytes`
 bcm_infallible bssl::BCM_mlkem768_encap(
     uint8_t out_ciphertext[MLKEM768_CIPHERTEXT_BYTES],
     uint8_t out_shared_secret[MLKEM_SHARED_SECRET_BYTES],

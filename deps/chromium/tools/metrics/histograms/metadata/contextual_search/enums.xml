@@ -32,7 +32,7 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="ContextMenu"/>
   <int value="1" label="CopyPaste"/>
   <int value="2" label="DragAndDrop"/>
-  <int value="3" label="RecentTabChip"/>
+  <int value="3" label="CurrentTabChip"/>
 </enum>
 
 <!-- LINT.ThenChange(//ui/webui/resources/cr_components/search/constants.ts:ComposeboxContextAddedMethod) -->
@@ -63,6 +63,7 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="LensImage"/>
   <int value="2" label="LensFile"/>
   <int value="3" label="BrowserTab"/>
+  <int value="4" label="Drive"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/omnibox/composebox/composebox_query.mojom:InputType) -->
@@ -115,6 +116,31 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Text and File"/>
 </enum>
 
+<!-- LINT.IfChange(ContextualSearchNoAcMatchState) -->
+
+<enum name="ContextualSearchNoAcMatchState">
+  <int value="0" label="Only Context"/>
+  <int value="1" label="Only Text"/>
+  <int value="2" label="Text and Context"/>
+  <int value="3" label="No Text or Context"/>
+  <int value="4" label="AcMatch"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/contextual_search/contextual_search_metrics_recorder.h:ContextualSearchNoAcMatchState) -->
+
+<!-- LINT.IfChange(ContextualSearchSingleTabMenuItemAction) -->
+
+<enum name="ContextualSearchSingleTabMenuItemAction">
+  <int value="0" label="Recent tab selected"/>
+  <int value="1" label="Recent tab deselected"/>
+  <int value="2" label="Recent tab submitted"/>
+  <int value="3" label="Current tab selected"/>
+  <int value="4" label="Current tab deselected"/>
+  <int value="5" label="Current tab submitted"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/omnibox/common/omnibox_metrics_utils.h:SingleTabMenuItemAction, //ui/webui/resources/cr_components/composebox/common.ts:SingleTabMenuItemAction) -->
+
 <!-- LINT.IfChange(ContextualSearchSource) -->
 
 <enum name="ContextualSearchSource">
@@ -123,6 +149,8 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Omnibox"/>
   <int value="3" label="ContextualTasks"/>
   <int value="4" label="Lens"/>
+  <int value="5" label="OmniboxEverywhere"/>
+  <int value="6" label="ContextualCue"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/contextual_search/contextual_search_metrics_recorder.h:ContextualSearchSource) -->

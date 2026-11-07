@@ -22,7 +22,9 @@
 #include <cinttypes>
 #include <type_traits>
 
+#include "perfetto/base/compiler.h"
 #include "perfetto/base/logging.h"
+#include "perfetto/public/compiler.h"
 #include "perfetto/public/pb_utils.h"
 
 // Helper macro for the constexpr functions containing
@@ -46,6 +48,41 @@ enum class ProtoWireType : uint32_t {
   kLengthDelimited = 2,
   kFixed32 = 5,
 };
+
+// Wire types for proto group boundaries. These stay outside ProtoWireType
+// because protozero decoders do not support groups. See kProtoGroupEndByte.
+// Keep in sync with PERFETTO_PB_WIRE_TYPE_START_GROUP in public/pb_utils.h.
+constexpr uint32_t kWireTypeStartGroup = 3;
+constexpr uint32_t kWireTypeEndGroup = 4;
+
+// Closing byte for tracing v2's append-only proto group format:
+//
+//   open nested field f:  varint((f << 3) | 3)
+//   close current nested: 0x04
+//   root:                 no wrapper and no close byte
+//
+// Unlike standard protobuf groups, the closing byte does not repeat the field
+// number. It encodes field zero (invalid in standard protobuf) with wire
+// type 4. At a field boundary, it closes the innermost message. The packet
+// boundary ends the root.
+//
+// The parent writes both the start tag and the closing byte of a nested
+// message, as it writes the tag and the length field of a length-delimited
+// one. A root has no parent, so nothing writes a closing byte for it.
+//
+// The packet must be rewritten to length-delimited protobuf before standard
+// decoders can read it. See RFC 0014 for the design:
+// https://github.com/google/perfetto/discussions/4508.
+// Keep in sync with PERFETTO_PB_PROTO_GROUP_END_BYTE in pb_utils.h.
+constexpr uint8_t kProtoGroupEndByte = static_cast<uint8_t>(kWireTypeEndGroup);
+
+// Enforces the "Keep in sync" rules above.
+static_assert(kWireTypeStartGroup ==
+                  static_cast<uint32_t>(PERFETTO_PB_WIRE_TYPE_START_GROUP),
+              "C and C++ start group wire types differ");
+static_assert(kProtoGroupEndByte ==
+                  static_cast<uint8_t>(PERFETTO_PB_PROTO_GROUP_END_BYTE),
+              "C and C++ proto group closing bytes differ");
 
 // This is the type defined in the proto for each field. This information
 // is used to decide the translation strategy when writing the trace.
@@ -117,6 +154,42 @@ inline const char* ProtoSchemaToString(ProtoSchemaType v) {
   return "";
 }
 
+// Returns the wire type used on the wire to encode a field of the given
+// schema type. This is the single source of truth for the proto-type ->
+// wire-type grouping. kGroup is a deprecated proto2-only feature that
+// protozero does not support and that ProtoWireType cannot represent; it,
+// like kUnknown, maps to kLengthDelimited as a safe opaque default.
+inline ProtoWireType ProtoSchemaToWireType(ProtoSchemaType v) {
+  switch (v) {
+    case ProtoSchemaType::kInt32:
+    case ProtoSchemaType::kInt64:
+    case ProtoSchemaType::kUint32:
+    case ProtoSchemaType::kUint64:
+    case ProtoSchemaType::kBool:
+    case ProtoSchemaType::kEnum:
+    case ProtoSchemaType::kSint32:
+    case ProtoSchemaType::kSint64:
+      return ProtoWireType::kVarInt;
+    case ProtoSchemaType::kDouble:
+    case ProtoSchemaType::kFixed64:
+    case ProtoSchemaType::kSfixed64:
+      return ProtoWireType::kFixed64;
+    case ProtoSchemaType::kFloat:
+    case ProtoSchemaType::kFixed32:
+    case ProtoSchemaType::kSfixed32:
+      return ProtoWireType::kFixed32;
+    case ProtoSchemaType::kString:
+    case ProtoSchemaType::kBytes:
+    case ProtoSchemaType::kMessage:
+    case ProtoSchemaType::kGroup:
+    case ProtoSchemaType::kUnknown:
+      return ProtoWireType::kLengthDelimited;
+  }
+  // For gcc:
+  PERFETTO_DCHECK(false);
+  return ProtoWireType::kLengthDelimited;
+}
+
 // Maximum message size supported: 256 MiB (4 x 7-bit due to varint encoding).
 constexpr size_t kMessageLengthFieldSize = 4;
 constexpr size_t kMaxMessageLength = (1u << (kMessageLengthFieldSize * 7)) - 1;
@@ -161,6 +234,11 @@ constexpr uint32_t MakeTagFixed(uint32_t field_id) {
 constexpr uint32_t MakeTagLengthDelimited(uint32_t field_id) {
   return (field_id << 3) |
          static_cast<uint32_t>(ProtoWireType::kLengthDelimited);
+}
+
+// Opens a nested message in the proto group encoding described above.
+constexpr uint32_t MakeTagStartGroup(uint32_t field_id) {
+  return (field_id << kFieldTypeNumBits) | kWireTypeStartGroup;
 }
 
 // Proto types: sint64, sint32.
@@ -271,6 +349,58 @@ inline const uint8_t* ParseVarInt(const uint8_t* start,
                                   const uint8_t* end,
                                   uint64_t* out_value) {
   return PerfettoPbParseVarInt(start, end, out_value);
+}
+
+// Unrolled multi-byte varint decode. Avoids the per-byte bounds-check + loop
+// branch of ParseVarInt, which matters for long varints (e.g. ftrace
+// timestamps are 8-10 bytes). The caller must guarantee at least 10 readable
+// bytes at |p| and that p[0] has the continuation bit set. Returns nullptr on
+// an overlong (> 10 byte) varint. The 10th byte contributes only its low bit
+// (matching ParseVarInt).
+PERFETTO_ALWAYS_INLINE inline const uint8_t* ParseVarIntUnrolled(
+    const uint8_t* p,
+    uint64_t* out) {
+  uint64_t value = p[0] & 0x7Fu;
+  const uint8_t* res = nullptr;
+  // One decode step for byte |i|: accumulates the payload bits and, if the
+  // continuation bit is clear, finishes the decode. Returns true while more
+  // bytes are needed, so the chain below stops at the terminating byte.
+  auto step = [&](uint64_t i) PERFETTO_ALWAYS_INLINE {
+    value |= static_cast<uint64_t>(p[i] & 0x7Fu) << (7 * i);
+    if (PERFETTO_LIKELY(!(p[i] & 0x80))) {
+      *out = value;
+      res = p + i + 1;
+      return false;
+    }
+    return true;
+  };
+  if (step(1) && step(2) && step(3) && step(4) && step(5) && step(6) &&
+      step(7) && step(8) && step(9)) {
+    return nullptr;  // Overlong (> 10 byte) varint.
+  }
+  return res;
+}
+
+// Decodes a varint at |pos|: single-byte fastpath, then the unrolled decode
+// when there is enough headroom, then the bounded byte-loop near the end of the
+// buffer. Returns nullptr on a truncated/overlong varint (note: unlike
+// ParseVarInt, which returns |pos| on failure).
+//
+// Prefer ParseVarInt() in non-hot code. This is force-inlined and expands the
+// unrolled decoder at every call site (~415 vs ~80 bytes for a ParseVarInt call
+// in our measurements), so widespread use bloats the binary. Use it only inside
+// perf-critical decode loops.
+PERFETTO_ALWAYS_INLINE inline const uint8_t* ParseVarIntFast(const uint8_t* pos,
+                                                             const uint8_t* end,
+                                                             uint64_t* out) {
+  if (PERFETTO_LIKELY(pos < end && *pos < 0x80)) {
+    *out = *pos;
+    return pos + 1;
+  }
+  if (PERFETTO_LIKELY(end - pos >= 10))
+    return ParseVarIntUnrolled(pos, out);
+  const uint8_t* next = ParseVarInt(pos, end, out);
+  return next == pos ? nullptr : next;
 }
 
 enum class RepetitionType {

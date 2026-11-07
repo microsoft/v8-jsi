@@ -32,13 +32,6 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="kErrorOccurred"/>
 </enum>
 
-<enum name="MacCloneExists">
-  <int value="0" label="EXISTS"/>
-  <int value="1" label="MISSING_MAIN_EXECUTABLE"/>
-  <int value="2" label="MISSING_INFO_PLIST"/>
-  <int value="3" label="MISSING_MAIN_EXECUTABLE_AND_INFO_PLIST"/>
-</enum>
-
 <!-- Generated from macOS 14 SDK: <sys/errno.h> -->
 
 <enum name="MacErrno">
@@ -156,6 +149,16 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="APFS"/>
   <int value="2" label="OTHER"/>
 </enum>
+
+<!-- LINT.IfChange(MacOS26LiquidGlassPreferredLook) -->
+
+<enum name="MacOS26LiquidGlassPreferredLook">
+  <int value="0" label="Default"/>
+  <int value="1" label="Clear"/>
+  <int value="2" label="Tint"/>
+</enum>
+
+<!-- LINT.ThenChange(/base/mac/mac_util.h:MacOS26LiquidGlassPreferredLook) -->
 
 <!--
 

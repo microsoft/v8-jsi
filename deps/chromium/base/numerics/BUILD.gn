@@ -6,8 +6,7 @@
 # way to facilitate pulling it into various third-party projects. So, this
 # file is here to protect against accidentally introducing external
 # dependencies or depending on internal implementation details.
-source_set("base_numerics") {
-  visibility = [ "//base/*" ]
+source_set("numerics") {
   sources = [
     "basic_ops_impl.h",
     "checked_math_impl.h",
@@ -31,6 +30,7 @@ source_set("base_numerics") {
     "safe_math.h",
     "wrapping_math.h",
   ]
+  check_includes_strict = CHECK_INCLUDES_STRICT_PUBLIC_INCLUDES_PRIVATE
 }
 
 source_set("unittests") {
@@ -38,7 +38,7 @@ source_set("unittests") {
   visibility = [ "//base/*" ]
   sources = [ "byte_conversions_unittest.cc" ]
   deps = [
-    "//base/numerics:base_numerics",
+    ":numerics",
     "//testing/gtest",
   ]
 }

@@ -53,6 +53,7 @@ namespace google {
 namespace protobuf {
 namespace internal {
 class DefaultEmptyOneof;
+struct MessageGlobalsBase;
 // Defined in other files.
 class ExtensionSet;  // extension_set.h
 class WeakFieldMap;  // weak_field_map.h
@@ -60,13 +61,30 @@ class WeakFieldMap;  // weak_field_map.h
 // Tag used on offsets for fields that don't have a real offset.
 // For example, weak message fields go into the WeakFieldMap and not in an
 // actual field.
-inline constexpr uint32_t kInvalidFieldOffsetTag = 0x40000000u;
+inline constexpr uint32_t kInvalidFieldOffsetTag = 0x10000000u;
 
-// Mask used on offsets for split fields.
-inline constexpr uint32_t kSplitFieldOffsetMask = 0x80000000u;
-inline constexpr uint32_t kLazyMask = 0x1u;
-inline constexpr uint32_t kInlinedMask = 0x1u;
-inline constexpr uint32_t kMicroStringMask = 0x2u;
+// Tags used in field offsets to indicate extra information about the field.
+// This information can't be derived from the descriptor.
+// We reuse tags that can't go on the same field.
+inline constexpr uint32_t kSplitFieldOffsetTag = 0x80000000u;
+inline constexpr uint32_t kLazyOffsetTag = 0x40000000u;
+inline constexpr uint32_t kInlinedOffsetTag = 0x40000000u;
+inline constexpr uint32_t kMicroStringOffsetTag = 0x20000000u;
+
+inline constexpr uint32_t kAllOffsetTags = kSplitFieldOffsetTag |
+                                           kLazyOffsetTag | kInlinedOffsetTag |
+                                           kMicroStringOffsetTag;
+
+// Structs that the code generator emits directly to describe a message.
+// These should never used directly except to build a ReflectionSchema
+// object.
+//
+// EXPERIMENTAL: these are changing rapidly, and may completely disappear
+// or merge with ReflectionSchema.
+struct MigrationSchema {
+  int32_t offsets_index;
+  int object_size;
+};
 
 // This struct describes the internal layout of the message, hence this is
 // used to act on the message reflectively.
@@ -111,19 +129,31 @@ inline constexpr uint32_t kMicroStringMask = 0x2u;
 //   weak_field_map_offset: If the message proto has weak fields, this is the
 //                  offset of _weak_field_map_ in the generated proto. Otherwise
 //                  -1.
-struct ReflectionSchema {
+class ReflectionSchema {
  public:
+  ReflectionSchema(const Message* default_instance, const uint32_t* offsets,
+                   const uint32_t* has_bit_indices, int has_bits_offset,
+                   int extensions_offset, int oneof_case_offset,
+                   int object_size, int weak_field_map_offset, int split_offset,
+                   int sizeof_split);
+
+  // Helper function to transform migration schema into reflection schema.
+  static ReflectionSchema MigrationToReflectionSchema(
+      const MessageGlobalsBase* const* message_globals, const uint32_t* offsets,
+      MigrationSchema migration_schema);
+
+  const Message* default_instance() const { return default_instance_; }
+
   // Size of a google::protobuf::Message object of this type.
   uint32_t GetObjectSize() const { return static_cast<uint32_t>(object_size_); }
 
   bool InRealOneof(const FieldDescriptor* field) const {
-    return field->real_containing_oneof();
+    return field->real_containing_oneof() != nullptr;
   }
 
   // Offset of any field.
-  template <typename Type = void>
   uint32_t GetFieldOffset(const FieldDescriptor* field) const {
-    return OffsetValue<Type>(offsets_[field->index()], field->type());
+    return OffsetValue(offsets_[field->index()]);
   }
 
   bool IsFieldInlined(const FieldDescriptor* field) const {
@@ -148,32 +178,24 @@ struct ReflectionSchema {
   bool HasHasbits() const { return has_bits_offset_ != -1; }
 
   // Bit index within the bit array of hasbits.  Bit order is low-to-high.
-  uint32_t HasBitIndex(const FieldDescriptor* field) const {
+  // `field_index` must be equal to field->index().
+  uint32_t HasBitIndex(const FieldDescriptor* field, int field_index) const {
+    ABSL_DCHECK_EQ(field->index(), field_index);
     ABSL_DCHECK(!field->is_extension());
     if (has_bits_offset_ == -1) return static_cast<uint32_t>(kNoHasbit);
     ABSL_DCHECK(HasHasbits());
-    return has_bit_indices_[field->index()];
+    return has_bit_indices_[field_index];
+  }
+
+  // Bit index within the bit array of hasbits.  Bit order is low-to-high.
+  uint32_t HasBitIndex(const FieldDescriptor* field) const {
+    return HasBitIndex(field, field->index());
   }
 
   // Byte offset of the hasbits array.
   uint32_t HasBitsOffset() const {
     ABSL_DCHECK(HasHasbits());
     return static_cast<uint32_t>(has_bits_offset_);
-  }
-
-  bool HasInlinedString() const { return inlined_string_donated_offset_ != -1; }
-
-  // Bit index within the bit array of _inlined_string_donated_.  Bit order is
-  // low-to-high.
-  uint32_t InlinedStringIndex(const FieldDescriptor* field) const {
-    ABSL_DCHECK(HasInlinedString());
-    return inlined_string_indices_[field->index()];
-  }
-
-  // Byte offset of the _inlined_string_donated_ array.
-  uint32_t InlinedStringDonatedOffset() const {
-    ABSL_DCHECK(HasInlinedString());
-    return static_cast<uint32_t>(inlined_string_donated_offset_);
   }
 
   // Whether this message has an ExtensionSet.
@@ -197,7 +219,7 @@ struct ReflectionSchema {
   // of the underlying data depends on the field's type.
   const void* GetFieldDefault(const FieldDescriptor* field) const {
     return reinterpret_cast<const uint8_t*>(default_instance_) +
-           OffsetValue<void>(offsets_[field->index()], field->type());
+           OffsetValue(offsets_[field->index()]);
   }
 
   // Returns true if the field is implicitly backed by LazyField.
@@ -211,7 +233,7 @@ struct ReflectionSchema {
 
   bool IsSplit(const FieldDescriptor* field) const {
     return split_offset_ != -1 &&
-           (offsets_[field->index()] & kSplitFieldOffsetMask) != 0;
+           (offsets_[field->index()] & kSplitFieldOffsetTag) != 0;
   }
 
   // Byte offset of _split_.
@@ -228,47 +250,17 @@ struct ReflectionSchema {
 
   bool HasWeakFields() const { return weak_field_map_offset_ > 0; }
 
-  // These members are intended to be private, but we cannot actually make them
-  // private because this prevents us from using aggregate initialization of
-  // them, ie.
-  //
-  //   ReflectionSchema schema = {a, b, c, d, e, ...};
-  // private:
-  const Message* default_instance_;
-  const uint32_t* offsets_;
-  const uint32_t* has_bit_indices_;
-  int has_bits_offset_;
-  int extensions_offset_;
-  int oneof_case_offset_;
-  int object_size_;
-  int weak_field_map_offset_;
-  const uint32_t* inlined_string_indices_;
-  int inlined_string_donated_offset_;
-  int split_offset_;
-  int sizeof_split_;
+ private:
+  ReflectionSchema() = default;
 
   // We tag offset values to provide additional data about fields (such as
   // "unused" or "lazy" or "inlined").
-  template <typename Type>
-  static uint32_t OffsetValue(uint32_t v, FieldDescriptor::Type type) {
-    if constexpr (!std::is_void_v<Type>) {
-      // If the type is passed, statically use the alignment for the mask.
-      // Faster than checking `type`.
-      return v & ~kSplitFieldOffsetMask & ~(alignof(Type) - 1);
-    }
-    if (type == FieldDescriptor::TYPE_MESSAGE ||
-        type == FieldDescriptor::TYPE_STRING ||
-        type == FieldDescriptor::TYPE_BYTES) {
-      return v & ~kSplitFieldOffsetMask & ~kInlinedMask & ~kLazyMask &
-             ~kMicroStringMask;
-    }
-    return v & (~kSplitFieldOffsetMask);
-  }
+  static uint32_t OffsetValue(uint32_t v) { return v & ~kAllOffsetTags; }
 
   static bool Inlined(uint32_t v, FieldDescriptor::Type type) {
     if (type == FieldDescriptor::TYPE_STRING ||
         type == FieldDescriptor::TYPE_BYTES) {
-      return (v & kInlinedMask) != 0u;
+      return (v & kInlinedOffsetTag) != 0u;
     } else {
       // Non string/byte fields are not inlined.
       return false;
@@ -279,19 +271,19 @@ struct ReflectionSchema {
     ABSL_DCHECK(type == FieldDescriptor::TYPE_STRING ||
                 type == FieldDescriptor::TYPE_BYTES)
         << type;
-    return (v & kMicroStringMask) != 0u;
+    return (v & kMicroStringOffsetTag) != 0u;
   }
-};
 
-// Structs that the code generator emits directly to describe a message.
-// These should never used directly except to build a ReflectionSchema
-// object.
-//
-// EXPERIMENTAL: these are changing rapidly, and may completely disappear
-// or merge with ReflectionSchema.
-struct MigrationSchema {
-  int32_t offsets_index;
-  int object_size;
+  const Message* default_instance_;
+  const uint32_t* offsets_;
+  const uint32_t* has_bit_indices_;
+  int has_bits_offset_;
+  int extensions_offset_;
+  int oneof_case_offset_;
+  int object_size_;
+  int weak_field_map_offset_;
+  int split_offset_;
+  int sizeof_split_;
 };
 
 // This struct tries to reduce unnecessary padding.
@@ -308,7 +300,7 @@ struct PROTOBUF_EXPORT DescriptorTable {
   int num_deps;
   int num_messages;
   const MigrationSchema* schemas;
-  const Message* const* default_instances;
+  const MessageGlobalsBase* const* message_globals;
   const uint32_t* offsets;
   // update the following descriptor arrays.
   const EnumDescriptor** file_level_enum_descriptors;
@@ -365,7 +357,7 @@ const std::string& NameOfDenseEnum(int v) {
   static_assert(max_val - min_val >= 0, "Too many enums between min and max.");
   static DenseEnumCacheInfo deci = {/* atomic ptr */ {}, min_val, max_val,
                                     descriptor_fn};
-  const std::string** cache = deci.cache.load(std::memory_order_acquire );
+  const std::string** cache = deci.cache.load(std::memory_order_acquire);
   if (ABSL_PREDICT_TRUE(cache != nullptr)) {
     if (ABSL_PREDICT_TRUE(v >= min_val && v <= max_val)) {
       return *cache[v - min_val];

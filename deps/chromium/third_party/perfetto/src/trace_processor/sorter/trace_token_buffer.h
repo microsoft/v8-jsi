@@ -19,13 +19,11 @@
 
 #include <cstdint>
 #include <limits>
-#include <optional>
 #include <utility>
 #include <vector>
 
 #include "perfetto/base/compiler.h"
 #include "perfetto/ext/base/circular_queue.h"
-#include "perfetto/ext/base/utils.h"
 #include "perfetto/trace_processor/trace_blob.h"
 #include "perfetto/trace_processor/trace_blob_view.h"
 #include "src/trace_processor/importers/common/parser_types.h"
@@ -59,18 +57,15 @@ class TraceTokenBuffer {
   PERFETTO_WARN_UNUSED_RESULT Id Append(T object) {
     static_assert(sizeof(T) % 8 == 0, "Size must be a multiple of 8");
     static_assert(alignof(T) == 8, "Alignment must be 8");
-    BumpAllocator::AllocId id = AllocAndResizeInternedVectors(sizeof(T));
-    new (allocator_.GetPointer(id)) T(std::move(object));
+    void* ptr;
+    BumpAllocator::AllocId id = allocator_.Alloc(sizeof(T), &ptr);
+    ChunkFor(id.chunk_index);
+    new (ptr) T(std::move(object));
     return Id{id};
   }
-  PERFETTO_WARN_UNUSED_RESULT Id Append(TrackEventData);
-  PERFETTO_WARN_UNUSED_RESULT Id Append(TracePacketData data) {
-    // While in theory we could add a special case for TracePacketData, the
-    // judgment call we make is that the code complexity does not justify the
-    // micro-performance gain you might hope to see by avoiding the few if
-    // conditions in the |TracePacketData| path.
-    return Append(TrackEventData(std::move(data)));
-  }
+  PERFETTO_WARN_UNUSED_RESULT Id Append(TrackEventData&&);
+  PERFETTO_WARN_UNUSED_RESULT Id Append(FtraceData);
+  PERFETTO_WARN_UNUSED_RESULT Id Append(TracePacketData);
 
   // Gets a pointer an object of type |T| from the token buffer using an id
   // previously returned by |Append|. This type *must* match the type added
@@ -117,16 +112,58 @@ class TraceTokenBuffer {
   // Functions to intern TraceBlob and PacketSequenceStateGeneration: as these
   // are often shared between packets, we can significantly reduce memory use
   // by only storing them once.
-  uint32_t InternTraceBlob(InternedIndex, const TraceBlobView&);
-  uint16_t InternSeqState(InternedIndex, RefPtr<PacketSequenceStateGeneration>);
-  uint32_t AddTraceBlob(InternedIndex, const TraceBlobView&);
+  uint32_t InternTraceBlob(BlobWithOffsets&, const TraceBlobView&);
+  uint16_t InternSeqState(SequenceStates&,
+                          RefPtr<PacketSequenceStateGeneration>);
+  uint32_t AddTraceBlob(BlobWithOffsets&, RefPtr<TraceBlob>, size_t offset);
 
-  BumpAllocator::AllocId AllocAndResizeInternedVectors(uint32_t size);
+  // Nearly every append lands in the chunk of the previous one, so keep that
+  // chunk's intern vectors at hand instead of walking the queues each time.
+  // Cleared whenever the queues change shape.
+  struct CurrentChunk {
+    uint64_t chunk_index = std::numeric_limits<uint64_t>::max();
+    BlobWithOffsets* blobs = nullptr;
+    SequenceStates* seqs = nullptr;
+  };
+  // Returns the intern vectors of the allocator chunk |chunk_index|, adding
+  // them if the allocator has just opened that chunk. Every allocation must
+  // pass through here to keep the vectors in step with the chunks.
+  CurrentChunk& ChunkFor(uint64_t chunk_index) {
+    if (PERFETTO_UNLIKELY(current_chunk_.chunk_index != chunk_index)) {
+      SwitchChunk(chunk_index);
+    }
+    return current_chunk_;
+  }
+  void SwitchChunk(uint64_t chunk_index);
+
+  // Common prologue shared between Append(TrackEventData|TracePacketData|
+  // FtraceData): allocates storage sized for |desc|, fills its intern_* fields,
+  // writes |desc| and the packet size to the buffer, and returns the alloc id
+  // plus a pointer positioned after the packet size (where any per-type
+  // optional fields can be appended).
+  template <typename Desc>
+  std::pair<BumpAllocator::AllocId, uint8_t*> AppendCommon(
+      Desc& desc,
+      const TraceBlobView& packet,
+      RefPtr<PacketSequenceStateGeneration> sequence_state);
+
+  // Common prologue shared between Extract<TrackEventData|TracePacketData|
+  // FtraceData>: reads |*out_desc| and the packet size out of the buffer,
+  // materialises the TraceBlobView and sequence state, and returns them as a
+  // TracePacketData together with a pointer positioned after the packet size
+  // (where any per-type optional fields live). The caller is responsible for
+  // freeing the allocation.
+  template <typename Desc>
+  std::pair<TracePacketData, uint8_t*> ExtractCommon(Id id,
+                                                     Desc* out_desc,
+                                                     uint8_t* ptr);
+
   InternedIndex GetInternedIndex(BumpAllocator::AllocId);
 
   BumpAllocator allocator_;
   base::CircularQueue<BlobWithOffsets> interned_blobs_;
   base::CircularQueue<SequenceStates> interned_seqs_;
+  CurrentChunk current_chunk_;
 };
 
 // GCC7 does not like us declaring these inside the class so define these
@@ -135,11 +172,11 @@ template <>
 PERFETTO_WARN_UNUSED_RESULT TrackEventData
     TraceTokenBuffer::Extract<TrackEventData>(Id);
 template <>
-PERFETTO_WARN_UNUSED_RESULT inline TracePacketData
-TraceTokenBuffer::Extract<TracePacketData>(Id id) {
-  // See the comment in Append(TracePacketData) for why we do this.
-  return Extract<TrackEventData>(id).trace_packet_data;
-}
+PERFETTO_WARN_UNUSED_RESULT FtraceData
+    TraceTokenBuffer::Extract<FtraceData>(Id);
+template <>
+PERFETTO_WARN_UNUSED_RESULT TracePacketData
+    TraceTokenBuffer::Extract<TracePacketData>(Id);
 
 }  // namespace trace_processor
 }  // namespace perfetto

@@ -8,8 +8,13 @@
 
 #include <algorithm>
 #include <queue>
+#include <set>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 
 #ifdef __SSE2__
 #include <immintrin.h>
@@ -95,7 +100,7 @@ SubstringSetMatcher::SubstringSetMatcher() = default;
 SubstringSetMatcher::~SubstringSetMatcher() = default;
 
 bool SubstringSetMatcher::Match(
-    const std::string& text,
+    std::string_view text,
     std::set<MatcherStringPattern::ID>* matches) const {
   const size_t old_number_of_matches = matches->size();
 
@@ -130,7 +135,7 @@ bool SubstringSetMatcher::Match(
   return old_number_of_matches != matches->size();
 }
 
-bool SubstringSetMatcher::AnyMatch(const std::string& text) const {
+bool SubstringSetMatcher::AnyMatch(std::string_view text) const {
   // Handle patterns matching the empty string.
   const AhoCorasickNode* const root = &tree_[kRootID];
   if (root->has_outputs()) {
@@ -435,16 +440,15 @@ void SubstringSetMatcher::AhoCorasickNode::SetEdge(uint32_t label,
 
   if (edges_capacity_ == 0 && num_free_edges_ > 0) {
     // Still space in the inline storage, so use that.
-    UNSAFE_TODO(edges_.inline_edges[num_edges()]) =
-        AhoCorasickEdge{label, node};
+    edges_.inline_edges[num_edges()] = AhoCorasickEdge{label, node};
     if (label == kFailureNodeLabel) {
       // Make sure that kFailureNodeLabel is first.
       // NOTE: We don't use std::swap here, because the compiler doesn't
       // understand that inline_edges[] is 4-aligned and can give
       // a warning or error.
       AhoCorasickEdge temp = edges_.inline_edges[0];
-      edges_.inline_edges[0] = UNSAFE_TODO(edges_.inline_edges[num_edges()]);
-      UNSAFE_TODO(edges_.inline_edges[num_edges()]) = temp;
+      edges_.inline_edges[0] = edges_.inline_edges[num_edges()];
+      edges_.inline_edges[num_edges()] = temp;
     }
     --num_free_edges_;
     return;

@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -223,7 +224,7 @@ class MovingWindowBase {
 
   void Reset() {
     cur_idx_ = 0;
-    std::fill(values_.begin(), values_.end(), T());
+    std::ranges::fill(values_, T());
   }
 
   T GetValue() const { return values_[cur_idx_]; }
@@ -484,7 +485,7 @@ using deviation_t = typename get_type_deviation<T>::type;
 // Specific template for TimeDelta.
 template <>
 struct DivideInternal<TimeDelta, TimeDelta> {
-  static TimeDelta Compute(const TimeDelta& sum, const size_t count) {
+  static TimeDelta Compute(TimeDelta sum, const size_t count) {
     return sum / count;
   }
 };
@@ -505,7 +506,7 @@ struct DeivationInternal<double, TimeDelta> {
 // Specific template for TimeDelta.
 template <>
 struct SquareInternal<TimeDelta, double> {
-  static double Compute(const TimeDelta& sample) {
+  static double Compute(TimeDelta sample) {
     return sample.InSecondsF() * sample.InSecondsF();
   }
 };

@@ -11,6 +11,7 @@
 
 #include "base/base_export.h"
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/feature.h"
 #include "base/memory/raw_ptr_exclusion.h"
 #include "base/memory/raw_span.h"
@@ -89,6 +90,10 @@ typedef std::string (*FieldTrialParamsDecodeStringFunc)(const std::string& str);
 //
 // If the feature is not enabled, the parameter is not set, or set to an invalid
 // value, then Get() will return the default value.
+//
+// Note that FeatureParam<size_t> is backed by `int` in the underlying API,
+// so `default_value`s or field trial overrides greater than INT_MAX will
+// cause a runtime crash.
 template <typename T, bool IsEnum = std::is_enum_v<T>>
 struct FeatureParam {
   using DefaultValueType =
@@ -115,7 +120,8 @@ struct FeatureParam {
   // Calling Get() or GetWithoutCache() will activate the field trial associated
   // with |feature|. See GetFieldTrialParamValueByFeature() for more details.
   BASE_EXPORT T Get() const {
-    if (internal::IsFeatureParamWithCacheEnabled() && cache_getter) {
+    if (internal::IsFeatureParamWithCacheEnabled() && cache_getter &&
+        !feature->IsRuntimeMutable()) {
       return cache_getter(this);
     }
     return GetWithoutCache();
@@ -220,7 +226,8 @@ struct FeatureParam<Enum, true> {
   // Calling Get() or GetWithoutCache() will activate the field trial associated
   // with |feature|. See GetFieldTrialParamValueByFeature() for more details.
   Enum Get() const {
-    if (internal::IsFeatureParamWithCacheEnabled() && cache_getter) {
+    if (internal::IsFeatureParamWithCacheEnabled() && cache_getter &&
+        !feature->IsRuntimeMutable()) {
       return cache_getter(this);
     }
     return GetWithoutCache();
@@ -265,7 +272,7 @@ BASE_EXPORT void LogInvalidEnumValue(const Feature& feature,
 // is already active (group() has been called on it). Thread safe.
 BASE_EXPORT bool AssociateFieldTrialParams(const std::string& trial_name,
                                            const std::string& group_name,
-                                           const FieldTrialParams& params);
+                                           FieldTrialParams params);
 
 // Provides a mechanism to associate multiple set of params to multiple groups
 // with a formatted string as returned by FieldTrialList::AllParamsToString().

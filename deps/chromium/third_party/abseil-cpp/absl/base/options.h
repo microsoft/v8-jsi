@@ -99,7 +99,9 @@
 // the source location type is an alias of std::source_location type, use the
 // feature macro ABSL_USES_STD_SOURCE_LOCATION.
 //
-#define ABSL_OPTION_USE_STD_SOURCE_LOCATION 2
+// std::source_location is banned in Chrome, and disabling it save significant
+// binary size. https://crbug.com/517512695
+#define ABSL_OPTION_USE_STD_SOURCE_LOCATION 0
 
 // ABSL_OPTION_USE_STD_ORDERING
 //
@@ -107,8 +109,8 @@
 // implemented as aliases to the std:: ordering types, or as an independent
 // implementation.
 //
-// A value of 0 means to use Abseil's implementation.  This requires only C++11
-// support, and is expected to work on every toolchain we support.
+// A value of 0 means to use Abseil's implementation.  This is expected to
+// work on every toolchain we support.
 //
 // A value of 1 means to use aliases.  This requires that all code using Abseil
 // is built in C++20 mode or later.

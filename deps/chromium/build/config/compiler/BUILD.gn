@@ -11,6 +11,7 @@ import("//build/config/chrome_build.gni")
 import("//build/config/chromeos/args.gni")
 import("//build/config/clang/clang.gni")
 import("//build/config/compiler/compiler.gni")
+import("//build/config/compiler_cpu_abi.gn")
 import("//build/config/coverage/coverage.gni")
 import("//build/config/cronet/config.gni")
 import("//build/config/dcheck_always_on.gni")
@@ -95,8 +96,7 @@ declare_args() {
   # nonsensical for said projects.
   clang_use_default_sample_profile =
       chrome_pgo_phase == 0 && build_with_chromium && is_official_build &&
-      ((is_android && !is_high_end_android) || chromeos_is_browser_only) &&
-      !is_cronet_build
+      is_android && !is_high_end_android && !is_cronet_build
 
   # This configuration is used to select a default profile in Chrome OS based on
   # the microarchitectures we are using. This is only used if
@@ -259,15 +259,6 @@ if (is_android) {
   }
 }
 
-if (target_os == "chromeos") {
-  declare_args() {
-    # Setting this value selects a specific CPU type among the broader
-    # class selected by target_cpu. For example, a build with
-    # target_cpu="arm64" may set cros_target_cpu_arch="armv8-a+crc+crypto").
-    cros_target_cpu_arch = ""
-  }
-}
-
 declare_args() {
   # Turn off the --call-graph-profile-sort flag for lld by default. Enable
   # selectively for targets where it's beneficial.
@@ -308,10 +299,16 @@ config("default_include_dirs") {
   ]
 }
 
-# Compiler instrumentation can introduce dependencies in DSOs to symbols in
-# the executable they are loaded into, so they are unresolved at link-time.
+# On platforms like Linux and ChromeOS, compiler instrumentation (e.g. ASan,
+# UBSan) can introduce dependencies in DSOs to sanitizer runtime symbols that
+# are statically linked into the main executable rather than each DSO. These
+# symbols are resolved dynamically at runtime by the executable, so they are
+# unresolved at DSO link time and require disabling -Wl,-z,defs.
+# On Android, DSOs link directly against the sanitizer runtime DSO (e.g.
+# libclang_rt.asan-*-android.so), so all sanitizer symbols are resolved at link
+# time and -Wl,-z,defs can safely remain enabled to catch missing symbols.
 config("no_unresolved_symbols") {
-  if (!using_sanitizer &&
+  if ((!using_sanitizer || is_android) &&
       (is_linux || is_chromeos || is_android || is_fuchsia)) {
     ldflags = [
       "-Wl,-z,defs",
@@ -457,12 +454,14 @@ config("compiler") {
     cflags += [ "-fno-strict-aliasing" ]  # See http://crbug.com/32204
 
     # Stack protection. ShadowCallStack and Stack protector address the same
-    # problems. Therefore, we only enable one or the other. Clang advertises SCS as
-    # a stronger alternative to StackProtector, so we give SCS precedence over SP.
+    # problems. Therefore, we only enable one or the other. Clang advertises SCS
+    # as a stronger alternative to StackProtector, so we give SCS precedence
+    # over SP.
     if (enable_shadow_call_stack) {
-      # On Aarch64, SCS requires the x18 register to be unused because it will hold
-      # a pointer to the shadow stack. For Android we know that Clang doesn't use
-      # x18 by default. On other OSs adding "-ffixed-x18" might be required.
+      # On Aarch64, SCS requires the x18 register to be unused because it will
+      # hold a pointer to the shadow stack. For Android we know that Clang
+      # doesn't use x18 by default. On other OSs adding "-ffixed-x18" might be
+      # required.
       assert(is_android)
 
       scs_parameters = [
@@ -518,13 +517,16 @@ config("compiler") {
       ]
     }
 
+    if (current_os == "aix") {
+      defines += [ "__LIBC_NO_CPP_MATH_OVERLOADS__" ]
+    }
+
     if (exclude_unwind_tables) {
       cflags += [
         "-fno-unwind-tables",
         "-fno-asynchronous-unwind-tables",
       ]
       rustflags += [ "-Cforce-unwind-tables=no" ]
-      defines += [ "NO_UNWIND_TABLES" ]
     } else {
       cflags += [ "-funwind-tables" ]
       rustflags += [ "-Cforce-unwind-tables=yes" ]
@@ -551,10 +553,6 @@ config("compiler") {
     # linker_driver.py script runs dsymutil itself, which is set to be the
     # linker for Rust targets as well.
     rustflags += [ "-Csplit-debuginfo=unpacked" ]
-
-    # TODO(crbug.com/500431896): Figure out why constant literals breaks tests.
-    cflags_objc = [ "-fno-objc-constant-literals" ]
-    cflags_objcc = [ "-fno-objc-constant-literals" ]
   }
 
   # Linux/Android/Fuchsia common flags setup.
@@ -588,7 +586,9 @@ config("compiler") {
 
     # Enable std::vector []-operator bounds checking.
     cflags_cc += [ "-D__google_stl_debug_vector=1" ]
+  }
 
+  if (is_chromeos || is_fuchsia) {
     # Use -fdebug-types-section to avoid out-of-range relocations
     # (crbug.com/1050819). When using ThinLTO, pass the equivalent
     # to the code generator.
@@ -607,11 +607,13 @@ config("compiler") {
   if (is_clang) {
     # Flags for diagnostics.
     cflags += [ "-fcolor-diagnostics" ]
-    if (!is_win) {
-      cflags += [ "-fdiagnostics-show-inlining-chain" ]
-    } else {
-      # Combine after https://github.com/llvm/llvm-project/pull/192241
-      cflags += [ "/clang:-fdiagnostics-show-inlining-chain" ]
+    if (!is_wasm) {
+      if (!is_win) {
+        cflags += [ "-fdiagnostics-show-inlining-chain" ]
+      } else {
+        # Combine after https://github.com/llvm/llvm-project/pull/192241
+        cflags += [ "/clang:-fdiagnostics-show-inlining-chain" ]
+      }
     }
     if (diagnostics_print_source_range_info && !is_win) {
       cflags += [ "-fdiagnostics-print-source-range-info" ]
@@ -824,12 +826,12 @@ config("compiler") {
     # TODO(gbiv): We ideally shouldn't need to specify this; ThinLTO
     # should be able to better manage binary size increases on its own.
     #
-    # For high-end Android, 30 seems to be the right trade-off between performance
-    # and binary size, at least based on Speedometer. For example, increasing
-    # `import_instr_limit`to 50 improves Speedometer 2.1 score by 0.7% [0], while
-    # Speedometer 3.0 score remains roughly the same (-0.1%) [1]. The binary size
-    # increases by about 2MB [2] (or 1.1%: the arm64 native code size in M124 is
-    # 178MB).
+    # For high-end Android, 30 seems to be the right trade-off between
+    # performance and binary size, at least based on Speedometer. For example,
+    # increasing `import_instr_limit`to 50 improves Speedometer 2.1 score by
+    # 0.7% [0], while Speedometer 3.0 score remains roughly the same (-0.1%)
+    # [1]. The binary size increases by about 2MB [2] (or 1.1%: the arm64 native
+    # code size in M124 is 178MB).
     # [0]: https://pinpoint-dot-chromeperf.appspot.com/job/16984a18be0000
     # [1]: https://pinpoint-dot-chromeperf.appspot.com/job/11984a18be0000
     # [2]: https://ci.chromium.org/ui/p/chromium/builders/try/android-binary-size/1848442
@@ -897,9 +899,9 @@ config("compiler") {
       cflags += [ "-fwhole-program-vtables" ]
 
       if (toolchain_supports_rust_thin_lto) {
-        # whole-program-vtables implies -fsplit-lto-unit, and Rust needs to match
-        # behaviour. Rust needs to know the linker will be doing LTO in this case
-        # or it rejects the Zsplit-lto-unit flag.
+        # whole-program-vtables implies -fsplit-lto-unit, and Rust needs to
+        # match behaviour. Rust needs to know the linker will be doing LTO in
+        # this case or it rejects the Zsplit-lto-unit flag.
         rustflags += [
           "-Zsplit-lto-unit",
           "-Clinker-plugin-lto=yes",
@@ -927,6 +929,8 @@ config("compiler") {
   if (compiler_timing) {
     if (is_clang) {
       cflags += [ "-ftime-trace" ]
+      c_additional_outputs =
+          [ "{{target_out_dir}}/{{label_name}}/{{source_name_part}}.json" ]
       if (use_lld && is_mac) {
         ldflags += [ "-Wl,--time-trace" ]
       }
@@ -1075,17 +1079,6 @@ config("linker") {
   if (!is_win) {
     if (linker_path != "") {
       inputs = [ linker_path ]
-
-      if (use_mold) {
-        # Wrapper needed to strip unsupported: --use-android-relr-tags
-        # https://github.com/rui314/mold/issues/1544
-        _wrapper = "//buildtools/third_party/mold/mold_wrapper.py"
-        inputs += [ _wrapper ]
-        ldflags +=
-            [ "-Wl,--linker-path=" + rebase_path(linker_path, root_build_dir) ]
-        linker_path = _wrapper
-      }
-
       ldflags += [ "--ld-path=" + rebase_path(linker_path, root_build_dir) ]
     } else if (use_lld) {
       ldflags += [ "-fuse-ld=lld" ]
@@ -1184,8 +1177,18 @@ config("linker") {
 
   # Pass flag to LLD so Android builds can allow pre-Android Q's debuggerd to
   # properly symbolize stack crashes (http://crbug.com/919499).
-  if (use_lld && is_android) {
+  if ((use_lld || use_mold) && is_android) {
     ldflags += [ "-Wl,--no-rosegment" ]
+  }
+
+  if (is_android && linker_path != "") {
+    # Wild linker does not support the default of android+relr.
+    # Mold has a bug: https://github.com/rui314/mold/issues/1595
+    if (android_ndk_api_level >= 28) {
+      ldflags += [ "-Wl,--pack-dyn-relocs=relr" ]
+    } else {
+      ldflags += [ "-Wl,--pack-dyn-relocs=none" ]
+    }
   }
 
   # TODO(crbug.com/40242425): Cleanup undefined symbol errors caught by
@@ -1305,9 +1308,10 @@ config("thinlto_optimize_default") {
     }
 
     if (toolchain_supports_rust_thin_lto) {
-      # We always point Rust to a linker that performs LTO, so we don't want Rust
-      # to preemptively do so during compilation too or they conflict. But we do
-      # want Rust to generate LTO metadata in order for the linker to do its job.
+      # We always point Rust to a linker that performs LTO, so we don't want
+      # Rust to preemptively do so during compilation too or they conflict. But
+      # we do want Rust to generate LTO metadata in order for the linker to do
+      # its job.
       rustflags = [ "-Clinker-plugin-lto=yes" ]
     } else {
       # Don't include bitcode if it won't be used.
@@ -1339,9 +1343,10 @@ config("thinlto_optimize_max") {
     }
 
     if (toolchain_supports_rust_thin_lto) {
-      # We always point Rust to a linker that performs LTO, so we don't want Rust
-      # to preemptively do so during compilation too or they conflict. But we do
-      # want Rust to generate LTO metadata in order for the linker to do its job.
+      # We always point Rust to a linker that performs LTO, so we don't want
+      # Rust to preemptively do so during compilation too or they conflict. But
+      # we do want Rust to generate LTO metadata in order for the linker to do
+      # its job.
       rustflags = [ "-Clinker-plugin-lto=yes" ]
     } else {
       # Don't include bitcode if it won't be used.
@@ -1356,336 +1361,12 @@ config("thinlto_optimize_max") {
 # tweak code generation for a particular CPU do not belong here!
 # See "compiler_codegen", below.
 config("compiler_cpu_abi") {
-  cflags = []
-  ldflags = []
-  defines = []
-
-  configs = []
   if (is_chromeos) {
-    configs += [ "//build/config/chromeos:compiler_cpu_abi" ]
+    configs = [ "//build/config/chromeos:compiler_cpu_abi" ]
   }
-
-  if ((is_posix && !is_apple) || is_fuchsia) {
-    # CPU architecture. We may or may not be doing a cross compile now, so for
-    # simplicity we always explicitly set the architecture.
-    if (current_cpu == "x64") {
-      if (is_clang && !is_android && !is_fuchsia && !is_chromeos_device) {
-        cflags += [ "--target=x86_64-unknown-linux-gnu" ]
-        ldflags += [ "--target=x86_64-unknown-linux-gnu" ]
-      } else {
-        cflags += [ "-m64" ]
-        ldflags += [ "-m64" ]
-      }
-      cflags += [ "-msse3" ]
-      if (target_os == "chromeos" && cros_target_cpu_arch != "" &&
-          is_a_target_toolchain) {
-        cflags += [ "-march=$cros_target_cpu_arch" ]
-        ldflags += [ "-march=$cros_target_cpu_arch" ]
-      }
-    } else if (current_cpu == "x86") {
-      if (is_clang && !is_android && !is_chromeos_device) {
-        cflags += [ "--target=i386-unknown-linux-gnu" ]
-        ldflags += [ "--target=i386-unknown-linux-gnu" ]
-      } else {
-        cflags += [ "-m32" ]
-        ldflags += [ "-m32" ]
-      }
-      cflags += [
-        "-mfpmath=sse",
-        "-msse3",
-      ]
-    } else if (current_cpu == "arm") {
-      if (is_clang && !is_android && !is_chromeos_device) {
-        cflags += [ "--target=arm-linux-gnueabihf" ]
-        ldflags += [ "--target=arm-linux-gnueabihf" ]
-      }
-      cflags += [
-        "-march=$arm_arch",
-        "-mfloat-abi=$arm_float_abi",
-      ]
-    } else if (current_cpu == "arm64") {
-      if (is_clang && !is_android && !is_fuchsia && !is_chromeos_device) {
-        cflags += [ "--target=aarch64-linux-gnu" ]
-        ldflags += [ "--target=aarch64-linux-gnu" ]
-      }
-      if (target_os == "chromeos" && cros_target_cpu_arch != "" &&
-          is_a_target_toolchain) {
-        cflags += [ "-march=$cros_target_cpu_arch" ]
-        ldflags += [ "-march=$cros_target_cpu_arch" ]
-      }
-    } else if (current_cpu == "mipsel") {
-      ldflags += [ "-Wl,--hash-style=sysv" ]
-      if (custom_toolchain == "") {
-        if (is_clang) {
-          if (is_android) {
-            cflags += [ "--target=mipsel-linux-android" ]
-            ldflags += [ "--target=mipsel-linux-android" ]
-          } else {
-            cflags += [ "--target=mipsel-linux-gnu" ]
-            ldflags += [ "--target=mipsel-linux-gnu" ]
-          }
-        } else {
-          cflags += [ "-EL" ]
-          ldflags += [ "-EL" ]
-        }
-      }
-
-      if (mips_arch_variant == "r6") {
-        cflags += [ "-mno-odd-spreg" ]
-        ldflags += [ "-mips32r6" ]
-        if (is_clang) {
-          cflags += [
-            "-march=mipsel",
-            "-mcpu=mips32r6",
-          ]
-        } else {
-          cflags += [
-            "-mips32r6",
-            "-Wa,-mips32r6",
-          ]
-          if (is_android) {
-            ldflags += [ "-Wl,-melf32ltsmip" ]
-          }
-        }
-        if (mips_use_msa == true) {
-          cflags += [
-            "-mmsa",
-            "-mfp64",
-          ]
-        }
-      } else if (mips_arch_variant == "r2") {
-        ldflags += [ "-mips32r2" ]
-        if (is_clang) {
-          cflags += [
-            "-march=mipsel",
-            "-mcpu=mips32r2",
-          ]
-        } else {
-          cflags += [
-            "-mips32r2",
-            "-Wa,-mips32r2",
-          ]
-          if (mips_float_abi == "hard" && mips_fpu_mode != "") {
-            cflags += [ "-m$mips_fpu_mode" ]
-          }
-        }
-      } else if (mips_arch_variant == "r1") {
-        ldflags += [ "-mips32" ]
-        if (is_clang) {
-          cflags += [
-            "-march=mipsel",
-            "-mcpu=mips32",
-          ]
-        } else {
-          cflags += [
-            "-mips32",
-            "-Wa,-mips32",
-          ]
-        }
-      } else if (mips_arch_variant == "loongson3") {
-        defines += [ "_MIPS_ARCH_LOONGSON" ]
-        cflags += [
-          "-march=loongson3a",
-          "-mno-branch-likely",
-          "-Wa,-march=loongson3a",
-        ]
-      }
-
-      if (mips_dsp_rev == 1) {
-        cflags += [ "-mdsp" ]
-      } else if (mips_dsp_rev == 2) {
-        cflags += [ "-mdspr2" ]
-      }
-
-      cflags += [ "-m${mips_float_abi}-float" ]
-    } else if (current_cpu == "mips") {
-      ldflags += [ "-Wl,--hash-style=sysv" ]
-      if (custom_toolchain == "") {
-        if (is_clang) {
-          cflags += [ "--target=mips-linux-gnu" ]
-          ldflags += [ "--target=mips-linux-gnu" ]
-        } else {
-          cflags += [ "-EB" ]
-          ldflags += [ "-EB" ]
-        }
-      }
-
-      if (mips_arch_variant == "r6") {
-        cflags += [
-          "-mips32r6",
-          "-Wa,-mips32r6",
-        ]
-        if (mips_use_msa == true) {
-          cflags += [
-            "-mmsa",
-            "-mfp64",
-          ]
-        }
-      } else if (mips_arch_variant == "r2") {
-        cflags += [
-          "-mips32r2",
-          "-Wa,-mips32r2",
-        ]
-        if (mips_float_abi == "hard" && mips_fpu_mode != "") {
-          cflags += [ "-m$mips_fpu_mode" ]
-        }
-      } else if (mips_arch_variant == "r1") {
-        cflags += [
-          "-mips32",
-          "-Wa,-mips32",
-        ]
-      }
-
-      if (mips_dsp_rev == 1) {
-        cflags += [ "-mdsp" ]
-      } else if (mips_dsp_rev == 2) {
-        cflags += [ "-mdspr2" ]
-      }
-
-      cflags += [ "-m${mips_float_abi}-float" ]
-    } else if (current_cpu == "mips64el") {
-      cflags += [ "-D__SANE_USERSPACE_TYPES__" ]
-      ldflags += [ "-Wl,--hash-style=sysv" ]
-      if (custom_toolchain == "") {
-        if (is_clang) {
-          if (is_android) {
-            cflags += [ "--target=mips64el-linux-android" ]
-            ldflags += [ "--target=mips64el-linux-android" ]
-          } else {
-            cflags += [ "--target=mips64el-linux-gnuabi64" ]
-            ldflags += [ "--target=mips64el-linux-gnuabi64" ]
-          }
-        } else {
-          cflags += [
-            "-EL",
-            "-mabi=64",
-          ]
-          ldflags += [
-            "-EL",
-            "-mabi=64",
-          ]
-        }
-      }
-
-      if (mips_arch_variant == "r6") {
-        if (is_clang) {
-          cflags += [
-            "-march=mips64el",
-            "-mcpu=mips64r6",
-          ]
-        } else {
-          cflags += [
-            "-mips64r6",
-            "-Wa,-mips64r6",
-          ]
-          ldflags += [ "-mips64r6" ]
-        }
-        if (mips_use_msa == true) {
-          cflags += [
-            "-mmsa",
-            "-mfp64",
-          ]
-        }
-      } else if (mips_arch_variant == "r2") {
-        ldflags += [ "-mips64r2" ]
-        if (is_clang) {
-          cflags += [
-            "-march=mips64el",
-            "-mcpu=mips64r2",
-          ]
-        } else {
-          cflags += [
-            "-mips64r2",
-            "-Wa,-mips64r2",
-          ]
-        }
-      } else if (mips_arch_variant == "loongson3") {
-        defines += [ "_MIPS_ARCH_LOONGSON" ]
-        cflags += [
-          "-march=loongson3a",
-          "-mno-branch-likely",
-          "-Wa,-march=loongson3a",
-        ]
-      }
-    } else if (current_cpu == "mips64") {
-      ldflags += [ "-Wl,--hash-style=sysv" ]
-      if (custom_toolchain == "") {
-        if (is_clang) {
-          cflags += [ "--target=mips64-linux-gnuabi64" ]
-          ldflags += [ "--target=mips64-linux-gnuabi64" ]
-        } else {
-          cflags += [
-            "-EB",
-            "-mabi=64",
-          ]
-          ldflags += [
-            "-EB",
-            "-mabi=64",
-          ]
-        }
-      }
-
-      if (mips_arch_variant == "r6") {
-        cflags += [
-          "-mips64r6",
-          "-Wa,-mips64r6",
-        ]
-        ldflags += [ "-mips64r6" ]
-
-        if (mips_use_msa == true) {
-          cflags += [
-            "-mmsa",
-            "-mfp64",
-          ]
-        }
-      } else if (mips_arch_variant == "r2") {
-        cflags += [
-          "-mips64r2",
-          "-Wa,-mips64r2",
-        ]
-        ldflags += [ "-mips64r2" ]
-      }
-    } else if (current_cpu == "ppc64") {
-      if (current_os == "aix") {
-        if (is_clang) {
-          cflags += [ "--target=powerpc64-ibm-aix" ]
-          ldflags += [ "--target=powerpc64-ibm-aix" ]
-        } else {
-          cflags += [ "-maix64" ]
-          ldflags += [ "-maix64" ]
-        }
-      } else if (is_clang) {
-        cflags += [ "--target=powerpc64le-unknown-linux-gnu" ]
-        ldflags += [ "--target=powerpc64le-unknown-linux-gnu" ]
-      } else {
-        cflags += [ "-m64" ]
-        ldflags += [ "-m64" ]
-      }
-    } else if (current_cpu == "riscv64") {
-      if (is_clang && !is_android) {
-        cflags += [ "--target=riscv64-linux-gnu" ]
-        ldflags += [ "--target=riscv64-linux-gnu" ]
-      }
-      cflags += [ "-mabi=lp64d" ]
-    } else if (current_cpu == "loong64") {
-      if (is_clang) {
-        cflags += [ "--target=loongarch64-linux-gnu" ]
-        ldflags += [ "--target=loongarch64-linux-gnu" ]
-      }
-      cflags += [
-        "-mabi=lp64d",
-        "-mcmodel=medium",
-      ]
-    } else if (current_cpu == "s390x") {
-      if (is_clang && current_os != "zos") {
-        cflags += [ "--target=s390x-unknown-linux-gnu" ]
-        ldflags += [ "--target=s390x-unknown-linux-gnu" ]
-      }
-      cflags += [ "-m64" ]
-      ldflags += [ "-m64" ]
-    }
-  }
-
+  cflags = cpu_abi_cflags
+  ldflags = cpu_abi_ldflags
+  defines = cpu_abi_defines
   asmflags = cflags
 }
 
@@ -1871,22 +1552,55 @@ config("clang_revision") {
 
     if (toolchain_has_rust && _perform_consistency_checks &&
         !rust_force_head_revision) {
-      # Ensure that the synced rust version matches what's in git.
-      _rust_revision_lines =
-          filter_include(read_file("//tools/rust/update_rust.py", "list lines"),
-                         [ "RUST_*REVISION = *" ])
-      _py_revision =
-          string_replace(_rust_revision_lines[0], "RUST_REVISION = '", "")
-      _py_revision = string_replace(_py_revision, "'", "")
-      _py_subrevision =
-          string_replace(_rust_revision_lines[1], "RUST_SUB_REVISION = ", "")
-      _expected_rust_revision = "$_py_revision-$_py_subrevision"
+      # Ensure that synced rust, crubit, and bindgen versions match what's in
+      # git.
+      _rust_update_lines =
+          read_file("//tools/rust/update_rust.py", "list lines")
+      _version_lines =
+          read_file("//third_party/rust-toolchain/VERSION", "list lines")
 
-      # Ensure the rust version matches the clang version.
-      assert(
-          filter_include([ rustc_revision ],
-                         [ "*-$_expected_rust_revision-*" ]) != [],
-          "rustc_revision=\"$rustc_revision\" but update_rust.py expected \"$_expected_rust_revision\". Run \"gclient sync\"?")
+      # The rust revision combines two lines of the file, so we need to do
+      # some preprocessing to combine them.
+      _lines = filter_include(_rust_update_lines, [ "RUST_*REVISION = *" ])
+      _rust_rev =
+          string_replace(string_replace(_lines[0], "RUST_REVISION = '", ""),
+                         "'",
+                         "")
+      _rust_subrev = string_replace(_lines[1], "RUST_SUB_REVISION = ", "")
+
+      _tools = [
+        {
+          name = "rustc"
+          expected_pattern = "rustc *$_rust_rev-$_rust_subrev-*"
+        },
+        {
+          name = "crubit"
+          update_variable = "CRUBIT_REVISION"
+        },
+        {
+          name = "bindgen"
+          update_variable = "BINDGEN_REVISION"
+        },
+      ]
+
+      foreach(_tool, _tools) {
+        if (defined(_tool.expected_pattern)) {
+          _expected = _tool.expected_pattern
+        } else {
+          _lines = []
+          _lines = filter_include(_rust_update_lines,
+                                  [ "${_tool.update_variable} = *" ])
+          _expected =
+              string_replace(string_replace(_lines[0],
+                                            "${_tool.update_variable} = '",
+                                            "${_tool.name}: "),
+                             "'",
+                             "")
+        }
+        assert(
+            filter_include(_version_lines, [ _expected ]) != [],
+            "${_tool.name} revision in //third_party/rust-toolchain/VERSION does not match update_rust.py. Run \"gclient sync\"?")
+      }
     }
 
     # This is here so that all files get recompiled after a clang roll and
@@ -1944,6 +1658,18 @@ ubsan_hardening("c_array_bounds") {
 # `NOTREACHED()` at the end of such functions.
 ubsan_hardening("return") {
   sanitizer = "return"
+}
+
+# Enable `-fsanitize=unreachable` to crash deterministically if control
+# flow hits an unreachable point.
+ubsan_hardening("unreachable") {
+  sanitizer = "unreachable"
+
+  # TODO(crbug.com/501143596):
+  # 1.  `fuchsia-binary-size` tells us that web_engine and
+  #     chrome_fuchsia both grow 32768 bytes (10x that, uncompressed).
+  # 2.  `headless_shell_wpt_tests` fail on `mac-rel`.
+  condition = is_debug || !(is_mac || is_fuchsia)
 }
 
 config("rustc_revision") {
@@ -2036,12 +1762,12 @@ config("runtime_library") {
     configs += [ "//build/config/c++:runtime_library" ]
   }
 
-  # Rust and C++ both provide intrinsics for LLVM to call for math operations. We
-  # want to use the C++ intrinsics, not the ones in the Rust compiler_builtins
-  # library. The Rust symbols are marked as weak, so that they can be replaced by
-  # the C++ symbols. This config ensures the C++ symbols exist and are strong in
-  # order to cause that replacement to occur by explicitly linking in clang's
-  # compiler-rt library.
+  # Rust and C++ both provide intrinsics for LLVM to call for math operations.
+  # We want to use the C++ intrinsics, not the ones in the Rust
+  # compiler_builtins library. The Rust symbols are marked as weak, so that they
+  # can be replaced by the C++ symbols. This config ensures the C++ symbols
+  # exist and are strong in order to cause that replacement to occur by
+  # explicitly linking in clang's compiler-rt library.
   #
   # v8-jsi: do NOT link clang's compiler-rt builtins on Windows. This fork
   # builds with the VS-bundled clang, whose compiler-rt ships per-host-arch only
@@ -2123,6 +1849,15 @@ config("treat_warnings_as_errors") {
     cflags = [ "/WX" ]
   } else {
     cflags = [ "-Werror" ]
+
+    if (is_clang) {
+      # gcc doesn't support this flag.
+      cflags += [
+        # Treat #pragma message warnings (-W#pragma-messages) as fatal errors
+        # so that #pragma message does not bypass -Werror.
+        "-Werror=#pragma-messages",
+      ]
+    }
 
     # The compiler driver can sometimes (rarely) emit warnings before calling
     # the actual linker.  Make sure these warnings are treated as errors as
@@ -2262,6 +1997,13 @@ config("default_warnings") {
       "-Wno-psabi",
     ]
 
+    if (!is_wasm) {
+      cflags += [
+        # TODO(crbug.com/526996813): Figure out what to do about this.
+        "-Wno-stringop-overread",
+      ]
+    }
+
     cflags_cc += [
       # Disables for C++ only
       "-Wno-invalid-offsetof",  # offsetof on non-standard-layout type
@@ -2286,13 +2028,17 @@ config("default_warnings") {
 
       # TODO(crbug.com/376641662): Fix and re-enable.
       "-Wno-nontrivial-memcall",
-
-      # TODO(crbug.com/432275627): Fix and re-enable.
-      "-Wno-uninitialized-const-pointer",
-
-      # TODO(crbug.com/495753203): Fix and re-enable.
-      "-Wno-unused-but-set-global",
     ]
+
+    if (!is_wasm) {
+      cflags += [
+        # TODO(crbug.com/432275627): Fix and re-enable.
+        "-Wno-uninitialized-const-pointer",
+
+        # TODO(crbug.com/495753203): Fix and re-enable.
+        "-Wno-unused-but-set-global",
+      ]
+    }
 
     cflags_cc += [
       # TODO(crbug.com/328490295): Fix and re-enable for C flags.
@@ -2320,6 +2066,9 @@ config("default_warnings") {
       cflags_cc += [
         # TODO(crbug.com/42050603): fix and reenable
         "-Wno-missing-field-initializers",
+
+        # TODO(crbug.com/522780099): fix and reenable
+        "-Wno-deprecated-builtins",
       ]
     }
 
@@ -2328,10 +2077,11 @@ config("default_warnings") {
       # into different components, due to hidden visibility. Only applicable
       # to component builds.
 
-      # For details about the warning and now to fix it, see the official docs at
+      # For details about the warning and now to fix it, see the official docs
+      # at
       # https://clang.llvm.org/docs/DiagnosticsReference.html#wunique-object-duplication
-      # If you still have trouble resolving it, file a bug asking for advice in the
-      # Chromium > Tools > LLVM component, and cc dloehr and thakis.
+      # If you still have trouble resolving it, file a bug asking for advice in
+      # the Chromium > Tools > LLVM component, and cc dloehr and thakis.
       cflags_cc += [ "-Wunique-object-duplication" ]
     }
 
@@ -2374,27 +2124,31 @@ config("default_warnings") {
     ldflags += [ "-Wl,-no_warn_duplicate_libraries" ]
   }
 
-  configs = [ ":default_clippy_lints" ]
+  if (enable_rust_clippy) {
+    configs = [ ":default_clippy_lints" ]
+  }
 }
 
 # default_clippy_lints --------------------------------------------------------
 
 config("default_clippy_lints") {
   rustflags = [
-    # NOTE: Change `cr_clippy_revision` when 1) enabling new Clippy warnings or
-    # 2) enabling Clippy on new platforms/bots.  This is quite similar to
-    # `config("rustc_revision")` - a custom `--cfg` flag is used to force
-    # rebuilding of all `.rs` files (which as a side-effect should also trigger
-    # a Clippy check if `enable_rust_clippy = true`).
-    "--cfg=cr_clippy_revision=\"2026-03-17\"",
-
     # Treat all default Clippy lints as warnings.
     # See also `config("treat_warnings_as_errors")`.
     "-Wclippy::all",
 
+    # Additional lints that we enable beyond the defaults
+    "-Wclippy::undocumented_unsafe_blocks",
+
     # Lints disabled during the initial rollout period (when any objection
     # coming from a Chromium engineer would get a lint disabled):
     "-Aclippy::needless_return",
+
+    # TODO(crbug.com/534628766): Fix and re-enable.
+    "-Aclippy::chunks_exact_to_as_chunks",
+
+    # TODO(crbug.com/556789085): Fix and re-enable.
+    "-Aclippy::needless_range_loop",
   ]
 }
 
@@ -2480,9 +2234,9 @@ config("chromium_code") {
       }
 
       # _FORTIFY_SOURCE=3 is available in glibc 2.34+. Enable it when building
-      # with the sysroot where support is guaranteed. Clang is also required since
-      # the system gcc is often patched to add _FORTIFY_SOURCE=2 which would conflict
-      # with our definition.
+      # with the sysroot where support is guaranteed. Clang is also required
+      # since the system gcc is often patched to add _FORTIFY_SOURCE=2 which
+      # would conflict with our definition.
       if (use_sysroot && is_clang && !is_android) {
         fortify_level = "3"
       }
@@ -2534,6 +2288,9 @@ config("chromium_code") {
       # Thread safety analysis. See base/thread_annotations.h and
       # https://clang.llvm.org/docs/ThreadSafetyAnalysis.html
       "-Wthread-safety",
+
+      # TODO(crbug.com/533026470): Should probably clean this up.
+      "-Wno-unused-template",
     ]
 
     if (is_chromeos) {
@@ -2575,6 +2332,9 @@ config("no_chromium_code") {
       # Lots of third-party libraries have unused variables. Instead of
       # suppressing them individually, we just blanket suppress them here.
       "-Wno-unused-variable",
+
+      # Third-party code has unused templates. Probably not worth cleaning up.
+      "-Wno-unused-template",
 
       # Similarly, we're not going to fix all the C++11 narrowing issues in
       # third-party libraries.
@@ -2815,12 +2575,12 @@ if (is_win) {
   common_optimize_on_cflags = []
   common_optimize_on_ldflags = []
 
-  if (is_android) {
+  if (is_android && (use_lld || use_mold)) {
     # TODO(jdduke) Re-enable on mips after resolving linking
     # issues with libc++ (crbug.com/456380).
     if (current_cpu != "mipsel" && current_cpu != "mips64el") {
       common_optimize_on_ldflags += [
-        # Warn in case of text relocations.
+        # Android will not load libraries that have text relocations.
         "-Wl,--warn-shared-textrel",
       ]
     }
@@ -2887,6 +2647,7 @@ config("default_stack_frames") {
       cflags = [ "-fomit-frame-pointer" ]
     }
   }
+
   # On Windows, the flag to enable framepointers "/Oy-" must always come after
   # the optimization flag [e.g. "/O2"]. The optimization flag is set by one of
   # the "optimize" configs, see rest of this file. The ordering that cflags are
@@ -2896,6 +2657,10 @@ config("default_stack_frames") {
   # config into the "optimize" config. We always apply the "/Oy-" config in the
   # definition for common_optimize_on_cflags definition, even though this may
   # not be correct.
+
+  if (enable_frame_pointers) {
+    rustflags = [ "-Cforce-frame-pointers=yes" ]
+  }
 }
 
 # Default "optimization on" config.
@@ -3176,6 +2941,10 @@ config("split_dwarf") {
   # thinlto requires -gsplit-dwarf in ldflags.
   if (use_thin_lto && !is_apple) {
     ldflags = split_dwarf_flags
+  } else {
+    # .dwo files are generated when ThinLTO is not used.
+    c_additional_outputs =
+        [ "{{target_out_dir}}/{{label_name}}/{{source_name_part}}.dwo" ]
   }
 }
 
@@ -3411,6 +3180,13 @@ config("minimal_symbols") {
       # TODO(thakis): Consider making clang emit DW_AT_linkage_name in -g1 mode;
       #               failing that consider doing this on non-Android too.
       cflags += [ "-fdebug-info-for-profiling" ]
+    }
+
+    # Compressing debug info speeds up "isolate tests" step (https://crbug.com/503797275)
+    # TODO(crbug.com/510291227): Enabling for linux & chromeos breaks
+    # sandbox_linux_unittests's BaselinePolicy tests. Figure out why.
+    if (is_android && !is_official_build) {
+      configs += [ "//build/config:compress_debug_sections" ]
     }
 
     asmflags = cflags

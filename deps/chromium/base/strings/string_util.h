@@ -23,8 +23,10 @@
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
 #include "base/containers/span.h"
+#include "base/strings/join_string_internal.h"
 // For implicit conversions.
 #include "base/strings/string_util_internal.h"
+#include "base/strings/whitespace_constants.h"
 #include "base/types/to_address.h"
 #include "build/build_config.h"
 
@@ -117,17 +119,21 @@ CharT ToUpperASCII(CharT c) {
   return (c >= 'a' && c <= 'z') ? static_cast<CharT>(c + 'A' - 'a') : c;
 }
 
-// Converts the given string to its ASCII-lowercase equivalent. Non-ASCII
-// bytes (or UTF-16 code units in `std::u16string_view`) are permitted but will
-// be unmodified.
-BASE_EXPORT std::string ToLowerASCII(std::string_view str);
-BASE_EXPORT std::u16string ToLowerASCII(std::u16string_view str);
+// Upper/Lower conversions. Note that CompareCaseInsensitiveASCII() and
+// EqualsCaseInsensitiveASCII() are preferred unless the returned string will
+// be stored and reused, to avoid unnecessary allocations.
 
-// Converts the given string to its ASCII-uppercase equivalent. Non-ASCII
+// Returns an ASCII-lowercase equivalent copy of the given string. Non-ASCII
 // bytes (or UTF-16 code units in `std::u16string_view`) are permitted but will
 // be unmodified.
-BASE_EXPORT std::string ToUpperASCII(std::string_view str);
-BASE_EXPORT std::u16string ToUpperASCII(std::u16string_view str);
+[[nodiscard]] BASE_EXPORT std::string ToLowerASCII(std::string_view str);
+[[nodiscard]] BASE_EXPORT std::u16string ToLowerASCII(std::u16string_view str);
+
+// Returns an ASCII-uppercase equivalent copy of the given string. Non-ASCII
+// bytes (or UTF-16 code units in `std::u16string_view`) are permitted but will
+// be unmodified.
+[[nodiscard]] BASE_EXPORT std::string ToUpperASCII(std::string_view str);
+[[nodiscard]] BASE_EXPORT std::u16string ToUpperASCII(std::u16string_view str);
 
 // Functor for ASCII case-insensitive comparisons for STL algorithms like
 // std::search. Non-ASCII bytes (or UTF-16 code units in `std::u16string_view`)
@@ -143,6 +149,8 @@ template <typename Char>
 struct CaseInsensitiveCompareASCII {
  public:
   bool operator()(Char x, Char y) const {
+    // This is efficient because the per-character ToLowerASCII() does not
+    // need to allocate.
     return ToLowerASCII(x) == ToLowerASCII(y);
   }
 };
@@ -172,21 +180,18 @@ BASE_EXPORT constexpr int CompareCaseInsensitiveASCII(std::u16string_view a,
 // unmodified. To compare all Unicode code points case-insensitively, use
 // base::i18n::ToLower or base::i18n::FoldCase and then compare with either ==
 // or !=.
-inline bool EqualsCaseInsensitiveASCII(std::string_view a, std::string_view b) {
-  return internal::EqualsCaseInsensitiveASCIIT(a, b);
-}
-inline bool EqualsCaseInsensitiveASCII(std::u16string_view a,
-                                       std::u16string_view b) {
-  return internal::EqualsCaseInsensitiveASCIIT(a, b);
-}
-inline bool EqualsCaseInsensitiveASCII(std::u16string_view a,
-                                       std::string_view b) {
-  return internal::EqualsCaseInsensitiveASCIIT(a, b);
-}
-inline bool EqualsCaseInsensitiveASCII(std::string_view a,
-                                       std::u16string_view b) {
-  return internal::EqualsCaseInsensitiveASCIIT(a, b);
-}
+//
+// These are not inline on purpose: this header is included by a third of all
+// files, and every inline function here that calls a function template makes
+// the compiler instantiate that template in all of them.
+BASE_EXPORT bool EqualsCaseInsensitiveASCII(std::string_view a,
+                                            std::string_view b);
+BASE_EXPORT bool EqualsCaseInsensitiveASCII(std::u16string_view a,
+                                            std::u16string_view b);
+BASE_EXPORT bool EqualsCaseInsensitiveASCII(std::u16string_view a,
+                                            std::string_view b);
+BASE_EXPORT bool EqualsCaseInsensitiveASCII(std::string_view a,
+                                            std::u16string_view b);
 
 // These threadsafe functions return references to globally unique empty
 // strings.
@@ -204,22 +209,9 @@ inline bool EqualsCaseInsensitiveASCII(std::string_view a,
 BASE_EXPORT const std::string& EmptyString();
 BASE_EXPORT const std::u16string& EmptyString16();
 
-// Contains the set of characters representing whitespace in the corresponding
-// encoding. Null-terminated. The ASCII versions are the whitespaces as defined
-// by HTML5, and don't include control characters.
-BASE_EXPORT extern const wchar_t kWhitespaceWide[];    // Includes Unicode.
-BASE_EXPORT extern const char16_t kWhitespaceUTF16[];  // Includes Unicode.
-BASE_EXPORT extern const char16_t
-    kWhitespaceNoCrLfUTF16[];  // Unicode w/o CR/LF.
-BASE_EXPORT extern const char kWhitespaceASCII[];
-BASE_EXPORT extern const char16_t kWhitespaceASCIIAs16[];  // No unicode.
-
 // https://infra.spec.whatwg.org/#ascii-whitespace
 // Note that this array is not null-terminated.
 inline constexpr char kInfraAsciiWhitespace[] = {0x09, 0x0A, 0x0C, 0x0D, 0x20};
-
-// Null-terminated string representing the UTF-8 byte order mark.
-BASE_EXPORT extern const char kUtf8ByteOrderMark[];
 
 // Removes characters in |remove_chars| from anywhere in |input|.  Returns true
 // if any characters were removed.  |remove_chars| must be null-terminated.
@@ -348,6 +340,15 @@ BASE_EXPORT bool IsStringASCII(std::u16string_view str);
 
 #if defined(WCHAR_T_IS_32_BIT)
 BASE_EXPORT bool IsStringASCII(std::wstring_view str);
+#endif
+
+// Returns the 0-based index of the first non-ASCII character in |str|, or
+// |str.length()| if |str| contains only ASCII characters.
+BASE_EXPORT size_t FindFirstNonASCII(std::string_view str);
+BASE_EXPORT size_t FindFirstNonASCII(std::u16string_view str);
+
+#if defined(WCHAR_T_IS_32_BIT)
+BASE_EXPORT size_t FindFirstNonASCII(std::wstring_view str);
 #endif
 
 // Performs a case-sensitive string compare of the given 16-bit string against
@@ -588,23 +589,45 @@ BASE_EXPORT char16_t* WriteInto(std::u16string* str, size_t length_with_null);
 // copies of those strings are created until the final join operation.
 //
 // Use StrCat (in base/strings/strcat.h) if you don't need a separator.
-BASE_EXPORT std::string JoinString(span<const std::string> parts,
-                                   std::string_view separator);
-BASE_EXPORT std::u16string JoinString(span<const std::u16string> parts,
-                                      std::u16string_view separator);
-BASE_EXPORT std::string JoinString(span<const std::string_view> parts,
-                                   std::string_view separator);
-BASE_EXPORT std::u16string JoinString(span<const std::u16string_view> parts,
-                                      std::u16string_view separator);
+//
+// These have to be defined here because they are constexpr. They are templates
+// (whose template parameter nobody should pass) so that the compiler only
+// instantiates JoinStringT<> in the files that call JoinString(), and not in
+// every file that includes this header.
+template <typename LazyInstantiation = void>
+constexpr std::string JoinString(span<const std::string> parts,
+                                 std::string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
+template <typename LazyInstantiation = void>
+constexpr std::u16string JoinString(span<const std::u16string> parts,
+                                    std::u16string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
+template <typename LazyInstantiation = void>
+constexpr std::string JoinString(span<const std::string_view> parts,
+                                 std::string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
+template <typename LazyInstantiation = void>
+constexpr std::u16string JoinString(span<const std::u16string_view> parts,
+                                    std::u16string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
 // Explicit initializer_list overloads are required to break ambiguity when used
 // with a literal initializer list (otherwise the compiler would not be able to
 // decide between the string and std::string_view overloads).
-BASE_EXPORT std::string JoinString(
-    std::initializer_list<std::string_view> parts,
-    std::string_view separator);
-BASE_EXPORT std::u16string JoinString(
+template <typename LazyInstantiation = void>
+constexpr std::string JoinString(std::initializer_list<std::string_view> parts,
+                                 std::string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
+template <typename LazyInstantiation = void>
+constexpr std::u16string JoinString(
     std::initializer_list<std::u16string_view> parts,
-    std::u16string_view separator);
+    std::u16string_view separator) {
+  return strings_internal::JoinStringT<LazyInstantiation>(parts, separator);
+}
 
 // Replace $1-$2-$3..$9 in the format string with values from |subst|.
 // Additionally, any number of consecutive '$' characters is replaced by that

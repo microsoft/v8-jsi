@@ -23,25 +23,17 @@
 #ifndef ABSL_BASE_INTERNAL_HARDENING_H_
 #define ABSL_BASE_INTERNAL_HARDENING_H_
 
-#include "absl/base/attributes.h"
+#include <atomic>
+#include <cstddef>
+
 #include "absl/base/config.h"
 #include "absl/base/macros.h"
 #include "absl/base/options.h"
-
-#ifdef ABSL_INTERNAL_ATTRIBUTE_NO_MERGE
-#error ABSL_INTERNAL_ATTRIBUTE_NO_MERGE cannot be directly set
-#elif ABSL_HAVE_CPP_ATTRIBUTE(clang::nomerge)
-#define ABSL_INTERNAL_ATTRIBUTE_NO_MERGE [[clang::nomerge]]
-#else
-#define ABSL_INTERNAL_ATTRIBUTE_NO_MERGE
-#endif
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
 
 namespace base_internal {
-
-[[noreturn]] ABSL_ATTRIBUTE_NOINLINE void HardeningAbort();
 
 // `HardeningAssert` performs runtime checks when Abseil Hardening is enabled,
 // even if `NDEBUG` is defined.
@@ -56,7 +48,7 @@ constexpr void HardeningAssert(bool cond) {
   ABSL_ASSERT(cond);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (ABSL_PREDICT_FALSE(!cond)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
@@ -70,47 +62,47 @@ constexpr void HardeningAssertSlow(bool cond) {
   ABSL_ASSERT(cond);
 #if (ABSL_OPTION_HARDENED == 1) && defined(NDEBUG)
   if (ABSL_PREDICT_FALSE(!cond)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
 
-template <typename T>
-constexpr void HardeningAssertGT(T val1, T val2) {
+template <typename T1, typename T2>
+constexpr void HardeningAssertGT(T1 val1, T2 val2) {
   ABSL_ASSERT(val1 > val2);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (!ABSL_PREDICT_TRUE(val1 > val2)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
 
-template <typename T>
-constexpr void HardeningAssertGE(T val1, T val2) {
+template <typename T1, typename T2>
+constexpr void HardeningAssertGE(T1 val1, T2 val2) {
   ABSL_ASSERT(val1 >= val2);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (!ABSL_PREDICT_TRUE(val1 >= val2)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
 
-template <typename T>
-constexpr void HardeningAssertLT(T val1, T val2) {
+template <typename T1, typename T2>
+constexpr void HardeningAssertLT(T1 val1, T2 val2) {
   ABSL_ASSERT(val1 < val2);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (!ABSL_PREDICT_TRUE(val1 < val2)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
 
-template <typename T>
-constexpr void HardeningAssertLE(T val1, T val2) {
+template <typename T1, typename T2>
+constexpr void HardeningAssertLE(T1 val1, T2 val2) {
   ABSL_ASSERT(val1 <= val2);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (!ABSL_PREDICT_TRUE(val1 <= val2)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
@@ -124,7 +116,7 @@ constexpr void HardeningAssertNonEmpty(const T& container) {
   ABSL_ASSERT(!container.empty());
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (ABSL_PREDICT_FALSE(container.empty())) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
@@ -134,7 +126,7 @@ constexpr void HardeningAssertNonNull(T ptr) {
   ABSL_ASSERT(ptr != nullptr);
 #if (ABSL_OPTION_HARDENED == 1 || ABSL_OPTION_HARDENED == 2) && defined(NDEBUG)
   if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
-    ABSL_INTERNAL_ATTRIBUTE_NO_MERGE HardeningAbort();
+    ABSL_INTERNAL_HARDENING_ABORT();
   }
 #endif
 }
@@ -143,7 +135,5 @@ constexpr void HardeningAssertNonNull(T ptr) {
 
 ABSL_NAMESPACE_END
 }  // namespace absl
-
-#undef ABSL_INTERNAL_ATTRIBUTE_NO_MERGE
 
 #endif  // ABSL_BASE_INTERNAL_HARDENING_H_

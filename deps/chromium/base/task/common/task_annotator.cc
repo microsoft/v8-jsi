@@ -169,7 +169,7 @@ void TaskAnnotator::WillQueueTask(perfetto::StaticString trace_event_name,
             pending_task->task_backtrace.begin() + 1);
   pending_task->task_backtrace_overflow =
       parent_task->task_backtrace_overflow ||
-      parent_task->task_backtrace.back() != nullptr;
+      parent_task->task_backtrace.back();
 }
 
 void TaskAnnotator::RunTaskImpl(PendingTask& pending_task) {
@@ -183,7 +183,7 @@ void TaskAnnotator::RunTaskImpl(PendingTask& pending_task) {
   // optimizer in an optimized build. Look at a memory dump of the stack.
   static constexpr int kStackTaskTraceSnapshotSize =
       PendingTask::kTaskBacktraceLength + 4;
-  std::array<const void*, kStackTaskTraceSnapshotSize> task_backtrace;
+  std::array<uintptr_t, kStackTaskTraceSnapshotSize> task_backtrace;
 
   // Store a marker to locate |task_backtrace| content easily on a memory
   // dump. The layout is as follows:
@@ -197,13 +197,12 @@ void TaskAnnotator::RunTaskImpl(PendingTask& pending_task) {
   //   0x c001 c0de d0 17 d00d
   //      o dude,i did it biig
   //   0x 0 d00d 1 d1d 17 8119
-  task_backtrace.front() = reinterpret_cast<void*>(0xc001c0ded017d00d);
-  task_backtrace.back() = reinterpret_cast<void*>(0x0d00d1d1d178119);
+  task_backtrace.front() = static_cast<uintptr_t>(0xc001c0ded017d00d);
+  task_backtrace.back() = static_cast<uintptr_t>(0x0d00d1d1d178119);
 
   task_backtrace[1] = pending_task.posted_from.program_counter();
   std::ranges::copy(pending_task.task_backtrace, task_backtrace.begin() + 2);
-  task_backtrace[kStackTaskTraceSnapshotSize - 2] =
-      reinterpret_cast<void*>(pending_task.ipc_hash);
+  task_backtrace[kStackTaskTraceSnapshotSize - 2] = pending_task.ipc_hash;
   debug::Alias(&task_backtrace);
 
   // Record the task time in convenient units. This can be compared to times
@@ -216,11 +215,11 @@ void TaskAnnotator::RunTaskImpl(PendingTask& pending_task) {
   {
     const AutoReset<const PendingTask*> resetter(&current_pending_task,
                                                  &pending_task);
-    std::optional<ScopedSchedulerLoopQuarantineDisallowScanlessPurge>
-        scoped_disallow_purge;
+    std::optional<ScopedSchedulerLoopQuarantineTaskScope>
+        scoped_quarantine_task_scope;
     if (g_scheduler_loop_quarantine_task_controlled_purge_enabled.load(
             std::memory_order_relaxed)) {
-      scoped_disallow_purge.emplace();
+      scoped_quarantine_task_scope.emplace(pending_task);
     }
 
     if (g_task_annotator_observer) {
@@ -234,8 +233,8 @@ void TaskAnnotator::RunTaskImpl(PendingTask& pending_task) {
   // sample on this thread later in the event of a crash. Alias once again after
   // these writes to make sure the compiler doesn't optimize them out (unused
   // writes to a local variable).
-  task_backtrace.front() = nullptr;
-  task_backtrace.back() = nullptr;
+  task_backtrace.front() = 0;
+  task_backtrace.back() = 0;
   debug::Alias(&task_backtrace);
 }
 
@@ -268,9 +267,7 @@ void TaskAnnotator::EmitTaskLocation(perfetto::EventContext& ctx,
 // into EventContext if toplevel.flow category is enabled.
 void TaskAnnotator::MaybeEmitIncomingTaskFlow(perfetto::EventContext& ctx,
                                               const PendingTask& task) const {
-  static const uint8_t* flow_enabled =
-      TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("toplevel.flow");
-  if (!*flow_enabled) {
+  if (!TRACE_EVENT_CATEGORY_ENABLED("toplevel.flow")) {
     return;
   }
 
@@ -328,10 +325,8 @@ void TaskAnnotator::MaybeEmitDelayAndPolicy(perfetto::EventContext& ctx,
 
 void TaskAnnotator::MaybeEmitIPCHash(perfetto::EventContext& ctx,
                                      const PendingTask& task) const {
-  static const uint8_t* toplevel_ipc_enabled =
-      TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(
-          TRACE_DISABLED_BY_DEFAULT("toplevel.ipc"));
-  if (!*toplevel_ipc_enabled) {
+  if (!TRACE_EVENT_CATEGORY_ENABLED(
+          TRACE_DISABLED_BY_DEFAULT("toplevel.ipc"))) {
     return;
   }
 
@@ -393,7 +388,7 @@ TaskAnnotator::LongTaskTracker::~LongTaskTracker() {
     TRACE_EVENT_BEGIN("scheduler.long_tasks", "LongTaskTracker",
                       perfetto::Track::ThreadScoped(task_annotator_),
                       task_start_time_, [&](perfetto::EventContext& ctx) {
-                        TaskAnnotator::EmitTaskLocation(ctx, pending_task_);
+                        TaskAnnotator::EmitTaskLocation(ctx, *pending_task_);
                         EmitReceivedIPCDetails(ctx);
                       });
     TRACE_EVENT_END("scheduler.long_tasks",
@@ -453,9 +448,9 @@ void TaskAnnotator::LongTaskTracker::MaybeTraceInterestingTaskDetails() {
     // start of the flow between task queue time and task execution start time.
     TRACE_EVENT_INSTANT("scheduler.long_tasks", "InterestingTask_QueueingTime",
                         perfetto::Track::ThreadScoped(task_annotator_),
-                        pending_task_.queue_time,
+                        pending_task_->queue_time,
                         perfetto::Flow::ProcessScoped(
-                            task_annotator_->GetTaskTraceID(pending_task_)));
+                            task_annotator_->GetTaskTraceID(*pending_task_)));
 
     // Record the equivalent of a top-level event with enough IPC information
     // to calculate the input to browser interval. This event will be the
@@ -465,7 +460,7 @@ void TaskAnnotator::LongTaskTracker::MaybeTraceInterestingTaskDetails() {
         perfetto::Track::ThreadScoped(task_annotator_), task_start_time_,
         [&](perfetto::EventContext& ctx) {
           perfetto::TerminatingFlow::ProcessScoped(
-              task_annotator_->GetTaskTraceID(pending_task_))(ctx);
+              task_annotator_->GetTaskTraceID(*pending_task_))(ctx);
           auto* info = ctx.event()->set_chrome_mojo_event_info();
           info->set_mojo_interface_tag(ipc_interface_name_);
         });

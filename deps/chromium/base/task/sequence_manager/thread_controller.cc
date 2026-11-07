@@ -370,7 +370,7 @@ void ThreadController::RunLevelTracker::RunLevel::LogOnActiveMetrics(
   const double probability =
       time_keeper_->wall_time_based_metrics_enabled_for_testing() ? 1.0 : 0.001;
   if (thread_ticks_supported &&
-      metrics_sub_sampler_.ShouldSample(probability)) {
+      base::ShouldRecordSubsampledMetric(probability)) {
     last_active_start_ = lazy_now.Now();
     last_active_threadtick_start_ = ThreadTicks::Now();
   }
@@ -591,9 +591,7 @@ void ThreadController::RunLevelTracker::TimeKeeper::RecordEndOfPhase(
 
 void ThreadController::RunLevelTracker::TimeKeeper::MaybeEmitIncomingWakeupFlow(
     perfetto::EventContext& ctx) {
-  static const uint8_t* flow_enabled =
-      TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("wakeup.flow");
-  if (!*flow_enabled) {
+  if (!TRACE_EVENT_CATEGORY_ENABLED("wakeup.flow")) {
     return;
   }
 

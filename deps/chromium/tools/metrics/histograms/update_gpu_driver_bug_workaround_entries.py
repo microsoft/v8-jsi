@@ -17,6 +17,7 @@ import sys
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.common.path_util as path_util
 import chromium_src.tools.metrics.histograms.update_histogram_enum as update_histogram_enum
 
@@ -46,9 +47,12 @@ def main():
     sys.exit(1)
 
   update_histogram_enum.UpdateHistogramFromDict(
-      'tools/metrics/histograms/enums.xml', 'GpuDriverBugWorkaroundEntry',
-      ReadGpuDriverBugEntries(GPU_DRIVER_BUG_WORKAROUND_PATH),
-      GPU_DRIVER_BUG_WORKAROUND_PATH, os.path.basename(__file__))
+    'tools/metrics/histograms/enums.xml',
+    'GpuDriverBugWorkaroundEntry',
+    ReadGpuDriverBugEntries(GPU_DRIVER_BUG_WORKAROUND_PATH),
+    GPU_DRIVER_BUG_WORKAROUND_PATH,
+    os.path.basename(__file__),
+  )
 
 
 if __name__ == '__main__':

@@ -6,18 +6,27 @@
 #define BASE_SAMPLING_HEAP_PROFILER_SAMPLING_HEAP_PROFILER_H_
 
 #include <atomic>
+#include <memory>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "base/base_export.h"
+#include "base/byte_size.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/no_destructor.h"
 #include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
 #include "base/synchronization/lock.h"
 #include "base/thread_annotations.h"
+#include "base/threading/platform_thread.h"
 #include "base/threading/thread_id_name_manager.h"
+#include "base/types/id_type.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 
 namespace base {
+
+class SamplingHeapChurnProfiler;
 
 // The class implements sampling profiling of native memory heap.
 // It uses PoissonAllocationSampler to aggregate the heap allocations and
@@ -29,29 +38,31 @@ class BASE_EXPORT SamplingHeapProfiler
  public:
   class BASE_EXPORT Sample {
    public:
-    Sample(const Sample&);
+    explicit Sample(size_t size = 0, size_t total = 0);
     ~Sample();
+
+    Sample(const Sample&);
+    Sample& operator=(const Sample&);
 
     // Allocation size.
     size_t size;
     // Total size attributed to the sample.
     size_t total;
     // Type of the allocator.
-    base::allocator::dispatcher::AllocationSubsystem allocator;
+    base::allocator::dispatcher::AllocationSubsystem allocator =
+        base::allocator::dispatcher::AllocationSubsystem::kPartitionAllocator;
     // Context as provided by the allocation hook.
     const char* context = nullptr;
     // Name of the thread that made the sampled allocation.
     const char* thread_name = nullptr;
+    // Thread ID that made the sampled allocation.
+    PlatformThreadId tid = kInvalidThreadId;
     // Call stack of PC addresses responsible for the allocation.
-    std::vector<const void*> stack;
-
-    // Public for testing.
-    Sample(size_t size, size_t total, uint32_t ordinal);
-
-   private:
-    friend class SamplingHeapProfiler;
-
-    uint32_t ordinal;
+    // RAW_PTR_EXCLUSION: executable addresses are never in PA partitions
+    RAW_PTR_EXCLUSION std::vector<const void*> stack;
+    // Total resident bytes attributed to the sample in physical memory.
+    // Set to std::nullopt if the residency checks are disabled or unavailable.
+    std::optional<size_t> resident_total;
   };
 
   enum class StackUnwinder {
@@ -63,16 +74,26 @@ class BASE_EXPORT SamplingHeapProfiler
     kFramePointers,
   };
 
-  // Starts collecting allocation samples. Returns the current profile_id.
-  // This value can then be passed to |GetSamples| to retrieve only samples
-  // recorded since the corresponding |Start| invocation.
-  uint32_t Start();
+  enum class Priority {
+    kBackground,
+    kInteractive,
+  };
+  using SessionId = base::IdTypeU32<class SessionIdMarker>;
 
-  // Stops recording allocation samples.
-  void Stop();
+  struct Session {
+    Session(SessionId id, uint32_t start_ordinal)
+        : id(id), start_ordinal(start_ordinal) {}
+    SessionId id;
+    uint32_t start_ordinal;
+  };
 
-  // Sets sampling interval in bytes.
-  void SetSamplingInterval(size_t sampling_interval_bytes);
+  // Starts collecting allocation samples. Returns a Session struct containing
+  // the unique session ID and the start ordinal.
+  std::optional<Session> Start(base::ByteSize sampling_interval,
+                               Priority priority);
+
+  // Stops recording allocation samples for the given session.
+  void Stop(const Session& session);
 
   // Enables recording thread name that made the sampled allocation.
   void EnableRecordThreadNames();
@@ -81,11 +102,9 @@ class BASE_EXPORT SamplingHeapProfiler
   static const char* CachedThreadName();
 
   // Returns current samples recorded for the profile session.
-  // If |profile_id| is set to the value returned by the |Start| method,
-  // it returns only the samples recorded after the corresponding |Start|
-  // invocation. To retrieve all the collected samples |profile_id| must be
-  // set to 0.
-  std::vector<Sample> GetSamples(uint32_t profile_id);
+  // Returns only the samples recorded after the corresponding |Start|
+  // invocation. If |session| is nullopt, returns all collected samples.
+  std::vector<Sample> GetSamples(std::optional<Session> session);
 
   // List of strings used in the profile call stacks.
   std::vector<const char*> GetStrings();
@@ -94,6 +113,8 @@ class BASE_EXPORT SamplingHeapProfiler
   // Returns a subspan of `frames` holding the captured frames. The top-most
   // frame is at the front of the returned span.
   span<const void*> CaptureStackTrace(span<const void*> frames);
+
+  SamplingHeapChurnProfiler& churn_profiler() { return *churn_profiler_; }
 
   static void Init();
   static SamplingHeapProfiler* Get();
@@ -129,8 +150,13 @@ class BASE_EXPORT SamplingHeapProfiler
   // Mutex to access |samples_| and |strings_|.
   Lock mutex_;
 
+  struct OrderedSample {
+    Sample sample;
+    uint32_t ordinal = 0;
+  };
+
   // Samples of the currently live allocations.
-  std::unordered_map<void*, Sample> samples_ GUARDED_BY(mutex_);
+  std::unordered_map<void*, OrderedSample> samples_ GUARDED_BY(mutex_);
 
   // Contains pointers to static sample context strings that are never deleted.
   std::unordered_set<const char*> strings_ GUARDED_BY(mutex_);
@@ -138,8 +164,16 @@ class BASE_EXPORT SamplingHeapProfiler
   // Mutex to guard |running_sessions_| and Add/Remove samples.
   Lock start_stop_mutex_;
 
-  // Number of the running sessions.
-  int running_sessions_ GUARDED_BY(start_stop_mutex_) = 0;
+  struct SessionInfo {
+    base::ByteSize sampling_interval = base::ByteSize::Max();
+    Priority priority = Priority::kBackground;
+  };
+
+  void UpdateSamplingInterval() EXCLUSIVE_LOCKS_REQUIRED(start_stop_mutex_);
+
+  absl::flat_hash_map<SessionId, SessionInfo> sessions_
+      GUARDED_BY(start_stop_mutex_);
+  SessionId::Generator session_id_generator_ GUARDED_BY(start_stop_mutex_);
 
   // Last sample ordinal used to mark samples recorded during single session.
   std::atomic<uint32_t> last_sample_ordinal_{1};
@@ -149,6 +183,8 @@ class BASE_EXPORT SamplingHeapProfiler
 
   // Which unwinder to use.
   std::atomic<StackUnwinder> unwinder_{StackUnwinder::kDefault};
+
+  std::unique_ptr<SamplingHeapChurnProfiler> churn_profiler_;
 
   friend class NoDestructor<SamplingHeapProfiler>;
   friend class SamplingHeapProfilerTest;

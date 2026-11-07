@@ -55,16 +55,30 @@ if ((is_mac || is_ios) && (current_cpu == "x86" || current_cpu == "x64")) {
   } else if (current_cpu == "x64") {
     _nasm_flags = [ "-fmacho64" ]
   }
+
+  # Specify the target platform and minimum OS version in LC_BUILD_VERSION. See
+  # MACHO_ALL_PLATFORMS in NASM for the list of platform names.
   if (is_mac) {
-    _nasm_flags += [ "--macho-min-os=macos$mac_deployment_target" ]
+    _target_platform = "macos"
+    _min_os_version = mac_deployment_target
   } else if (is_ios) {
     if (target_environment == "device") {
-      _nasm_flags += [ "--macho-min-os=ios$ios_deployment_target" ]
+      _target_platform = "ios"
+    } else if (target_environment == "simulator") {
+      _target_platform = "iossimulator"
+    } else if (target_environment == "catalyst") {
+      _target_platform = "macCatalyst"
     } else {
-      _nasm_flags +=
-          [ "--macho-min-os=ios$ios_deployment_target-$target_environment" ]
+      assert(false, "Unknown target environment: $target_environment")
     }
+    _min_os_version = ios_deployment_target
   }
+  # The NASM pragma uses commas to separate version components.
+  _min_os_version_comma = string_replace(_min_os_version, ".", ",")
+  _nasm_flags += [
+    "--pragma",
+    "macho build_version $_target_platform,$_min_os_version_comma",
+  ]
 } else if (is_posix || is_fuchsia) {
   if (current_cpu == "x86") {
     _nasm_flags = [ "-felf32" ]

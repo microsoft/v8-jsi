@@ -1,0 +1,296 @@
+// Copyright 2026 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+chromium::import! {
+    "//base:histogram";
+    "//base/test:histogram_tester";
+}
+
+use histogram::UmaEnum;
+use histogram_tester::HistogramTester;
+use rust_gtest_interop::prelude::*;
+
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, UmaEnum)]
+#[repr(i32)]
+enum TestEnum {
+    Zero = 0,
+    One = 1,
+    Two = 2,
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, UmaEnum)]
+#[repr(u32)]
+enum U32Enum {
+    First = 0,
+    Second = 10,
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, UmaEnum)]
+#[repr(u8)]
+enum U8Enum {
+    Low = 0,
+    High = 250,
+}
+
+#[gtest(RustHistogramTest, UmaHistogramBoolean)]
+fn test_uma_histogram_boolean() {
+    let tester = HistogramTester::new();
+    histogram::record_bool("Test.Rust.Boolean", true);
+    histogram::record_bool("Test.Rust.Boolean", false);
+    histogram::record_bool("Test.Rust.Boolean", true);
+
+    tester.expect_bucket_count("Test.Rust.Boolean", 1, 2); // true
+    tester.expect_bucket_count("Test.Rust.Boolean", 0, 1); // false
+    tester.expect_total_count("Test.Rust.Boolean", 3);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramExactLinear)]
+fn test_uma_histogram_exact_linear() {
+    let tester = HistogramTester::new();
+    histogram::record_exact_linear("Test.Rust.ExactLinear", 5, 10);
+    histogram::record_exact_linear("Test.Rust.ExactLinear", 5, 10);
+    histogram::record_exact_linear("Test.Rust.ExactLinear", 11, 10); // goes to overflow bucket
+
+    tester.expect_bucket_count("Test.Rust.ExactLinear", 5, 2);
+    tester.expect_bucket_count("Test.Rust.ExactLinear", 10, 1); // 10 is the exclusive_max (overflow bucket)
+    tester.expect_total_count("Test.Rust.ExactLinear", 3);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramEnumeration)]
+fn test_uma_histogram_enumeration() {
+    assert_eq!(TestEnum::MAX_VALUE, 2);
+    assert_eq!(U32Enum::MAX_VALUE, 10);
+    assert_eq!(U8Enum::MAX_VALUE, 250);
+
+    let tester = HistogramTester::new();
+    histogram::record_enum("Test.Rust.Enumeration", TestEnum::Zero);
+    histogram::record_enum("Test.Rust.Enumeration", TestEnum::One);
+    histogram::record_enum("Test.Rust.Enumeration", TestEnum::Two);
+    histogram::record_enum("Test.Rust.Enumeration", TestEnum::Two);
+
+    tester.expect_bucket_count("Test.Rust.Enumeration", 0, 1);
+    tester.expect_bucket_count("Test.Rust.Enumeration", 1, 1);
+    tester.expect_bucket_count("Test.Rust.Enumeration", 2, 2);
+    tester.expect_total_count("Test.Rust.Enumeration", 4);
+
+    histogram::record_enum("Test.Rust.U32Enumeration", U32Enum::Second);
+    tester.expect_bucket_count("Test.Rust.U32Enumeration", 10, 1);
+
+    histogram::record_enum("Test.Rust.U8Enumeration", U8Enum::High);
+    tester.expect_bucket_count("Test.Rust.U8Enumeration", 250, 1);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramPercentage)]
+fn test_uma_histogram_percentage() {
+    let tester = HistogramTester::new();
+    histogram::record_percentage("Test.Rust.Percentage", 85);
+    histogram::record_percentage("Test.Rust.Percentage", 85);
+
+    tester.expect_bucket_count("Test.Rust.Percentage", 85, 2);
+    tester.expect_total_count("Test.Rust.Percentage", 2);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramSparse)]
+fn test_uma_histogram_sparse() {
+    let tester = HistogramTester::new();
+    histogram::record_sparse("Test.Rust.Sparse", 123456);
+    histogram::record_sparse("Test.Rust.Sparse", 123456);
+
+    tester.expect_bucket_count("Test.Rust.Sparse", 123456, 2);
+    tester.expect_total_count("Test.Rust.Sparse", 2);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramCustomCounts)]
+fn test_uma_histogram_custom_counts() {
+    let tester = HistogramTester::new();
+    histogram::record_custom_counts("Test.Rust.CustomCounts", 0, 1, 100, 10);
+    histogram::record_custom_counts("Test.Rust.CustomCounts", 20, 1, 100, 10);
+    histogram::record_custom_counts("Test.Rust.CustomCounts", 20, 1, 100, 10);
+    histogram::record_custom_counts("Test.Rust.CustomCounts", 50, 1, 100, 10);
+    histogram::record_custom_counts("Test.Rust.CustomCounts", 105, 1, 100, 10);
+
+    tester.expect_bucket_count("Test.Rust.CustomCounts", 0, 1);
+    tester.expect_bucket_count("Test.Rust.CustomCounts", 20, 2);
+    tester.expect_bucket_count("Test.Rust.CustomCounts", 50, 1);
+    tester.expect_bucket_count("Test.Rust.CustomCounts", 100, 1);
+    tester.expect_total_count("Test.Rust.CustomCounts", 5);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramCounts)]
+fn test_uma_histogram_counts() {
+    let tester = HistogramTester::new();
+    histogram::record_counts_100("Test.Rust.Counts100", 42);
+    tester.expect_unique_sample("Test.Rust.Counts100", 42, 1);
+
+    histogram::record_counts_1000("Test.Rust.Counts1000", 420);
+    tester.expect_unique_sample("Test.Rust.Counts1000", 420, 1);
+
+    histogram::record_counts_10000("Test.Rust.Counts10000", 4200);
+    tester.expect_unique_sample("Test.Rust.Counts10000", 4200, 1);
+
+    histogram::record_counts_100000("Test.Rust.Counts100000", 42000);
+    tester.expect_unique_sample("Test.Rust.Counts100000", 42000, 1);
+
+    histogram::record_counts_1m("Test.Rust.Counts1M", 420000);
+    tester.expect_unique_sample("Test.Rust.Counts1M", 420000, 1);
+
+    histogram::record_counts_10m("Test.Rust.Counts10M", 4200000);
+    tester.expect_unique_sample("Test.Rust.Counts10M", 4200000, 1);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramMemory)]
+fn test_uma_histogram_memory() {
+    let tester = HistogramTester::new();
+    histogram::record_memory_kb("Test.Rust.MemoryKB", 2048);
+    tester.expect_unique_sample("Test.Rust.MemoryKB", 2048, 1);
+
+    histogram::record_memory_mb("Test.Rust.MemoryMB", 256);
+    tester.expect_unique_sample("Test.Rust.MemoryMB", 256, 1);
+
+    histogram::record_memory_large_mb("Test.Rust.MemoryLargeMB", 10240);
+    tester.expect_unique_sample("Test.Rust.MemoryLargeMB", 10240, 1);
+}
+
+#[gtest(RustHistogramTest, UmaHistogramTimes)]
+fn test_uma_histogram_times() {
+    let tester = HistogramTester::new();
+    histogram::record_short_times("Test.Rust.Times", core::time::Duration::from_millis(500));
+    tester.expect_unique_time_sample("Test.Rust.Times", core::time::Duration::from_millis(500), 1);
+
+    histogram::record_medium_times("Test.Rust.MediumTimes", core::time::Duration::from_secs(30));
+    tester.expect_unique_time_sample(
+        "Test.Rust.MediumTimes",
+        core::time::Duration::from_secs(30),
+        1,
+    );
+
+    histogram::record_long_times("Test.Rust.LongTimes", core::time::Duration::from_secs(1200));
+    tester.expect_unique_time_sample(
+        "Test.Rust.LongTimes",
+        core::time::Duration::from_secs(1200),
+        1,
+    );
+
+    histogram::record_long_times_100(
+        "Test.Rust.LongTimes100",
+        core::time::Duration::from_secs(1800),
+    );
+    tester.expect_unique_time_sample(
+        "Test.Rust.LongTimes100",
+        core::time::Duration::from_secs(1800),
+        1,
+    );
+
+    histogram::record_custom_times(
+        "Test.Rust.CustomTimes",
+        core::time::Duration::from_secs(2),
+        core::time::Duration::from_secs(1),
+        core::time::Duration::from_secs(10),
+        50,
+    );
+    tester.expect_unique_time_sample(
+        "Test.Rust.CustomTimes",
+        core::time::Duration::from_secs(2),
+        1,
+    );
+}
+
+#[gtest(RustHistogramTest, UmaHistogramMicrosecondsTimes)]
+fn test_uma_histogram_microseconds_times() {
+    let tester = HistogramTester::new();
+    histogram::record_microseconds_times(
+        "Test.Rust.MicrosecondsTimes",
+        core::time::Duration::from_micros(500),
+    );
+    tester.expect_bucket_count("Test.Rust.MicrosecondsTimes", 500, 1);
+    tester.expect_total_count("Test.Rust.MicrosecondsTimes", 1);
+
+    histogram::record_custom_microseconds_times(
+        "Test.Rust.CustomMicrosecondsTimes",
+        core::time::Duration::from_micros(2000),
+        core::time::Duration::from_micros(1000),
+        core::time::Duration::from_micros(50000),
+        50,
+    );
+    tester.expect_bucket_count("Test.Rust.CustomMicrosecondsTimes", 2000, 1);
+    tester.expect_total_count("Test.Rust.CustomMicrosecondsTimes", 1);
+}
+
+#[gtest(RustHistogramTest, ScopedHistogramTimer)]
+fn test_scoped_histogram_timer() {
+    let tester = HistogramTester::new();
+    {
+        let _timer = histogram::ScopedHistogramTimer::new("Test.Rust.ScopedTimes");
+    }
+    tester.expect_total_count("Test.Rust.ScopedTimes", 1);
+
+    {
+        let _timer = histogram::ScopedHistogramTimer::new("Test.Rust.ScopedTimes");
+    }
+    tester.expect_total_count("Test.Rust.ScopedTimes", 2);
+}
+
+#[gtest(RustHistogramTest, ScopedHistogramTimerReporters)]
+fn test_scoped_histogram_timer_reporters() {
+    let tester = HistogramTester::new();
+    {
+        let _timer = histogram::ScopedHistogramTimer::new_with_reporter(
+            "Test.Rust.ScopedMicrosecondTimes",
+            histogram::record_microseconds_times,
+        );
+    }
+    tester.expect_total_count("Test.Rust.ScopedMicrosecondTimes", 1);
+
+    {
+        let _timer = histogram::ScopedHistogramTimer::new_with_reporter(
+            "Test.Rust.ScopedMediumTimes",
+            histogram::record_medium_times,
+        );
+    }
+    tester.expect_total_count("Test.Rust.ScopedMediumTimes", 1);
+
+    {
+        let _timer = histogram::ScopedHistogramTimer::new_with_reporter(
+            "Test.Rust.ScopedLongTimes",
+            histogram::record_long_times,
+        );
+    }
+    tester.expect_total_count("Test.Rust.ScopedLongTimes", 1);
+
+    {
+        let _timer = histogram::ScopedHistogramTimer::new_with_reporter(
+            "Test.Rust.ScopedCustomClosure",
+            |name, d| {
+                histogram::record_custom_times(
+                    name,
+                    d,
+                    core::time::Duration::from_millis(1),
+                    core::time::Duration::from_secs(10),
+                    50,
+                );
+            },
+        );
+    }
+    tester.expect_total_count("Test.Rust.ScopedCustomClosure", 1);
+}
+
+#[gtest(RustHistogramTest, ScopedHistogramTimerCancel)]
+fn test_scoped_histogram_timer_cancel() {
+    let tester = HistogramTester::new();
+    {
+        let timer = histogram::ScopedHistogramTimer::new("Test.Rust.ScopedTimesCancel");
+        timer.cancel();
+    }
+    tester.expect_total_count("Test.Rust.ScopedTimesCancel", 0);
+}
+
+#[gtest(RustHistogramTest, ScopedHistogramTimerElapsed)]
+fn test_scoped_histogram_timer_elapsed() {
+    let timer = histogram::ScopedHistogramTimer::new("Test.Rust.ScopedTimesElapsed");
+    let _elapsed = timer.elapsed();
+    timer.cancel();
+}

@@ -74,21 +74,6 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Version v11"/>
 </enum>
 
-<enum name="FreedesktopSecretKeyProviderErrorDetail">
-  <summary>
-    Fine-grained error details for FreedesktopSecretKeyProvider.
-  </summary>
-  <int value="0" label="None"/>
-  <int value="1" label="DestructedBeforeComplete"/>
-  <int value="2" label="EmptyObjectPaths"/>
-  <int value="3" label="InvalidReplyFormat"/>
-  <int value="4" label="InvalidSignalFormat"/>
-  <int value="5" label="InvalidVariantFormat"/>
-  <int value="6" label="NoResponse"/>
-  <int value="7" label="PromptDismissed"/>
-  <int value="8" label="PromptFailedSignalConnection"/>
-</enum>
-
 <enum name="GwpAsanCrashAnalysisResult">
   <int value="0" label="The crash is not caused by GWP-ASan"/>
   <int value="1" label="The crash is caused by GWP-ASan"/>
@@ -139,6 +124,23 @@ chromium-metrics-reviews@google.com.
              Ask-Before-HTTP prevented the navigation."/>
 </enum>
 
+<!-- LINT.IfChange -->
+
+<enum name="HttpsFirstModeFallbackReason">
+  <int value="0" label="kNone">No fallback</int>
+  <int value="1" label="kTimerFired">Fast-fallback timer fired</int>
+  <int value="2" label="kCertError">Misconfigured HTTPS certificate</int>
+  <int value="3" label="kRedirectLoop">Redirect loop (downgrade)</int>
+  <int value="4" label="kNetError">Other network error</int>
+</enum>
+
+<!-- LINT.ThenChange(/components/security_interstitials/core/https_only_mode_metrics.h) -->
+
+<enum name="HttpsFirstModeImplicitStateChange">
+  <int value="0" label="Balanced Mode implicitly enabled by ESB"/>
+  <int value="1" label="Balanced Mode implicitly disabled by ESB"/>
+</enum>
+
 <enum name="HttpsFirstModeInterstitialReason">
   <int value="0" label="kUnknown">Unknown reason</int>
   <int value="1" label="kPref">
@@ -161,6 +163,13 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="kBalanced">
     The interstitial was shown because the user was in balanced mode.
   </int>
+  <int value="7" label="kEsbPairing">
+    The interstitial was shown because HFM was enabled via ESB pairing.
+  </int>
+  <int value="8" label="kIsolatedMode">
+    The interstitial was shown because the user was in Enterprise Isolated Mode
+    and HTTPS-First Mode in Incognito was enabled.
+  </int>
 </enum>
 
 <enum name="HttpsFirstModeNavigationEvent">
@@ -181,6 +190,15 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="kUpgradeRedirectLoop">
     Upgrade failed due to a redirect loop
   </int>
+  <int value="9" label="kTypedSchemelessUpgradeAttempted">
+    Typed schemeless upgrade attempted
+  </int>
+  <int value="10" label="kTypedSchemelessUpgradeSucceeded">
+    Typed schemeless upgrade succeeded
+  </int>
+  <int value="11" label="kTypedSchemelessUpgradeTimedOut">
+    Typed schemeless upgrade timed out (no-fallback)
+  </int>
 </enum>
 
 <!-- LINT.IfChange -->
@@ -194,16 +212,19 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(/chrome/browser/ssl/https_first_mode_settings_tracker.h) -->
 
+<enum name="HttpsFirstModeStartupState">
+  <int value="0" label="Disabled"/>
+  <int value="1" label="Enabled (Full)"/>
+  <int value="2" label="Enabled (Balanced) - Explicitly by user"/>
+  <int value="3" label="Enabled (Balanced) - Typically Secure heuristic"/>
+  <int value="4" label="Enabled (Balanced) - Paired with ESB"/>
+  <int value="5" label="Enabled (Balanced) - Auto-enable feature"/>
+</enum>
+
 <enum name="IOSKeychainMigrationResult">
   <int value="0" label="Not needed"/>
   <int value="1" label="Success"/>
   <int value="2" label="Failure"/>
-</enum>
-
-<enum name="IOSKeychainMigrationUserStatus">
-  <int value="0" label="No items"/>
-  <int value="1" label="Migrated"/>
-  <int value="2" label="Pending migration"/>
 </enum>
 
 <enum name="LandlockState">
@@ -234,7 +255,7 @@ chromium-metrics-reviews@google.com.
   <int value="15" label="BlockedByRequiredIpAddressSpaceMismatch"/>
 </enum>
 
-<!-- LINT.ThenChange(/services/network/public/cpp/private_network_access_check_result.h:LocalNetworkAccessCheckResult) -->
+<!-- LINT.ThenChange(/services/network/public/cpp/local_network_access_check_result.h:LocalNetworkAccessCheckResult) -->
 
 <!-- LINT.IfChange(MainFrameProcessReuseBlockReason) -->
 
@@ -273,7 +294,8 @@ chromium-metrics-reviews@google.com.
     The merchant trust side panel was closed.
   </int>
   <int value="5" label="kBubbleOpenedFromLocationBarChip">
-    The merchant trust bubble was opened from the location bar chip.
+    (Deprecated) The merchant trust bubble was opened from the location bar
+    chip.
   </int>
   <int value="6" label="kSidePanelOpenedOnSameTabNavigation">
     The merchant trust side panel remained open from a same tab navigation.
@@ -331,6 +353,9 @@ chromium-metrics-reviews@google.com.
              HFM+SE heuristic. Recorded regardless of whether there was a
              fallback navigation or an interstitial. Not recorded if the
              hostname is allowlisted."/>
+  <int value="14"
+      label="HTTP request upgraded to HTTPS, and is a typed schemeless
+             navigation (eligible for no-fallback on timeout)"/>
 </enum>
 
 <enum name="OSCryptAppBoundKeyRetrievalStatus">
@@ -394,6 +419,24 @@ chromium-metrics-reviews@google.com.
   <int value="2"
       label="The process is a privileged web page (e.g., a hosted app) in an
              outermost main frame"/>
+</enum>
+
+<enum name="PrivateVerificationTokensFetchSetupResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Invalid Version"/>
+  <int value="2" label="Fetcher Initialization Failed"/>
+</enum>
+
+<enum name="PrivateVerificationTokensTokenParsingResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Net Error"/>
+  <int value="2" label="Null Response"/>
+  <int value="3" label="Invalid Batch Size"/>
+  <int value="4" label="Invalid Bucket Count"/>
+  <int value="5" label="Client Request Generation Failed"/>
+  <int value="6" label="Already Finalized"/>
+  <int value="7" label="Invalid Response Body Length"/>
+  <int value="8" label="Client Finalize Failed"/>
 </enum>
 
 <enum name="ReusePendingOrCommittedSiteEnum">

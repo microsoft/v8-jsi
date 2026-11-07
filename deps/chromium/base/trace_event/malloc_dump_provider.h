@@ -8,6 +8,8 @@
 #include "base/allocator/buildflags.h"
 #include "base/base_export.h"
 #include "base/functional/callback.h"
+#include "base/gtest_prod_util.h"
+#include "base/memory/ptr_util.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"
@@ -36,6 +38,18 @@ class BASE_EXPORT MallocDumpProvider : public MemoryDumpProvider {
   // Name of the allocated_objects dump. Use this to declare suballocator dumps
   // from other dump providers.
   static const char kAllocatedObjects[];
+
+#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+  // Names of the PartitionAlloc dumps.
+  static const char kPartitions[];
+  static const char kPartitionsAllocatedObjects[];
+#endif
+
+#if BUILDFLAG(IS_WIN)
+  // Names of the WinHeap dumps. Only reported at kDetailed level of detail.
+  static const char kWinHeap[];
+  static const char kWinHeapAllocatedObjects[];
+#endif
 
   static MallocDumpProvider* GetInstance();
 
@@ -67,6 +81,10 @@ class BASE_EXPORT MallocDumpProvider : public MemoryDumpProvider {
   bool OnMemoryDump(const MemoryDumpArgs& args,
                     ProcessMemoryDump* pmd) override;
 
+  static std::unique_ptr<MallocDumpProvider> CreateForTesting() {
+    return base::WrapUnique(new MallocDumpProvider());
+  }
+
  private:
   struct CumulativeEludStats {
     size_t quarantined_bytes = 0;
@@ -75,6 +93,7 @@ class BASE_EXPORT MallocDumpProvider : public MemoryDumpProvider {
   };
 
   friend struct DefaultSingletonTraits<MallocDumpProvider>;
+  friend class std::default_delete<MallocDumpProvider>;
 
   MallocDumpProvider();
   ~MallocDumpProvider() override;
@@ -129,9 +148,12 @@ class BASE_EXPORT MemoryDumpPartitionStatsDumper final
   void PartitionsDumpBucketStats(
       const char* partition_name,
       const partition_alloc::PartitionBucketMemoryStats*) override;
+  void DumpIntendedLeak(uint32_t type_id, size_t size) override;
 
   size_t total_mmapped_bytes() const { return total_mmapped_bytes_; }
   size_t total_resident_bytes() const { return total_resident_bytes_; }
+  size_t total_committed_bytes() const { return total_committed_bytes_; }
+  size_t total_wasted_bytes() const { return total_wasted_bytes_; }
   size_t total_active_bytes() const { return total_active_bytes_; }
   size_t total_active_count() const { return total_active_count_; }
   uint64_t syscall_count() const { return syscall_count_; }
@@ -148,6 +170,8 @@ class BASE_EXPORT MemoryDumpPartitionStatsDumper final
   uint64_t uid_ = 0;
   size_t total_mmapped_bytes_ = 0;
   size_t total_resident_bytes_ = 0;
+  size_t total_committed_bytes_ = 0;
+  size_t total_wasted_bytes_ = 0;
   size_t total_active_bytes_ = 0;
   size_t total_active_count_ = 0;
   uint64_t syscall_count_ = 0;
@@ -157,6 +181,24 @@ class BASE_EXPORT MemoryDumpPartitionStatsDumper final
 };
 
 #endif  // PA_BUILDFLAG(USE_PARTITION_ALLOC)
+
+#if BUILDFLAG(IS_WIN)
+namespace internal {
+
+// Aggregated counts produced by walking a Windows heap with HeapWalk.
+struct WinHeapInfo {
+  size_t committed_size = 0;
+  size_t uncommitted_size = 0;
+  size_t allocated_size = 0;
+  size_t block_count = 0;
+
+  // Walks `heap` (a HANDLE) and accumulates the totals. Exposed for testing.
+  // Production uses a specific path for CRT-heap.
+  static BASE_EXPORT WinHeapInfo FromHandleForTesting(void* heap);
+};
+
+}  // namespace internal
+#endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace trace_event
 }  // namespace base

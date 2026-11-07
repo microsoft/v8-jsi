@@ -49,14 +49,14 @@ declare_args() {
 
   # Chromium provides a Rust toolchain in //third_party/rust-toolchain.
   #
-  # To use a custom toolchain instead, specify an absolute path to the root of
-  # a Rust sysroot, which will have a 'bin' directory and others. Commonly
-  # <home dir>/.rustup/toolchains/nightly-<something>-<something>
-  # Using a custom toolchain should work, but this build configuration is
-  # community-supported and not tested by Chromium CQ.  In particular, Chromium
-  # build may depend on using a *nightly* version of Rust toolchain (see
-  # `tools/rust/unstable_rust_feature_usage.md`) although other projects (e.g. V8)
-  # may be compatible with the stable version of Rust toolchain.
+  # To use a custom toolchain instead, specify an absolute path to the root of a
+  # Rust sysroot, which will have a 'bin' directory and others. Commonly <home
+  # dir>/.rustup/toolchains/nightly-<something>-<something> Using a custom
+  # toolchain should work, but this build configuration is community-supported
+  # and not tested by Chromium CQ. In particular, Chromium build may depend on
+  # using a *nightly* version of Rust toolchain (see
+  # `docs/rust/unstable_rust_feature_usage.md`) although other projects (e.g.
+  # V8) may be compatible with the stable version of Rust toolchain.
   rust_sysroot_absolute = ""
 
   # Directory under which to find `bin/bindgen` (a `bin` directory containing
@@ -109,18 +109,6 @@ declare_args() {
   # but nothing depends on tham and therefore Clippy will only be invoked
   # in a full build (i.e. when building all targets).
   enable_rust_clippy_eager = true
-
-  # Whether expansion of GN templates like `rust_static_library` will expand
-  # (if `cpp_api_from_rust` is set as an attribute of `rust_static_library`) to
-  # create a target for invoking Crubit tools to generate C++ bindings for the
-  # Rust library.
-  #
-  # TODO(crbug.com/470466915): Change `false` to `build_with_chromium` (after
-  # officially supporting building and distributing the `cpp_api_from_rust`
-  # (soon to be renamed to `cpp_api_from_rust`) tool - i.e. no more
-  # `fail_hard=False` when invoking `build_crubit.py` from
-  # `tools/rust/build_rust.py`).
-  enable_cpp_api_from_rust = false
 }
 
 declare_args() {
@@ -159,8 +147,9 @@ if (enable_rust) {
   if (use_chromium_rust_toolchain) {
     toolchain_has_rust = chromium_toolchain_supports_platform
     if (toolchain_has_rust) {
-      rustc_revision =
-          read_file("//third_party/rust-toolchain/VERSION", "trim string")
+      _version_lines =
+          read_file("//third_party/rust-toolchain/VERSION", "list lines")
+      rustc_revision = _version_lines[0]
 
       # Example:
       # rustc 1.88.0 c8f94230282a8e8c1148f3e657f0199aad909228 (c8f94230282a8e8c1148f3e657f0199aad909228-1-llvmorg-21-init-9266-g09006611 chromium)
@@ -425,6 +414,37 @@ if (toolchain_for_rust_host_build_tools) {
 # compiled, which is typically as unwind.
 rust_prebuilt_stdlib =
     !use_chromium_rust_toolchain || toolchain_for_rust_host_build_tools
+
+# `cpp_api_from_rust` (aka `cc_bindings_from_rs`) is available when building
+# Chromium, but may be missing or can't be used in some other cases.
+# `enable_cpp_api_from_rust` is checked under `//build/rust/*.gni` (and may be
+# used in other `.gn` files) to prevent using the tool in unsupported scenarios.
+#
+# See the `assert` comments in `cpp_api_from_rust.gni` for explanation of
+# the conditions used here.
+enable_cpp_api_from_rust = enable_rust && use_chromium_rust_toolchain &&
+                           !rust_prebuilt_stdlib && build_with_chromium
+
+declare_args() {
+  # Whether it is okay to use `rust_api_from_cpp.gni`.  The default is `false`,
+  # because the `rust_api_from_cpp` tool is not yet officially supported (i.e.
+  # it may get removed from the Rust toolchain package in an emergency).  Set to
+  # `true` in `args.gn` for local experimentation.
+  #
+  # TODO(crbug.com/40226863): After officially supporting `rust_api_from_cpp`:
+  # * Introduce `_enable_crubit = enable_rust && use_chromium_rust_toolchain &&
+  #   build_with_chromium`
+  # * Set `enable_cpp_api_from_rust = _enable_crubit && !rust_prebuilt_stdlib`
+  # * Set `enable_rust_api_from_cpp = _enable_crubit`
+  #   (and it should just be a variable, not an `args.gn` setting / not in
+  #   `declare_args`)
+  # * Make sure that comments explaining the conditions above are retained and
+  #   make sense (and are not duplicated in each of the two `.gni`s?).
+  # * Remove `ENABLE_BUILDING_RS_BINDINGS_FROM_CC` from
+  #   `//tools/rust/build_crubit.py`: after that, every Rust toolchain package
+  #   has to include the tool.
+  enable_rust_api_from_cpp = false
+}
 
 rustc_wrapper_inputs = [
   "//build/action_helpers.py",

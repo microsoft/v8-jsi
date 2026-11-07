@@ -7,6 +7,7 @@
 load("@builtin//runtime.star", "runtime")
 load("@builtin//struct.star", "module")
 load("./config.star", "config")
+load("./gn_logs.star", "gn_logs")
 load("./platform.star", "platform")
 
 def __filegroups(ctx):
@@ -17,6 +18,11 @@ __handlers = {
 
 def __step_config(ctx, step_config):
     remote_run = config.get(ctx, "googlechrome")
+
+    # crbug.com/461609630: Remote exec fails when blink enabled.
+    if gn_logs.read(ctx).get("blink_enable_generated_code_formatting") == "true":
+        remote_run = False
+
     step_config["rules"].extend([
         {
             "name": "blink/generate_bindings",
@@ -24,7 +30,7 @@ def __step_config(ctx, step_config):
             "remote": remote_run,
             "timeout": "2m",
             "platform_ref": "large",
-            "remote_command": "python3",  # only run on Linux worker even for CI Windows.
+            "remote_command": platform.remote_python_bin,  # only run on Linux worker even for CI Windows.
         },
     ])
 
@@ -41,12 +47,14 @@ def __step_config(ctx, step_config):
                 # needs to read the generated .mojom files. But, the inputs are
                 # not specified in the build graph correctly.
                 "output_local": True,
+                "remote_command": platform.remote_python_bin,
             },
             {
                 "name": "blink/build_web_idl_database",
                 "command_prefix": platform.python_bin + " ../../third_party/blink/renderer/bindings/scripts/build_web_idl_database.py",
                 "remote": remote_run,
                 "timeout": "2m",
+                "remote_command": platform.remote_python_bin,
             },
         ])
     return step_config

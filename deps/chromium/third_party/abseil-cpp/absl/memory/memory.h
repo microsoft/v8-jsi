@@ -29,7 +29,9 @@
 #include <new>
 #include <type_traits>
 #include <utility>
+#include <version>
 
+#include "absl/base/config.h"
 #include "absl/base/macros.h"
 #include "absl/meta/type_traits.h"
 
@@ -58,7 +60,7 @@ ABSL_NAMESPACE_BEGIN
 //   std::unique_ptr<X> x(NewX(1, 2));
 //
 // While `absl::WrapUnique` is useful for capturing the output of a raw
-// pointer factory, prefer 'absl::make_unique<T>(args...)' over
+// pointer factory, prefer 'std::make_unique<T>(args...)' over
 // 'absl::WrapUnique(new T(args...))'.
 //
 //   auto x = WrapUnique(new X(1, 2));  // works, but nonideal.
@@ -70,8 +72,8 @@ ABSL_NAMESPACE_BEGIN
 // obtained from array-new expressions (even though that would compile!).
 template <typename T>
 std::unique_ptr<T> WrapUnique(T* ptr) {
-  static_assert(!std::is_array<T>::value, "array types are unsupported");
-  static_assert(std::is_object<T>::value, "non-object types are unsupported");
+  static_assert(!std::is_array_v<T>, "array types are unsupported");
+  static_assert(std::is_object_v<T>, "non-object types are unsupported");
   return std::unique_ptr<T>(ptr);
 }
 
@@ -94,7 +96,12 @@ std::unique_ptr<T> WrapUnique(T* ptr) {
 // the C++14's `std::make_unique`. Now that C++11 support has been sunsetted,
 // `absl::make_unique` simply uses the STL-provided implementation. New code
 // should use `std::make_unique`.
-using std::make_unique;
+using std::make_unique ABSL_REFACTOR_INLINE;
+
+#if defined(__cpp_lib_smart_ptr_for_overwrite) && \
+    __cpp_lib_smart_ptr_for_overwrite >= 202002L
+using std::make_unique_for_overwrite;
+#else
 
 namespace memory_internal {
 
@@ -117,7 +124,7 @@ struct MakeUniqueResult<T[N]> {
 
 // These are make_unique_for_overwrite variants modeled after
 // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2020/p1973r1.pdf
-// Unlike absl::make_unique, values are default initialized rather than value
+// Unlike std::make_unique, values are default initialized rather than value
 // initialized.
 //
 // `absl::make_unique_for_overwrite` overload for non-array types.
@@ -143,6 +150,8 @@ template <typename T, typename... Args>
 typename memory_internal::MakeUniqueResult<T>::invalid
 make_unique_for_overwrite(Args&&... /* args */) = delete;
 
+#endif  // __cpp_lib_smart_ptr_for_overwrite
+
 // -----------------------------------------------------------------------------
 // Function Template: RawPtr()
 // -----------------------------------------------------------------------------
@@ -167,7 +176,7 @@ inline std::nullptr_t RawPtr(std::nullptr_t) { return nullptr; }
 //
 // Example:
 //
-//     auto up = absl::make_unique<int>(10);
+//     auto up = std::make_unique<int>(10);
 //     auto sp = absl::ShareUniquePtr(std::move(up));  // shared_ptr<int>
 //     CHECK_EQ(*sp, 10);
 //     CHECK(up == nullptr);
@@ -213,7 +222,8 @@ std::weak_ptr<T> WeakenPtr(const std::shared_ptr<T>& ptr) {
 // `std::pointer_traits` for platforms that had not yet provided it. Those
 // platforms are no longer supported. New code should simply use
 // `std::pointer_traits`.
-using std::pointer_traits;
+template <typename Ptr>
+using pointer_traits ABSL_DEPRECATE_AND_INLINE() = std::pointer_traits<Ptr>;
 
 // -----------------------------------------------------------------------------
 // Class Template: allocator_traits
@@ -223,7 +233,9 @@ using std::pointer_traits;
 // `std::allocator_traits` for platforms that had not yet provided it. Those
 // platforms are no longer supported. New code should simply use
 // `std::allocator_traits`.
-using std::allocator_traits;
+template <typename Alloc>
+using allocator_traits ABSL_DEPRECATE_AND_INLINE() =
+    std::allocator_traits<Alloc>;
 
 namespace memory_internal {
 

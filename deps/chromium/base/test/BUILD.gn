@@ -48,6 +48,34 @@ rust_static_library("task_environment") {
   ]
 }
 
+rust_static_library("scoped_feature_list") {
+  testonly = true
+  sources = [ "scoped_feature_list.rs" ]
+  crate_root = "scoped_feature_list.rs"
+  cxx_bindings = [ "scoped_feature_list.rs" ]
+  allow_unsafe = true
+  deps = [
+    ":scoped_feature_list_shim",
+    "//base",
+    "//base:feature",
+    "//base/allocator/partition_allocator:raw_ptr",
+  ]
+}
+
+rust_static_library("histogram_tester") {
+  testonly = true
+  sources = [ "metrics/histogram_tester.rs" ]
+  crate_root = "metrics/histogram_tester.rs"
+  cxx_bindings = [ "metrics/histogram_tester.rs" ]
+  allow_unsafe = true
+  deps = [
+    ":histogram_tester_shim",
+    ":test_support",
+    "//base",
+    "//testing/gmock",
+  ]
+}
+
 source_set("task_environment_shim") {
   testonly = true
   sources = [
@@ -60,9 +88,38 @@ source_set("task_environment_shim") {
   ]
 }
 
+source_set("scoped_feature_list_shim") {
+  testonly = true
+  sources = [
+    "scoped_feature_list_rust_shim.cc",
+    "scoped_feature_list_rust_shim.h",
+  ]
+  deps = [
+    ":test_support",
+    "//base",
+    "//base/allocator/partition_allocator:raw_ptr",
+  ]
+}
+
+source_set("histogram_tester_shim") {
+  testonly = true
+  sources = [
+    "metrics/histogram_tester_rust_shim.cc",
+    "metrics/histogram_tester_rust_shim.h",
+  ]
+  deps = [
+    ":test_support",
+    "//base",
+  ]
+}
+
 group("test_support_rust") {
   testonly = true
-  public_deps = [ ":task_environment" ]
+  public_deps = [
+    ":histogram_tester",
+    ":scoped_feature_list",
+    ":task_environment",
+  ]
 }
 
 static_library("test_support") {
@@ -221,6 +278,7 @@ static_library("test_support") {
     "//base",
     "//base:base_static",
     "//base:i18n",
+    "//base/i18n:test_support",
     "//build:blink_buildflags",
     "//testing/gmock",
     "//testing/gtest",
@@ -527,7 +585,8 @@ if (is_android) {
     ]
   }
 
-  # Used by all base test targets: gtests, robolectric, and instrumentation tests.
+  # Used by all base test targets: gtests, robolectric, and instrumentation
+  # tests.
   android_library("test_support_java") {
     testonly = true
 
@@ -601,6 +660,8 @@ if (is_android) {
     deps = [
       ":leak_canary_test_resources",
       "//base:base_java_test_support",
+      "//base:command_line_java",
+      "//base:log_java",
       "//third_party/android_deps:com_squareup_leakcanary_leakcanary_android_core_java",
       "//third_party/android_deps:com_squareup_leakcanary_leakcanary_android_instrumentation_java",
       "//third_party/android_deps:com_squareup_leakcanary_leakcanary_android_java",
@@ -608,6 +669,7 @@ if (is_android) {
       "//third_party/android_deps:com_squareup_leakcanary_shark_java",
       "//third_party/androidx:androidx_work_work_multiprocess_java",
       "//third_party/androidx:androidx_work_work_runtime_java",
+      "//third_party/junit",
       "//third_party/kotlin_stdlib:kotlin_stdlib_java",
     ]
   }
@@ -641,6 +703,7 @@ perfetto_cc_proto_descriptor("gen_cc_chrome_track_event_descriptor") {
 }
 
 import("//base/tracing/stdlib/chrome/perfetto_sql_files.gni")
+
 action("amalgamated_perfetto_sql_stdlib") {
   script = "tracing/gen_amalgamated_stdlib.py"
   sources =
@@ -731,6 +794,7 @@ if (is_android) {
       "//third_party/androidx:androidx_core_core_java",
       "//third_party/androidx:androidx_fragment_fragment_java",
       "//third_party/androidx:androidx_test_monitor_java",
+      "//third_party/androidx:androidx_test_uiautomator_uiautomator_java",
       "//third_party/hamcrest:hamcrest_java",
       "//third_party/junit",
     ]
@@ -759,6 +823,7 @@ if (is_android) {
       "android/javatests/src/org/chromium/base/test/transit/InternalViewFinder.java",
       "android/javatests/src/org/chromium/base/test/transit/LogicalElement.java",
       "android/javatests/src/org/chromium/base/test/transit/MoreViewConditions.java",
+      "android/javatests/src/org/chromium/base/test/transit/MoreViewMatchers.java",
       "android/javatests/src/org/chromium/base/test/transit/NotDisplayedAnymoreCondition.java",
       "android/javatests/src/org/chromium/base/test/transit/OptionalViewElement.java",
       "android/javatests/src/org/chromium/base/test/transit/PayloadCallbackCondition.java",
@@ -796,10 +861,16 @@ if (is_android) {
       "//base:base_junit_test_support",
       "//base:callback_java",
       "//base:log_java",
+      "//third_party/android_deps:com_google_errorprone_error_prone_annotations_java",
+      "//third_party/google-truth:google_truth_java",
       "//third_party/junit",
     ]
 
-    sources = [ "android/javatests/src/org/chromium/base/test/transit/ElementFactoryUnitTest.java" ]
+    sources = [
+      "android/javatests/src/org/chromium/base/test/transit/ElementFactoryUnitTest.java",
+      "android/javatests/src/org/chromium/base/test/transit/HopOnOffUnitTest.java",
+      "android/javatests/src/org/chromium/base/test/transit/TransitionTimeoutUnitTest.java",
+    ]
   }
 }
 

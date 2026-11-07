@@ -52,13 +52,21 @@ android {
 
     defaultConfig {
         vectorDrawables.useSupportLibrary = true
-        minSdkVersion {{ min_sdk_version }}
-        targetSdkVersion {{ target_sdk_version }}
+{% if min_sdk_version is defined %}
+        minSdk = {{ min_sdk_version }}
+{% elif min_sdk_preview is defined %}
+        minSdkPreview = "{{ min_sdk_preview }}"
+{% endif %}
+{% if target_sdk_version is defined %}
+        targetSdk = {{ target_sdk_version }}
+{% elif target_sdk_preview is defined %}
+        targetSdkPreview = "{{ target_sdk_preview }}"
+{% endif %}
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_{{ java_version }}
+        targetCompatibility JavaVersion.VERSION_{{ java_version }}
     }
 
 {% if native is defined %}
@@ -76,7 +84,6 @@ android {
             assets.srcDirs = []
             java.srcDirs = []
             jni.srcDirs = []
-            renderscript.srcDirs = []
             res.srcDirs = []
             resources.srcDirs = []
         }
@@ -94,22 +101,18 @@ android {
 
 {% include 'dependencies.jinja' %}
 
-afterEvaluate {
-    def tasksToDisable = tasks.findAll {
-        return (it.name.equals('generateDebugSources')  // causes unwanted AndroidManifest.java
-                || it.name.equals('generateReleaseSources')
-                || it.name.endsWith('BuildConfig')  // causes unwanted BuildConfig.java
-                || it.name.equals('preDebugAndroidTestBuild')
+tasks.matching {
+    return (it.name.equals('generateDebugSources')  // causes unwanted AndroidManifest.java
+            || it.name.equals('generateReleaseSources')
+            || it.name.endsWith('BuildConfig')  // causes unwanted BuildConfig.java
+            || it.name.equals('preDebugAndroidTestBuild')
 {% if not use_gradle_process_resources %}
-                || it.name.endsWith('Assets')
-                || it.name.endsWith('Resources')
-                || it.name.endsWith('ResValues')
+            || it.name.endsWith('Assets')
+            || it.name.endsWith('Resources')
+            || it.name.endsWith('ResValues')
 {% endif %}
-                || it.name.endsWith('Aidl')
-                || it.name.endsWith('Renderscript')
-                || it.name.endsWith('Shaders'))
-    }
-    tasksToDisable.each { Task task ->
-      task.enabled = false
-    }
+            || it.name.endsWith('Aidl')
+            || it.name.endsWith('Shaders'))
+}.configureEach { Task task ->
+    task.enabled = false
 }
