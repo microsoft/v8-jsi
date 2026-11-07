@@ -144,3 +144,6 @@
 /jsi_cpp/**
 /chrome/**
 !/chrome/VERSION
+
+# Unused Fuchsia test signing key flagged by secret scanning.
+/build/fuchsia/starview/cvd_avb_testkey_rsa4096.pem
