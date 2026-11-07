@@ -111,7 +111,7 @@ come before the artifacts that depend on them.
 | `windows-add-to-path` | Add the 7-zip installation directory to the machine `PATH` |
 | `windows-chocolatey` (`nasm`) | **x64 only** — install NASM for native builds |
 | `windows-visualstudio-bootstrapper` | VS 2026 Enterprise + the workload above |
-| `windows-powershell-invokecommand` ([`install-rust.ps1`](./install-rust.ps1)) | Public Rust `stable` through rustup into `%SystemDrive%\Rust`, with the x64, x86, ARM64 and ARM64EC targets; see [Rust note](#rust) |
+| `windows-install-public-rust-toolchain` | Public Rust `stable` (`minimal` profile) through rustup into `%SystemDrive%\Rust`, with the x64, x86, ARM64 and ARM64EC standard libraries; see [Rust note](#rust) |
 | `Windows-NodeJS` | Node.js `24.x` (`UseARM` selects the architecture) |
 | `windows-1es-starter-install-python` | Latest Python `3.13.*` x64 build in the Azure Pipelines tool cache; see [Python note](#python) |
 | `windows-1es-starter-install-python` (`3.14.*`) | **x64 only** — latest Python `3.14.*` x64 build in the tool cache, the build scripts' fallback; see [Python note](#python) |
@@ -235,15 +235,16 @@ images install the same Rust toolchain so Temporal can be enabled for
 `v8jsi.dll` and `v8jsisb.dll`. The Chromium sandbox build (`sbox-build.ts`)
 does not use it.
 
-[`install-rust.ps1`](./install-rust.ps1) downloads the official
-`rustup-init.exe` for the OS architecture, checks it against the published
-SHA-256, and installs the floating `stable` toolchain with the `minimal`
-profile (rustc, Cargo, the host standard library) under `%SystemDrive%\Rust`.
-It persists `RUSTUP_HOME=%SystemDrive%\Rust\.rustup` and adds the rustup
-proxies in `%SystemDrive%\Rust\.image-cargo\bin` to the machine `PATH`. It does
-not persist `CARGO_HOME`, so Cargo caches stay per user. The toolchain is
-read-only for agents, so they cannot add targets themselves. The script
-therefore adds every engine target on both images:
+The factory artifact `windows-install-public-rust-toolchain` installs the
+floating `stable` toolchain with the `minimal` profile (rustc, Cargo, the host
+standard library) through the official rustup under `%SystemDrive%\Rust`. It
+persists `RUSTUP_HOME=%SystemDrive%\Rust\.rustup` and adds the rustup proxies
+in `%SystemDrive%\Rust\.image-cargo\bin` to the machine `PATH`. It does not
+persist `CARGO_HOME`, so Cargo caches stay per user. The toolchain is
+read-only for agents, so they cannot add targets themselves. Both images
+therefore install every engine target's standard library at image build time,
+as the `rust-std-<target>` entries of the artifact's `Components` parameter
+(the same as `rustup target add <target>`):
 
 | Rust target | Used for |
 |-------------|----------|
@@ -252,16 +253,14 @@ therefore adds every engine target on both images:
 | `aarch64-pc-windows-msvc` | ARM64 |
 | `arm64ec-pc-windows-msvc` | ARM64EC |
 
-The script then builds a small `std`-using static library for each target.
-rustc archives static libraries itself, so this checks the standard libraries
-without a linker. The script is embedded like `install-winget-packages.ps1`;
-see [WinGet during image builds](#winget-during-image-builds) for how to
-regenerate it.
+Listing the host's own standard library is harmless, so both images use the
+same value. A misspelled target fails the image build.
 
-The factory artifact `windows-install-public-rust-toolchain` is not used. It
-fails at random: it reads `$LASTEXITCODE` after
-`rustup show active-toolchain | Select-Object -First 1`, which stops rustup's
-pipeline early and loses its exit code. It also has no way to add targets.
+Until a fix to the artifact is deployed, an image build can fail at random
+with `Unexpected active Rust toolchain: stable-<host> (default)`. The artifact
+reads `$LASTEXITCODE` after `rustup show active-toolchain | Select-Object -First 1`,
+and stopping rustup's pipeline early can leave the exit code at `-1` even
+though rustup succeeded. Rebuild the image if this happens.
 
 WinGet is not used for Rust. `Rustlang.Rust.MSVC` MSIs include only the host
 standard library and there is no ARM64EC MSI. `Rustlang.Rustup` runs the same
@@ -322,16 +321,13 @@ script handles each point in order:
 The JSON carries the script base64-encoded because ImageFactory pastes the
 `Script` value into a generated command line as a double-quoted PowerShell
 string: quotes would end the string, and `$` would be expanded there. The base64
-form contains neither. The same applies to
-[`install-rust.ps1`](./install-rust.ps1) (see [Rust](#rust)). Each
-embedded script is identified by the artifact entry right before it. After
-editing a script, regenerate the entries from this folder in PowerShell 7:
+form contains neither. Each embedded script is identified by the artifact
+entry right before it. After editing a script, regenerate the entries from this
+folder in PowerShell 7:
 
 ```powershell
 $embedded = @(
     @{ Json = 'windows-2025-1espt-arm64.json'; Script = 'install-winget-packages.ps1'; After = 'windows-1es-install-winget' }
-    @{ Json = 'windows-2025-1espt-x64.json';   Script = 'install-rust.ps1';            After = 'windows-visualstudio-bootstrapper' }
-    @{ Json = 'windows-2025-1espt-arm64.json'; Script = 'install-rust.ps1';            After = 'windows-visualstudio-bootstrapper' }
 )
 foreach ($e in $embedded) {
     $path = "$PWD\$($e.Json)"
