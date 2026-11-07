@@ -425,8 +425,8 @@ using CheckOpStreamType =
 
 // Build the error message string.  Specify no inlining for code size.
 template <typename T1, typename T2>
-ABSL_ATTRIBUTE_RETURNS_NONNULL const char* absl_nonnull MakeCheckOpString(
-    T1 v1, T2 v2, const char* absl_nonnull exprtext) ABSL_ATTRIBUTE_NOINLINE;
+ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_RETURNS_NONNULL const char* absl_nonnull
+MakeCheckOpString(T1 v1, T2 v2, const char* absl_nonnull exprtext);
 
 template <typename T1, typename T2>
 const char* absl_nonnull MakeCheckOpString(T1 v1, T2 v2,
@@ -485,8 +485,9 @@ ABSL_LOG_INTERNAL_DEFINE_MAKE_CHECK_OP_STRING_EXTERN(const void* absl_nonnull);
 // type.
 #define ABSL_LOG_INTERNAL_CHECK_OP_IMPL(name, op)                          \
   template <typename T1, typename T2>                                      \
-  inline constexpr const char* absl_nullable name##Impl(                   \
-      const T1& v1, const T2& v2, const char* absl_nonnull exprtext) {     \
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline constexpr const char* absl_nullable  \
+  name##Impl(const T1& v1, const T2& v2,                                   \
+             const char* absl_nonnull exprtext) {                          \
     using U1 = CheckOpStreamType<T1, T2>;                                  \
     using U2 = CheckOpStreamType<T2, T1>;                                  \
     return ABSL_PREDICT_TRUE(v1 op v2)                                     \
@@ -494,8 +495,8 @@ ABSL_LOG_INTERNAL_DEFINE_MAKE_CHECK_OP_STRING_EXTERN(const void* absl_nonnull);
                : ABSL_LOG_INTERNAL_CHECK_OP_IMPL_RESULT(U1, U2, U1(v1),    \
                                                         U2(v2), exprtext); \
   }                                                                        \
-  inline constexpr const char* absl_nullable name##Impl(                   \
-      int v1, int v2, const char* absl_nonnull exprtext) {                 \
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline constexpr const char* absl_nullable  \
+  name##Impl(int v1, int v2, const char* absl_nonnull exprtext) {          \
     return name##Impl<int, int>(v1, v2, exprtext);                         \
   }
 
@@ -530,29 +531,20 @@ const char* absl_nullable CheckstrcasecmpfalseImpl(
 // NOLINTBEGIN(runtime/int)
 // NOLINTBEGIN(google-runtime-int)
 template <typename T>
-inline constexpr const T& GetReferenceableValue(const T& t) {
+constexpr const T& GetReferenceableValue(const T& t) {
   return t;
 }
-inline constexpr char GetReferenceableValue(char t) { return t; }
-inline constexpr unsigned char GetReferenceableValue(unsigned char t) {
-  return t;
-}
-inline constexpr signed char GetReferenceableValue(signed char t) { return t; }
-inline constexpr short GetReferenceableValue(short t) { return t; }
-inline constexpr unsigned short GetReferenceableValue(unsigned short t) {
-  return t;
-}
-inline constexpr int GetReferenceableValue(int t) { return t; }
-inline constexpr unsigned int GetReferenceableValue(unsigned int t) {
-  return t;
-}
-inline constexpr long GetReferenceableValue(long t) { return t; }
-inline constexpr unsigned long GetReferenceableValue(unsigned long t) {
-  return t;
-}
-inline constexpr long long GetReferenceableValue(long long t) { return t; }
-inline constexpr unsigned long long GetReferenceableValue(
-    unsigned long long t) {
+constexpr char GetReferenceableValue(char t) { return t; }
+constexpr unsigned char GetReferenceableValue(unsigned char t) { return t; }
+constexpr signed char GetReferenceableValue(signed char t) { return t; }
+constexpr short GetReferenceableValue(short t) { return t; }
+constexpr unsigned short GetReferenceableValue(unsigned short t) { return t; }
+constexpr int GetReferenceableValue(int t) { return t; }
+constexpr unsigned int GetReferenceableValue(unsigned int t) { return t; }
+constexpr long GetReferenceableValue(long t) { return t; }
+constexpr unsigned long GetReferenceableValue(unsigned long t) { return t; }
+constexpr long long GetReferenceableValue(long long t) { return t; }
+constexpr unsigned long long GetReferenceableValue(unsigned long long t) {
   return t;
 }
 // NOLINTEND(google-runtime-int)

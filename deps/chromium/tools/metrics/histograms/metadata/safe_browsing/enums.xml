@@ -35,16 +35,15 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="An ad was found but data collection was rejected"/>
 </enum>
 
-<enum name="AdvancedProtectionEnabledStatus">
-  <int value="0" label="Advanced Protection enabled status unknown"/>
-  <int value="1" label="User not signed-in or isn't under Advanced Protection"/>
-  <int value="2" label="User is signed in and under Advanced Protection"/>
-  <int value="3"
-      label="User was under Advanced Protection but disabled it or signed out"/>
-  <int value="4"
-      label="User was signed out or wasn't under Advanced Protection but now
-             is"/>
+<!-- LINT.IfChange(AllowlistAsyncMatchResult) -->
+
+<enum name="AllowlistAsyncMatchResult">
+  <int value="0" label="Match"/>
+  <int value="1" label="No match"/>
+  <int value="2" label="Timeout"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/allowlist_checker_client.h:AllowlistAsyncMatchResult) -->
 
 <enum name="AndroidRealTimeIsInAllowlistResult">
   <int value="0" label="NO"/>
@@ -189,8 +188,8 @@ chromium-metrics-reviews@google.com.
   <int value="15" label="URL suspicious"/>
   <int value="16" label="URL billing"/>
   <int value="17" label="APK download"/>
-  <int value="19" label="Blocked Ad redirect"/>
-  <int value="20" label="Blocked Ad popup"/>
+  <int value="19" label="(Obsolete) Blocked Ad redirect"/>
+  <int value="20" label="(Obsolete) Blocked Ad popup"/>
   <int value="21" label="Hash-prefix real-time experiment"/>
   <int value="22" label="Phishy site interactions"/>
   <int value="23" label="Safe Browsing warning shown to user"/>
@@ -198,12 +197,37 @@ chromium-metrics-reviews@google.com.
   <int value="25" label="dangerous download auto deleted"/>
   <int value="26" label="dangerous download canceled on profile closure"/>
   <int value="27" label="URL real-time and hash real-time discrepancy"/>
-  <int value="28" label="External app redirect"/>
+  <int value="28" label="(Obsolete) External app redirect"/>
   <int value="29" label="dangerous download warning (Android)"/>
   <int value="30" label="Service worker behaviors"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/safe_browsing/core/common/proto/csd.proto:ClientSafeBrowsingReportType) -->
+
+<!-- LINT.IfChange(ConvertExtensionBlocklistV4ToV5Result) -->
+
+<enum name="ConvertExtensionBlocklistV4ToV5Result">
+  <int value="0" label="Success"/>
+  <int value="1" label="Failed to read V4 hash file"/>
+  <int value="2" label="Invalid hash file size"/>
+  <int value="3" label="Invalid extension ID"/>
+  <int value="4" label="Failed to write V5 hash file"/>
+  <int value="5" label="V4ChecksumMismatch"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_store.h:ConvertExtensionBlocklistV4ToV5Result) -->
+
+<!-- LINT.IfChange(ConvertExtensionBlocklistV5ToV4Result) -->
+
+<enum name="ConvertExtensionBlocklistV5ToV4Result">
+  <int value="0" label="Success"/>
+  <int value="1" label="Failed to read V5 hash file"/>
+  <int value="2" label="Invalid hash file size"/>
+  <int value="3" label="Failed to write V4 hash file"/>
+  <int value="4" label="V5ChecksumMismatch"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v4_store.h:ConvertExtensionBlocklistV5ToV4Result) -->
 
 <enum name="DisplayPersistentNotificationEvents">
   <int value="0" label="Request to display persistent notification"/>
@@ -328,6 +352,17 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="URL was checked."/>
   <int value="1" label="URL was classified as unsafe."/>
 </enum>
+
+<!-- LINT.IfChange(SafeBrowsingRtDnsResolutionResult) -->
+
+<enum name="SafeBrowsingDnsResolutionResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Timeout"/>
+  <int value="2" label="Error"/>
+  <int value="3" label="Skipped"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/realtime/url_lookup_service_base.h:DnsResolutionResult) -->
 
 <enum name="SafeBrowsingEnhancedProtegoPingType">
   <int value="0" label="UnknownType"/>
@@ -484,6 +519,19 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="UnsetStillWaiting"/>
 </enum>
 
+<!-- LINT.IfChange(SafeBrowsingUpdateCategory) -->
+
+<enum name="SafeBrowsingUpdateCategory">
+  <int value="0" label="Post-migration partial update"/>
+  <int value="1" label="Post-migration full update"/>
+  <int value="2" label="New database partial update"/>
+  <int value="3" label="New database full update"/>
+  <int value="4" label="Regular partial update"/>
+  <int value="5" label="Regular full update"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/sb_store.h:SafeBrowsingUpdateCategory) -->
+
 <enum name="SafeBrowsingUrlScheme">
   <int value="0" label="Unknown scheme"/>
   <int value="1" label="about"/>
@@ -544,6 +592,7 @@ chromium-metrics-reviews@google.com.
   <int value="11" label="CHECKSUM_MISMATCH_FAILURE"/>
   <int value="12" label="MMAP_FAILURE"/>
   <int value="13" label="READ_FAILURE_NOT_SORTED"/>
+  <int value="14" label="REMOVALS_INDEX_NEGATIVE_FAILURE"/>
 </enum>
 
 <enum name="SafeBrowsingV4DecodeResult">
@@ -593,6 +642,8 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="HASH_PREFIX_MAP_GENERATION_FAILURE"/>
   <int value="9" label="MIGRATION_FAILURE"/>
   <int value="10" label="PRE_MMAP_MIGRATION_FILE_FORMAT_FAILURE"/>
+  <int value="11" label="V5_TO_V4_MIGRATION_FAILURE"/>
+  <int value="12" label="V5_TO_V4_MIGRATION_WIPED_SUCCESSFULLY"/>
 </enum>
 
 <enum name="SafeBrowsingV4StoreWriteResult">
@@ -612,6 +663,122 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v4_store.h:ApplyUpdateType) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5ApplyUpdateResult) -->
+
+<enum name="SafeBrowsingV5ApplyUpdateResult">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Success"/>
+  <int value="2" label="MmapFailure"/>
+  <int value="3" label="FileSizeNotMultipleOfPrefixSize"/>
+  <int value="4" label="ChecksumMismatchFailure"/>
+  <int value="5" label="RiceDecodingAdditionsFailure"/>
+  <int value="6" label="RiceDecodingRemovalsFailure"/>
+  <int value="7" label="AdditionsHasExistingPrefixFailure"/>
+  <int value="8" label="RemovalsIndexTooLargeFailure"/>
+  <int value="9" label="WriteFailure"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/hash_prefix_list.h:V5ApplyUpdateResult) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5DecodeResult) -->
+
+<enum name="SafeBrowsingV5DecodeResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="PrefixAccumulationOverflow"/>
+  <int value="2" label="RanOutOfBits"/>
+  <int value="3" label="QuotientTooLarge"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_rice.h:V5DecodeResult) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5GetHashOperationOutcome) -->
+
+<enum name="SafeBrowsingV5GetHashOperationOutcome">
+  <int value="0" label="Success"/>
+  <int value="1" label="NetworkError"/>
+  <int value="2" label="HttpError"/>
+  <int value="3" label="ParseError"/>
+  <int value="4" label="BackoffError"/>
+  <int value="5" label="LocalCacheHit"/>
+  <int value="6" label="RetriableError"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_get_hash_protocol_manager.h:V5GetHashOperationOutcome) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5GetHashParseFailureReason) -->
+
+<enum name="SafeBrowsingV5GetHashParseFailureReason">
+  <int value="1" label="NetworkError"/>
+  <int value="2" label="HttpError"/>
+  <int value="3" label="RetriableError"/>
+  <int value="4" label="ParseError"/>
+  <int value="5" label="NoCacheDurationError"/>
+  <int value="6" label="IncorrectFullHashLengthError"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_search_hashes_util.h:V5GetHashParseFailureReason) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5InputValidationResult) -->
+
+<enum name="SafeBrowsingV5InputValidationResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="NegativeNumEntries"/>
+  <int value="2" label="RiceParameterTooSmall"/>
+  <int value="3" label="RiceParameterTooLarge"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_rice.h:V5InputValidationResult) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5StoreReadResult) -->
+
+<enum name="SafeBrowsingV5StoreReadResult">
+  <int value="0" label="ReadSuccess"/>
+  <int value="1" label="UnexpectedReadFailure"/>
+  <int value="2" label="FileOpenFailure"/>
+  <int value="3" label="FileEmptyFailure"/>
+  <int value="4" label="ProtoParsingFailure"/>
+  <int value="5" label="UnexpectedMagicNumberFailure"/>
+  <int value="6" label="FileVersionIncompatibleFailure"/>
+  <int value="7" label="HashPrefixInfoMissingFailure"/>
+  <int value="8" label="HashPrefixListGenerationFailure"/>
+  <int value="9" label="FileReadFailure"/>
+  <int value="10" label="V4ToV5MigrationFailure"/>
+  <int value="11" label="V4ToV5MigrationWipedSuccessfully"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/sb_store.h:V5StoreReadResult) -->
+
+<!-- LINT.IfChange(SafeBrowsingV5StoreWriteResult) -->
+
+<enum name="SafeBrowsingV5StoreWriteResult">
+  <int value="0" label="WriteSuccess"/>
+  <int value="1" label="UnexpectedWriteFailure"/>
+  <int value="2" label="UnexpectedBytesWrittenFailure"/>
+  <int value="3" label="UnableToRenameFailure"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_store.h:V5StoreWriteResult) -->
+
+<!-- LINT.IfChange(V5ToV4MigrationResult) -->
+
+<enum name="SafeBrowsingV5ToV4MigrationResult">
+  <int value="0" label="DiskAlreadyV4"/>
+  <int value="1" label="V5ToV4MigrationSucceeded"/>
+  <int value="2" label="V5StoreNotFound"/>
+  <int value="3" label="ReadV5Failed"/>
+  <int value="4" label="PrefixSizeMismatchFailure"/>
+  <int value="5" label="HashFileMissingFailure"/>
+  <int value="6" label="RenameHashFileFailure"/>
+  <int value="7" label="WriteV4FileFailure"/>
+  <int value="8" label="RenameV4StoreFileFailure"/>
+  <int value="9" label="ProtoSerializationFailure"/>
+  <int value="10" label="StoreIneligibleWipeFailed"/>
+  <int value="11" label="StoreIneligibleWipeSucceeded"/>
+  <int value="12" label="ExtensionBlocklistMigrationFailed"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v4_store.h:V5ToV4MigrationResult) -->
 
 <enum name="SafetyCheckWarningReason">
   <int value="1" label="Unpublished"/>
@@ -660,6 +827,19 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="SKIPPED_VERSION_CHECK_EQUAL"/>
 </enum>
 
+<!-- LINT.IfChange(SBHashPrefixWriteError) -->
+
+<enum name="SBHashPrefixWriteError">
+  <int value="0" label="Error writing file to disk"/>
+  <int value="1" label="File size not a multiple of prefix size"/>
+  <int value="2" label="File not found"/>
+  <int value="3" label="File size does not match metadata"/>
+  <int value="4" label="Failed to memory map file"/>
+  <int value="5" label="Memory mapped region has wrong size"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/hash_prefix_container.h:WriteError) -->
+
 <enum name="SBMetricsCollectorEventType">
   <int value="0" label="USER_STATE_DISABLED"/>
   <int value="1" label="USER_STATE_ENABLED"/>
@@ -678,6 +858,7 @@ chromium-metrics-reviews@google.com.
   <int value="14" label="ANDROID_SAFEBROWSING_REAL_TIME_INTERSTITIAL_BYPASS"/>
   <int value="15" label="ANDROID_SAFEBROWSING_INTERSTITIAL_BYPASS"/>
   <int value="16" label="DOWNLOAD_DEEP_SCAN"/>
+  <int value="17" label="GLIC_COUNTER_ABUSE_INTERSTITIAL_BYPASS"/>
 </enum>
 
 <enum name="SBThreatType">
@@ -698,9 +879,9 @@ chromium-metrics-reviews@google.com.
   <int value="14" label="Saved password reuse"/>
   <int value="15" label="Signed in sync password reuse"/>
   <int value="16" label="Signed in non sync password reuse"/>
-  <int value="17" label="Blocked ad redirect"/>
+  <int value="17" label="(Obsolete) Blocked ad redirect"/>
   <int value="18" label="Ad sample"/>
-  <int value="19" label="Blocked ad popup"/>
+  <int value="19" label="(Obsolete) Blocked ad popup"/>
   <int value="20" label="Suspicious site"/>
   <int value="21" label="Enterprise password reuse"/>
   <int value="22" label="Billing"/>
@@ -777,6 +958,34 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="The trigger is in monitoring mode"/>
 </enum>
 
+<!-- LINT.IfChange(SuspiciousSiteWarningOutcome) -->
+
+<enum name="SuspiciousSiteWarningOutcome">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Bypassed"/>
+  <int value="2" label="Adhered"/>
+  <int value="3" label="DismissedBySystem"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/suspicious_site_warning_allowlist.h:SuspiciousSiteWarningOutcome) -->
+
+<!-- LINT.IfChange(SuspiciousSiteWarningUserInteraction) -->
+
+<enum name="SuspiciousSiteWarningUserInteraction">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Warning dialog shown"/>
+  <int value="2" label="Mark as safe button clicked"/>
+  <int value="3" label="Back to safety button clicked"/>
+  <int value="4" label="Dismissed"/>
+  <int value="5" label="Manual navigation"/>
+  <int value="6" label="Close tab"/>
+  <int value="7" label="Learn more clicked"/>
+  <int value="8" label="System back button/gesture used"/>
+  <int value="9" label="Destroyed"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/suspicious_site_warning_allowlist.h:SuspiciousSiteWarningUserInteraction) -->
+
 <!-- LINT.IfChange(SyncedEsbOutcome) -->
 
 <enum name="SyncedEsbOutcome">
@@ -798,18 +1007,54 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="UrtUnsafeAndHprtUnsafe"/>
 </enum>
 
-<!-- LINT.IfChange(V4HashPrefixMapWriteError) -->
+<!-- LINT.IfChange(V4ToV5MigrationResult) -->
 
-<enum name="V4HashPrefixMapWriteError">
-  <int value="0" label="Error writing file to disk"/>
-  <int value="1" label="File size not a multiple of prefix size"/>
-  <int value="2" label="File not found"/>
-  <int value="3" label="File size does not match metadata"/>
-  <int value="4" label="Failed to memory map file"/>
-  <int value="5" label="Memory mapped region has wrong size"/>
+<enum name="V4ToV5MigrationResult">
+  <int value="0" label="DiskAlreadyV5"/>
+  <int value="1" label="V4ToV5MigrationSucceeded"/>
+  <int value="2" label="V4StoreNotFound"/>
+  <int value="3" label="ReadV4Failed"/>
+  <int value="4" label="MultipleHashFilesFailure"/>
+  <int value="5" label="PrefixSizeMismatchFailure"/>
+  <int value="6" label="HashFileMissingFailure"/>
+  <int value="7" label="RenameHashFileFailure"/>
+  <int value="8" label="WriteV5FileFailure"/>
+  <int value="9" label="ProtoSerializationFailure"/>
+  <int value="10" label="ExtensionParsingFailure"/>
+  <int value="11" label="RenameV5StoreFileFailure"/>
+  <int value="12" label="StoreIneligibleWipeFailed"/>
+  <int value="13" label="StoreIneligibleWipeSucceeded"/>
+  <int value="14" label="ExtensionBlocklistMigrationFailed"/>
 </enum>
 
-<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/hash_prefix_map.cc:WriteError) -->
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_store.h:V4ToV5MigrationResult) -->
+
+<!-- LINT.IfChange(V5OperationResult) -->
+
+<enum name="V5OperationResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="ParseError"/>
+  <int value="2" label="NetworkError"/>
+  <int value="3" label="HttpError"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_update_protocol_manager.h:V5OperationResult) -->
+
+<!-- LINT.IfChange(V5ParseResult) -->
+
+<enum name="V5ParseResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="ParseFromStringError"/>
+  <int value="2" label="MismatchedSizeError"/>
+  <int value="3" label="MismatchedNameError"/>
+  <int value="4" label="MismatchedPrefixLengthError"/>
+  <int value="5" label="NegativeDurationError"/>
+  <int value="6" label="InvalidRiceFieldError"/>
+  <int value="7" label="ChecksumMissingError"/>
+  <int value="8" label="ChecksumSizeError"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/safe_browsing/core/browser/db/v5_update_protocol_manager.h:V5ParseResult) -->
 
 <!-- LINT.IfChange(V8IframeState) -->
 

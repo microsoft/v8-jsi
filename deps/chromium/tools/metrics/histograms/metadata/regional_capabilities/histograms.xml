@@ -23,7 +23,7 @@ chromium-metrics-reviews@google.com.
 <histograms>
 
 <histogram name="RegionalCapabilities.ActiveRegionalProgram2"
-    enum="ActiveRegionalProgram" expires_after="2026-10-11">
+    enum="ActiveRegionalProgram" expires_after="2027-02-14">
   <owner>ljjlee@google.com</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -40,7 +40,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.ActiveRegionalProgram3{Profile}"
-    enum="ActiveRegionalProgram" expires_after="2026-10-25">
+    enum="ActiveRegionalProgram" expires_after="2027-03-07">
   <owner>ljjlee@google.com</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -57,7 +57,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.Debug.AndroidProgramResolution"
-    enum="AndroidProgramResolution" expires_after="2026-09-01">
+    enum="AndroidProgramResolution" expires_after="2027-03-07">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -68,7 +68,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.Debug.DefaultHighlightingResult"
-    enum="BooleanSuccess" expires_after="2026-03-01">
+    enum="BooleanSuccess" expires_after="2027-03-21">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -81,11 +81,34 @@ chromium-metrics-reviews@google.com.
     display on that choice screen. Should be emitted once per profile that show
     the choice screen, even if multiple windows (on desktop) are each showing a
     dialog.
+
+    Warning: this histogram was expired from 2026-03-01 to 2026-05-04; data may
+    be missing.
   </summary>
 </histogram>
 
+<histogram
+    name="RegionalCapabilities.Debug.DynamicCountryRegionalProgram{Profile}"
+    enum="ActiveRegionalProgram" expires_after="2027-03-07">
+  <owner>ljjlee@google.com</owner>
+  <owner>chrome-regionalcapabilities@google.com</owner>
+  <summary>
+    Records the regional program for each loaded profile, computed as if the
+    current profile country was used rather than the one persisted at profile
+    creation (i.e. as if the DynamicProfileCountry feature was enabled). This
+    does not affect the actual active program, see
+    RegionalCapabilities.ActiveRegionalProgram3 for that.
+
+    Emitted through ProvideCurrentSessionData(), when a UMA session record is
+    getting finalized.
+
+    {Profile}
+  </summary>
+  <token key="Profile" variants="ProfileIndex"/>
+</histogram>
+
 <histogram name="RegionalCapabilities.Debug.HasActiveRegionalProgram"
-    enum="Boolean" expires_after="2026-09-01">
+    enum="Boolean" expires_after="2027-03-07">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -96,7 +119,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.Debug.ProgramSpecificExclusion"
-    enum="RegionalProgramSpecificExclusion" expires_after="2026-09-01">
+    enum="RegionalProgramSpecificExclusion" expires_after="2027-03-07">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -106,8 +129,30 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram
+    name="RegionalCapabilities.Debug.TriggeringEligibility.{SessionType}"
+    enum="SearchEngineChoiceScreenConditions" expires_after="2027-03-07">
+  <owner>dgn@chromium.org</owner>
+  <owner>chrome-regionalcapabilities@google.com</owner>
+  <summary>
+    Records the eligibility when attempting to trigger the choice screen
+    relative to whether this was during the Chrome first run or not.
+
+    Aggregating both flows ends up being equivalent to looking at
+    &quot;RegionalCapabilities.FunnelStage.Triggering&quot;.
+  </summary>
+  <token key="SessionType">
+    <variant name="FirstRun"
+        summary="Variant of the histogram associated with the Chrome first
+                 run"/>
+    <variant name="NotFirstRun"
+        summary="Variant of the histogram associated with Chrome follow-up
+                 runs"/>
+  </token>
+</histogram>
+
 <histogram name="RegionalCapabilities.FallbackCountryMatching"
-    enum="CountryMatchingStatus" expires_after="2026-09-06">
+    enum="CountryMatchingStatus" expires_after="2026-11-15">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -122,7 +167,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.FetchedCountryMatching"
-    enum="CountryMatchingStatus" expires_after="2026-09-06">
+    enum="CountryMatchingStatus" expires_after="2027-03-21">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -135,10 +180,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<!-- LINT.IfChange(RegionalCapabilities.FunnelStage.Eligibility) -->
-
 <histogram name="RegionalCapabilities.FunnelStage.Eligibility{Profile}"
-    enum="SearchEngineChoiceScreenConditions" expires_after="2026-10-25">
+    enum="SearchEngineChoiceScreenConditions" expires_after="2027-03-07">
   <owner>dgn@chromium.org</owner>
   <owner>ljjlee@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
@@ -151,10 +194,8 @@ chromium-metrics-reviews@google.com.
   <token key="Profile" variants="ProfileIndex"/>
 </histogram>
 
-<!-- LINT.ThenChange(tools/metrics/histograms/metadata/puma/histograms.xml:PUMA.RegionalCapabilities.FunnelStage.Eligibility) -->
-
 <histogram name="RegionalCapabilities.FunnelStage.RegionalPresence"
-    enum="RegionalProgramAndLocationMatch" expires_after="2026-10-04">
+    enum="RegionalProgramAndLocationMatch" expires_after="2027-02-07">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -168,10 +209,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<!-- LINT.IfChange(RegionalCapabilities.FunnelStage.Reported) -->
-
 <histogram name="RegionalCapabilities.FunnelStage.Reported{Profile}"
-    enum="RegionalCapabilitiesFunnelStage" expires_after="2026-09-27">
+    enum="RegionalCapabilitiesFunnelStage" expires_after="2027-04-04">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -186,12 +225,8 @@ chromium-metrics-reviews@google.com.
   <token key="Profile" variants="ProfileIndex"/>
 </histogram>
 
-<!-- LINT.ThenChange(tools/metrics/histograms/metadata/puma/histograms.xml:PUMA.RegionalCapabilities.FunnelStage.Reported) -->
-
-<!-- LINT.IfChange(RegionalCapabilities.FunnelStage.Triggering) -->
-
 <histogram name="RegionalCapabilities.FunnelStage.Triggering{Profile}"
-    enum="SearchEngineChoiceScreenConditions" expires_after="2026-10-25">
+    enum="SearchEngineChoiceScreenConditions" expires_after="2027-03-07">
   <owner>dgn@chromium.org</owner>
   <owner>ljjlee@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
@@ -209,10 +244,8 @@ chromium-metrics-reviews@google.com.
   <token key="Profile" variants="ProfileIndex"/>
 </histogram>
 
-<!-- LINT.ThenChange(tools/metrics/histograms/metadata/puma/histograms.xml:PUMA.RegionalCapabilities.FunnelStage.Triggering) -->
-
 <histogram name="RegionalCapabilities.LoadedCountrySource"
-    enum="LoadedCapabilitiesCountrySource" expires_after="2026-09-06">
+    enum="LoadedCapabilitiesCountrySource" expires_after="2027-03-14">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>
@@ -224,7 +257,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="RegionalCapabilities.PersistedCountryMatching"
-    enum="CountryMatchingStatus" expires_after="2026-09-06">
+    enum="CountryMatchingStatus" expires_after="2027-03-14">
   <owner>dgn@chromium.org</owner>
   <owner>chrome-regionalcapabilities@google.com</owner>
   <summary>

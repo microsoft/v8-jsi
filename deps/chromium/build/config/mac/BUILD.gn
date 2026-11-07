@@ -17,15 +17,14 @@ config("compiler") {
   common_mac_flags = []
 
   # CPU architecture.
-  _archs_mapping_os = archs_mapping[current_os]
-  if (defined(_archs_mapping_os[current_cpu])) {
-    _archs_mapping_os_cpu = _archs_mapping_os[current_cpu]
-    clang_arch = _archs_mapping_os_cpu.clang_arch
-  } else {
-    notneeded([ "_archs_mapping_os" ])
-    assert(false, "unknown current_cpu $current_cpu")
+  if (defined(archs_mapping[current_os])) {
+    _archs_mapping_os = archs_mapping[current_os]
+    if (defined(_archs_mapping_os[current_cpu])) {
+      _archs_mapping_os_cpu = _archs_mapping_os[current_cpu]
+      clang_arch = _archs_mapping_os_cpu.clang_arch
+      common_mac_flags += [ "--target=$clang_arch-apple-macos" ]
+    }
   }
-  common_mac_flags += [ "--target=$clang_arch-apple-macos" ]
 
   # This is here so that all files get recompiled after an Xcode update.
   # (defines are passed via the command line, and build system rebuild things
@@ -36,12 +35,6 @@ config("compiler") {
   cflags = common_mac_flags
 
   ldflags = common_mac_flags
-
-  # ld64 defaults to fixup chains on macOS 12+ when targeting arm64 and on
-  # macOS 13+ when targeting x86_64.
-  # ld64.lld currently defaults to it on macOS 13+.
-  # Force it on; for Chromium it should work on macOS 12 even on x86_64.
-  ldflags += [ "-Wl,-fixup_chains" ]
 
   if (save_unstripped_output) {
     ldflags += [ "-Wcrl,unstripped," + rebase_path(root_out_dir) ]
@@ -109,7 +102,12 @@ config("mac_dynamic_flags") {
 #
 # The symbolic link for $mac_sdk_path is set up by
 # //build/config/apple/sdk_info.py in //build/config/mac/mac_sdk.gni.
-if (mac_use_xcode_symlinks && current_toolchain == default_toolchain) {
+#
+# We want to "generate" these files in a single toolchain and have other
+# mac toolchains depend on it. use_system_xcode implies host_os == "mac",
+# while default_toolchain could be any platform (think mac->win cross builds).
+# So make the host toolchain the canonical one.
+if (use_system_xcode && current_toolchain == host_toolchain) {
   action("sdk_inputs") {
     script = "//build/noop.py"
     outputs = [
@@ -120,8 +118,8 @@ if (mac_use_xcode_symlinks && current_toolchain == default_toolchain) {
   }
 } else {
   group("sdk_inputs") {
-    if (current_toolchain != default_toolchain && target_os == "ios") {
-      public_deps = [ ":sdk_inputs($default_toolchain)" ]
+    if (use_system_xcode) {
+      public_deps = [ ":sdk_inputs($host_toolchain)" ]
     }
   }
 }

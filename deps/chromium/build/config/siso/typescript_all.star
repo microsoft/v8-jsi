@@ -35,18 +35,29 @@ def __step_config(ctx, step_config):
         if runtime.os == "windows":
             remote_run = False
 
+    ts_compiler_deps = [
+        "third_party/node/node_modules:node_modules",
+    ]
+
     # TODO: crbug.com/1478909 - Specify typescript inputs in GN config.
     step_config["input_deps"].update({
-        "tools/typescript/ts_definitions.py": [
-            "third_party/node/linux/node-linux-x64/bin/node",
+        "components/variations/proto/devtools/update_client_variations.py": ts_compiler_deps,
+        "tools/typescript/ts_definitions.py": ts_compiler_deps,
+        "tools/typescript/ts_library.py": ts_compiler_deps,
+        "ui/webui/resources/tools/minify_js.py": [
             "third_party/node/node_modules:node_modules",
         ],
-        "tools/typescript/ts_library.py": [
-            "third_party/node/linux/node-linux-x64/bin/node",
-            "third_party/node/node.py",
+        "ui/webui/resources/tools/stylelint.py": [
             "third_party/node/node_modules:node_modules",
+        ],
+        "ui/webui/resources/tools/eslint_ts.py": [
+            "third_party/node/node_modules:node_modules",
+            "third_party/node/node_modules/eslint/bin/eslint",
         ],
     })
+
+    # Do not attach Starlark handlers for local builds to avoid overhead
+    # from redundant tsconfig dependency scanning (tsc.scandeps).
     step_config["rules"].extend([
         {
             "name": "typescript/ts_library",
@@ -59,12 +70,13 @@ def __step_config(ctx, step_config):
                 ],
             },
             "remote": remote_run,
+            "platform_ref": "large",
             "timeout": "2m",
-            "handler": "typescript_ts_library",
+            "handler": "typescript_ts_library" if remote_run else None,
             "output_local": True,
             "input_root_absolute_path": use_input_root_absolute_path,
             # Only runs on Linux workers.
-            "remote_command": "python3",
+            "remote_command": platform.remote_python_bin,
         },
         {
             "name": "typescript/ts_definitions",
@@ -76,11 +88,42 @@ def __step_config(ctx, step_config):
                 ],
             },
             "remote": remote_run,
+            "platform_ref": "large",
             "timeout": "2m",
-            "handler": "typescript_ts_definitions",
+            "handler": "typescript_ts_definitions" if remote_run else None,
             "input_root_absolute_path": use_input_root_absolute_path,
             # Only runs on Linux workers.
-            "remote_command": "python3",
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            "name": "webui/minify_js",
+            "command_prefix": platform.python_bin + " ../../ui/webui/resources/tools/minify_js.py",
+            "remote": remote_run,
+            "timeout": "2m",
+            # Only runs on Linux workers.
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            "name": "webui/stylelint",
+            "command_prefix": platform.python_bin + " ../../ui/webui/resources/tools/stylelint.py",
+            "remote": remote_run,
+            "timeout": "2m",
+            # Only runs on Linux workers.
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            "name": "webui/eslint_ts",
+            "command_prefix": platform.python_bin + " ../../ui/webui/resources/tools/eslint_ts.py",
+            "indirect_inputs": {
+                "includes": [
+                    "*.ts",
+                ],
+            },
+            "remote": remote_run,
+            "timeout": "2m",
+            "handler": "webui_eslint_ts" if remote_run else None,
+            # Only runs on Linux workers.
+            "remote_command": platform.remote_python_bin,
         },
     ])
     return step_config
@@ -91,8 +134,10 @@ def __filegroups(ctx):
         "third_party/node/node_modules:node_modules": {
             "type": "glob",
             "includes": [
+                "*.cjs",
                 "*.js",
                 "*.json",
+                "*.mjs",
                 "*.ts",
                 "tsc",
             ],
@@ -106,6 +151,13 @@ def __filegroups(ctx):
             ],
         },
     }
+
+def _find_tsconfig(cmd, gen_dir, default_name):
+    for out in cmd.outputs:
+        base = path.base(out)
+        if base.startswith("tsconfig") and base.endswith(".json"):
+            return out
+    return path.join(gen_dir, default_name)
 
 def _ts_library(ctx, cmd):
     in_files = []
@@ -148,7 +200,7 @@ def _ts_library(ctx, cmd):
     tsconfig["files"] = [path.join(root_dir, f) for f in in_files]
     tsconfig["files"].extend(definitions)
     tsconfig["references"] = [{"path": dep} for dep in deps]
-    tsconfig_path = path.join(gen_dir, "tsconfig.json")
+    tsconfig_path = _find_tsconfig(cmd, gen_dir, "tsconfig.json")
     deps = tsc.scandeps(ctx, tsconfig_path, tsconfig)
     for m in path_mappings:
         _, _, pathname = m.partition("|")
@@ -181,9 +233,24 @@ def _ts_definitions(ctx, cmd):
     out_dir = path.rel(gen_dir, out_dir)
     gen_dir = ctx.fs.canonpath(gen_dir)
     tsconfig["files"] = [path.join(root_dir, f) for f in js_files]
-    tsconfig_path = path.join(gen_dir, "tsconfig.definitions.json")
+    tsconfig_path = _find_tsconfig(cmd, gen_dir, "tsconfig.definitions.json")
     deps = tsc.scandeps(ctx, tsconfig_path, tsconfig)
     print("_ts_definitions: tsconfig=%s, deps=%s" % (tsconfig, deps))
+    ctx.actions.fix(inputs = cmd.inputs + deps)
+
+def _webui_eslint_ts(ctx, cmd):
+    tsconfig_path = None
+    for i, arg in enumerate(cmd.args):
+        if arg == "--tsconfig":
+            tsconfig_path = cmd.args[i + 1]
+            break
+    if not tsconfig_path:
+        return
+    tsconfig_path = ctx.fs.canonpath(tsconfig_path)
+    tsconfig = {}
+    if ctx.fs.exists(tsconfig_path):
+        tsconfig = json.decode(str(ctx.fs.read(tsconfig_path)))
+    deps = tsc.scandeps(ctx, tsconfig_path, tsconfig)
     ctx.actions.fix(inputs = cmd.inputs + deps)
 
 typescript_all = module(
@@ -191,6 +258,7 @@ typescript_all = module(
     handlers = {
         "typescript_ts_library": _ts_library,
         "typescript_ts_definitions": _ts_definitions,
+        "webui_eslint_ts": _webui_eslint_ts,
     },
     step_config = __step_config,
     filegroups = __filegroups,

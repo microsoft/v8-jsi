@@ -162,13 +162,14 @@ declare_args() {
 
 declare_args() {
   # Component build. Setting to true compiles targets declared as "components"
-  # as shared libraries loaded dynamically. This speeds up development time.
-  # When false, components will be linked statically.
+  # as shared libraries loaded dynamically. This can sometimes speed up
+  # development time by having smaller link steps. When false, components will
+  # be linked statically.
   #
   # For more information see
   # https://chromium.googlesource.com/chromium/src/+/main/docs/component_build.md
-  is_component_build =
-      is_debug && current_os != "ios" && current_os != "watchos"
+  is_component_build = is_debug && current_os != "android" &&
+                       current_os != "ios" && current_os != "watchos"
 }
 
 assert(!(is_debug && is_official_build), "Can't do official debug builds")
@@ -176,21 +177,32 @@ assert(!(current_os == "ios" && is_component_build),
        "Can't use component build on iOS")
 assert(!(current_os == "watchos" && is_component_build),
        "Can't use component build on watchOS")
+assert(!(current_os == "android" && is_component_build),
+       "Can't use component build on Android")
 
 declare_args() {
   # Unsafe buffers. Location of file used by plugins to track portions of
   # the codebase which have been made manifestly safe.
   clang_unsafe_buffers_paths = ""
   clang_warning_suppression_file = ""
+  clang_raw_ptr_plugin_config_file = ""
+  rust_clippy_conf_file = ""
 }
+
+import("//build/strict_deps_failures.gni")
 
 declare_args() {
   # Whether to enable strict deps checks. This ensures that your dependencies
   # are correctly declared (no missing deps and no accessing transitive deps).
   enable_strict_deps = false
+
+  # The default mode for modulemaps.
+  # Accepts any value that GN takes for "generate_modulemap".
+  default_modulemap_mode = "none"
 }
+
 if (enable_strict_deps) {
-  generate_modulemap = "textual"
+  assert(default_modulemap_mode == "textual", "Strict deps requires modulemaps")
 }
 
 # ==============================================================================
@@ -286,7 +298,8 @@ if (target_os == "android") {
 } else if (target_os == "zos") {
   _default_toolchain = "//build/toolchain/zos:$target_cpu"
 } else if (target_os == "emscripten") {
-  # Because it's too hard to remove all targets from //BUILD.gn that do not work with it.
+  # Because it's too hard to remove all targets from //BUILD.gn that do not work
+  # with it.
   assert(
       false,
       "emscripten is not a supported target_os. It is available only as secondary toolchain.")
@@ -372,6 +385,7 @@ default_compiler_configs = [
   "//build/config/compiler:runtime_library",
   "//build/config/compiler:sanitize_c_array_bounds",
   "//build/config/compiler:sanitize_return",
+  "//build/config/compiler:sanitize_unreachable",
   "//build/config/compiler:thin_archive",
   "//build/config/compiler:thinlto_optimize_default",
   "//build/config/compiler:tot_warnings",
@@ -435,9 +449,11 @@ if (current_os == "zos") {
 set_defaults("static_library") {
   configs = default_compiler_configs
 }
+
 set_defaults("source_set") {
   configs = default_compiler_configs
 }
+
 set_defaults("rust_library") {
   configs = default_compiler_configs
 }
@@ -513,9 +529,11 @@ if (is_fuchsia) {
   default_shared_library_configs +=
       [ "//build/config/fuchsia:rustc_no_pie_warning" ]
 }
+
 set_defaults("shared_library") {
   configs = default_shared_library_configs
 }
+
 set_defaults("loadable_module") {
   configs = default_shared_library_configs
 
@@ -581,13 +599,6 @@ foreach(_target_type,
         public_deps = []
       }
 
-      if (is_clang) {
-        # When clang is used, some target may use clang module. This dependency
-        # is required for things to work, regardless of whether the libc++
-        # module is used in this target or not.
-        public_deps += [ "//buildtools/third_party/libc++:headers" ]
-      }
-
       if (!defined(use_libcxx_modules)) {
         use_libcxx_modules = is_clang
       }
@@ -613,6 +624,14 @@ foreach(_target_type,
         strict_deps = enable_strict_deps
       }
 
+      if (!defined(check_includes_strict)) {
+        _current_label = get_label_info(":$target_name", "label_no_toolchain")
+        if (filter_include([ _current_label ],
+                           CHECK_INCLUDES_STRICT_ALLOWLIST) == []) {
+          check_includes_strict = false
+        }
+      }
+
       if (use_libcxx_modules && is_clang) {
         if (strict_deps) {
           configs += [ "//build/modules:strict_deps" ]
@@ -621,14 +640,13 @@ foreach(_target_type,
         not_needed([ "strict_deps" ])
       }
 
+      if (!defined(generate_modulemap)) {
+        generate_modulemap = default_modulemap_mode
+      }
+
       if (use_libcxx_modules) {
         # Add a dependency needed for Clang modules builds.
         deps += [ "//buildtools/third_party/libc++:all_modules" ]
-
-        if (!defined(invoker.generate_modulemap) &&
-            defined(generate_modulemap)) {
-          generate_modulemap = generate_modulemap
-        }
       }
 
       # Consumed by the unsafe-buffers plugin during compile.
@@ -648,6 +666,9 @@ foreach(_target_type,
       }
       if (_uses_cflags && clang_unsafe_buffers_paths != "") {
         inputs += [ clang_unsafe_buffers_paths ]
+      }
+      if (_uses_cflags && clang_raw_ptr_plugin_config_file != "") {
+        inputs += [ clang_raw_ptr_plugin_config_file ]
       }
     }
   }
@@ -674,6 +695,7 @@ foreach(_target_type,
   template(_target_type) {
     # Alias "target_name" because it is clobbered by forward_variables_from().
     _target_name = target_name
+
     target(_target_type, _target_name) {
       forward_variables_from(invoker,
                              "*",
@@ -701,6 +723,9 @@ foreach(_target_type,
       if (_uses_cflags && clang_unsafe_buffers_paths != "") {
         inputs += [ clang_unsafe_buffers_paths ]
       }
+      if (_uses_cflags && clang_raw_ptr_plugin_config_file != "") {
+        inputs += [ clang_raw_ptr_plugin_config_file ]
+      }
 
       if (!defined(deps)) {
         deps = []
@@ -717,13 +742,6 @@ foreach(_target_type,
 
       if (!defined(public_deps)) {
         public_deps = []
-      }
-
-      if (is_clang) {
-        # When clang is used, some target may use clang module. This dependency
-        # is required for things to work, regardless of whether the libc++
-        # module is used in this target or not.
-        public_deps += [ "//buildtools/third_party/libc++:headers" ]
       }
 
       if (!defined(use_libcxx_modules)) {
@@ -751,6 +769,14 @@ foreach(_target_type,
         strict_deps = enable_strict_deps
       }
 
+      if (!defined(check_includes_strict)) {
+        _current_label = get_label_info(":$target_name", "label_no_toolchain")
+        if (filter_include([ _current_label ],
+                           CHECK_INCLUDES_STRICT_ALLOWLIST) == []) {
+          check_includes_strict = false
+        }
+      }
+
       if (use_libcxx_modules && is_clang) {
         if (strict_deps) {
           configs += [ "//build/modules:strict_deps" ]
@@ -759,14 +785,13 @@ foreach(_target_type,
         not_needed([ "strict_deps" ])
       }
 
+      if (!defined(generate_modulemap)) {
+        generate_modulemap = default_modulemap_mode
+      }
+
       if (use_libcxx_modules) {
         # Add a dependency needed for Clang modules builds.
         deps += [ "//buildtools/third_party/libc++:all_modules" ]
-
-        if (!defined(invoker.generate_modulemap) &&
-            defined(generate_modulemap)) {
-          generate_modulemap = generate_modulemap
-        }
       }
 
       # On Android, write shared library output file to metadata. We will use
@@ -842,6 +867,7 @@ template("component") {
   } else {
     _component_mode = "static_library"
   }
+
   target(_component_mode, target_name) {
     if (defined(_output_name)) {
       output_name = _output_name

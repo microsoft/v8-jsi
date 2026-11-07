@@ -90,7 +90,7 @@ each histogram.
 </histogram>
 
 <histogram name="CPU.Experimental.CpuEstimationThreadTimePercent.{CoreType}"
-    units="%" expires_after="2026-09-27">
+    units="%" expires_after="2027-02-07">
   <owner>anthonyvd@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -106,7 +106,7 @@ each histogram.
 
 <histogram
     name="CPU.Experimental.EstimatedFrequencyAsPercentOfLimit.{CoreType}"
-    units="%" expires_after="2026-10-11">
+    units="%" expires_after="2027-02-14">
   <owner>anthonyvd@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -121,7 +121,7 @@ each histogram.
 </histogram>
 
 <histogram name="CPU.Experimental.EstimatedFrequencyAsPercentOfMax.{CoreType}"
-    units="%" expires_after="2026-08-02">
+    units="%" expires_after="2027-02-07">
   <owner>anthonyvd@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -136,7 +136,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Discarding.DecisionResult{Trigger}"
-    enum="CanDiscardResult" expires_after="2027-01-21">
+    enum="CanDiscardResult" expires_after="2027-03-28">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -158,7 +158,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Discarding.HadFormInteraction"
-    enum="Boolean" expires_after="2027-01-21">
+    enum="Boolean" expires_after="2027-03-28">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -169,7 +169,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Discarding.HadUserEdits" enum="Boolean"
-    expires_after="2027-01-21">
+    expires_after="2027-03-28">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -180,7 +180,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Discarding.ProtectionReason"
-    enum="CannotDiscardReason" expires_after="2027-01-21">
+    enum="CannotDiscardReason" expires_after="2027-03-28">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -192,7 +192,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Discarding.TimeHiddenAtDecision" units="ms"
-    expires_after="2027-01-21">
+    expires_after="2027-03-28">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -216,7 +216,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.DiskStats.UserDataDirFreeSpacePercent"
-    units="%" expires_after="2026-09-06">
+    units="%" expires_after="2027-03-21">
   <owner>anthonyvd@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -227,7 +227,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Experimental.AccessibilityModeFlag"
-    enum="AccessibilityModeFlagEnum" expires_after="2026-09-27">
+    enum="AccessibilityModeFlagEnum" expires_after="2027-02-07">
   <owner>anthonyvd@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -237,7 +237,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.Experimental.HasAccessibilityModeFlag"
-    enum="Boolean" expires_after="2026-09-27">
+    enum="Boolean" expires_after="2027-02-07">
   <owner>anthonyvd@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -247,7 +247,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.InputScenarioChanges{InputScenario}"
-    enum="InputScenarioUpdateReason" expires_after="2026-10-11">
+    enum="InputScenarioUpdateReason" expires_after="2026-12-16">
   <owner>kraskevich@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -295,7 +295,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.ResourceQueryTime.{Function}"
-    units="microseconds" expires_after="2026-10-25">
+    units="microseconds" expires_after="2027-01-03">
   <owner>joenotcharles@google.com</owner>
   <owner>olivierli@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
@@ -335,7 +335,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.TransientKeepAlive.Result"
-    enum="TransientKeepAliveResult" expires_after="2026-10-16">
+    enum="TransientKeepAliveResult" expires_after="2027-03-14">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -347,7 +347,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.TransientKeepAlive.TimeToReuse" units="ms"
-    expires_after="2026-10-16">
+    expires_after="2027-03-14">
   <owner>aattar@google.com</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -360,7 +360,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.UserTuning.BatterySaverModeEnabledPercent"
-    units="%" expires_after="2026-08-30">
+    units="%" expires_after="2027-03-21">
   <owner>anthonyvd@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>
@@ -384,7 +384,7 @@ each histogram.
 </histogram>
 
 <histogram name="PerformanceManager.UserTuning.MemorySaverModeEnabledPercent"
-    units="%" expires_after="2026-08-30">
+    units="%" expires_after="2027-02-28">
   <owner>anthonyvd@chromium.org</owner>
   <owner>chrome-catan@google.com</owner>
   <summary>

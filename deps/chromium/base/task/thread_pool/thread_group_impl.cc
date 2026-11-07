@@ -4,14 +4,22 @@
 
 #include "base/task/thread_pool/thread_group_impl.h"
 
+#include <algorithm>
+#include <memory>
 #include <optional>
 #include <string_view>
 
+#include "base/feature_list.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
+#include "base/profiler/sampling_profiler_thread_token.h"
 #include "base/profiler/thread_group_profiler.h"
 #include "base/sequence_token.h"
+#include "base/strings/strcat.h"
 #include "base/strings/stringprintf.h"
+#include "base/synchronization/lock_metrics_recorder.h"
 #include "base/task/common/checked_lock.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/task/task_features.h"
 #include "base/task/thread_pool/worker_thread.h"
 #include "base/threading/platform_thread_metrics.h"
@@ -49,6 +57,8 @@ namespace {
 constexpr TimeDelta kBackgroundMayBlockThreshold = Seconds(10);
 constexpr TimeDelta kBackgroundBlockedWorkersPoll = Seconds(12);
 
+constexpr std::string_view kForegroundThreadGroupLabel = "Foreground";
+constexpr std::string_view kBackgroundThreadGroupLabel = "Background";
 }  // namespace
 
 // Upon destruction, executes actions that control the number of active workers.
@@ -68,14 +78,32 @@ class ThreadGroupImpl::ScopedCommandsExecutor
     for (auto& worker : workers_to_wake_up_) {
       worker->WakeUp();
     }
+
+    profilers_to_destroy_.clear();
+    active_collection_to_destroy_.reset();
   }
 
   void ScheduleWakeUp(scoped_refptr<WorkerThread> worker) {
     workers_to_wake_up_.emplace_back(std::move(worker));
   }
 
+  void ScheduleProfilerDestruction(
+      scoped_refptr<ThreadGroupProfiler::Profiler> profiler) {
+    profilers_to_destroy_.emplace_back(std::move(profiler));
+  }
+
+  void ScheduleActiveCollectionDestruction(
+      std::optional<ThreadGroupProfiler::ActiveCollection> active_collection) {
+    DCHECK(!active_collection_to_destroy_);
+    active_collection_to_destroy_ = std::move(active_collection);
+  }
+
  private:
   absl::InlinedVector<scoped_refptr<WorkerThread>, 2> workers_to_wake_up_;
+  absl::InlinedVector<scoped_refptr<ThreadGroupProfiler::Profiler>, 2>
+      profilers_to_destroy_;
+  std::optional<ThreadGroupProfiler::ActiveCollection>
+      active_collection_to_destroy_;
 };
 
 class ThreadGroupImpl::WorkerDelegate : public WorkerThread::Delegate,
@@ -115,6 +143,11 @@ class ThreadGroupImpl::WorkerDelegate : public WorkerThread::Delegate,
 
   // Increments max [best effort] tasks.
   void IncrementMaxTasksLockRequired() EXCLUSIVE_LOCKS_REQUIRED(outer_->lock_);
+
+  const SamplingProfilerThreadToken& thread_token_lock_required() const
+      EXCLUSIVE_LOCKS_REQUIRED(outer_->lock_) {
+    return read_any().thread_token;
+  }
 
   // Exposed for AnnotateAcquiredLockAlias.
   const CheckedLock& lock() const LOCK_RETURNED(outer_->lock_) {
@@ -183,6 +216,9 @@ class ThreadGroupImpl::WorkerDelegate : public WorkerThread::Delegate,
     // BlockingScopeExited() is called.
     TimeTicks blocking_start_time;
 
+    // Thread token for sampling profiler.
+    SamplingProfilerThreadToken thread_token;
+
     // Whether the worker is currently running a task (i.e. GetWork() has
     // returned a non-empty task source and DidProcessTask() hasn't been called
     // yet).
@@ -230,13 +266,15 @@ class ThreadGroupImpl::WorkerDelegate : public WorkerThread::Delegate,
   THREAD_CHECKER(worker_thread_checker_);
 };
 
-ThreadGroupImpl::ThreadGroupImpl(std::string_view histogram_label,
-                                 std::string_view thread_group_label,
-                                 ThreadType thread_type_hint,
-                                 int64_t thread_group_type,
-                                 TrackedRef<TaskTracker> task_tracker,
-                                 TrackedRef<Delegate> delegate,
-                                 bool monitor_worker_thread_priorities)
+ThreadGroupImpl::ThreadGroupImpl(
+    std::string_view histogram_label,
+    std::string_view thread_group_label,
+    ThreadType thread_type_hint,
+    int64_t thread_group_type,
+    TrackedRef<TaskTracker> task_tracker,
+    TrackedRef<ThreadGroup::Delegate> delegate,
+    bool monitor_worker_thread_priorities,
+    ThreadPoolInstance::RecordLockContention record_lock_contention)
     : ThreadGroup(histogram_label,
                   thread_group_label,
                   thread_type_hint,
@@ -244,7 +282,9 @@ ThreadGroupImpl::ThreadGroupImpl(std::string_view histogram_label,
                   std::move(delegate)),
       thread_group_type_(thread_group_type),
       tracked_ref_factory_(this),
-      monitor_worker_thread_priorities_(monitor_worker_thread_priorities) {
+      monitor_worker_thread_priorities_(monitor_worker_thread_priorities),
+      record_lock_contention_(record_lock_contention),
+      histogram_label_(histogram_label) {
   DCHECK(!thread_group_label_.empty());
 }
 
@@ -274,8 +314,8 @@ void ThreadGroupImpl::Start(
           ? kThreadPoolForegroundBlockedWorkersPollParam.Get()
           : kBackgroundBlockedWorkersPoll;
 
+  auto executor = std::make_unique<ScopedCommandsExecutor>(this);
   {
-    ScopedCommandsExecutor executor(this);
     CheckedAutoLock auto_lock(lock_);
 
     ThreadGroup::StartImplLockRequired(
@@ -285,13 +325,25 @@ void ThreadGroupImpl::Start(
         synchronous_thread_start_for_testing);
 
     DCHECK(workers_.empty());
-    EnsureEnoughWorkersLockRequired(&executor);
+    EnsureEnoughWorkersLockRequired(executor.get());
+
+    if (ThreadGroupProfiler::IsProfilingEnabled()) {
+      thread_group_profiler_.emplace(thread_group_type_, this);
+    }
   }
 
-  if (ThreadGroupProfiler::IsProfilingEnabled()) {
-    // This call posts a task, so do it outside of the lock.
-    thread_group_profiler_.emplace(service_thread_task_runner,
-                                   thread_group_type_);
+  // Destroying the executor starts the initial workers, which is expensive
+  // because it creates threads. Do this on the service thread to avoid
+  // blocking the calling thread. Note that the executor must be destroyed
+  // outside of `lock_` in either case.
+  if (FeatureList::IsEnabled(kAsyncThreadPoolInit)) {
+    service_thread_task_runner->DeleteSoon(FROM_HERE, std::move(executor));
+  } else {
+    executor.reset();
+  }
+
+  if (thread_group_profiler_) {
+    thread_group_profiler_->Start(service_thread_task_runner);
   }
 }
 
@@ -381,6 +433,17 @@ void ThreadGroupImpl::WorkerDelegate::OnMainEntry(WorkerThread* worker) {
   std::string thread_name =
       StringPrintf("ThreadPool%sWorker", outer_->thread_group_label_.c_str());
   PlatformThread::SetName(thread_name);
+
+  if (outer_->record_lock_contention_ ==
+          ThreadPoolInstance::RecordLockContention::kEnabled &&
+      (outer_->thread_group_label_ == kForegroundThreadGroupLabel ||
+       outer_->thread_group_label_ == kBackgroundThreadGroupLabel)) {
+    const std::string threadpool_histogram_suffix =
+        StrCat({outer_->histogram_label_, "Worker"});
+    base::LockMetricsRecorder::EnableRecordingOnCurrentThread(
+        threadpool_histogram_suffix);
+  }
+
 #if BUILDFLAG(IS_ANDROID)
   if (outer_->monitor_worker_thread_priorities_) {
     PlatformThreadPriorityMonitor::Get().RegisterCurrentThread(thread_name);
@@ -391,8 +454,10 @@ void ThreadGroupImpl::WorkerDelegate::OnMainEntry(WorkerThread* worker) {
   worker_only().worker_thread_ = static_cast<WorkerThread*>(worker);
   SetBlockingObserverForCurrentThread(this);
 
-  if (outer_->thread_group_profiler_) {
-    outer_->thread_group_profiler_->OnWorkerThreadStarted(worker);
+  SamplingProfilerThreadToken token = GetSamplingProfilerCurrentThreadToken();
+  {
+    CheckedAutoLock auto_lock(outer_->lock_);
+    write_worker().thread_token = std::move(token);
   }
 
   if (outer_->worker_started_for_testing_) {
@@ -428,10 +493,6 @@ void ThreadGroupImpl::WorkerDelegate::OnMainExit(WorkerThread* worker_base) {
 #if BUILDFLAG(IS_WIN)
   worker_only().win_thread_environment.reset();
 #endif  // BUILDFLAG(IS_WIN)
-
-  if (outer_->thread_group_profiler_) {
-    outer_->thread_group_profiler_->OnWorkerThreadExiting(worker_base);
-  }
 
   // Count cleaned up workers for tests. It's important to do this here
   // instead of at the end of CleanupLockRequired() because some side-effects
@@ -484,19 +545,17 @@ RegisteredTaskSource ThreadGroupImpl::WorkerDelegate::GetWork(
 
   ScopedCommandsExecutor executor(outer_.get());
   RegisteredTaskSource task_source;
+  scoped_refptr<ThreadGroupProfiler::Profiler> profiler_to_start;
   {
     CheckedAutoLock auto_lock(outer_->lock_);
     task_source = GetWorkLockRequired(&executor, worker);
-  }
-  // Notify the profiler on the worker thread status when profiling is enabled.
-  // This must be called without holding lock_ as lock_ is not a universal
-  // predecessor that does not satisfy OnWorkerThreadIdle's CheckedLock.
-  if (outer_->thread_group_profiler_) {
-    // GetWork is only called when waking up, i.e. from an idle state. No need
-    // to mark it idle again if no task source available.
-    if (task_source) {
-      outer_->thread_group_profiler_->OnWorkerThreadActive(worker);
+    if (task_source && outer_->active_collection_) {
+      profiler_to_start = outer_->active_collection_->MaybeAddWorkerThread(
+          worker, read_worker().thread_token);
     }
+  }
+  if (profiler_to_start) {
+    profiler_to_start->Start();
   }
   return task_source;
 }
@@ -620,10 +679,6 @@ RegisteredTaskSource ThreadGroupImpl::WorkerDelegate::SwapProcessedTask(
     next_task_source = GetWorkLockRequired(&workers_executor,
                                            static_cast<WorkerThread*>(worker));
   }
-  // Must be called without holding a lock.
-  if (outer_->thread_group_profiler_ && !next_task_source) {
-    outer_->thread_group_profiler_->OnWorkerThreadIdle(worker);
-  }
   return next_task_source;
 }
 
@@ -652,6 +707,14 @@ void ThreadGroupImpl::WorkerDelegate::CleanupLockRequired(
   WorkerThread* worker = static_cast<WorkerThread*>(worker_base);
   DCHECK(!outer_->join_for_testing_started_);
   DCHECK_CALLED_ON_VALID_THREAD(worker_thread_checker_);
+
+  if (outer_->active_collection_) {
+    if (auto profiler =
+            outer_->active_collection_->RemoveWorkerThread(worker)) {
+      static_cast<ScopedCommandsExecutor*>(executor)
+          ->ScheduleProfilerDestruction(std::move(profiler));
+    }
+  }
 
   worker->Cleanup();
 
@@ -699,7 +762,7 @@ void ThreadGroupImpl::WorkerDelegate::BlockingStarted(
     return;
   }
 
-  worker_only().worker_thread_->MaybeUpdateThreadType();
+  worker_only().worker_thread_->MaybeBoostPriorityForShutdown();
 
   // WillBlock is always used when time overrides is active. crbug.com/1038867
   if (base::subtle::ScopedTimeClockOverrides::overrides_active()) {
@@ -847,13 +910,12 @@ void ThreadGroupImpl::WorkerDelegate::IncrementMaxTasksLockRequired()
 }
 
 void ThreadGroupImpl::JoinForTesting() {
-  // profiler needs to shutdown first to not block worker thread joins.
-  if (thread_group_profiler_) {
-    thread_group_profiler_->Shutdown();
-  }
   decltype(workers_) workers_copy;
   {
+    ScopedCommandsExecutor executor(this);
     CheckedAutoLock auto_lock(lock_);
+    executor.ScheduleActiveCollectionDestruction(
+        std::exchange(active_collection_, std::nullopt));
     priority_queue_.EnableFlushTaskSourcesOnDestroyForTesting();
 
     DCHECK_GT(workers_.size(), size_t(0))
@@ -874,10 +936,14 @@ void ThreadGroupImpl::JoinForTesting() {
     static_cast<WorkerThread*>(worker.get())->JoinForTesting();
   }
 
-  CheckedAutoLock auto_lock(lock_);
-  DCHECK(workers_ == workers_copy);
-  // Release |workers_| to clear their TrackedRef against |this|.
-  workers_.clear();
+  {
+    CheckedAutoLock auto_lock(lock_);
+    DCHECK(workers_ == workers_copy);
+    // Release |workers_| to clear their TrackedRef against |this|.
+    workers_.clear();
+  }
+
+  thread_group_profiler_.reset();
 }
 
 size_t ThreadGroupImpl::NumberOfIdleWorkersLockRequiredForTesting() const {
@@ -955,9 +1021,8 @@ void ThreadGroupImpl::OnShutdownStarted() {
     return;
   }
 
-  if (thread_group_profiler_) {
-    thread_group_profiler_->Shutdown();
-  }
+  executor.ScheduleActiveCollectionDestruction(
+      std::exchange(active_collection_, std::nullopt));
 
   // Start a MAY_BLOCK scope on each worker that is already running a task.
   for (scoped_refptr<WorkerThread>& worker : workers_) {
@@ -1060,6 +1125,63 @@ void ThreadGroupImpl::AdjustMaxTasks() {
   // Wake up workers according to the updated |max_tasks_|. This will also
   // reschedule AdjustMaxTasks() if necessary.
   EnsureEnoughWorkersLockRequired(&executor);
+}
+
+void ThreadGroupImpl::CleanUpFailedWorker(const WorkerThread* worker) {
+  CheckedAutoLock auto_lock(lock_);
+  auto worker_iter = std::find(workers_.begin(), workers_.end(), worker);
+  if (worker_iter != workers_.end()) {
+    workers_.erase(worker_iter);
+  }
+  if (idle_workers_set_.Contains(worker)) {
+    idle_workers_set_.Remove(worker);
+  }
+}
+
+void ThreadGroupImpl::OnStartProfilingSession(
+    ThreadGroupProfiler::ActiveCollection active_collection) {
+  std::vector<scoped_refptr<ThreadGroupProfiler::Profiler>> profilers_to_start;
+  {
+    CheckedAutoLock auto_lock(lock_);
+    if (join_for_testing_started_ || shutdown_started_) {
+      return;
+    }
+    CHECK(!active_collection_);
+    active_collection_.emplace(std::move(active_collection));
+    profilers_to_start.reserve(workers_.size());
+    for (const auto& worker : workers_) {
+      if (idle_workers_set_.Contains(worker.get())) {
+        continue;
+      }
+      auto* delegate = static_cast<WorkerDelegate*>(worker->delegate());
+      AnnotateAcquiredLockAlias annotate(lock_, delegate->lock());
+      const SamplingProfilerThreadToken& token =
+          delegate->thread_token_lock_required();
+      // If the worker thread has not yet entered its main entry point to record
+      // its thread token, it will be picked up later upon GetWork().
+      if (token.id == kInvalidThreadId) {
+        continue;
+      }
+      if (auto profiler =
+              active_collection_->MaybeAddWorkerThread(worker.get(), token)) {
+        profilers_to_start.push_back(std::move(profiler));
+      }
+    }
+  }
+
+  for (auto& profiler : profilers_to_start) {
+    profiler->Start();
+  }
+}
+
+void ThreadGroupImpl::OnEndProfilingSession() {
+  ScopedCommandsExecutor executor(this);
+  CheckedAutoLock auto_lock(lock_);
+  if (join_for_testing_started_ || shutdown_started_) {
+    return;
+  }
+  executor.ScheduleActiveCollectionDestruction(
+      std::exchange(active_collection_, std::nullopt));
 }
 
 }  // namespace base::internal

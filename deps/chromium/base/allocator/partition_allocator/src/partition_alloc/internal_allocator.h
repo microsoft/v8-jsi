@@ -10,6 +10,7 @@
 
 #include "partition_alloc/internal_allocator_forward.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/partition_root.h"
 
 // Internal Allocator can be used to get heap allocations required to
@@ -24,6 +25,14 @@ namespace partition_alloc::internal {
 PA_COMPONENT_EXPORT(PARTITION_ALLOC)
 PartitionRoot& InternalAllocatorRoot();
 
+// The flags of every allocation from the internal partition. It holds
+// PartitionAlloc's own data (e.g. thread caches), so no hook may observe or
+// serve the allocation. `kNoOverrideHooks` is spelled out rather than left
+// implied by `kNoHooks`, so that the partition stays unhooked even if
+// `kNoHooks` stops covering override hooks.
+inline constexpr AllocFlags kInternalAllocFlags =
+    AllocFlags::kNoHooks | AllocFlags::kNoOverrideHooks;
+
 // A class that meets C++ named requirements, Allocator.
 template <typename T>
 typename InternalAllocator<T>::value_type* InternalAllocator<T>::allocate(
@@ -31,8 +40,8 @@ typename InternalAllocator<T>::value_type* InternalAllocator<T>::allocate(
   PA_CHECK(count <=
            std::numeric_limits<std::size_t>::max() / sizeof(value_type));
   return static_cast<value_type*>(
-      InternalAllocatorRoot().Alloc<AllocFlags::kNoHooks>(count *
-                                                          sizeof(value_type)));
+      InternalAllocatorRoot().Alloc<kInternalAllocFlags>(count *
+                                                         sizeof(value_type)));
 }
 template <typename T>
 void InternalAllocator<T>::deallocate(value_type* ptr, std::size_t) {
@@ -43,7 +52,7 @@ void InternalAllocator<T>::deallocate(value_type* ptr, std::size_t) {
 template <typename T, typename... Args>
 T* ConstructAtInternalPartition(Args&&... args) {
   auto* memory = static_cast<T*>(
-      InternalAllocatorRoot().Alloc<AllocFlags::kNoHooks>(sizeof(T)));
+      InternalAllocatorRoot().Alloc<kInternalAllocFlags>(sizeof(T)));
   return new (memory) T(std::forward<Args>(args)...);
 }
 

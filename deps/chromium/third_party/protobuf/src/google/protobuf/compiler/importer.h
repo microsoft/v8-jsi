@@ -101,11 +101,11 @@ class PROTOBUF_EXPORT SourceTreeDescriptorDatabase : public DescriptorDatabase {
   }
 
   // implements DescriptorDatabase -----------------------------------
-  bool FindFileByName(StringViewArg filename,
+  bool FindFileByName(absl::string_view filename,
                       FileDescriptorProto* output) override;
-  bool FindFileContainingSymbol(StringViewArg symbol_name,
+  bool FindFileContainingSymbol(absl::string_view symbol_name,
                                 FileDescriptorProto* output) override;
-  bool FindFileContainingExtension(StringViewArg containing_type,
+  bool FindFileContainingExtension(absl::string_view containing_type,
                                    int field_number,
                                    FileDescriptorProto* output) override;
 
@@ -180,21 +180,11 @@ class PROTOBUF_EXPORT Importer {
 
   // The DescriptorPool in which all imported FileDescriptors and their
   // contents are stored.
-  inline const DescriptorPool* pool() const { return &pool_; }
+  const DescriptorPool* pool() const { return &pool_; }
 
   void AddDirectInputFile(absl::string_view file_name,
                           bool unused_import_is_error = false);
   void ClearDirectInputFiles();
-
-#if !defined(PROTOBUF_FUTURE_RENAME_ADD_UNUSED_IMPORT) && !defined(SWIG)
-  ABSL_DEPRECATED("Use AddDirectInputFile")
-  void AddUnusedImportTrackFile(absl::string_view file_name,
-                                bool is_error = false) {
-    AddDirectInputFile(file_name, is_error);
-  }
-  ABSL_DEPRECATED("Use AddDirectInputFile")
-  void ClearUnusedImportTrackFiles() { ClearDirectInputFiles(); }
-#endif  // !PROTOBUF_FUTURE_RENAME_ADD_UNUSED_IMPORT && !SWIG
 
 
  private:
@@ -323,7 +313,7 @@ class PROTOBUF_EXPORT DiskSourceTree : public SourceTree {
     std::string virtual_path;
     std::string disk_path;
 
-    inline Mapping(std::string virtual_path_param, std::string disk_path_param)
+    Mapping(std::string virtual_path_param, std::string disk_path_param)
         : virtual_path(std::move(virtual_path_param)),
           disk_path(std::move(disk_path_param)) {}
   };

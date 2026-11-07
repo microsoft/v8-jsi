@@ -11,10 +11,12 @@ PRESUBMIT_VERSION = '2.0.0'
 import enum
 import os
 import pathlib
-import tempfile
-from typing import Any, Callable, List, Type
-
 import sys
+import tempfile
+from typing import Any, List, Set
+
+_NEW_HISTOGRAMS_THRESHOLD = 500
+
 
 # PRESUBMIT infrastructure doesn't guarantee that the cwd() will be on
 # path requiring manual path manipulation to call setup_modules.
@@ -26,11 +28,13 @@ import setup_modules  # pylint: disable=unused-import
 
 sys.path.remove('.')
 
+import chromium_src.components.segmentation_platform.tools.generate_histogram_list as generate_histogram_list
+import chromium_src.tools.metrics.common.path_util as path_util
+import chromium_src.tools.metrics.common.presubmit_util as presubmit_caching_support
 import chromium_src.tools.metrics.histograms.histogram_paths as histogram_paths
 import chromium_src.tools.metrics.histograms.histograms_allowlist_check as histograms_allowlist_check
-import chromium_src.components.segmentation_platform.tools.generate_histogram_list as generate_histogram_list
-import chromium_src.tools.metrics.histograms.presubmit_caching_support as presubmit_caching_support
-import chromium_src.tools.metrics.histograms.print_histogram_names as print_histogram_names
+import chromium_src.tools.metrics.histograms.histogram_validation as histogram_validation
+
 
 # Cannot be called CheckType because by convention PRESUBMIT will try to call
 # anything with a Check prefix as a function.
@@ -41,67 +45,42 @@ class HistogramsPresubmitCheckType(enum.Enum):
   each of them to identify proper result set in the cache. This enum defines
   all the unique identifiers for the checks in this file.
   """
+
   BOOLS_ARE_ENUMS = 1
   ALL_ALLOWLIST_HISTOGRAMS_PRESENT = 2
   FORMATTING_VALIDATION = 3
 
 
-_CACHE_DIR_PATH = os.path.join(tempfile.gettempdir(),
-                               'histograms_presubmit_cache')
-
-
-def _RunCheckWithCache(check_method: Callable[[Any, Any, Any], List[Any]],
-                       check_id: int, input_api: Any, output_api: Any,
-                       cache_file_path: str, *args, **kwargs):
-  """Runs a check method with caching support.
-
-  Args:
-    check_method: The method that executes actual checks, must accept input_api
-      and output_api as first two arguments and will get past the rest generic
-      arguments (args, kwargs).
-    check_id: Unique identifier for the check used as a key for the cache. The
-      same type of check must always use the same id.
-    input_api: The input api type, generally provided by the PRESUBMIT system.
-    output_api: The output api type, generally provided by the PRESUBMIT system.
-    cache_file_path: The path of the cache file to be used.
-    *args: The extra args to pass to the check method (see: check_method).
-    **kwargs: The extra kwargs to pass to the check method (see: check_method).
-  """
-  cache = presubmit_caching_support.PresubmitCache(
-      cache_file_path, input_api.PresubmitLocalPath())
-  cached_result = cache.RetrieveResultFromCache(check_id)
-
-  if cached_result is not None:
-    print(f'Using cached result for {check_id}\n')
-    return cached_result
-
-  new_result = check_method(input_api, output_api, *args, **kwargs)
-  cache.StoreResultInCache(check_id, new_result)
-  return new_result
+_CACHE_DIR_PATH = os.path.join(
+  tempfile.gettempdir(), 'histograms_presubmit_cache'
+)
 
 
 def GetPrettyPrintErrors(input_api, output_api, cwd, rel_path, results):
   """Runs pretty-print command for specified file."""
   args = [
-      input_api.python3_executable,
-      os.path.join(input_api.PresubmitLocalPath(), 'pretty_print.py'), rel_path,
-      '--presubmit', '--non-interactive'
+    input_api.python3_executable,
+    os.path.join(input_api.PresubmitLocalPath(), 'pretty_print.py'),
+    rel_path,
+    '--presubmit',
+    '--non-interactive',
   ]
   exit_code = input_api.subprocess.call(args, cwd=cwd)
 
   if exit_code != 0:
     xml_path = os.path.join(cwd, rel_path)
-    error_msg = (f'{xml_path} is not formatted correctly; '
-                 f'run `git cl format` to fix.')
+    error_msg = (
+      f'{xml_path} is not formatted correctly; run `git cl format` to fix.'
+    )
     results.append(output_api.PresubmitError(error_msg))
 
 
 def GetTokenErrors(input_api, output_api, cwd, rel_path, results):
   """Validates histogram tokens in specified file."""
   args = [
-      input_api.python3_executable,
-      os.path.join(input_api.PresubmitLocalPath(), 'validate_token.py'),
-      rel_path
+    input_api.python3_executable,
+    os.path.join(input_api.PresubmitLocalPath(), 'validate_token.py'),
+    rel_path,
   ]
   exit_code = input_api.subprocess.call(args, cwd=cwd)
 
@@ -109,14 +88,19 @@ def GetTokenErrors(input_api, output_api, cwd, rel_path, results):
     validate_token_py_path = os.path.join(cwd, 'validate_token.py')
     xml_path = os.path.join(cwd, rel_path)
     error_msg = (
-        f'{xml_path} contains histogram(s) using <variants> not defined in the '
-        f'file, please run {validate_token_py_path} {xml_path} to fix.')
+      f'{xml_path} contains histogram(s) using <variants> not defined in the '
+      f'file, please run {validate_token_py_path} {xml_path} to fix.'
+    )
     results.append(output_api.PresubmitError(error_msg))
 
 
-def GetValidateHistogramsError(input_api: Any, output_api: Any, cwd: str,
-                               xml_paths_override: List[str],
-                               results: List[Any]):
+def GetValidateHistogramsError(
+  input_api: Any,
+  output_api: Any,
+  cwd: str,
+  xml_paths_override: List[str],
+  results: List[Any],
+):
   """Validates histograms format using validate_format.py tool.
 
   This validates things like:
@@ -133,8 +117,8 @@ def GetValidateHistogramsError(input_api: Any, output_api: Any, cwd: str,
     results: The list of output_api objects to append the check warnings to.
   """
   validate_format_argv = [
-      input_api.python3_executable,
-      os.path.join(input_api.PresubmitLocalPath(), 'validate_format.py'),
+    input_api.python3_executable,
+    os.path.join(input_api.PresubmitLocalPath(), 'validate_format.py'),
   ]
 
   if xml_paths_override is not None:
@@ -144,13 +128,16 @@ def GetValidateHistogramsError(input_api: Any, output_api: Any, cwd: str,
   exit_code = input_api.subprocess.call(validate_format_argv, cwd=cwd)
   if exit_code != 0:
     validate_format_py_path = os.path.join(cwd, 'validate_format.py')
-    error_msg = ('Histograms are not well-formatted; please run '
-                 f'{validate_format_py_path} and fix the reported errors.')
+    error_msg = (
+      'Histograms are not well-formatted; please run '
+      f'{validate_format_py_path} and fix the reported errors.'
+    )
     results.append(output_api.PresubmitError(error_msg))
 
 
-def _GetValidateHistogramsIndexError(input_api: Any, output_api: Any, cwd: str,
-                                     results: List[Any]):
+def _GetValidateHistogramsIndexError(
+  input_api: Any, output_api: Any, cwd: str, results: List[Any]
+):
   """Validates if index file is up-to-date with current state of the tree using
   validate_histograms_index.py tool.
 
@@ -161,21 +148,25 @@ def _GetValidateHistogramsIndexError(input_api: Any, output_api: Any, cwd: str,
     results: The list of output_api objects to append the check warnings to.
   """
   args = [
-      input_api.python3_executable,
-      os.path.join(input_api.PresubmitLocalPath(),
-                   'validate_histograms_index.py'),
+    input_api.python3_executable,
+    os.path.join(
+      input_api.PresubmitLocalPath(), 'validate_histograms_index.py'
+    ),
   ]
   exit_code = input_api.subprocess.call(args, cwd=cwd)
 
   if exit_code != 0:
     histogram_paths_py_path = os.path.join(cwd, 'histogram_paths.py')
-    error_msg = ('Histograms index file is not up-to-date. Please run '
-                 f'{histogram_paths_py_path} to update it.')
+    error_msg = (
+      'Histograms index file is not up-to-date. Please run '
+      f'{histogram_paths_py_path} to update it.'
+    )
     results.append(output_api.PresubmitError(error_msg))
 
 
-def ValidateSingleFile(input_api, output_api, file_obj, cwd, results,
-                       allow_test_paths):
+def ValidateSingleFile(
+  input_api, output_api, file_obj, cwd, results, allow_test_paths
+):
   """Does corresponding validations if histograms.xml or enums.xml is changed.
 
   Args:
@@ -204,10 +195,8 @@ def ValidateSingleFile(input_api, output_api, file_obj, cwd, results,
   if not allow_test_paths and 'test_data' in filepath:
     return False
 
-  # If the changed file is histograms.xml or histogram_suffixes_list.xml,
-  # pretty-print it.
-  elif ('histograms.xml' in filepath
-        or 'histogram_suffixes_list.xml' in filepath):
+  # If the changed file is histograms.xml, pretty-print it.
+  elif 'histograms.xml' in filepath:
     GetPrettyPrintErrors(input_api, output_api, cwd, filepath, results)
     GetTokenErrors(input_api, output_api, cwd, filepath, results)
     return True
@@ -220,28 +209,36 @@ def ValidateSingleFile(input_api, output_api, file_obj, cwd, results,
   return False
 
 
-def CheckHistogramFormatting(input_api,
-                             output_api,
-                             cache_file_path=_CACHE_DIR_PATH,
-                             allow_test_paths=False,
-                             xml_paths_override=None):
+def CheckHistogramFormatting(
+  input_api,
+  output_api,
+  cache_file_path=_CACHE_DIR_PATH,
+  allow_test_paths=False,
+  xml_paths_override=None,
+):
   """Checks that histograms.xml is pretty-printed and well-formatted.
 
   This function is a wrapper around
   ExecuteCheckHistogramFormatting that adds caching support.
   """
-  return _RunCheckWithCache(ExecuteCheckHistogramFormatting,
-                            HistogramsPresubmitCheckType.FORMATTING_VALIDATION,
-                            input_api, output_api, cache_file_path,
-                            allow_test_paths, xml_paths_override)
+  return presubmit_caching_support.RunCheckWithCache(
+    ExecuteCheckHistogramFormatting,
+    HistogramsPresubmitCheckType.FORMATTING_VALIDATION,
+    input_api,
+    output_api,
+    cache_file_path,
+    allow_test_paths,
+    xml_paths_override,
+  )
 
 
 # Note: Execute convention in this file comes from the fact that PRESUBMIT
 # will try to call anything with a Check prefix as a function. As we want to
 # avoid this and at the same we want to add a caching support, we are using
 # Execute prefix for executing the checks on cache miss.
-def ExecuteCheckHistogramFormatting(input_api, output_api, allow_test_paths,
-                                    xml_paths_override):
+def ExecuteCheckHistogramFormatting(
+  input_api, output_api, allow_test_paths, xml_paths_override
+):
   """Checks that histograms.xml is pretty-printed and well-formatted.
 
   This is a method that is called by the PRESUBMIT system and those it
@@ -255,14 +252,16 @@ def ExecuteCheckHistogramFormatting(input_api, output_api, allow_test_paths,
   # Only for changed files, do corresponding checks if the file is
   # histograms.xml or enums.xml.
   for file_obj in input_api.AffectedFiles(include_deletes=False):
-    is_changed = ValidateSingleFile(input_api, output_api, file_obj, cwd,
-                                    results, allow_test_paths)
+    is_changed = ValidateSingleFile(
+      input_api, output_api, file_obj, cwd, results, allow_test_paths
+    )
     xml_changed = xml_changed or is_changed
 
   # Run validate_format.py if there were modified xml files.
   if xml_changed:
-    GetValidateHistogramsError(input_api, output_api, cwd, xml_paths_override,
-                               results)
+    GetValidateHistogramsError(
+      input_api, output_api, cwd, xml_paths_override, results
+    )
 
   # Always run validate_histograms_index.py the condiditon when we need it is
   # relatively complex and given that this is a fast check (<100ms) it's easier
@@ -272,33 +271,41 @@ def ExecuteCheckHistogramFormatting(input_api, output_api, allow_test_paths,
   return results
 
 
-def CheckWebViewHistogramsAllowlistOnUpload(input_api,
-                                            output_api,
-                                            cache_file_path=_CACHE_DIR_PATH,
-                                            allowlist_path_override=None,
-                                            xml_paths_override=None):
+def CheckWebViewHistogramsAllowlistOnUpload(
+  input_api,
+  output_api,
+  cache_file_path=_CACHE_DIR_PATH,
+  allowlist_path_override=None,
+  xml_paths_override=None,
+):
   """Checks that HistogramsAllowlist.java contains valid histograms.
 
   This function is a wrapper around
   ExecuteCheckWebViewHistogramsAllowlistOnUpload that adds caching support.
   """
-  return _RunCheckWithCache(
-      ExecuteCheckWebViewHistogramsAllowlistOnUpload,
-      HistogramsPresubmitCheckType.ALL_ALLOWLIST_HISTOGRAMS_PRESENT, input_api,
-      output_api, cache_file_path, allowlist_path_override, xml_paths_override)
+  return presubmit_caching_support.RunCheckWithCache(
+    ExecuteCheckWebViewHistogramsAllowlistOnUpload,
+    HistogramsPresubmitCheckType.ALL_ALLOWLIST_HISTOGRAMS_PRESENT,
+    input_api,
+    output_api,
+    cache_file_path,
+    allowlist_path_override,
+    xml_paths_override,
+  )
 
 
 # Note: Execute convention in this file comes from the fact that PRESUBMIT
 # will try to call anything with a Check prefix as a function. As we want to
 # avoid this and at the same we want to add a caching support, we are using
 # Execute prefix for executing the checks on cache miss.
-def ExecuteCheckWebViewHistogramsAllowlistOnUpload(input_api, output_api,
-                                                   allowlist_path_override,
-                                                   xml_paths_override):
+def ExecuteCheckWebViewHistogramsAllowlistOnUpload(
+  input_api, output_api, allowlist_path_override, xml_paths_override
+):
   """Checks that HistogramsAllowlist.java contains valid histograms."""
   xml_filter = lambda f: pathlib.Path(f.LocalPath()).suffix == '.xml'
-  xml_files = input_api.AffectedFiles(include_deletes=False,
-                                      file_filter=xml_filter)
+  xml_files = input_api.AffectedFiles(
+    include_deletes=False, file_filter=xml_filter
+  )
   if not xml_files:
     return []
 
@@ -307,34 +314,37 @@ def ExecuteCheckWebViewHistogramsAllowlistOnUpload(input_api, output_api,
     xml_files_paths = xml_paths_override
 
   xml_files = [open(f, encoding='utf-8') for f in xml_files_paths]
-  src_path = os.path.join(input_api.PresubmitLocalPath(), '..', '..', '..')
-
   allowlist_path = os.path.join(
-      src_path,
-      histograms_allowlist_check.WellKnownAllowlistPath.ANDROID_WEBVIEW.
-      relative_path())
+    path_util.CHROMIUM_SRC_PATH,
+    histograms_allowlist_check.WellKnownAllowlistPath.ANDROID_WEBVIEW.relative_path(),
+  )
 
   if allowlist_path_override is not None:
     allowlist_path = allowlist_path_override
 
   result = histograms_allowlist_check.check_histograms_allowlist(
-      output_api, allowlist_path, xml_files)
+    output_api, allowlist_path, xml_files
+  )
   for f in xml_files:
     f.close()
   return result
 
 
-def CheckBooleansAreEnums(input_api,
-                          output_api,
-                          cache_file_path=_CACHE_DIR_PATH):
+def CheckBooleansAreEnums(
+  input_api, output_api, cache_file_path=_CACHE_DIR_PATH
+):
   """Checks that histograms that use Booleans do not use units.
 
   This function is a wrapper around ExecuteCheckBooleansAreEnums that adds
   caching support.
   """
-  return _RunCheckWithCache(ExecuteCheckBooleansAreEnums,
-                            HistogramsPresubmitCheckType.BOOLS_ARE_ENUMS,
-                            input_api, output_api, cache_file_path)
+  return presubmit_caching_support.RunCheckWithCache(
+    ExecuteCheckBooleansAreEnums,
+    HistogramsPresubmitCheckType.BOOLS_ARE_ENUMS,
+    input_api,
+    output_api,
+    cache_file_path,
+  )
 
 
 # Note: Execute convention in this file comes from the fact that PRESUBMIT
@@ -343,71 +353,191 @@ def CheckBooleansAreEnums(input_api,
 # Execute prefix for executing the checks on cache miss.
 def ExecuteCheckBooleansAreEnums(input_api, output_api):
   """Checks that histograms that use Booleans do not use units."""
-  results = []
   cwd = input_api.PresubmitLocalPath()
-  inclusion_pattern = input_api.re.compile(r'units="[Bb]oolean')
+
+  affected_files = []
+  for affected_file in input_api.AffectedFiles(include_deletes=False):
+    filepath = input_api.os_path.relpath(affected_file.AbsoluteLocalPath(), cwd)
+    if 'histograms.xml' in filepath:
+      affected_files.append(
+        histogram_validation.AffectedFileForLineCheck(
+          path=filepath, changed_lines=list(affected_file.ChangedContents())
+        )
+      )
+
+  validation_errors = histogram_validation.check_booleans_are_enums(
+    affected_files
+  )
+
+  if not validation_errors:
+    return []
+
+  results = []
+  for filepath, line_number, line in validation_errors:
+    results.append('%s:%s\n\t%s' % (filepath, line_number, line.strip()))
+
   units_warning = """
   You are using 'units' for a boolean histogram, but you should be using
   'enum' instead."""
 
-  # Only for changed files, do corresponding checks if the file is
-  # histograms.xml or enums.xml.
-  for affected_file in input_api.AffectedFiles(include_deletes=False):
-    filepath = input_api.os_path.relpath(affected_file.AbsoluteLocalPath(), cwd)
-    if 'histograms.xml' in filepath:
-      for line_number, line in affected_file.ChangedContents():
-        if inclusion_pattern.search(line):
-          results.append('%s:%s\n\t%s' % (filepath, line_number, line.strip()))
-
-  # If a histograms.xml file was changed, check for units="[Bb]oolean".
-  if results:
-    return [output_api.PresubmitPromptOrNotify(units_warning, results)]
-  return results
+  return [output_api.PresubmitPromptOrNotify(units_warning, results)]
 
 
-def CheckRemovedSegmentationHistograms(input_api, output_api):
-  """Checks if any histogram used by segmentation platform is removed."""
-  affected_xml_files = [
-      f for f in input_api.AffectedFiles(include_deletes=True)
-      if 'histograms.xml' in f.LocalPath()
-  ]
-  if not affected_xml_files:
-    return []
-
-  removed_histograms = set()
-  for f in affected_xml_files:
-    old_histograms = set()
-    if f.Action() != 'A':
-      old_histograms = print_histogram_names.get_names_from_contents(
-          f.OldContents())
-
-    new_histograms = set()
-    if f.Action() != 'D':
-      new_histograms = print_histogram_names.get_names_from_contents(
-          f.NewContents())
-
-    removed_histograms.update(old_histograms - new_histograms)
-
+def _CheckRemovedSegmentationHistograms(
+  output_api: Any, removed_histograms: Set[str]
+) -> List[Any]:
+  """Checks if any removed histograms are used by the segmentation platform."""
   if not removed_histograms:
     return []
 
-  # Load the list of all histograms required by segmentation models.
-  segmentation_histograms = generate_histogram_list.GetActualHistogramNames()
-
+  segmentation_histograms = set(
+    generate_histogram_list.GetActualHistogramNames()
+  )
   if not segmentation_histograms:
-    # If the file is empty or doesn't exist, there's nothing to check.
     return []
 
-  removed_segmentation_histograms = removed_histograms.intersection(
-      segmentation_histograms)
+  removed_seg = histogram_validation.check_removed_segmentation_histograms(
+    removed_histograms, segmentation_histograms
+  )
+  if not removed_seg:
+    return []
 
-  if removed_segmentation_histograms:
+  return [
+    output_api.PresubmitError(
+      'The following histograms are used by segmentation platform '
+      'and should not be removed without a migration plan. Please '
+      'reach out to chrome-segmentation-platform@google.com for '
+      'questions.',
+      items=sorted(list(removed_seg)),
+    )
+  ]
+
+
+def _CheckVariantModifiedSegmentationHistograms(
+  output_api: Any,
+  variant_modified_histograms: Set[str],
+  removed_histograms: Set[str],
+) -> List[Any]:
+  """Checks segmentation histograms affected by changed `<variants>` metadata.
+
+  |variant_modified_histograms| contains only existing histograms, so additions
+  that reference a new variants block do not produce an error.
+  """
+  if not variant_modified_histograms:
+    return []
+
+  segmentation_histograms = set(
+    generate_histogram_list.GetActualHistogramNames()
+  )
+  if not segmentation_histograms:
+    return []
+
+  variant_modified_seg = (
+    variant_modified_histograms.intersection(segmentation_histograms)
+    - removed_histograms
+  )
+  if not variant_modified_seg:
+    return []
+
+  return [
+    output_api.PresubmitError(
+      'The following histograms are used by segmentation platform and '
+      'have metadata affected by changed <variants> blocks. Please '
+      'reach out to chrome-segmentation-platform@google.com for '
+      'questions.',
+      items=sorted(list(variant_modified_seg)),
+    )
+  ]
+
+
+def _CheckTooManyHistograms(
+  output_api: Any, added_histograms: Set[str]
+) -> List[Any]:
+  """Checks if an excessive number of new histograms are being introduced."""
+  if histogram_validation.check_if_introduced_too_many_histograms(
+    added_histograms, _NEW_HISTOGRAMS_THRESHOLD
+  ):
     return [
-        output_api.PresubmitError(
-            'The following histograms are used by segmentation platform and '
-            'should not be removed without a migration plan. Please reach out '
-            'to chrome-segmentation-platform@google.com for questions.',
-            items=sorted(list(removed_segmentation_histograms)))
+      output_api.PresubmitPromptWarning(
+        f'More than {_NEW_HISTOGRAMS_THRESHOLD} new histograms are being '
+        f'introduced ({len(added_histograms)}). Are you sure you want to '
+        'continue?'
+      )
     ]
-
   return []
+
+
+def CheckHistogramsChanges(input_api: Any, output_api: Any) -> List[Any]:
+  """Runs histogram changes checks (e.g. segmentation and threshold checks)."""
+  relevant_paths = set(
+    os.path.normpath(str(path_util.CHROMIUM_SRC_PATH / p))
+    for p in histogram_paths._HISTOGRAMS_XMLS_RELATIVE
+  ).union(
+    os.path.normpath(str(path_util.CHROMIUM_SRC_PATH / p))
+    for p in histogram_paths._VARIANTS_XML_RELATIVE
+  )
+  relevant_paths.update(
+    os.path.normpath(p) for p in histogram_paths.HISTOGRAMS_XMLS
+  )
+
+  affected_files = []
+  for f in input_api.AffectedFiles(include_deletes=True):
+    abs_path = os.path.normpath(f.AbsoluteLocalPath())
+    if abs_path in relevant_paths:
+      affected_files.append(
+        histogram_validation.HistogramFileState(
+          path=abs_path,
+          old_contents=f.OldContents(),
+          new_contents=f.NewContents(),
+          action=f.Action(),
+        )
+      )
+
+  variants_paths = [
+    str(path_util.CHROMIUM_SRC_PATH / p)
+    for p in histogram_paths._VARIANTS_XML_RELATIVE
+  ]
+  histograms_paths = histogram_paths.HISTOGRAMS_XMLS
+
+  files_res = histogram_validation.get_files_to_check(
+    affected_files,
+    input_api.ReadFile,
+    variants_paths=variants_paths,
+    histograms_paths=histograms_paths,
+  )
+
+  if not files_res.files_to_check:
+    return []
+
+  all_old_histograms = histogram_validation.get_histogram_names(
+    [f.old_contents for f in files_res.files_to_check],
+    files_res.old_variants_doc,
+  )
+  all_new_histograms = histogram_validation.get_histogram_names(
+    [f.new_contents for f in files_res.files_to_check],
+    files_res.new_variants_doc,
+  )
+
+  added_histograms = all_new_histograms - all_old_histograms
+  removed_histograms = all_old_histograms - all_new_histograms
+  variant_modified_histograms = (
+    histogram_validation.get_histograms_with_modified_variants(
+      files_res.files_to_check,
+      files_res.old_variants_doc,
+      files_res.new_variants_doc,
+      files_res.modified_variants_blocks,
+    )
+  )
+
+  results = []
+  results.extend(
+    _CheckRemovedSegmentationHistograms(output_api, removed_histograms)
+  )
+  results.extend(
+    _CheckVariantModifiedSegmentationHistograms(
+      output_api, variant_modified_histograms, removed_histograms
+    )
+  )
+  results.extend(_CheckTooManyHistograms(output_api, added_histograms))
+
+  return results

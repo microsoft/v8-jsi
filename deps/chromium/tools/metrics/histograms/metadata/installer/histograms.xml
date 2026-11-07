@@ -23,7 +23,7 @@ chromium-metrics-reviews@google.com.
 <histograms>
 
 <histogram name="Installer.Postinstall.BiosType" enum="ChromeOSBiosType"
-    expires_after="2026-09-27">
+    expires_after="2026-11-29">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -40,7 +40,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.EfiBootEntryCount" units="entries"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -58,7 +58,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.EfiBootEntryFailedLoad" units="entries"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -74,7 +74,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.EfiManagementEvent"
-    enum="ChromeOSEfiManagementEvent" expires_after="2026-09-06">
+    enum="ChromeOSEfiManagementEvent" expires_after="2027-02-07">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -93,7 +93,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.ESPMountRetries" units="retries"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -103,7 +103,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.ManagedEfiBootEntryCount"
-    units="entries" expires_after="2026-09-27">
+    units="entries" expires_after="2027-02-07">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -124,7 +124,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Postinstall.NonChromebookBiosSuccess.{BiosType}"
-    enum="BooleanSuccess" expires_after="2026-07-26">
+    enum="BooleanSuccess" expires_after="2027-03-21">
   <owner>tbrandston@google.com</owner>
   <owner>chromeos-flex-eng@google.com</owner>
   <summary>
@@ -189,7 +189,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Installer.Recovery.Reason" enum="ChromeOSRecoveryReason"
-    expires_after="2026-12-31">
+    expires_after="2027-03-07">
   <owner>kimjae@chromium.org</owner>
   <owner>chromeos-core-services@google.com</owner>
   <summary>
@@ -253,7 +253,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Setup.Install.SCM.{Operation}.Result" enum="WinGetLastError"
-    expires_after="2026-10-30">
+    expires_after="2027-03-07">
   <owner>grt@chromium.org</owner>
   <owner>ganesh@chromium.org</owner>
   <summary>
@@ -275,7 +275,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Setup.Install.UnbufferedFileWriter.DeterminePhysicalSectorSizeResult"
-    enum="DeterminePhysicalSectorSizeResult" expires_after="2026-09-28">
+    enum="DeterminePhysicalSectorSizeResult" expires_after="2027-02-07">
   <owner>grt@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -285,7 +285,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Setup.Install.UnbufferedFileWriter.PhysicalSectorSize"
-    units="bytes" expires_after="2026-09-28">
+    units="bytes" expires_after="2027-02-07">
   <owner>grt@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -295,7 +295,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Setup.Install.UnbufferedFileWriter.{Operation}.Error"
-    enum="WinGetLastError" expires_after="2026-09-28">
+    enum="WinGetLastError" expires_after="2027-02-07">
   <owner>grt@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>
@@ -312,7 +312,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Setup.Install.WinAppRuntime.WaitForStartInstall.TimingMs"
-    units="ms" expires_after="2026-12-16">
+    units="ms" expires_after="2027-02-14">
   <owner>reillyg@chromium.org</owner>
   <owner>src/services/webnn/OWNERS</owner>
   <summary>
@@ -322,7 +322,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Setup.Install.WinAppRuntime.{Operation}.Result" enum="Hresult"
-    expires_after="2026-12-16">
+    expires_after="2027-02-14">
   <owner>reillyg@chromium.org</owner>
   <owner>src/services/webnn/OWNERS</owner>
   <summary>
@@ -335,6 +335,35 @@ chromium-metrics-reviews@google.com.
     <variant name="StartInstall"/>
     <variant name="WaitForStartInstall"/>
   </token>
+</histogram>
+
+<histogram name="Setup.Install.WofLocalePakCompressionDecision"
+    enum="WofLocalePakCompressionDecision" expires_after="2027-09-30">
+  <owner>grt@chromium.org</owner>
+  <owner>chrdavis@microsoft.com</owner>
+  <owner>catan-team@chromium.org</owner>
+  <summary>
+    Whether setup.exe scheduled Windows Overlay Filter (WOF) compression of the
+    locale packs it installs and, if it did not, why. Recorded once per install,
+    update or repair on a machine where WOF is available, while setup builds its
+    list of work items. Scheduled means only that compression was scheduled, not
+    that it succeeded: the work item that compresses the packs is best effort
+    and runs later.
+  </summary>
+</histogram>
+
+<histogram name="Setup.Install.WofLocalePakImageStateError"
+    enum="WinGetLastError" expires_after="2027-09-30">
+  <owner>grt@chromium.org</owner>
+  <owner>chrdavis@microsoft.com</owner>
+  <owner>catan-team@chromium.org</owner>
+  <summary>
+    The Windows error that stopped setup.exe reading the machine's ImageState
+    while deciding whether to WOF compress the locale packs it installs.
+    Recorded along with the ImageStateUnreadable bucket of
+    Setup.Install.WofLocalePakCompressionDecision. A missing key or value is not
+    an error, and is recorded there as ImageStateMissing instead.
+  </summary>
 </histogram>
 
 </histograms>

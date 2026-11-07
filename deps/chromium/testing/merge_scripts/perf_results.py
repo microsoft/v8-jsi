@@ -7,11 +7,12 @@ import os
 import sys
 
 SRC_DIR = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+  os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 
 # //tools/perf imports.
 sys.path.append(os.path.join(SRC_DIR, 'tools', 'perf'))
-import process_perf_results
+import process_perf_results  # noqa: E402
 
 if __name__ == '__main__':
   sys.exit(process_perf_results.main())

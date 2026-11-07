@@ -6,9 +6,17 @@ PRESUBMIT_VERSION = '2.0.0'
 
 
 def CheckPythonTests(input_api, output_api):
+  if not input_api.HasAffectedFiles(extensions='.py'):
+    return []
   return input_api.RunTests(
-      input_api.canned_checks.GetUnitTestsInDirectory(
-          input_api,
-          output_api,
-          input_api.PresubmitLocalPath(),
-          files_to_check=[r'.+_(?:unit)?test\.py$']))
+    input_api.canned_checks.GetUnitTestsInDirectory(
+      input_api,
+      output_api,
+      input_api.PresubmitLocalPath(),
+      files_to_check=[r'.+_(?:unit)?test\.py$'],
+    )
+  )
+
+
+def CheckRuff(input_api, output_api):
+  return input_api.canned_checks.RunRuff(input_api, output_api)

@@ -54,10 +54,13 @@ class BASE_EXPORT ThreadPoolImpl : public ThreadPoolInstance,
   // For testing only. Creates a ThreadPoolImpl with a custom TaskTracker.
   // If |!use_background_threads|, background threads will run with default
   // priority.
-  ThreadPoolImpl(std::string_view histogram_label,
-                 std::unique_ptr<TaskTrackerImpl> task_tracker,
-                 bool use_background_threads = true,
-                 bool monitor_worker_thread_priorities = true);
+  ThreadPoolImpl(
+      std::string_view histogram_label,
+      std::unique_ptr<TaskTrackerImpl> task_tracker,
+      bool use_background_threads = true,
+      bool monitor_worker_thread_priorities = true,
+      ThreadPoolInstance::RecordLockContention record_lock_contention =
+          ThreadPoolInstance::RecordLockContention::kDisabled);
 
   ThreadPoolImpl(const ThreadPoolImpl&) = delete;
   ThreadPoolImpl& operator=(const ThreadPoolImpl&) = delete;
@@ -206,9 +209,7 @@ class BASE_EXPORT ThreadPoolImpl : public ThreadPoolInstance,
   // Whether this TaskScheduler was started.
   bool started_ GUARDED_BY_CONTEXT(sequence_checker_) = false;
 
-  // Whether the --disable-best-effort-tasks switch is preventing execution of
-  // BEST_EFFORT tasks until shutdown.
-  const bool has_disable_best_effort_switch_;
+  bool inherit_task_importance_by_default_ = false;
 
   // Number of fences preventing execution of tasks of any/BEST_EFFORT priority.
   int num_fences_ GUARDED_BY_CONTEXT(sequence_checker_) = 0;

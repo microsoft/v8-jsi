@@ -51,10 +51,19 @@ chromium-metrics-reviews@google.com.
   <variant name="create" summary="Create a session."/>
 </variants>
 
+<variants name="SemanticEmbedderSignature">
+  <variant name=".64" summary="Signature length 64"/>
+  <variant name=".128" summary="Signature length 128"/>
+  <variant name=".256" summary="Signature length 256"/>
+  <variant name=".512" summary="Signature length 512"/>
+  <variant name=".1024" summary="Signature length 1024"/>
+  <variant name=".2048" summary="Signature length 2048"/>
+</variants>
+
 <!-- LINT.IfChange(SessionType) -->
 
 <variants name="SessionType">
-  <variant name="Classifier" summary="AI classifier session"/>
+  <variant name="DecisionModel" summary="AI decision model session"/>
   <variant name="LanguageDetector" summary="AI language detector session"/>
   <variant name="LanguageModel" summary="AI language model session"/>
   <variant name="Proofreader" summary="AI proofreader session"/>
@@ -223,6 +232,129 @@ chromium-metrics-reviews@google.com.
   <token key="ToolName" variants="AiOverlayToolName"/>
 </histogram>
 
+<histogram name="AI.SemanticEmbedder.EmbeddingsGenerationSucceeded"
+    enum="BooleanSuccess" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    Whether embeddings generation succeeded for the Gemma semantic embedder.
+    Recorded each time an embedding is generated.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.EmbeddingsModelLoadDuration" units="ms"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of loading the embeddings model for the Gemma semantic
+    embedder. Recorded when the model is loaded.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.EmbeddingsModelLoadSucceeded"
+    enum="BooleanSuccess" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    Whether loading the embeddings model succeeded for the Gemma semantic
+    embedder. Recorded when the model is loaded.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.LaunchDuration" units="ms"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of launching the passage embeddings service and loading the
+    models for the Gemma semantic embedder. Recorded when the models are loaded.
+  </summary>
+</histogram>
+
+<histogram
+    name="AI.SemanticEmbedder.PassageEmbeddingsGenerationDuration{SignatureStr}"
+    units="ms" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of embeddings generation for the Gemma semantic embedder.
+    Recorded when an embedding generation completes.
+  </summary>
+  <token key="SignatureStr" variants="SemanticEmbedderSignature"/>
+</histogram>
+
+<histogram
+    name="AI.SemanticEmbedder.PassageEmbeddingsGenerationThreadDuration{SignatureStr}"
+    units="ms" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The thread duration of embeddings generation for the Gemma semantic
+    embedder. Recorded when an embedding generation completes.
+  </summary>
+  <token key="SignatureStr" variants="SemanticEmbedderSignature"/>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.PassageTokenCount" units="tokens"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The token count of a passage for the Gemma semantic embedder. Recorded after
+    tokenization.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.SentencePieceModelLoadDuration" units="ms"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of loading the sentence piece model for the Gemma semantic
+    embedder. Recorded when the model is loaded.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.SentencePieceModelLoadSucceeded"
+    enum="BooleanSuccess" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    Whether loading the sentence piece model succeeded for the Gemma semantic
+    embedder. Recorded when the model is loaded.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.TaskDuration" units="ms"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of a semantic embedding task from creation to completion.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.TokenizationDuration" units="ms"
+    expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    The duration of tokenization for the Gemma semantic embedder. Recorded when
+    tokenization completes.
+  </summary>
+</histogram>
+
+<histogram name="AI.SemanticEmbedder.TokenizationSucceeded"
+    enum="BooleanSuccess" expires_after="2027-03-16">
+  <owner>yinguang@chromium.org</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <summary>
+    Whether tokenization succeeded for the Gemma semantic embedder. Recorded
+    when tokenization completes.
+  </summary>
+</histogram>
+
 <histogram name="AI.Session.{SessionType}.ContextTime" units="ms"
     expires_after="2027-03-16">
   <owner>iahouma@google.com</owner>
@@ -243,8 +375,8 @@ chromium-metrics-reviews@google.com.
   <owner>chrome-chia-dev@google.com</owner>
   <owner>src/chrome/browser/ai/OWNERS</owner>
   <summary>
-    Measures the size of the prompt in tokens. This is recorded each time a
-    prompt is added.
+    Measures the total number of tokens in the session context window. Recorded
+    each time model execution completes when context info is available.
   </summary>
   <token key="SessionType" variants="SessionType"/>
 </histogram>
@@ -275,15 +407,15 @@ chromium-metrics-reviews@google.com.
   <token key="SessionType" variants="SessionType"/>
 </histogram>
 
-<histogram name="AI.Session.{SessionType}.PromptRequestSize" units="bytes"
+<histogram name="AI.Session.{SessionType}.PromptRequestSize" units="characters"
     expires_after="2027-03-16">
   <owner>iahouma@google.com</owner>
   <owner>ohjerry@google.com</owner>
   <owner>chrome-chia-dev@google.com</owner>
   <owner>src/chrome/browser/ai/OWNERS</owner>
   <summary>
-    Measures the size of the prompt request in bytes. This is recorded each time
-    when the model is executed.
+    Measures the size of the prompt request in characters. This is recorded each
+    time input is provided to the session (e.g. prompt, execute, or append).
   </summary>
   <token key="SessionType" variants="SessionType"/>
 </histogram>
@@ -301,15 +433,15 @@ chromium-metrics-reviews@google.com.
   <token key="SessionType" variants="SessionType"/>
 </histogram>
 
-<histogram name="AI.Session.{SessionType}.PromptResponseSize" units="bytes"
-    expires_after="2027-03-16">
+<histogram name="AI.Session.{SessionType}.PromptResponseSize"
+    units="characters" expires_after="2027-03-16">
   <owner>iahouma@google.com</owner>
   <owner>ohjerry@google.com</owner>
   <owner>chrome-chia-dev@google.com</owner>
   <owner>src/chrome/browser/ai/OWNERS</owner>
   <summary>
-    Measures the size of the prompt response in bytes. This is recorded each
-    time when the model execution completes.
+    Measures the size of the prompt response in characters. This is recorded
+    each time when the model execution completes.
   </summary>
   <token key="SessionType" variants="SessionType"/>
 </histogram>
@@ -347,8 +479,23 @@ chromium-metrics-reviews@google.com.
   <owner>chrome-chia-dev@google.com</owner>
   <owner>src/chrome/browser/ai/OWNERS</owner>
   <summary>
+    (Obsolete: Replaced by AI.Session.{SessionType}.ResponseTokensV2 due to
+    bucketing changes from 10k to 1M). Measures the number of tokens in the
+    completed response. This is recorded each time the model gives a response.
+  </summary>
+  <token key="SessionType" variants="SessionType"/>
+</histogram>
+
+<histogram name="AI.Session.{SessionType}.ResponseTokensV2" units="tokens"
+    expires_after="2027-03-16">
+  <owner>iahouma@google.com</owner>
+  <owner>ohjerry@google.com</owner>
+  <owner>chrome-chia-dev@google.com</owner>
+  <owner>src/chrome/browser/ai/OWNERS</owner>
+  <summary>
     Measures the number of tokens in the completed response. This is recorded
-    each time the model gives a response.
+    each time the model produces a response (not recorded for append-only
+    operations where no response is generated).
   </summary>
   <token key="SessionType" variants="SessionType"/>
 </histogram>

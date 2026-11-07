@@ -24,9 +24,11 @@
 
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_util_impl_helpers.h"
 #include "base/strings/string_util_internal.h"
+#include "base/strings/trim_string_internal.h"
 #include "base/strings/utf_string_conversion_utils.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/third_party/icu/icu_utf.h"
@@ -141,13 +143,15 @@ bool TrimString(std::string_view input,
 std::u16string_view TrimString(std::u16string_view input,
                                std::u16string_view trim_chars,
                                TrimPositions positions) {
-  return internal::TrimStringPieceT(input, trim_chars, positions);
+  return internal::TrimStringPieceT(input, trim_chars, positions & TRIM_LEADING,
+                                    positions & TRIM_TRAILING);
 }
 
 std::string_view TrimString(std::string_view input,
                             std::string_view trim_chars,
                             TrimPositions positions) {
-  return internal::TrimStringPieceT(input, trim_chars, positions);
+  return internal::TrimStringPieceT(input, trim_chars, positions & TRIM_LEADING,
+                                    positions & TRIM_TRAILING);
 }
 
 void TruncateUTF8ToByteSize(std::string_view input,
@@ -202,7 +206,8 @@ TrimPositions TrimWhitespace(std::u16string_view input,
 std::u16string_view TrimWhitespace(std::u16string_view input,
                                    TrimPositions positions) {
   return internal::TrimStringPieceT(
-      input, std::u16string_view(kWhitespaceUTF16), positions);
+      input, std::u16string_view(kWhitespaceUTF16), positions & TRIM_LEADING,
+      positions & TRIM_TRAILING);
 }
 
 TrimPositions TrimWhitespaceASCII(std::string_view input,
@@ -215,7 +220,8 @@ TrimPositions TrimWhitespaceASCII(std::string_view input,
 std::string_view TrimWhitespaceASCII(std::string_view input,
                                      TrimPositions positions) {
   return internal::TrimStringPieceT(input, std::string_view(kWhitespaceASCII),
-                                    positions);
+                                    positions & TRIM_LEADING,
+                                    positions & TRIM_TRAILING);
 }
 
 std::u16string CollapseWhitespace(std::u16string_view text,
@@ -248,6 +254,20 @@ bool IsStringASCII(std::u16string_view str) {
 #if defined(WCHAR_T_IS_32_BIT)
 bool IsStringASCII(std::wstring_view str) {
   return internal::DoIsStringASCII(str.data(), str.length());
+}
+#endif
+
+size_t FindFirstNonASCII(std::string_view str) {
+  return internal::FindFirstNonASCII(str.data(), str.length());
+}
+
+size_t FindFirstNonASCII(std::u16string_view str) {
+  return internal::FindFirstNonASCII(str.data(), str.length());
+}
+
+#if defined(WCHAR_T_IS_32_BIT)
+size_t FindFirstNonASCII(std::wstring_view str) {
+  return internal::FindFirstNonASCII(str.data(), str.length());
 }
 #endif
 
@@ -380,36 +400,6 @@ char16_t* WriteInto(std::u16string* str, size_t length_with_null) {
   return internal::WriteIntoT(str, length_with_null);
 }
 
-std::string JoinString(span<const std::string> parts,
-                       std::string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
-std::u16string JoinString(span<const std::u16string> parts,
-                          std::u16string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
-std::string JoinString(span<const std::string_view> parts,
-                       std::string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
-std::u16string JoinString(span<const std::u16string_view> parts,
-                          std::u16string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
-std::string JoinString(std::initializer_list<std::string_view> parts,
-                       std::string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
-std::u16string JoinString(std::initializer_list<std::u16string_view> parts,
-                          std::u16string_view separator) {
-  return internal::JoinStringT(parts, separator);
-}
-
 std::u16string ReplaceStringPlaceholders(std::u16string_view format_string,
                                          base::span<const std::u16string> subst,
                                          std::vector<size_t>* offsets) {
@@ -482,6 +472,22 @@ size_t u16cstrlcpy(char16_t* dst, const char16_t* src, size_t dst_size) {
 size_t wcslcpy(wchar_t* dst, const wchar_t* src, size_t dst_size) {
   return internal::lcpyT(UNSAFE_TODO(base::span(dst, dst_size)),
                          std::wstring_view(src));
+}
+
+bool EqualsCaseInsensitiveASCII(std::string_view a, std::string_view b) {
+  return internal::EqualsCaseInsensitiveASCIIT(a, b);
+}
+
+bool EqualsCaseInsensitiveASCII(std::u16string_view a, std::u16string_view b) {
+  return internal::EqualsCaseInsensitiveASCIIT(a, b);
+}
+
+bool EqualsCaseInsensitiveASCII(std::u16string_view a, std::string_view b) {
+  return internal::EqualsCaseInsensitiveASCIIT(a, b);
+}
+
+bool EqualsCaseInsensitiveASCII(std::string_view a, std::u16string_view b) {
+  return internal::EqualsCaseInsensitiveASCIIT(a, b);
 }
 
 }  // namespace base

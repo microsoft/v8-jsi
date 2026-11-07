@@ -54,37 +54,6 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Keyboard"/>
 </enum>
 
-<enum name="AmbientDlcError">
-<!-- This enum needs to match DlcError in
-ash/ambient/util/time_of_day_utils.h -->
-
-  <summary>List of all the error types that DLC Service returns.</summary>
-  <int value="0" label="Unknown"/>
-  <int value="1" label="None"/>
-  <int value="2" label="Internal"/>
-  <int value="3" label="Busy"/>
-  <int value="4" label="Need reboot"/>
-  <int value="5" label="Invalid DLC"/>
-  <int value="6" label="Allocation"/>
-  <int value="7" label="No image found"/>
-</enum>
-
-<enum name="AmbientModeAnimationTheme">
-  <int value="0" label="Slide Show"/>
-  <int value="1" label="Feel The Breeze"/>
-  <int value="2" label="Float On By"/>
-  <int value="3" label="Video"/>
-</enum>
-
-<enum name="AmbientModeDurationOption">
-  <int value="0" label="Forever"/>
-  <int value="1" label="For 5 minutes"/>
-  <int value="2" label="For 10 minutes"/>
-  <int value="3" label="For 30 minutes"/>
-  <int value="4" label="For 1 hour"/>
-  <int value="5" label="Error: unknown duration value"/>
-</enum>
-
 <enum name="AmbientModePhotoSource">
   <int value="0" label="Default">
     This is when user clicked on the top level Screen Saver toggle but did not
@@ -105,16 +74,6 @@ ash/webui/personalization_app/mojom/personalization_app.mojom -->
   <int value="0" label="Google Photos"/>
   <int value="1" label="Art Gallery"/>
   <int value="2" label="Video"/>
-</enum>
-
-<enum name="AmbientModeVideo">
-  <int value="0" label="Clouds"/>
-  <int value="1" label="New Mexico"/>
-</enum>
-
-<enum name="AmbientUiMode">
-  <int value="0" label="Lock Screen"/>
-  <int value="1" label="In Session Idle"/>
 </enum>
 
 <enum name="AmbientVideoSessionStatus">
@@ -430,12 +389,6 @@ ash/webui/personalization_app/mojom/personalization_app.mojom -->
   <int value="3" label="kTopRight"/>
 </enum>
 
-<enum name="CameraPrivacySwitchEvent">
-  <int value="0" label="Camera privacy switch toggled on"/>
-  <int value="1" label="Camera privacy switch toggled off"/>
-  <int value="2" label="Camera privacy switch on notification shown"/>
-</enum>
-
 <enum name="CaptureModeBarButtonType">
   <int value="0" label="Screen Capture Button"/>
   <int value="1" label="Screen Record Button"/>
@@ -594,12 +547,6 @@ ash/webui/personalization_app/mojom/personalization_app.mojom -->
   <int value="5" label="UserShutdown"/>
 </enum>
 
-<enum name="DataFetchEventSource">
-  <int value="0" label="PostLoginFullRestore"/>
-  <int value="1" label="Overview"/>
-  <int value="2" label="Calendar"/>
-</enum>
-
 <enum name="DemoModeApp">
   <summary>
     Pre-installed app or other window type available in Chrome OS Demo Mode.
@@ -681,11 +628,15 @@ ash/webui/personalization_app/mojom/personalization_app.mojom -->
   <int value="15" label="Google Built-in button click"/>
 </enum>
 
+<!-- LINT.IfChange(DemoModeHighlightsError) -->
+
 <enum name="DemoModeHighlightsError">
   <int value="0" label="Attract loop break timestamp is invalid"/>
   <int value="1" label="Page view duration is invalid"/>
   <int value="2" label="Details page view duration is invalid"/>
 </enum>
+
+<!-- LINT.ThenChange(//ash/webui/demo_mode_app_ui/resources/demo_mode_metrics_service.ts:DemoModeHighlightsError) -->
 
 <enum name="DemoModeIdleLogoutWarningEvent">
   <int value="0" label="Shown"/>
@@ -1672,15 +1623,6 @@ ash/webui/personalization_app/mojom/personalization_app.mojom -->
   <int value="5" label="Accelerator"/>
 </enum>
 
-<enum name="NotificationImageDragEndState">
-<!-- Defined in ash/system/message_center/ash_notification_drag_controller.h -->
-
-  <int value="0" label="InterruptedByNewDrag"/>
-  <int value="1" label="Cancelled"/>
-  <int value="2" label="CompletedWithDrop"/>
-  <int value="3" label="CompletedWithoutDrop"/>
-</enum>
-
 <enum name="NotificationViewType">
   <int value="0" label="Simple (no image, action buttons) and ungrouped"/>
   <int value="1" label="Simple (no image, action buttons) and grouped"/>
@@ -1884,7 +1826,7 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="3" label="Alt-mode fallback due to Pciguard"/>
   <int value="4" label="Alt-mode fallback in guest session"/>
   <int value="5" label="Peripheral blocked"/>
-  <int value="6" label="Billboard device"/>
+  <int value="6" label="(deprecated) Billboard device"/>
   <int value="7" label="Invalid DP alternate mode cable"/>
   <int value="8" label="USB4 device uses Thunderbolt due to the cable"/>
   <int value="9" label="USB4 device with incompatible cable"/>
@@ -1906,52 +1848,6 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="2" label="kLightPink"/>
   <int value="3" label="kDarkGreen"/>
   <int value="4" label="kLightPurple"/>
-</enum>
-
-<enum name="PersonalizationEntryPoint">
-  <int value="0" label="Home Screen"/>
-  <int value="1" label="System Tray"/>
-  <int value="2" label="Launcher search"/>
-  <int value="3" label="Settings"/>
-  <int value="4" label="Settings search"/>
-  <int value="5" label="Keyboard brightness slider"/>
-</enum>
-
-<enum name="PersonalizationKeyboardBacklightColor">
-  <int value="0" label="kWallpaper"/>
-  <int value="1" label="kWhite"/>
-  <int value="2" label="kRed"/>
-  <int value="3" label="kYellow"/>
-  <int value="4" label="kGreen"/>
-  <int value="5" label="kBlue"/>
-  <int value="6" label="kIndigo"/>
-  <int value="7" label="kPurple"/>
-  <int value="100" label="kRainbow"/>
-</enum>
-
-<enum name="PersonalizationKeyboardBacklightDisplayType">
-  <int value="0" label="kStatic"/>
-  <int value="1" label="kMultizone"/>
-</enum>
-
-<enum name="PersonalizationPath">
-  <int value="0" label="Screensaver"/>
-  <int value="1" label="Screensaver Albums"/>
-  <int value="2" label="Wallpaper Online Collection"/>
-  <int value="3" label="Wallpaper"/>
-  <int value="4" label="Wallpaper Google Photos Collection"/>
-  <int value="5" label="Wallpaper Local Collection"/>
-  <int value="6" label="Root"/>
-  <int value="7" label="Avatar"/>
-  <int value="8" label="SeaPen Collection"/>
-  <int value="9" label="SeaPen Results"/>
-  <int value="10" label="SeaPen Freeform"/>
-</enum>
-
-<enum name="PersonalizationThemeColorMode">
-  <int value="0" label="Light mode"/>
-  <int value="1" label="Dark mode"/>
-  <int value="2" label="Auto mode"/>
 </enum>
 
 <enum name="PickerSessionOutcome">
@@ -2211,27 +2107,6 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="18" label="Undo (Obsolete)"/>
   <int value="19" label="Toggle toolbar location to top center (Obsolete)"/>
   <int value="20" label="Toggle toolbar location to bottom center (Obsolete)"/>
-</enum>
-
-<enum name="QsButtonCatalogName">
-  <int value="0" label="Unknown"/>
-  <int value="1" label="SignOutButton"/>
-  <int value="2" label="LockButton"/>
-  <int value="3" label="PowerButton"/>
-  <int value="4" label="SettingsButton"/>
-  <int value="5" label="DateViewButton"/>
-  <int value="6" label="BatteryButton"/>
-  <int value="7" label="ManagedButton"/>
-  <int value="8" label="AvatarButton"/>
-  <int value="9" label="CollapseButton"/>
-  <int value="10" label="FeedBackButton"/>
-  <int value="11" label="VersionButton"/>
-  <int value="12" label="PowerOffMenuButton"/>
-  <int value="13" label="PowerRestartMenuButton"/>
-  <int value="14" label="PowerSignoutMenuButton"/>
-  <int value="15" label="PowerLockMenuButton"/>
-  <int value="16" label="SupervisedButton"/>
-  <int value="19" label="ExtendedUpdatesNoticeButton"/>
 </enum>
 
 <enum name="QsFeatureCatalogName">
@@ -2690,12 +2565,6 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="5" label="Session exit due to converting to tablet mode"/>
 </enum>
 
-<enum name="SwipeHomeToOverviewResult">
-  <int value="0" label="Remained on the home screen"/>
-  <int value="1" label="Transitioned to overview"/>
-  <int value="2" label="Went back on the home screen"/>
-</enum>
-
 <enum name="TasksUserAction">
   <int value="0" label="Active task list changed"/>
   <int value="1" label="Task marked complete"/>
@@ -2780,6 +2649,7 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="61" label="Apps Can Access Camera"/>
   <int value="62" label="Apps Can't Access Camera"/>
   <int value="63" label="Can't Turn On Camera Access Remotely"/>
+  <int value="64" label="Clipboard History Disabled By Policy"/>
 </enum>
 
 <enum name="TogglePickerAction">
@@ -2811,7 +2681,7 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="18" label="Status Area Overflow Button"/>
   <int value="19" label="Virtual Keyboard Tray, Status Area"/>
   <int value="20" label="Virtual Keyboard Tray, Accesibility Window"/>
-  <int value="21" label="WM Mode Button"/>
+  <int value="21" label="WM Mode Button (Deprecated)"/>
   <int value="22" label="Video Conferencing Tray"/>
   <int value="23" label="Focus Mode Tray"/>
   <int value="24" label="Pods Overflow"/>
@@ -2834,7 +2704,7 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="5" label="ARC App"/>
   <int value="6" label="App Service Unknown"/>
   <int value="7" label="Crostini VM"/>
-  <int value="8" label="Plugin VM"/>
+  <int value="8" label="Plugin VM (deprecated)"/>
   <int value="9" label="Borealis"/>
   <int value="10" label="Ash Client Unknown"/>
   <int value="11" label="Ash Capture Mode"/>
@@ -3298,11 +3168,6 @@ chromeos/ash/components/peripheral_notification/peripheral_notification_manager.
   <int value="1" label="Center Cropped"/>
   <int value="2" label="Stretch"/>
   <int value="3" label="Tile"/>
-</enum>
-
-<enum name="WallpaperMigrationFailureReason">
-  <int value="0" label="Failed to fetch online variants"/>
-  <int value="1" label="Failed to find a valid online variant"/>
 </enum>
 
 <enum name="WallpaperMigrationStatus">

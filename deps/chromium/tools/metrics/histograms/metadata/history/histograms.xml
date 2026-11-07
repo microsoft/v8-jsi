@@ -41,6 +41,14 @@ chromium-metrics-reviews@google.com.
                and on scroll"/>
 </variants>
 
+<variants name="HasCriticalActions">
+  <variant name="WithCriticalActions"
+      summary="results were non-empty and critical actions were queried from
+               the database"/>
+  <variant name="WithoutCriticalActions"
+      summary="results were empty or the critical actions feature is disabled"/>
+</variants>
+
 <variants name="PassagePriority">
   <variant name="" summary="aggregated across all priorities"/>
   <variant name=".Latent" summary="Latent priority"/>
@@ -49,7 +57,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="History.AttemptedToFixProfileError"
-    enum="BooleanDatabaseKilled" expires_after="2026-10-25">
+    enum="BooleanDatabaseKilled" expires_after="2026-12-27">
   <owner>etienneb@chromium.org</owner>
   <owner>sdefresne@chromium.org</owner>
   <component>1456716</component>
@@ -102,8 +110,20 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
+<histogram name="History.BrowsingHistory.QueryDuration" units="ms"
+    expires_after="2027-09-01">
+  <owner>wylieb@chromium.org</owner>
+  <owner>chrome-collections@google.com</owner>
+  <summary>
+    Records the roundtrip duration (in milliseconds) from initiating a browsing
+    history query pass in BrowsingHistoryService (on initial load, search, or
+    continuation pagination) to delivering the assembled results to the
+    BrowsingHistoryDriver. Logged across Desktop, Android, and iOS.
+  </summary>
+</histogram>
+
 <histogram name="History.BrowsingHistoryResult.DuplicateVisitsCount"
-    units="visits" expires_after="2026-08-19">
+    units="visits" expires_after="2027-04-04">
   <owner>zalmashni@google.com</owner>
   <owner>rainhard@chromium.org</owner>
   <component>1456716</component>
@@ -120,7 +140,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.BrowsingHistoryResult.{LocalOrRemote}.{VisitAge}"
-    units="visits" expires_after="2026-08-30">
+    units="visits" expires_after="2027-03-14">
   <owner>treib@chromium.org</owner>
   <owner>src/components/sync/OWNERS</owner>
   <component>1456716</component>
@@ -142,7 +162,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ClearBrowsingData.Duration.ChromeTask.{Task}"
-    units="ms" expires_after="2026-09-27">
+    units="ms" expires_after="2027-02-07">
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
   <component>1456716</component>
@@ -173,6 +193,8 @@ chromium-metrics-reviews@google.com.
     <variant name="OfflinePages" summary="OfflinePages"/>
     <variant name="Passwords" summary="Passwords"/>
     <variant name="PasswordsStatistics" summary="PasswordsStatistics"/>
+    <variant name="PrivateVerificationTokens"
+        summary="PrivateVerificationTokens"/>
     <variant name="ReportingCache" summary="ReportingCache"/>
     <variant name="SecurePaymentConfirmationCredentials"
         summary="SecurePaymentConfirmationCredentials"/>
@@ -267,7 +289,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ClearBrowsingData.Duration.Task.{Task}" units="ms"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>dullweber@chromium.org</owner>
   <owner>msramek@chromium.org</owner>
   <component>1456716</component>
@@ -280,7 +302,7 @@ chromium-metrics-reviews@google.com.
     <variant name="AuthCache" summary="AuthCache"/>
     <variant name="ChannelIds" summary="ChannelIds"/>
     <variant name="CodeCaches" summary="CodeCaches"/>
-    <variant name="Conversions" summary="Conversions"/>
+    <variant name="Downloads" summary="Downloads"/>
     <variant name="EmbedderData" summary="EmbedderData"/>
     <variant name="HttpAndMediaCaches" summary="HttpAndMediaCaches"/>
     <variant name="HttpCache" summary="HttpCache"/>
@@ -311,18 +333,6 @@ chromium-metrics-reviews@google.com.
     The time that passed while performing a browsing data deletion for a
     restricted amount of time (e.g. &quot;Last hour&quot;) without an origin
     filter.
-  </summary>
-</histogram>
-
-<histogram name="History.ClearBrowsingData.FailedTasksChrome"
-    enum="ChromeBrowsingDataRemoverTasks" expires_after="2022-09-25">
-  <owner>dullweber@chromium.org</owner>
-  <owner>msramek@chromium.org</owner>
-  <component>1456716</component>
-  <summary>
-    Records tasks from ChromeBrowsingDataRemoverDelegate that did not complete
-    successfully, i.e. where some data that was supposed to be deleted was left
-    behind.
   </summary>
 </histogram>
 
@@ -636,121 +646,6 @@ chromium-metrics-reviews@google.com.
   <token key="Source" variants="ClusteringRequestSource"/>
 </histogram>
 
-<histogram
-    name="History.Clusters.Backend.GetMostRecentClusters.{Segment}{Source}"
-    units="ms" expires_after="2024-10-06">
-  <owner>manukh@chromium.org</owner>
-  <owner>chrome-journeys@google.com</owner>
-  <component>1457319</component>
-  <summary>
-    Near startup and every 1 hour afterwards, unclustered visits are clustered,
-    and the clusters are persisted in the history DB.
-
-    As needed, both fresh and persisted clusters are fetched. Clusters are
-    fetched for: a) displaying on the Journeys WebUI and b) generating keyword
-    caches to match with omnibox inputs and show journey chips or suggestions in
-    the omnibox.
-
-    This histogram records the latency breakdown for fetching both fresh and
-    persisted clusters. See the similar
-    'History.Clusters.Backend.UpdateClusters.*' histograms for the latency
-    breakdown for updating clusters.
-
-    Recorded for every batch of fetched clusters; can be recorded more than once
-    per Journey WebUI load or keyword cache generations
-
-    This slice records the time between the main thread requesting and receiving
-    {Segment}. Records {Source}.
-  </summary>
-  <token key="Segment">
-    <variant name="ComputeClustersLatency" summary="clusters from the model"/>
-    <variant name="GetAnnotatedVisitsToClusterLatency"
-        summary="annotated visits to cluster (which can include clustered,
-                 unclustered, incomplete, and complete visits)"/>
-    <variant name="GetMostRecentPersistedClustersLatency"
-        summary="persisted clusters from the history DB"/>
-  </token>
-  <token key="Source" variants="ClusteringRequestSource"/>
-</histogram>
-
-<histogram
-    name="History.Clusters.Backend.GetMostRecentClustersForUI.GetMostRecentPersistedClustersTimeHorizon{Source}"
-    units="hours" expires_after="2024-10-06">
-  <owner>sophiechang@chromium.org</owner>
-  <owner>chrome-journeys@google.com</owner>
-  <component>1457319</component>
-  <summary>
-    On navigation, context clusters are created, grown, and persisted.
-
-    On startup and every 1 hour afterwards, these context clusters have their
-    triggability calculated. Context clusters older than 2 hours are not updated
-    are not re-updated after the initial triggability is calculated. However, if
-    there are unclustered visits (due to visits from before the user had context
-    clustering enabled or synced visits without a cluster ID), they will also be
-    context clustered with their triggerability calculated as well.
-
-    When a user visits the Journeys WebUI, persisted clusters (both those with
-    and without triggerability calculated) are fetched. Clusters are then
-    augmented with appropriate metadata needed for displaying on the Journeys
-    WebUI (e.g. ranking, deduping, labeling).
-
-    When the keyword cache used to match omnibox inputs and show journey chips
-    or suggestions in the omnibox needs updating, context clusters (both those
-    with and without triggerability calculated) are fetched.
-
-    This histogram records the number of hours that the persisted clusters
-    returned covers.
-
-    Recorded for every batch of fetched clusters; can be recorded more than once
-    per load of {Source}.
-  </summary>
-  <token key="Source" variants="ClusteringRequestSource"/>
-</histogram>
-
-<histogram
-    name="History.Clusters.Backend.GetMostRecentClustersForUI.{Segment}{Source}"
-    units="ms" expires_after="2024-10-06">
-  <owner>sophiechang@chromium.org</owner>
-  <owner>chrome-journeys@google.com</owner>
-  <component>1457319</component>
-  <summary>
-    On navigation, context clusters are created, grown, and persisted.
-
-    On startup and every 1 hour afterwards, these context clusters have their
-    triggability calculated. Context clusters older than 2 hours are not updated
-    are not re-updated after the initial triggability is calculated. However, if
-    there are unclustered visits (due to visits from before the user had context
-    clustering enabled or synced visits without a cluster ID), they will also be
-    context clustered with their triggerability calculated as well.
-
-    When a user visits the Journeys WebUI, persisted clusters (both those with
-    and without triggerability calculated) are fetched. Clusters are then
-    augmented with appropriate metadata needed for displaying on the Journeys
-    WebUI (e.g. ranking, deduping, labeling).
-
-    When the keyword cache used to match omnibox inputs and show journey chips
-    or suggestions in the omnibox needs updating, context clusters (both those
-    with and without triggerability calculated) are fetched.
-
-    This histogram records the latency breakdown for each step of getting
-    clusters for the webUI. It does not cover getting clusters for the keyword
-    cache.
-
-    Recorded for every batch of fetched clusters; can be recorded more than once
-    per Journey WebUI load.
-
-    This slice records the time between the main thread requesting and receiving
-    {Segment}. Records {Source}.
-  </summary>
-  <token key="Segment">
-    <variant name="ComputeClustersForUILatency"
-        summary="UI-augmented clusters from the model"/>
-    <variant name="GetMostRecentPersistedClustersLatency"
-        summary="persisted raw context clusters from the history DB"/>
-  </token>
-  <token key="Source" variants="ClusteringRequestSource"/>
-</histogram>
-
 <histogram name="History.Clusters.Backend.KeywordCache.AllKeywordsCount"
     units="count" expires_after="2025-07-13">
   <owner>manukh@chromium.org</owner>
@@ -899,9 +794,7 @@ chromium-metrics-reviews@google.com.
     caches to match with omnibox inputs and show journey chips or suggestions in
     the omnibox.
 
-    This histogram records the latency breakdown for updating clusters. See the
-    similar 'History.Clusters.Backend.GetMostRecentClusters.*' histograms for
-    the latency breakdown for fetching clusters.
+    This histogram records the latency breakdown for updating clusters.
 
     Recorded for every batch of visits clustered; can be recorded more than once
     every hour.
@@ -1169,19 +1062,10 @@ chromium-metrics-reviews@google.com.
     measured via the wall clock. Most of this time is not on the main thread.
 
     The total time spent populating the keywords cache will be:
-    History.Clusters.KeywordCache.Latency = (number of batches) * (
-    History.Clusters.Backend.GetMostRecentClusters.GetAnnotatedVisitsToClusterLatency.AllKeywordCacheRefresh
-    +
-    History.Clusters.Backend.GetMostRecentClusters.ComputeClustersLatency.AllKeywordCacheRefresh
-    +
-    History.Clusters.Backend.GetMostRecentClusters.GetMostRecentPersistedClustersLatency.AllKeywordCacheRefresh
-    +
-    History.Clusters.Backend.GetMostRecentClusters.GetAnnotatedVisitsToClusterLatency.ShortKeywordCacheRefresh
-    +
-    History.Clusters.Backend.GetMostRecentClusters.ComputeClustersLatency.ShortKeywordCacheRefresh
-    +
-    History.Clusters.Backend.GetMostRecentClusters.GetMostRecentPersistedClustersLatency.ShortKeywordCacheRefresh
-    + History.Clusters.KeywordCache.ThreadTime)
+    History.Clusters.KeywordCache.Latency = (number of batches) * (latency of
+    fetching and computing clusters + History.Clusters.KeywordCache.ThreadTime).
+    Historically, the breakdown of fetching and computing latency was recorded
+    in History.Clusters.Backend.GetMostRecentClusters.* histograms.
   </summary>
 </histogram>
 
@@ -1228,6 +1112,42 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
+<histogram name="History.Clusters.MaxClusterLabelDuplicates" units="clusters"
+    expires_after="2027-09-24">
+  <owner>fdoray@chromium.org</owner>
+  <owner>chrome-journeys@google.com</owner>
+  <component>1457319</component>
+  <summary>
+    Maximum number of clusters sharing the exact same label in the History DB.
+    Logged on initialization of the History DB when
+    HistoryReportClusterDatabaseMetrics is enabled.
+  </summary>
+</histogram>
+
+<histogram name="History.Clusters.NumClusters" units="clusters"
+    expires_after="2027-09-24">
+  <owner>fdoray@chromium.org</owner>
+  <owner>chrome-journeys@google.com</owner>
+  <component>1457319</component>
+  <summary>
+    Number of rows in the clusters table in the History DB. Logged on
+    initialization of the History DB when HistoryReportClusterDatabaseMetrics is
+    enabled.
+  </summary>
+</histogram>
+
+<histogram name="History.Clusters.NumOrphanClusters" units="clusters"
+    expires_after="2027-09-24">
+  <owner>fdoray@chromium.org</owner>
+  <owner>chrome-journeys@google.com</owner>
+  <component>1457319</component>
+  <summary>
+    Number of rows in the clusters table that have no corresponding rows in
+    clusters_and_visits. Logged on initialization of the History DB when
+    HistoryReportClusterDatabaseMetrics is enabled.
+  </summary>
+</histogram>
+
 <histogram name="History.Clusters.ProcessClustersDuration" units="ms"
     expires_after="2024-11-03">
   <owner>olivierli@chromium.org</owner>
@@ -1247,37 +1167,6 @@ chromium-metrics-reviews@google.com.
     that is recorded before the operation starts
     (&quot;History.Clusters.Backend.GetClusterLatency&quot;). Such analysis has
     to be conducted with care. Consult with Metrics team if curious.
-  </summary>
-</histogram>
-
-<histogram name="History.Clusters.ServiceLatency" units="ms"
-    expires_after="2025-07-13">
-  <owner>manukh@chromium.org</owner>
-  <owner>chrome-journeys@google.com</owner>
-  <component>1457319</component>
-  <summary>
-    Records the time taken between the History Clusters UI requests a batch of
-    clusters, and when we get the post-processed clusters back.
-
-    This request occurs when the page is first loaded, when the page is
-    refreshed, when the user changes the History search terms, and when the user
-    scrolls to the bottom of the page and requests the next batch of clusters
-    from the service.
-
-    This metric doesn't distinguish between any of these cases. This metric is
-    recorded on all requests, whether or not it returns clusters.
-
-    This does not take into account the time spent in JavaScript, or updating
-    the DOM. It's recorded in QueryClustersState, which is meant to be shared
-    between multiple UIs.
-
-    Roughly, History.Clusters.ServiceLatency =
-    History.Clusters.Backend.GetMostRecentClusters.GetAnnotatedVisitsToClusterLatency.WebUI
-    +
-    History.Clusters.Backend.GetMostRecentClusters.ComputeClustersLatency.WebUI
-    +
-    History.Clusters.Backend.GetMostRecentClusters.GetMostRecentPersistedClustersLatency.WebUI
-    + History.Clusters.ProcessClustersDuration
   </summary>
 </histogram>
 
@@ -1408,7 +1297,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DatabaseSqliteError" enum="SqliteLoggedResultCode"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>sophiechang@chromium.org</owner>
   <owner>chrome-journeys@google.com</owner>
   <component>1456716</component>
@@ -1419,7 +1308,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DatabaseTooOld" enum="HistoryDatabaseVersion"
-    expires_after="2026-09-12">
+    expires_after="2027-04-04">
   <owner>jpgravel@chromium.org</owner>
   <owner>etienneb@chromium.org</owner>
   <component>1456716</component>
@@ -1430,7 +1319,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DatabaseVersion" enum="HistoryDatabaseVersion"
-    expires_after="2026-09-12">
+    expires_after="2027-03-21">
   <owner>jpgravel@chromium.org</owner>
   <owner>etienneb@chromium.org</owner>
   <component>1456716</component>
@@ -1442,7 +1331,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount1Day_V3" units="domains"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1483,7 +1372,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount1Day_V4" units="domains"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1520,7 +1409,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount28Day_V3" units="domains"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1561,7 +1450,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount28Day_V4" units="domains"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1598,7 +1487,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount7Day_V3" units="domains"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1639,7 +1528,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.DomainCount7Day_V4" units="domains"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>mjzhang@chromium.org</owner>
   <owner>chrome-analysis-team@google.com</owner>
@@ -1676,7 +1565,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ComputeAnswerStatus"
-    enum="ComputeAnswerStatus" expires_after="2026-02-28">
+    enum="ComputeAnswerStatus" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -1691,7 +1580,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ComputeAnswerTime{ComputeAnswerStatus}"
-    units="ms" expires_after="2026-02-28">
+    units="ms" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -1717,7 +1606,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseAsCacheAccessTime.StorageRead"
-    units="ms" expires_after="2026-02-28">
+    units="ms" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <summary>
@@ -1730,7 +1619,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseInitialized" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <summary>
@@ -1740,7 +1629,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseIterationSkippedEmbeddings"
-    units="rows" expires_after="2026-02-28">
+    units="rows" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>manukh@chromium.org</owner>
   <summary>
@@ -1754,7 +1643,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseIterationSkippedMismatches"
-    units="rows" expires_after="2026-02-28">
+    units="rows" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>manukh@chromium.org</owner>
   <summary>
@@ -1768,7 +1657,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseIterationSkippedPassages"
-    units="rows" expires_after="2026-02-28">
+    units="rows" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>manukh@chromium.org</owner>
   <summary>
@@ -1782,7 +1671,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseIterationYielded" units="rows"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>manukh@chromium.org</owner>
   <summary>
@@ -1794,7 +1683,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseStoredAsciiPassages"
-    units="passages" expires_after="2026-09-06">
+    units="passages" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -1808,7 +1697,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseStoredNonAsciiPassageRatio"
-    units="%" expires_after="2026-02-28">
+    units="%" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -1822,7 +1711,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.DatabaseStoredNonAsciiPassages"
-    units="passages" expires_after="2026-09-06">
+    units="passages" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -1848,7 +1737,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.CpuUsage2" units="1/100 %"
-    expires_after="2026-09-06">
+    expires_after="2027-03-14">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -1860,7 +1749,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.CpuUsage2.NotRunning"
-    units="1/100 %" expires_after="2026-09-06">
+    units="1/100 %" expires_after="2027-07-19">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <owner>orinj@chromium.org</owner>
@@ -1873,7 +1762,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.CpuUsage2.Running" units="1/100 %"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <owner>orinj@chromium.org</owner>
@@ -1886,7 +1775,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.CpuUsage2.RunningPartial"
-    units="1/100 %" expires_after="2026-09-06">
+    units="1/100 %" expires_after="2027-07-19">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <owner>orinj@chromium.org</owner>
@@ -1899,7 +1788,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.EmbeddingsGenerationSucceeded"
-    enum="Boolean" expires_after="2026-10-11">
+    enum="Boolean" expires_after="2027-02-14">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -1909,7 +1798,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.EmbeddingsModelLoadDuration"
-    units="ms" expires_after="2026-08-30">
+    units="ms" expires_after="2027-03-07">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -1939,8 +1828,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.LaunchDuration" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to launch the PassageEmbeddingsService. Logged each time
@@ -1961,7 +1851,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="History.Embeddings.Embedder.PassageEmbeddingsGenerationDuration"
-    units="ms" expires_after="2026-09-06">
+    units="ms" expires_after="2027-03-21">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -1972,7 +1862,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="History.Embeddings.Embedder.PassageEmbeddingsGenerationThreadDuration"
-    units="ms" expires_after="2026-09-06">
+    units="ms" expires_after="2027-03-21">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -1993,7 +1883,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Embedder.QueryEmbeddingsGenerationDuration"
-    units="ms" expires_after="2026-09-20">
+    units="ms" expires_after="2026-11-22">
   <owner>sophiechang@chromium.org</owner>
   <owner>zekunjiang@google.com</owner>
   <summary>
@@ -2056,7 +1946,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.EmbeddingScoreSufficient" enum="Boolean"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2081,7 +1971,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.NumUrlsAddedByWordMatch" units="counts"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2092,7 +1982,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.NumUrlsDiscardedForLowScore" units="counts"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>sophiechang@chromium.org</owner>
   <owner>orinj@chromium.org</owner>
   <summary>
@@ -2103,7 +1993,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.NumUrlsKeptByWordMatch" units="counts"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2130,7 +2020,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Passages.ExtractionTime" units="ms"
-    expires_after="2026-08-30">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2142,7 +2032,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Passages.PassageCount" units="passages"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2152,7 +2042,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Passages.TitleInserted" enum="Boolean"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2162,7 +2052,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Passages.TotalTextSize" units="bytes"
-    expires_after="2026-08-23">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2172,7 +2062,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Quality.LogEntryPrepared" enum="Boolean"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>manukh@chromium.org</owner>
   <summary>
@@ -2182,7 +2072,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.QueryAnswerable" enum="Boolean"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2203,7 +2093,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.QueryFiltered"
-    enum="EmbeddingsQueryFiltered" expires_after="2026-02-28">
+    enum="EmbeddingsQueryFiltered" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>robertogden@chromium.org</owner>
   <summary>
@@ -2212,7 +2102,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ScheduledJobCount" units="jobs"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2222,7 +2112,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ScheduledJobDuration{PassagePriority}"
-    units="ms" expires_after="2026-02-28">
+    units="ms" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2234,7 +2124,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ScheduledJobStatus{PassagePriority}"
-    enum="ComputeEmbeddingsStatus" expires_after="2026-02-28">
+    enum="ComputeEmbeddingsStatus" expires_after="2026-12-06">
   <owner>mahmadi@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2246,7 +2136,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.ScheduledPassageCount" units="passages"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2256,7 +2146,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.Completed" enum="Boolean"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2266,7 +2156,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.Duration" units="ms"
-    expires_after="2026-09-27">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2276,7 +2166,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.EmbeddingCount" units="embeddings"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2286,7 +2176,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.ModifiedNonAsciiPassageCount"
-    units="passages" expires_after="2026-02-28">
+    units="passages" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2300,7 +2190,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.PassageScanningTime" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2312,7 +2202,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.ScoringTime" units="ms"
-    expires_after="2026-07-05">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2323,7 +2213,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.SkippedNonAsciiPassageCount"
-    units="passages" expires_after="2026-02-28">
+    units="passages" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2334,7 +2224,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.TotalSearchTime" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2344,7 +2234,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.Search.UrlCount" units="urls"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2354,8 +2244,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.StaleComputedEmbeddings" units="counts"
-    expires_after="2026-02-28">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     Number of embeddings that were computed for a tab that were stale by the
@@ -2365,8 +2256,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.TaskDuration" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to compute embeddings for one service round trip. Logged
@@ -2375,8 +2267,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.TaskDuration.Other" units="ms"
-    expires_after="2026-05-03">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to compute embeddings with a priority other than the
@@ -2386,8 +2279,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.TaskDuration.Passive" units="ms"
-    expires_after="2026-07-05">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to compute embeddings with kPassive priority, for one
@@ -2397,8 +2291,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.TaskDuration.Urgent" units="ms"
-    expires_after="2026-08-23">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to compute embeddings with kUrgent priority, for one
@@ -2408,8 +2303,9 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.TaskDuration.UserInitiated" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-07-19">
   <owner>wittman@chromium.org</owner>
+  <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
     The time it took to compute embeddings with kUserInitiated priority, for one
@@ -2419,7 +2315,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.Embeddings.UserActions{UiSurface}"
-    enum="EmbeddingsUserActions" expires_after="2026-09-06">
+    enum="EmbeddingsUserActions" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <owner>src/components/history_embeddings/OWNERS</owner>
   <summary>
@@ -2448,9 +2344,9 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="History.FaviconDatabaseSizeMB" units="MB" expires_after="M130">
-  <owner>rogerm@chromium.org</owner>
-  <owner>sky@chromium.org</owner>
+<histogram name="History.FaviconDatabaseSizeMB" units="MB" expires_after="M160">
+  <owner>pkotwicz@chromium.org</owner>
+  <owner>mastiz@chromium.org</owner>
   <component>1456716</component>
   <summary>
     Size of the Favicons database in MB. This is calculated as the number of
@@ -2460,7 +2356,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ForeignVisitsLegacy" units="visits"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>treib@chromium.org</owner>
   <component>1456716</component>
   <summary>
@@ -2473,7 +2369,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ForeignVisitsNotRemapped" units="visits"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>treib@chromium.org</owner>
   <component>1456716</component>
   <summary>
@@ -2486,7 +2382,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ForeignVisitsRemappableFrom" units="visits"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>treib@chromium.org</owner>
   <component>1456716</component>
   <summary>
@@ -2499,7 +2395,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ForeignVisitsRemappableOpener" units="visits"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>treib@chromium.org</owner>
   <component>1456716</component>
   <summary>
@@ -2512,7 +2408,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.ForeignVisitsTotal" units="visits"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>treib@chromium.org</owner>
   <component>1456716</component>
   <summary>
@@ -2523,7 +2419,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.HistoryPageView" enum="HistoryPageView"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>calamity@chromium.org</owner>
   <owner>src/chrome/browser/resources/history/OWNERS</owner>
   <component>1456716</component>
@@ -2549,22 +2445,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="History.InMemoryDBItemCount" units="typed URLs"
-    expires_after="2026-02-22">
-  <owner>sky@chromium.org</owner>
-  <owner>mpearson@chromium.org</owner>
-  <component>1456716</component>
-  <summary>
-    The number of typed URLs in the history database that are read into the
-    &quot;in memory&quot; history database. This in memory copy of the typed
-    URLs is used for synchronous inline autocomplete on the UI thread, while the
-    larger slower service is run off of disk on a background thread. Recorded on
-    profile open.
-  </summary>
-</histogram>
-
 <histogram name="History.InMemoryURLHistoryItems" units="items"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>chrome-omnibox-team@google.com</owner>
   <component>1456716</component>
@@ -2589,7 +2471,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.MetaTableExists" enum="Boolean"
-    expires_after="2026-09-12">
+    expires_after="2026-11-15">
   <owner>etienneb@chromium.org</owner>
   <owner>jpgravel@chromium.org</owner>
   <component>1456716</component>
@@ -2614,7 +2496,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.MonthlyHostCount" units="hosts"
-    expires_after="2026-10-04">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
@@ -2626,7 +2508,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.MonthlyURLCount" units="urls"
-    expires_after="2026-10-04">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
@@ -2638,7 +2520,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.MostVisitedTilesVisualDeduplication" units="tiles"
-    expires_after="2026-10-11">
+    expires_after="2026-12-16">
   <owner>hitarthkothari@google.com</owner>
   <owner>ckitagawa@chromium.org</owner>
   <summary>
@@ -2655,7 +2537,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.QueryAppDuration" units="ms"
-    expires_after="2026-09-27">
+    expires_after="2026-11-29">
   <owner>jinsukkim@google.com</owner>
   <owner>chrome-connective-tissue-team@google.com</owner>
   <component>1456716</component>
@@ -2663,6 +2545,27 @@ chromium-metrics-reviews@google.com.
     The time in milliseconds the query takes to fetch the list of app IDs. The
     query is made to the local database only, not to the server side via
     network. This is called when history UI is opened. Only logged on Android.
+  </summary>
+</histogram>
+
+<histogram name="History.QueryHistoryBasic.Duration" units="ms"
+    expires_after="2027-09-01">
+  <owner>wylieb@chromium.org</owner>
+  <owner>chrome-collections@google.com</owner>
+  <summary>
+    Records the backend thread execution duration (in milliseconds) for
+    HistoryBackend::QueryHistoryBasic to scan visits, look up URL rows, and
+    attach visit content annotations.
+  </summary>
+</histogram>
+
+<histogram name="History.QueryHistoryBasic.ResultCount" units="results"
+    expires_after="2027-09-01">
+  <owner>wylieb@chromium.org</owner>
+  <owner>chrome-collections@google.com</owner>
+  <summary>
+    Records the number of URLResult items assembled and returned by
+    HistoryBackend::QueryHistoryBasic.
   </summary>
 </histogram>
 
@@ -2682,7 +2585,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.QueryMostVisitedURLsTime" units="ms"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mahmadi@chromium.org</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -2695,7 +2598,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.RemoveVisitsFromWebHistory.EntryCount" units="entries"
-    expires_after="2026-10-25">
+    expires_after="2027-02-28">
   <owner>treib@chromium.org</owner>
   <owner>src/components/sync/OWNERS</owner>
   <summary>
@@ -2709,7 +2612,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.SearchResultClicked.Index{HistoryResultType}"
-    units="index" expires_after="2026-09-27">
+    units="index" expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <summary>
     Logs the zero-based index of the result clicked.
@@ -2740,7 +2643,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.SearchResultClicked.Type" enum="HistoryResultType"
-    expires_after="2026-07-19">
+    expires_after="2027-07-19">
   <owner>orinj@chromium.org</owner>
   <summary>
     Logs the type of the History result clicked from History UI surfaces. Note,
@@ -2761,6 +2664,48 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram
+    name="History.SyncedJourneys.DatabaseOperationSuccess.{JourneysDbOperation}"
+    enum="BooleanSuccess" expires_after="2027-01-05">
+  <owner>hempjudith@google.com</owner>
+  <owner>chrome-sequel-dev@google.com</owner>
+  <summary>
+    Whether a write to the synced journeys tables in the History database
+    succeeded. Recorded by JourneysSyncBridge {JourneysDbOperation}. Failures
+    include an unavailable History database. A failed add/update or delete stops
+    journeys sync with kJourneysDatabaseError until Chrome restarts; a failed
+    delete-all leaves journeys on disk after sync was turned off.
+  </summary>
+  <token key="JourneysDbOperation">
+    <variant name="AddOrUpdateJourneys"
+        summary="for the additions and updates of an incoming sync batch,
+                 only if the batch contains any"/>
+    <variant name="DeleteAllJourneys"
+        summary="when sync is disabled for the data type"/>
+    <variant name="DeleteJourneys"
+        summary="for the deletions of an incoming sync batch, only if the
+                 batch contains any"/>
+  </token>
+</histogram>
+
+<histogram name="History.SyncedJourneys.Resolution.Result"
+    enum="SyncedJourneyResolutionResult" expires_after="2027-01-05">
+  <owner>hempjudith@google.com</owner>
+  <owner>chrome-sequel-dev@google.com</owner>
+  <summary>
+    Outcome of resolving the visits of one stored synced journey against the
+    local visits and urls tables; only fully resolved journeys are returned to
+    callers. Recorded for every stored journey on each
+    HistoryService::GetAllJourneys() query, so the same journey is counted again
+    on every query. Not recorded for GetJourney(), which re-resolves a journey
+    from that list when its details page is opened. If several visits fail, only
+    the first failed lookup is recorded. Missing visit is expected after history
+    deletion or expiry, or before another device's visits have synced; Missing
+    URL indicates an inconsistent History database and should stay close to
+    zero.
+  </summary>
+</histogram>
+
 <histogram name="History.TopSites.QueryFromHistoryTime" units="ms"
     expires_after="2025-06-08">
   <owner>mahmadi@chromium.org</owner>
@@ -2774,58 +2719,13 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="History.URLRowAddedAsHidden" enum="Boolean"
-    expires_after="2026-09-19">
-  <owner>svend@chromium.org</owner>
-  <owner>kyraseevers@chromium.org</owner>
-  <summary>
-    Whether a newly added URLRow is hidden. Emitted when a URLRow is added to
-    the History database. Intended to monitor how much the number of hidden rows
-    added increases when saving page visits with HTTP response code 404 to the
-    History database.
-  </summary>
-</histogram>
-
-<histogram name="History.URLTableCount" units="URLs" expires_after="2026-09-06">
+<histogram name="History.URLTableCount" units="URLs" expires_after="2027-03-21">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
   <summary>
     Number of rows in urls table in History DB. Metrics are logged on
     initialization of the History DB on 1% of starts.
-  </summary>
-</histogram>
-
-<histogram name="History.VisitAddedDueTo404" enum="Boolean"
-    expires_after="2026-09-25">
-  <owner>svend@chromium.org</owner>
-  <owner>kyraseevers@chromium.org</owner>
-  <summary>
-    Whether a page visit recorded in the History DB was added due to a
-    navigation with an HTTP response code of 404. Visits added due to a 404
-    includes a) 404 visits themselves and b) redirects in chains that end in a
-    404 visit. Recorded after a visit is successfully added to the History DB
-    (because this includes redirects, one user-initiated navigation can result
-    in multiple emissions). Intended to monitor what proportion of newly
-    recorded visits are 404s when saving page visits with HTTP response code 404
-    to the History database. See also
-    `History.VisitedLinks.AdditionCausedBy404`.
-  </summary>
-</histogram>
-
-<histogram name="History.VisitedLinks.AdditionCausedBy404" enum="Boolean"
-    expires_after="2026-09-23">
-  <owner>svend@chromium.org</owner>
-  <owner>kyraseevers@chromium.org</owner>
-  <summary>
-    When we attempt to add a VisitedLink to the in-memory partitioned hashtable,
-    records whether that record is added due to a visit with an HTTP response
-    code 404. Recorded on every attempt to write a VisitedLink entry, including
-    those for redirects (i.e., for a redirect chain ending in a 404, there will
-    be one emission per redirect, all emitted as true, since the 404 is what is
-    causing the redirects' addition to the hashtable). Intended to monitor the
-    proportion of VisitedLink entries that are for 404s, after allowing 404
-    visits to be saved to History. See also `History.VisitAddedDueTo404`.
   </summary>
 </histogram>
 
@@ -2913,6 +2813,19 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="History.VisitedLinks.WebView.LookupCollisionCount2"
+    units="collisions" expires_after="2027-07-21">
+  <owner>tiffanysong@google.com</owner>
+  <owner>kyraseevers@chromium.org</owner>
+  <summary>
+    WebView collapses the triple-key space into a flat 1D key-space and hashes
+    using a static constant salt, meaning the database loses the natural entropy
+    of Chrome's randomized salt scheme. This metric monitors if the static salt
+    causes hash clustering by recording the collision count for each visited
+    link lookup. Recorded on every visited link lookup in Android WebView.
+  </summary>
+</histogram>
+
 <histogram name="History.VisitedLinkTableCount" units="VisitedLinks"
     expires_after="2027-03-01">
   <owner>kyraseevers@chromium.org</owner>
@@ -2925,7 +2838,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.VisitTableCount" units="visits"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
@@ -2936,7 +2849,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.WebHistory.QueryHistoryResultsCount" units="visits"
-    expires_after="2026-09-01">
+    expires_after="2027-03-07">
   <owner>treib@chromium.org</owner>
   <owner>src/components/history/OWNERS</owner>
   <component>1456716</component>
@@ -2947,7 +2860,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.WebHistory.QueryWebAndAppActivityResult"
-    enum="BooleanOptedIn" expires_after="2026-09-01">
+    enum="BooleanOptedIn" expires_after="2027-03-07">
   <owner>treib@chromium.org</owner>
   <owner>src/components/history/OWNERS</owner>
   <component>1456716</component>
@@ -2959,7 +2872,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.WebHistoryRequestOutcome.{RequestType}"
-    enum="WebHistoryRequestOutcome" expires_after="2026-09-01">
+    enum="WebHistoryRequestOutcome" expires_after="2027-02-07">
   <owner>treib@chromium.org</owner>
   <owner>src/components/history/OWNERS</owner>
   <component>1456716</component>
@@ -2975,7 +2888,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.WeeklyHostCount" units="hosts"
-    expires_after="2026-09-13">
+    expires_after="2027-03-21">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
@@ -2987,7 +2900,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="History.WeeklyURLCount" units="URLs"
-    expires_after="2026-10-11">
+    expires_after="2027-02-14">
   <owner>mpearson@chromium.org</owner>
   <owner>sky@chromium.org</owner>
   <component>1456716</component>
@@ -2999,7 +2912,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="HistoryPage.ActorContextMenuActions"
-    enum="VisitContextMenuAction" expires_after="2026-08-16">
+    enum="VisitContextMenuAction" expires_after="2027-04-04">
   <owner>zalmashni@google.com</owner>
   <owner>chrome-browser-privacy-team@google.com</owner>
   <summary>
@@ -3009,7 +2922,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="HistoryPage.ActorItemsShown" enum="BooleanVisible"
-    expires_after="2026-10-04">
+    expires_after="2027-04-04">
   <owner>zalmashni@google.com</owner>
   <owner>chrome-browser-privacy-team@google.com</owner>
   <summary>
@@ -3019,8 +2932,45 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="HistoryPage.CriticalAction.Click" enum="CriticalActionType"
+    expires_after="2026-11-01">
+  <owner>kalinino@google.com</owner>
+  <owner>polonium@google.com</owner>
+  <summary>
+    Records the category of critical action (e.g. form fill, password manager
+    login, federated login, download, or OTP) opened from the chrome://history
+    page. Recorded in WebUI when the user clicks an action linkout row under a
+    history visit to navigate to its external management surface.
+  </summary>
+</histogram>
+
+<histogram name="HistoryPage.CriticalActionsPerVisitCount" units="actions"
+    expires_after="2026-11-01">
+  <owner>kalinino@google.com</owner>
+  <owner>polonium@google.com</owner>
+  <summary>
+    Records the total number of critical actions attached to a single browsing
+    history visit item on the chrome://history page. Recorded for each visit
+    that has at least one critical action attached whenever browsing history
+    entries are retrieved and prepared for display (on initial page load,
+    search, or infinite scroll).
+  </summary>
+</histogram>
+
+<histogram name="HistoryPage.CriticalActionsQueryTime" units="ms"
+    expires_after="2026-11-01">
+  <owner>kalinino@google.com</owner>
+  <owner>polonium@google.com</owner>
+  <summary>
+    Records the time (in milliseconds) taken to query and retrieve critical
+    actions from the local database for history visits. Recorded each time
+    chrome://history receives a non-empty batch of history results and completes
+    fetching their corresponding critical actions.
+  </summary>
+</histogram>
+
 <histogram name="HistoryPage.NonActorContextMenuActions"
-    enum="VisitContextMenuAction" expires_after="2026-10-04">
+    enum="VisitContextMenuAction" expires_after="2027-04-04">
   <owner>zalmashni@google.com</owner>
   <owner>chrome-browser-privacy-team@google.com</owner>
   <summary>
@@ -3044,6 +2994,32 @@ chromium-metrics-reviews@google.com.
 
     This histogram is of special interest to the chrome-analysis-team@. Do not
     change its semantics or retire it without talking to them first.
+  </summary>
+</histogram>
+
+<histogram name="HistoryPage.QueryHistoryTotalTime.{HasCriticalActions}"
+    units="ms" expires_after="2026-11-01">
+  <owner>kalinino@google.com</owner>
+  <owner>polonium@google.com</owner>
+  <summary>
+    Records the total round-trip time (in milliseconds) taken to query,
+    assemble, and deliver browsing history results to the chrome://history page.
+    Recorded each time the history page requests history data (on initial page
+    load, when performing a search, or when scrolling down to load more items).
+    Recorded for queries where {HasCriticalActions}.
+  </summary>
+  <token key="HasCriticalActions" variants="HasCriticalActions"/>
+</histogram>
+
+<histogram name="HistoryPage.TimeToFirstVisibleContent" units="ms"
+    expires_after="2027-09-01">
+  <owner>wylieb@chromium.org</owner>
+  <owner>chrome-collections@google.com</owner>
+  <summary>
+    Records the time (in milliseconds) from navigation start (timeOrigin) to the
+    animation frame where the loading state is removed and browsing history
+    entries become visible in the chrome://history WebUI. Only logged when the
+    page is in the foreground (document.visibilityState === 'visible').
   </summary>
 </histogram>
 

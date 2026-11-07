@@ -37,12 +37,12 @@ struct HKDF_PKEY_CTX {
   Vector<uint8_t> info;
 };
 
-static int pkey_hkdf_init(EvpPkeyCtx *ctx, const EVP_PKEY_ALG *) {
+int pkey_hkdf_init(EvpPkeyCtx *ctx, const EVP_PKEY_ALG *) {
   ctx->data = New<HKDF_PKEY_CTX>();
   return 1;
 }
 
-static int pkey_hkdf_copy(EvpPkeyCtx *dst, EvpPkeyCtx *src) {
+int pkey_hkdf_copy(EvpPkeyCtx *dst, EvpPkeyCtx *src) {
   if (!pkey_hkdf_init(dst, nullptr)) {
     return 0;
   }
@@ -62,11 +62,11 @@ static int pkey_hkdf_copy(EvpPkeyCtx *dst, EvpPkeyCtx *src) {
   return 1;
 }
 
-static void pkey_hkdf_cleanup(EvpPkeyCtx *ctx) {
+void pkey_hkdf_cleanup(EvpPkeyCtx *ctx) {
   Delete(reinterpret_cast<HKDF_PKEY_CTX *>(ctx->data));
 }
 
-static int pkey_hkdf_derive(EvpPkeyCtx *ctx, uint8_t *out, size_t *out_len) {
+int pkey_hkdf_derive(EvpPkeyCtx *ctx, uint8_t *out, size_t *out_len) {
   HKDF_PKEY_CTX *hctx = reinterpret_cast<HKDF_PKEY_CTX *>(ctx->data);
   if (hctx->md == nullptr) {
     OPENSSL_PUT_ERROR(EVP, EVP_R_MISSING_PARAMETERS);
@@ -81,7 +81,7 @@ static int pkey_hkdf_derive(EvpPkeyCtx *ctx, uint8_t *out, size_t *out_len) {
     if (hctx->mode == EVP_PKEY_HKDEF_MODE_EXTRACT_ONLY) {
       *out_len = EVP_MD_size(hctx->md);
     }
-    // HKDF-Expand is variable-length and returns |*out_len| bytes. "Output" the
+    // HKDF-Expand is variable-length and returns `*out_len` bytes. "Output" the
     // input length by leaving it alone.
     return 1;
   }
@@ -110,7 +110,7 @@ static int pkey_hkdf_derive(EvpPkeyCtx *ctx, uint8_t *out, size_t *out_len) {
   return 0;
 }
 
-static int pkey_hkdf_ctrl(EvpPkeyCtx *ctx, int type, int p1, void *p2) {
+int pkey_hkdf_ctrl(EvpPkeyCtx *ctx, int type, int p1, void *p2) {
   HKDF_PKEY_CTX *hctx = reinterpret_cast<HKDF_PKEY_CTX *>(ctx->data);
   switch (type) {
     case EVP_PKEY_CTRL_HKDF_MODE:
@@ -135,7 +135,7 @@ static int pkey_hkdf_ctrl(EvpPkeyCtx *ctx, int type, int p1, void *p2) {
     }
     case EVP_PKEY_CTRL_HKDF_INFO: {
       const auto *info = reinterpret_cast<const Span<const uint8_t> *>(p2);
-      // |EVP_PKEY_CTX_add1_hkdf_info| appends to the info string, rather than
+      // `EVP_PKEY_CTX_add1_hkdf_info` appends to the info string, rather than
       // replacing it.
       return hctx->info.Append(*info);
     }

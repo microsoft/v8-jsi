@@ -22,7 +22,7 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
-<histogram name="VRSessionTime.WebVR" units="ms" expires_after="2026-09-06">
+<histogram name="VRSessionTime.WebVR" units="ms" expires_after="2027-04-27">
   <owner>alcooper@chromium.org</owner>
   <owner>xr-dev@chromium.org</owner>
   <summary>
@@ -32,8 +32,20 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="XR.DOMOverlay.IsXrOverlayFullscreenValid" enum="Boolean"
+    expires_after="2026-11-01">
+  <owner>alcooper@chromium.org</owner>
+  <owner>xr-dev@chromium.org</owner>
+  <summary>
+    Logged when a renderer requests to enter fullscreen with the is_xr_overlay
+    flag set. Records true if the browser verified that a recent WebXR DOM
+    Overlay setup occurred, or false if the request was reset because no recent
+    setup was recorded.
+  </summary>
+</histogram>
+
 <histogram name="XR.OpenXR.LocalFloorExtAvailable" enum="Boolean"
-    expires_after="2026-10-25">
+    expires_after="2027-04-27">
   <owner>alcooper@chromium.org</owner>
   <owner>xr-dev@chromium.org</owner>
   <summary>
@@ -44,7 +56,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="XR.OpenXR.SceneUnderstandingManagerType"
-    enum="OpenXrSceneUnderstandingManagerType" expires_after="2026-09-12">
+    enum="OpenXrSceneUnderstandingManagerType" expires_after="2027-04-27">
   <owner>alcooper@chromium.org</owner>
   <owner>xr-dev@chromium.org</owner>
   <summary>
@@ -54,7 +66,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="XR.OpenXR.SceneUnderstandingMSFTAvailability" enum="Boolean"
-    expires_after="2026-09-12">
+    expires_after="2027-04-27">
   <owner>alcooper@chromium.org</owner>
   <owner>xr-dev@chromium.org</owner>
   <summary>
@@ -64,7 +76,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="XR.RuntimeUsed" enum="XRDeviceId" expires_after="2027-01-07">
+<histogram name="XR.RuntimeUsed" enum="XRDeviceId" expires_after="2027-04-27">
   <owner>alcooper@chromium.org</owner>
   <owner>xr-dev@chromium.org</owner>
   <summary>

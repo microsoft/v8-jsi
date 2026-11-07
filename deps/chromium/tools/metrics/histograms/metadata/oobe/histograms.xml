@@ -327,6 +327,7 @@ chromium-metrics-reviews@google.com.
   <variant name="Hid-detection.Next"/>
   <variant name="Hw-data-collection.AcceptedWithHWDataUsage"/>
   <variant name="Hw-data-collection.AcceptedWithoutHWDataUsage"/>
+  <variant name="Local-data-loss-warning.AutoWipe"/>
   <variant name="Local-data-loss-warning.Back"/>
   <variant name="Local-data-loss-warning.Cancel"/>
   <variant name="Local-data-loss-warning.CryptohomeError"/>
@@ -406,7 +407,6 @@ chromium-metrics-reviews@google.com.
   <variant name="Smart-privacy-protection.ContinueWithFeatureOff"/>
   <variant name="Smart-privacy-protection.ContinueWithFeatureOn"/>
   <variant name="Split-modifier-keyboard-info.Next"/>
-  <variant name="Sync-consent.DeclineOnLacros"/>
   <variant name="Sync-consent.Next"/>
   <variant name="Terms-of-service.Accepted"/>
   <variant name="Terms-of-service.Declined"/>
@@ -1411,38 +1411,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="OOBE.SyncConsentScreen.LacrosSyncOptIns.DataType.{OsDataType}"
-    enum="BooleanEnabled" expires_after="2027-04-01">
-  <owner>bchikhaoui@google.com</owner>
-  <owner>cros-oobe@google.com</owner>
-  <summary>
-    Records the selected data type to sync during the OS Sync consent screen in
-    OOBE flow with Lacros enabled.
-
-    Warning: this histogram was expired from 2025-03-01 to 2025-04-16; data may
-    be missing.
-  </summary>
-  <token key="OsDataType">
-    <variant name="SyncApps"/>
-    <variant name="SyncSettings"/>
-    <variant name="SyncWallpaper"/>
-    <variant name="SyncWifi"/>
-  </token>
-</histogram>
-
-<histogram name="OOBE.SyncConsentScreen.LacrosSyncOptIns.SyncEverything"
-    enum="BooleanEnabled" expires_after="2027-04-01">
-  <owner>bchikhaoui@google.com</owner>
-  <owner>cros-oobe@google.com</owner>
-  <summary>
-    Indicate if sync all os types is enabled for the sync consent OOBE when
-    Lacros enabled.
-
-    Warning: this histogram was expired from 2025-03-01 to 2025-04-16; data may
-    be missing.
-  </summary>
-</histogram>
-
 <histogram name="OOBE.SyncConsentScreen.LoadingTime" units="ms"
     expires_after="2027-04-01">
   <owner>osamafathy@google.com</owner>
@@ -1473,7 +1441,8 @@ chromium-metrics-reviews@google.com.
   <summary>
     Final state of the sync service at the end of the sync consent OOBE step.
     The dialog may have been shown or skipped (e.g. by enterprise policy). See
-    OOBE.SyncConsentScreen.Behavior for skip reasons.
+    OOBE.SyncConsentScreen.Behavior for skip reasons. Please note that this
+    histogram is sync-the-feature specific.
   </summary>
 </histogram>
 

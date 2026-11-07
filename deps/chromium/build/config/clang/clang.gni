@@ -33,6 +33,8 @@ default_clang_base_path = "//third_party/llvm-build/Release+Asserts"
 # Platforms not in this list *may* work with clang modules, but we don't
 # guarantee it, and we don't test them on CI/CQ with modules, so breakages may
 # occur.
+# RISC-V is currently not supported for example.
+# https://ci.chromium.org/ui/p/chromium/builders/ci/android-cronet-riscv64-dbg/198062/overview
 android_supported_cpus = [
   "arm",
   "arm64",
@@ -45,9 +47,17 @@ clang_modules_platform_supported =
     (is_android &&
      filter_include(android_supported_cpus, [ current_cpu ]) != []) ||
     is_apple || is_fuchsia || is_chromeos ||
-    # Cross-compiling linux -> windows works, but win -> win appears to still
-    # have issues.
-    (is_win && current_cpu == "x64" && current_os != target_os)
+    # Use current_os instead of is_win due to winuwp not being supported.
+    current_os == "win"
+
+_raw_ptr_plugin_default =
+    build_with_chromium &&
+    # Disabled on official builds because RAW_PTR_EXCLUSION
+    # are stripped by the preprocessor on official build configurations:
+    # See https://crbug.com/40836910.
+    !is_official_build &&
+    # the plugin is enabled by default, except on fuchsia and chromecast.
+    (!is_castos && !is_cast_android && !is_fuchsia)
 
 declare_args() {
   # Indicates if the build should use the Chrome-specific plugins for enforcing
@@ -61,17 +71,12 @@ declare_args() {
   # functionality of the plugin.
   clang_use_raw_ptr_plugin = clang_use_chrome_plugins
 
-  enable_check_raw_ptr_fields =
-      build_with_chromium && !is_official_build &&
-      ((is_linux && !is_castos) || (is_android && !is_cast_android) || is_mac ||
-       is_ios || is_win || is_chromeos)
+  # TODO(crbug.com/40268473): Merge enable_raw_ptr_field and enable_raw_ref
+  # field.
 
-  # TODO(crbug.com/40268473): Merge with enable_check_raw_ptr_fields once both
-  # checks are activated on the same set of platforms.
-  enable_check_raw_ref_fields =
-      build_with_chromium && !is_official_build &&
-      ((is_linux && !is_castos) || (is_android && !is_cast_android) || is_win ||
-       is_mac || is_ios || is_chromeos)
+  enable_check_raw_ptr_fields = _raw_ptr_plugin_default
+  enable_check_raw_ref_fields = _raw_ptr_plugin_default
+  enable_check_container_fields = _raw_ptr_plugin_default
 
   # Use this instead of clang_use_chrome_plugins to enable just the unsafe
   # buffers functionality of the plugin
@@ -80,8 +85,8 @@ declare_args() {
 
   clang_base_path = default_clang_base_path
 
-  # Specifies whether or not bitcode should be embedded during compilation.
-  # This is used for creating a MLGO corpus from Chromium in the non-ThinLTO case.
+  # Specifies whether or not bitcode should be embedded during compilation. This
+  # is used for creating a MLGO corpus from Chromium in the non-ThinLTO case.
   clang_embed_bitcode = false
 
   # Set to true to enable output of ThinLTO index and import files used for
@@ -89,7 +94,15 @@ declare_args() {
   lld_emit_indexes_and_imports = false
 }
 
-# We don't really need to collect a corpus for the host tools, just for the target.
+# Siso's remote execution rules are based off the prefix
+# "../../third_party/llvm-build/Release+Asserts/bin/clang++".
+# Thus, when using a custom clang base path, we cannot use remote execution.
+assert(!use_remoteexec || clang_base_path == default_clang_base_path,
+       "Custom clang_base_path is not supported with use_remoteexec = true. " +
+           "Please set use_remoteexec = false in your args.gn.")
+
+# We don't really need to collect a corpus for the host tools, just for the
+# target.
 lld_emit_indexes_and_imports =
     lld_emit_indexes_and_imports && is_a_target_toolchain
 
@@ -107,6 +120,11 @@ if (defined(clang_warning_suppression_file) &&
     "$clang_warning_suppression_file" != "") {
   rbe_bug_326584510_missing_input_list +=
       [ rebase_path(clang_warning_suppression_file, rbe_exec_root) ]
+}
+if (clang_use_raw_ptr_plugin && defined(clang_raw_ptr_plugin_config_file) &&
+    "$clang_raw_ptr_plugin_config_file" != "") {
+  rbe_bug_326584510_missing_input_list +=
+      [ rebase_path(clang_raw_ptr_plugin_config_file, rbe_exec_root) ]
 }
 
 # The leading space is important, if the string is non-empty.

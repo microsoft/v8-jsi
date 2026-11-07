@@ -2,7 +2,17 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/rust.gni")
+import("//build/rust/gni_impl/crubit_shared_args.gni")
 import("//build/toolchain/kythe.gni")
+
+# Crubit features enabled for all `cpp_api_from_rust` targets.
+# See also: https://github.com/google/crubit/blob/main/features/README.md
+_globally_enabled_crubit_features = [
+  # TODO(b/558605603): Remove this feature from the list once it becomes the
+  # default in Crubit.
+  "always_specialize_generics_in_cpp_api_from_rust",
+]
 
 # Defines a C++ `source_set` (and supporting targets) that contains C++
 # bindings for using/calling-into a given Rust crate.
@@ -26,6 +36,9 @@ import("//build/toolchain/kythe.gni")
 #     Name (potentially mangled/auto-generated) of the crate that `rust_target`
 #     is built into.
 #
+#   h_out
+#     Path where the generated `.h` file should be written.
+#
 #   original_attributes
 #     The original `cc_bindings_from_rs = { ... }` dictionary (the value of
 #     the `cc_bindings_from_rs` attribute of a target like
@@ -37,10 +50,31 @@ import("//build/toolchain/kythe.gni")
 #
 #
 template("cpp_api_from_rust") {
+  # `enable_rust` and `use_chromium_rust_toolchain` enforce that `rustc` and
+  # `cpp_api_from_rust` use the same version of Rust compiler sources - this is
+  # required (e.g. to see the same memory layout of repr-Rusts structs) as
+  # explained in
+  # https://github.com/google/crubit/blob/89417b58802e20a6a11db7fea7c31692fef25276/docs/design/design.md?plain=1#L599-L602
+  assert(enable_rust && use_chromium_rust_toolchain)
+
+  # TODO(https://crbug.com/549864599): `cpp_api_from_rust`-generated bindings
+  # may depend on C++ bindings of Rust standard library. Currently Chromium is
+  # only able to invoke Crubit in `.rs`-consuming mode (rather than
+  # `.rlib`-consuming mode). Together, these two constraints mean that
+  # `cpp_api_from_rust` only works for the target platform and doesn't yet work
+  # for the host platform.
+  assert(!rust_prebuilt_stdlib)
+
+  # PDFium, V8 and other "2nd-party" Chromium projects don't yet have their own
+  # `//build_overrides/crubit.gni` build file.  Until this is fixed, we assert
+  # that `cpp_api_from_rust` template can only be used in Chromium builds.
+  assert(build_with_chromium)
+
   _rspgen_target_name = "${target_name}_crubit_rspgen"
   _action_target_name = "${target_name}_crubit_action"
   _rust_impl_target_name = "${target_name}_crubit_impl"
   _h_target_name = target_name
+  _metadata_target_name = "${target_name}_crubit_metadata"
 
   assert(defined(invoker.deps))
   assert(defined(invoker.sources))
@@ -48,11 +82,12 @@ template("cpp_api_from_rust") {
   assert(defined(invoker.rust_target))
   assert(defined(invoker.original_attributes))
   assert(defined(invoker.crate_name))
+  assert(defined(invoker.h_out))
   _crate_name = invoker.crate_name
   _rust_target = invoker.rust_target
   _rust_target_name = get_label_info(_rust_target, "name")
   _rust_target_dir = get_label_info(_rust_target, "dir")
-  _h_out = "${target_gen_dir}/${_rust_target_name}.h"
+  _h_out = invoker.h_out
   _rs_out = "${_h_out}.impl.rs"
 
   _original_attributes = invoker.original_attributes
@@ -67,32 +102,43 @@ template("cpp_api_from_rust") {
     _original_attributes.deps += [ "//build/rust/std:std_bindings" ]
   }
 
-  _crubit_support_path_format =
-      "\"third_party/rust-toolchain/lib/crubit/support/{header}\""
-  _cpp_api_from_rust_exe_path =
-      "//third_party/rust-toolchain/bin/cc_bindings_from_rs"
-  _rustfmt_exe_path = "//third_party/rust-toolchain/bin/rustfmt"
-  _rustfmt_config_path = "//.rustfmt.toml"
-  if (host_os == "win") {
-    _cpp_api_from_rust_exe_path += ".exe"
-    _rustfmt_exe_path += ".exe"
-  }
-
-  # TODO(lukasza): Make this also work on other host platforms.  (Possibly
-  # hoisting this `cpp_api_from_rust`-agnostic functionality into some other,
-  # reusable location elsewhere.)
-  if (host_os == "linux") {
-    _clang_format_exe_path = "//buildtools/linux64-format/clang-format"
-  } else if (host_os == "win") {
-    _clang_format_exe_path = "//buildtools/win-format/clang-format.exe"
-  }
-
   _action_rsp_path = "$target_out_dir/$_action_target_name.rsp"
+
+  # A pure metadata target with no dependencies or actions. This allows
+  # `_rspgen_target_name` to collect header and namespace information at
+  # `gn gen` time without introducing Ninja-level build-time serialization
+  # on upstream Crubit header generation actions.
+  group(_metadata_target_name) {
+    forward_variables_from(invoker, [ "testonly" ])
+    _gen_dir_relative_h_out = rebase_path(_h_out, root_gen_dir)
+    _crate_feature = []
+    foreach(_feature, _globally_enabled_crubit_features) {
+      _crate_feature += [ "--crate-feature=${_crate_name}=${_feature}" ]
+    }
+    metadata = {
+      crate_feature = _crate_feature
+      crate_header =
+          [ "--crate-header=${_crate_name}=${_gen_dir_relative_h_out}" ]
+      crate_namespace = [ "--crate-namespace=${_crate_name}=${_cpp_namespace}" ]
+    }
+  }
+
+  # Metadata targets (see `_metadata_target_name` above) of the dependencies.
+  _rspgen_deps = []
+  foreach(_dep, _original_attributes.deps) {
+    _dep_dir = get_label_info(_dep, "dir")
+    _dep_name = get_label_info(_dep, "name")
+    _dep_toolchain = get_label_info(_dep, "toolchain")
+    _rspgen_deps +=
+        [ "${_dep_dir}:${_dep_name}_crubit_metadata(${_dep_toolchain})" ]
+  }
+
   generated_file(_rspgen_target_name) {
     forward_variables_from(invoker, [ "testonly" ])
-    forward_variables_from(_original_attributes, [ "deps" ])
+    deps = _rspgen_deps
     outputs = [ _action_rsp_path ]
     data_keys = [
+      "crate_feature",
       "crate_header",
       "crate_namespace",
     ]
@@ -115,14 +161,12 @@ template("cpp_api_from_rust") {
     ]
 
     script = "//build/rust/gni_impl/cpp_api_from_rust_wrapper.py"
-    inputs = [
-      # `import`ed for `LoadRustEnvAndFlags`, etc.
-      "//build/rust/gni_impl/rustc_wrapper.py",
-
-      # Tools / executables:
-      _cpp_api_from_rust_exe_path,
-      _rustfmt_exe_path,
-      _rustfmt_config_path,
+    inputs = rustc_wrapper_inputs
+    inputs += [
+      _action_rsp_path,
+      cpp_api_from_rust_exe_path,
+      rustfmt_exe_path,
+      rustfmt_config_path,
     ]
     outputs = [
       _h_out,
@@ -132,7 +176,7 @@ template("cpp_api_from_rust") {
     # `cpp_api_from_rust_wrapper.py` flags:
     args = [
       "--cpp-api-from-rust-exe-path",
-      rebase_path(_cpp_api_from_rust_exe_path, root_build_dir),
+      rebase_path(cpp_api_from_rust_exe_path, root_build_dir),
 
       "--rustc-env-and-flags",
       rebase_path(invoker.rustc_env_and_flags, root_build_dir),
@@ -143,36 +187,51 @@ template("cpp_api_from_rust") {
     args += [
       "--",
 
+      # TODO(https://gn.issues.chromium.org/490160737): Enable this interface
+      # once we can get paths to rmeta files in GN.
+      "--enable-rmeta-interface=false",
+
       "--h-out",
       rebase_path(_h_out, root_build_dir),
 
       "--rs-out",
       rebase_path(_rs_out, root_build_dir),
 
+      # TODO(https://crbug.com/539569491): Remove this flag once/when it no
+      # longer works.  (Crubit will remove this flag once its clients no longer
+      # depend on the old behavior.)
+      "--portable-abi-compatible",
+
       "--crubit-support-path-format",
-      _crubit_support_path_format,
+      crubit_support_path_format,
 
       "--rustfmt-exe-path",
-      rebase_path(_rustfmt_exe_path, root_build_dir),
+      rebase_path(rustfmt_exe_path, root_build_dir),
 
       "--rustfmt-config-path",
-      rebase_path(_rustfmt_config_path, root_build_dir),
+      rebase_path(rustfmt_config_path, root_build_dir),
 
       "--crate-namespace",
       "self=${_cpp_namespace}",
     ]
-    if (defined(_clang_format_exe_path)) {
-      inputs += [ _clang_format_exe_path ]
+    foreach(_feature, _globally_enabled_crubit_features) {
+      args += [
+        "--crate-feature",
+        "self=${_feature}",
+      ]
+    }
+    if (defined(clang_format_exe_path)) {
+      inputs += [ clang_format_exe_path ]
       args += [
         "--clang-format-exe-path",
-        rebase_path(_clang_format_exe_path, root_build_dir),
+        rebase_path(clang_format_exe_path, root_build_dir),
       ]
     }
     if (enable_kythe_annotations) {
       args += [
         "--kythe-annotations",
         "--kythe-default-corpus",
-        kythe_corpus_identifier,
+        kythe_corpus,
       ]
     }
   }
@@ -223,15 +282,11 @@ template("cpp_api_from_rust") {
     deps += [
       ":$_action_target_name",
       ":$_rust_impl_target_name",
-      "//build/rust/crubit:cpp_api_from_rust_bindings_cpp_deps",
     ]
 
-    _gen_dir_relative_h_out = rebase_path(_h_out, root_gen_dir)
-    metadata = {
-      crate_header =
-          [ "--crate-header=${_crate_name}=${_gen_dir_relative_h_out}" ]
-      crate_namespace = [ "--crate-namespace=${_crate_name}=${_cpp_namespace}" ]
-    }
+    # `**public**_deps` to propagate `include_dirs` for including Crubit
+    # support libraries.
+    public_deps = [ "//build/rust/crubit:cpp_api_from_rust_bindings_cpp_deps" ]
 
     public = [ _h_out ]
   }

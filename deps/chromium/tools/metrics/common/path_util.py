@@ -4,11 +4,15 @@
 
 """Utility functions for resolving file paths in histograms scripts."""
 
-import os.path
+import pathlib
+
+CHROMIUM_SRC_PATH = pathlib.Path(__file__).resolve().parents[3]
+METRICS_TOOLS_PATH = pathlib.Path(__file__).resolve().parents[1]
 
 
-def GetInputFile(src_relative_file_path):
-  """Converts a src/-relative file path into a path that can be opened."""
-  depth = [os.path.dirname(__file__), '..', '..', '..']
-  path = os.path.join(*(depth + src_relative_file_path.split('/')))
-  return os.path.abspath(path)
+def GetInputFile(src_relative_file_path: str) -> str:
+  return str(GetInputFilePath(src_relative_file_path))
+
+
+def GetInputFilePath(src_relative_file_path: str) -> pathlib.Path:
+  return (CHROMIUM_SRC_PATH / src_relative_file_path).resolve()

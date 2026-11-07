@@ -29,6 +29,7 @@
 #include "perfetto/trace_processor/ref_counted.h"
 #include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/importers/proto/packet_sequence_state_generation.h"
+#include "src/trace_processor/importers/proto/selective_trace_packet_decoder.h"
 #include "src/trace_processor/sorter/trace_sorter.h"
 
 namespace perfetto {
@@ -43,6 +44,7 @@ namespace trace_processor {
 class EtwModule;
 class FtraceModule;
 class TrackEventModule;
+class MetadataMinimalModule;
 class TraceBlobView;
 class TraceProcessorContext;
 class TrackEventModule;
@@ -106,6 +108,25 @@ class ModuleResult {
 
 struct ProtoImporterModuleContext;
 
+// Arguments for ProtoImporterModule::TokenizePacket(). Bundled in a struct so
+// arguments can be added without touching every module.
+struct TokenizePacketArgs {
+  const SelectiveTracePacketDecoder& decoder;
+  TraceBlobView* packet;
+  int64_t ts;
+  // The sequence's current generation; a module that keeps it copies it.
+  const RefPtr<PacketSequenceStateGeneration>& state;
+  TracePacketField field;
+};
+
+// Arguments for ProtoImporterModule::ParseField(). See TokenizePacketArgs.
+struct ParseFieldArgs {
+  const SelectiveTracePacketDecoder& decoder;
+  int64_t ts;
+  const TracePacketData& data;
+  TracePacketField field;
+};
+
 // Base class for modules.
 class ProtoImporterModule {
  public:
@@ -115,15 +136,11 @@ class ProtoImporterModule {
 
   // Called by ProtoTraceReader during the tokenization stage, i.e. before
   // sorting. It's called for each TracePacket that contains fields for which
-  // the module was registered. If this returns a result other than
+  // the module was registered, with |field| holding the (first occurrence of
+  // the) registered field. If this returns a result other than
   // ModuleResult::Ignored(), tokenization of the packet will be aborted after
   // the module.
-  virtual ModuleResult TokenizePacket(
-      const protos::pbzero::TracePacket_Decoder&,
-      TraceBlobView* packet,
-      int64_t packet_timestamp,
-      RefPtr<PacketSequenceStateGeneration> sequence_state,
-      uint32_t field_id);
+  virtual ModuleResult TokenizePacket(const TokenizePacketArgs& args);
 
   // Called by ProtoTraceReader during the tokenization stage i.e. before
   // sorting. Indicates that sequence with id |packet_sequence_id| has cleared
@@ -138,13 +155,10 @@ class ProtoImporterModule {
   // loss, including ring buffer overwrites, on this sequence.
   virtual void OnFirstPacketOnSequence(uint32_t /* packet_sequence_id */) {}
 
-  // ParsePacket functions are called by ProtoTraceParser after the sorting
-  // stage for each non-ftrace TracePacket that contains fields for which the
-  // module was registered.
-  virtual void ParseTracePacketData(const protos::pbzero::TracePacket_Decoder&,
-                                    int64_t ts,
-                                    const TracePacketData&,
-                                    uint32_t /*field_id*/);
+  // Called by ProtoTraceParser after the sorting stage for each non-ftrace
+  // TracePacket that contains fields for which the module was registered,
+  // with |field| holding the (first occurrence of the) registered field.
+  virtual void ParseField(const ParseFieldArgs& args);
 
   // Called by ProtoTraceParser for trace config packets after the sorting
   // stage, on all existing modules.
@@ -167,7 +181,7 @@ class ProtoImporterModule {
 //
 // Used to store per-trace state in a place where everyone can access it.
 struct ProtoImporterModuleContext {
-  void PushFtraceEvent(uint32_t cpu, int64_t ts, TracePacketData data);
+  void PushFtraceEvent(uint32_t cpu, int64_t ts, FtraceData data);
   void PushEtwEvent(uint32_t cpu, int64_t ts, TracePacketData data);
   void PushInlineSchedSwitch(uint32_t cpu, int64_t ts, InlineSchedSwitch data);
   void PushInlineSchedWaking(uint32_t cpu, int64_t ts, InlineSchedWaking data);
@@ -179,15 +193,15 @@ struct ProtoImporterModuleContext {
   FtraceModule* ftrace_module = nullptr;
   EtwModule* etw_module = nullptr;
   TrackEventModule* track_module = nullptr;
+  MetadataMinimalModule* metadata_minimal_module = nullptr;
 
   std::unique_ptr<TraceSorter::Stream<TracePacketData>> trace_packet_stream;
   std::unique_ptr<TraceSorter::Stream<TrackEventData>> track_event_stream;
 
   using FtraceStreamFactory =
-      std::function<std::unique_ptr<TraceSorter::Stream<TracePacketData>>(
-          uint32_t)>;
+      std::function<std::unique_ptr<TraceSorter::Stream<FtraceData>>(uint32_t)>;
   FtraceStreamFactory ftrace_stream_factory;
-  std::vector<std::unique_ptr<TraceSorter::Stream<TracePacketData>>>
+  std::vector<std::unique_ptr<TraceSorter::Stream<FtraceData>>>
       ftrace_event_streams;
 
   using EtwStreamFactory =

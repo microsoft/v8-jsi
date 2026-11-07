@@ -53,8 +53,6 @@ class InsecureRandomGenerator;
 BASE_EXPORT uint64_t RandUint64();
 
 // Returns a random number between min and max (inclusive). Thread-safe.
-//
-// Returns a random number between min and max (inclusive). Thread-safe.
 BASE_EXPORT int RandIntInclusive(int min, int max);
 
 // Returns a random number in range [0, range).  Thread-safe.
@@ -221,7 +219,7 @@ decltype(auto) RandomChoice(Range&& r) {
   return r[base::RandGenerator(r.size())];
 }
 
-#if BUILDFLAG(IS_POSIX)
+#if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_APPLE)
 BASE_EXPORT int GetUrandomFD();
 #endif
 
@@ -282,7 +280,12 @@ class BASE_EXPORT InsecureRandomGenerator {
   friend class MetricsSubSampler;
   // test::InsecureRandomGenerator can be used for testing.
   friend class test::InsecureRandomGenerator;
-
+  // Uses the generator to subsample allocations randomly. Must use
+  // InsecureRandomGenerator both because it can re-enter into the allocator,
+  // which is not permitted, but also because the normal (crypto-safe) call
+  // invokes system calls (~500x the cost, and is thus too high-overhead for
+  // allocator-hooking code).
+  friend class SamplingHeapChurnProfiler;
   friend class gwp_asan::internal::ExtremeLightweightDetectorQuarantineBranch;
 
   FRIEND_TEST_ALL_PREFIXES(RandUtilTest,
@@ -295,17 +298,17 @@ class BASE_EXPORT InsecureRandomGenerator {
 // Fast class to randomly sub-sample metrics that are logged in high frequency
 // code.
 //
+// Do not use `MetricsSubSampler` directly unless necessary. Prefer to use
+// `ShouldRecordSubsampledMetric()` instead since `MetricsSubSampler` is not
+// thread-safe, may need to be reseeded after fork to avoid metric bias, and can
+// introduce unexpected performance overhead (see https://crbug.com/500105151).
+//
 // WARNING: This uses InsecureRandomGenerator so all the caveats there apply.
 // In particular if a MetricsSubSampler object exists when fork()/clone() is
 // called, calls to ShouldSample() on both sides of the fork will return the
 // same values, possibly introducing metric bias.
 class BASE_EXPORT MetricsSubSampler {
  public:
-  MetricsSubSampler();
-  bool ShouldSample(double probability) const;
-
-  void Reseed();
-
   // Make any call to ShouldSample for any instance of MetricsSubSampler
   // return true for testing. Cannot be used in conjunction with
   // ScopedNeverSampleForTesting.
@@ -325,6 +328,20 @@ class BASE_EXPORT MetricsSubSampler {
   };
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(RandUtilTest, MetricsSubSampler);
+  FRIEND_TEST_ALL_PREFIXES(RandUtilTest, MetricsSubSamplerTestingSupport);
+  friend class LockMetricsRecorder;
+  friend BASE_EXPORT bool ShouldRecordSubsampledMetric(double probability);
+  friend BASE_EXPORT void ReseedSharedMetricsSubsampler();
+
+  MetricsSubSampler();
+  ~MetricsSubSampler() = default;
+
+  bool ShouldSample(double probability) const;
+  void Reseed();
+
+  static MetricsSubSampler& GetSharedMetricsSubsampler();
+
   InsecureRandomGenerator generator_;
 };
 

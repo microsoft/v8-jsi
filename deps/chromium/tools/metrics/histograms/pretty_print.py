@@ -19,6 +19,7 @@ import sys
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.common.etree_util as etree_util
 import chromium_src.tools.metrics.common.presubmit_util as presubmit_util
 import chromium_src.tools.metrics.common.utf8_encoding as utf8_encoding
@@ -27,6 +28,7 @@ import chromium_src.tools.metrics.histograms.histogram_configuration_model as hi
 
 class Error(Exception):
   pass
+
 
 UNIT_REWRITES = {
   'mcs': 'microseconds',
@@ -74,44 +76,6 @@ def DropNodesByTagName(tree, tag, dropped_nodes=[]):
     tree.remove(child)
 
 
-def FixMisplacedHistogramsAndHistogramSuffixes(tree):
-  """Fixes misplaced histogram and histogram_suffixes nodes."""
-  histograms = []
-  histogram_suffixes = []
-
-  def ExtractMisplacedHistograms(tree):
-    """Gets and drops misplaced histograms and histogram_suffixes.
-
-    Args:
-      tree: The node of the xml tree.
-      histograms: A list of histogram nodes inside histogram_suffixes_list
-          node. This is a return element.
-      histogram_suffixes: A list of histogram_suffixes nodes inside histograms
-          node. This is a return element.
-    """
-    for child in tree:
-      if child.tag == 'histograms':
-        DropNodesByTagName(child, 'histogram_suffixes', histogram_suffixes)
-      elif child.tag == 'histogram_suffixes_list':
-        DropNodesByTagName(child, 'histogram', histograms)
-      else:
-        ExtractMisplacedHistograms(child)
-
-  ExtractMisplacedHistograms(tree)
-
-  def AddBackMisplacedHistograms(tree):
-    """Adds back those misplaced histogram and histogram_suffixes nodes."""
-    for child in tree:
-      if child.tag == 'histograms':
-        child.extend(histograms)
-      elif child.tag == 'histogram_suffixes_list':
-        child.extend(histogram_suffixes)
-      else:
-        AddBackMisplacedHistograms(child)
-
-  AddBackMisplacedHistograms(tree)
-
-
 def PrettyPrintHistograms(raw_xml):
   """Pretty-print the given histograms XML.
 
@@ -137,7 +101,6 @@ def PrettyPrintHistogramsTree(tree):
   """
   # Prevent accidentally adding enums to histograms.xml
   DropNodesByTagName(tree, 'enums')
-  FixMisplacedHistogramsAndHistogramSuffixes(tree)
   canonicalizeUnits(tree)
   return histogram_configuration_model.PrettifyTree(tree)
 
@@ -149,7 +112,6 @@ def PrettyPrintEnums(raw_xml):
 
   # Prevent accidentally adding histograms to enums.xml
   DropNodesByTagName(root, 'histograms')
-  DropNodesByTagName(root, 'histogram_suffixes_list')
   top_level_content = etree_util.GetTopLevelContent(raw_xml)
   formatted_xml = histogram_configuration_model.PrettifyTree(root)
   return top_level_content + formatted_xml
@@ -177,28 +139,31 @@ def main():
   parser.add_argument('--non-interactive', action='store_true')
   parser.add_argument('--presubmit', action='store_true')
   parser.add_argument('--diff', action='store_true')
-  parser.add_argument('--cleanup',
-                      action='store_true',
-                      help='Remove the backup file after a successful run.')
+  parser.add_argument(
+    '--cleanup',
+    action='store_true',
+    help='Remove the backup file after a successful run.',
+  )
   args = parser.parse_args()
 
   utf8_encoding.setup_stdout_and_stderr_utf8_encoding()
 
   status = 0
   if 'enums.xml' in args.filepath:
-    status = presubmit_util.DoPresubmit(sys.argv, args.filepath,
-                                        'enums.before.pretty-print.xml',
-                                        PrettyPrintEnums)
+    status = presubmit_util.DoPresubmit(
+      args, args.filepath, 'enums.before.pretty-print.xml', PrettyPrintEnums
+    )
 
   elif 'histograms' in args.filepath:
     # Specify the individual directory of histograms.xml.
     status = presubmit_util.DoPresubmit(
-        sys.argv,
-        args.filepath,
-        # The backup filename should be
-        # 'path/to/histograms.before.pretty-print.xml'.
-        '.before.pretty-print.'.join(args.filepath.rsplit('.', 1)),
-        PrettyPrintHistograms)
+      args,
+      args.filepath,
+      # The backup filename should be
+      # 'path/to/histograms.before.pretty-print.xml'.
+      '.before.pretty-print.'.join(args.filepath.rsplit('.', 1)),
+      PrettyPrintHistograms,
+    )
 
   sys.exit(status)
 

@@ -9,10 +9,12 @@
 #include <mutex>
 #include <vector>
 
+#include "partition_alloc/buildflags.h"
+#include "partition_alloc/in_slot_metadata.h"
+#include "partition_alloc/internal/partition_root_internal.h"  // nogncheck
 #include "partition_alloc/partition_alloc_base/check.h"
 #include "partition_alloc/partition_alloc_base/debug/stack_trace.h"
 #include "partition_alloc/partition_alloc_base/no_destructor.h"
-#include "partition_alloc/partition_root.h"
 #include "partition_alloc/slot_address_and_size.h"
 
 namespace base::internal {
@@ -59,8 +61,7 @@ void InstanceTracer::TraceImpl(uint64_t owner_id,
   const auto slot_and_size =
       partition_alloc::SlotAddressAndSize::FromBRPPool(address);
   const uintptr_t slot_count = reinterpret_cast<uintptr_t>(
-      partition_alloc::PartitionRoot::InSlotMetadataPointerFromSlotStartAndSize(
-          slot_and_size.slot_start, slot_and_size.size));
+      partition_alloc::internal::InSlotMetadata::From(slot_and_size));
 
   const std::lock_guard guard(GetStorageMutex());
   GetStorage().try_emplace(owner_id, slot_count, may_dangle);
@@ -89,8 +90,7 @@ InstanceTracer::GetStackTracesForAddressForTest(const void* address) {
   const auto slot_and_size = partition_alloc::SlotAddressAndSize::FromBRPPool(
       reinterpret_cast<uintptr_t>(address));
   const uintptr_t slot_count = reinterpret_cast<uintptr_t>(
-      partition_alloc::PartitionRoot::InSlotMetadataPointerFromSlotStartAndSize(
-          slot_and_size.slot_start, slot_and_size.size));
+      partition_alloc::internal::InSlotMetadata::From(slot_and_size));
   return GetStackTracesForDanglingRefs(slot_count);
 }
 

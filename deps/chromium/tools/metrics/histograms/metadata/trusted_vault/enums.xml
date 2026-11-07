@@ -87,6 +87,7 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="File proto deserialization failed"/>
   <int value="5" label="Data proto deserialization failed"/>
   <int value="6" label="SHA256 digest mismatch"/>
+  <int value="7" label="Unsupported version"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/trusted_vault/trusted_vault_histograms.h:TrustedVaultFileReadStatus) -->
@@ -109,6 +110,18 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(/components/trusted_vault/trusted_vault_histograms.h:TrustedVaultListSecurityDomainMembersPinStatus) -->
+
+<!-- LINT.IfChange(TrustedVaultLocalDomainsMigrationStatus) -->
+
+<enum name="TrustedVaultLocalDomainsMigrationStatus">
+  <int value="0" label="Migrated successfully"/>
+  <int value="1" label="No legacy file found"/>
+  <int value="2" label="Legacy file was empty"/>
+  <int value="3" label="Failed to read legacy file"/>
+  <int value="4" label="Failed to write new file"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/trusted_vault/trusted_vault_histograms.h:TrustedVaultLocalDomainsMigrationStatus) -->
 
 <!-- LINT.IfChange(TrustedVaultRecoverabilityStatus) -->
 
@@ -163,6 +176,15 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(/components/trusted_vault/trusted_vault_histograms.h:TrustedVaultRecoveryFactorRegistrationState) -->
+
+<!-- LINT.IfChange(TrustedVaultRecoveryFlowEndpoint) -->
+
+<enum name="TrustedVaultRecoveryFlowEndpoint">
+  <int value="0" label="Desktop"/>
+  <int value="1" label="Desktop Embedded"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/trusted_vault/trusted_vault_histograms.h:TrustedVaultRecoveryFlowEndpoint) -->
 
 </enums>
 

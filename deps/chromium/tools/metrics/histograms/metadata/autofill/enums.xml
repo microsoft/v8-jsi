@@ -114,6 +114,21 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Prefill request not sent - not enough time."/>
 </enum>
 
+<!--  LINT.IfChange(AtMemoryFailedToOpenReason) -->
+
+<enum name="AtMemoryFailedToOpenReason">
+  <int value="0" label="Opened: all prerequisites were met"/>
+  <int value="1" label="No browser or no web state list"/>
+  <int value="2" label="No active web state"/>
+  <int value="3" label="No autofill client"/>
+  <int value="4" label="No AtMemory manager"/>
+  <int value="5" label="No autofill manager for the primary main frame"/>
+  <int value="6" label="No focused field"/>
+  <int value="7" label="The AtMemory UI is already open"/>
+</enum>
+
+<!-- LINT.ThenChange(//ios/chrome/browser/autofill/atmemory/utils/atmemory_ui_util.h:AtMemoryFailedToOpenReason) -->
+
 <!--  LINT.IfChange(AttemptFormFillingToolEvent) -->
 
 <enum name="AttemptFormFillingToolEvent">
@@ -155,6 +170,18 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/resources/settings/autofill_page/autofill_section.ts:AutofillAddressOptInChange) -->
+
+<!-- LINT.IfChange(AutofillAddressProfileImportCountrySource) -->
+
+<enum name="AutofillAddressProfileImportCountrySource">
+  <int value="0" label="Explicitly Observed"/>
+  <int value="1" label="Variations Services (Latest Country) or Locale"/>
+  <int value="2" label="Phone Number Region Code"/>
+  <int value="3" label="No Country"/>
+  <int value="4" label="Country Merged"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/form_import/addresses/autofill_profile_import_process.h:ProfileCountrySource) -->
 
 <enum name="AutofillAddressProfileImportCountrySpecificFieldRequirement">
   <int value="0" label="All required fields present"/>
@@ -232,6 +259,9 @@ chromium-metrics-reviews@google.com.
       label="The user closed the prompt (via the close button or the ESC)"/>
   <int value="4" label="The user did not interact with the prompt"/>
   <int value="5" label="The prompt was closed due to losing focus"/>
+  <int value="6"
+      label="The prompt was closed by pressing 'Done' button in the editor.
+             The editor is only present on Android."/>
 </enum>
 
 <!-- LINT.IfChange(AutofillAiDecryptStatus) -->
@@ -243,6 +273,25 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//components/autofill/core/browser/webdata/autofill_ai/entity_table.cc:DecryptionStatus) -->
+
+<!-- LINT.IfChange(AutofillAiEntitySuppressionConfirmationDialogResult) -->
+
+<enum name="AutofillAiEntitySuppressionConfirmationDialogResult">
+  <int value="0" label="Accepted"/>
+  <int value="1" label="Cancelled"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:AutofillAiEntitySuppressionConfirmationDialogResult) -->
+
+<!-- LINT.IfChange(AutofillAiEntitySuppressionLoadDropReason) -->
+
+<enum name="AutofillAiEntitySuppressionLoadDropReason">
+  <int value="0" label="Decryption failed"/>
+  <int value="1" label="Parsing failed"/>
+  <int value="2" label="Invalid entry"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:AutofillAiEntitySuppressionLoadDropReason) -->
 
 <enum name="AutofillAiEntityType">
 <!-- Generated from components/autofill/core/browser/data_model/autofill_ai/entity_schema.json.
@@ -257,6 +306,11 @@ Called by update_autofill_enums.py.-->
   <int value="6" label="Flight Reservation"/>
   <int value="7" label="Order"/>
   <int value="8" label="Shipment"/>
+</enum>
+
+<enum name="AutofillAiModelExecutionPiShadowPrediction">
+  <int value="0" label="Different result"/>
+  <int value="1" label="Same result"/>
 </enum>
 
 <enum name="AutofillAiModelExecutionStatus">
@@ -286,16 +340,64 @@ Called by update_autofill_enums.py.-->
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/permissions/autofill_ai/autofill_ai_permission_utils.h:AutofillAiOptInStatus) -->
 
-<!-- LINT.IfChange(AutofillAiPrefMigrationStatus) -->
+<!-- LINT.IfChange(AutofillAiPersonalContextCacheReadinessOnFirstInteraction) -->
 
-<enum name="AutofillAiPrefMigrationStatus">
-  <int value="0" label="Pref migrated (set to true)"/>
-  <int value="1" label="Pref migrated (set to false)"/>
-  <int value="2" label="Pref already set"/>
-  <int value="3" label="Pref not migrated (account keyed pref never set)"/>
+<enum name="AutofillAiPersonalContextCacheReadinessOnFirstInteraction">
+  <int value="0" label="Prefetch completed with data in cache"/>
+  <int value="1" label="Prefetch completed with no data in cache"/>
+  <int value="2" label="Prefetch is in-flight"/>
+  <int value="3" label="Prefetch failed"/>
+  <int value="4" label="Prefetch was not initiated"/>
 </enum>
 
-<!-- LINT.ThenChange(/components/autofill/core/browser/data_manager/autofill_ai/entity_data_manager.h:AutofillAiPrefMigrationStatus) -->
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:PersonalContextCacheReadinessOnFirstInteraction) -->
+
+<!-- LINT.IfChange(AutofillAiPersonalContextDeduplicationAgainstRecordType) -->
+
+<enum name="AutofillAiPersonalContextDeduplicationAgainstRecordType">
+  <int value="0" label="Local"/>
+  <int value="1" label="Server Wallet"/>
+  <int value="2" label="Not deduplicated"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:AutofillAiPersonalContextDeduplicationAgainstRecordType) -->
+
+<!-- LINT.IfChange(AutofillAiPersonalContextPrefetchEntityFunnelOutcome) -->
+
+<enum name="AutofillAiPersonalContextPrefetchEntityFunnelOutcome">
+  <int value="0" label="Parsing failed"/>
+  <int value="1" label="Invalid"/>
+  <int value="2" label="Suppressed"/>
+  <int value="3" label="Deduplicated"/>
+  <int value="4" label="Passed"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:AutofillAiPersonalContextPrefetchEntityFunnelOutcome) -->
+
+<!-- LINT.IfChange(AutofillAiPersonalContextPrefetchEntityValidationResult) -->
+
+<enum name="AutofillAiPersonalContextPrefetchEntityValidationResult">
+  <int value="0" label="Valid"/>
+  <int value="1" label="Failed: Import constraints not met"/>
+  <int value="2" label="Failed: TTL expired"/>
+  <int value="3" label="Failed: Missing date attribute for TTL"/>
+  <int value="4" label="Failed: Malformed date string"/>
+  <int value="5" label="Failed: Unsupported entity type"/>
+  <int value="6" label="Failed: Missing source"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:AutofillAiPersonalContextPrefetchEntityValidationResult) -->
+
+<!-- LINT.IfChange(AutofillAiPersonalContextPrefetchTriggerResult) -->
+
+<enum name="AutofillAiPersonalContextPrefetchTriggerResult">
+  <int value="0" label="Initiated network requests"/>
+  <int value="1" label="Skipped due to fresh cached data"/>
+  <int value="2" label="Skipped due to active backoff throttling"/>
+  <int value="3" label="Skipped due to active request in-flight"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/personal_context_metrics.h:PersonalContextPrefetchTriggerResult) -->
 
 <enum name="AutofillAiReauthResultByFieldType">
 <!-- Generated from components/autofill/core/browser/field_types.h.
@@ -499,10 +601,6 @@ Called by update_autofill_enums.py.-->
   <int value="657" label="ALTERNATIVE_GIVEN_NAME: Failure"/>
   <int value="660" label="ALTERNATIVE_FAMILY_NAME: Success"/>
   <int value="661" label="ALTERNATIVE_FAMILY_NAME: Failure"/>
-  <int value="664" label="NAME_LAST_PREFIX: Success"/>
-  <int value="665" label="NAME_LAST_PREFIX: Failure"/>
-  <int value="668" label="NAME_LAST_CORE: Success"/>
-  <int value="669" label="NAME_LAST_CORE: Failure"/>
   <int value="676" label="PASSPORT_NUMBER: Success"/>
   <int value="677" label="PASSPORT_NUMBER: Failure"/>
   <int value="680" label="PASSPORT_ISSUING_COUNTRY: Success"/>
@@ -587,16 +685,134 @@ Called by update_autofill_enums.py.-->
   <int value="861" label="SHIPMENT_TRACKING_NUMBER: Failure"/>
 </enum>
 
+<!-- LINT.IfChange(AutofillAiSourceType) -->
+
+<enum name="AutofillAiSourceType">
+  <int value="0" label="Gmail"/>
+  <int value="1" label="Photos"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/data_model/autofill_ai/entity_instance.h:SourceType) -->
+
+<!-- LINT.IfChange(AutofillAiUnmaskResult) -->
+
+<enum name="AutofillAiUnmaskResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Cache Hit"/>
+  <int value="2" label="Reauth Failed"/>
+  <int value="3" label="Network Error"/>
+  <int value="4" label="Empty Response"/>
+  <int value="5" label="Parsing Error"/>
+  <int value="6" label="Decryption Failed"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/autofill_ai_metrics.h:AutofillAiUnmaskResult) -->
+
+<!-- LINT.IfChange(AutofillAiUpsertDetailsCacheStatus) -->
+
+<enum name="AutofillAiUpsertDetailsCacheStatus">
+  <int value="0" label="Cache hit"/>
+  <int value="1" label="Cache miss (preload request in flight)"/>
+  <int value="2" label="Cache miss (no preload request in flight)"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/autofill_ai_metrics.h:AutofillAiUpsertDetailsCacheStatus) -->
+
+<!-- LINT.IfChange(AutofillAiWalletManagementUrlSyncStatus) -->
+
+<enum name="AutofillAiWalletManagementUrlSyncStatus">
+  <int value="0" label="Valid URL"/>
+  <int value="1" label="Missing or empty URL"/>
+  <int value="2" label="Invalid URL"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/webdata/valuables/valuable_sync_bridge.h:AutofillAiWalletManagementUrlSyncStatus) -->
+
+<!-- LINT.IfChange(AutofillAiWalletNoticeFunnelEvents) -->
+
+<enum name="AutofillAiWalletNoticeFunnelEvents">
+  <int value="0" label="Fetching upsert details"/>
+  <int value="1" label="Upsert details fetch success"/>
+  <int value="2" label="Upsert details fetch error"/>
+  <int value="3" label="Legal message shown"/>
+  <int value="4" label="Link clicked"/>
+  <int value="5" label="Entity saved"/>
+  <int value="6" label="Entity not saved"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/integrators/autofill_ai/metrics/autofill_ai_metrics.h:AutofillAiWalletNoticeFunnelEvents) -->
+
 <enum name="AutofillAlternativeNameFieldValueCharacterSet">
   <int value="0" label="Katakana"/>
   <int value="1" label="Hiragana"/>
   <int value="2" label="Other"/>
 </enum>
 
-<enum name="AutofillAtMemoryTriggerSource">
-  <int value="0" label="Typed trigger"/>
-  <int value="1" label="Context menu"/>
+<!-- LINT.IfChange(AutofillAtMemoryAcceptedSuggestionDataSourcesBitmask) -->
+
+<enum name="AutofillAtMemoryAcceptedSuggestionDataSourcesBitmask">
+  <summary>
+    A bitmask indicating which data sources provided an accepted AtMemory
+    suggestion.
+  </summary>
+  <int value="1" label="Autofill"/>
+  <int value="2" label="Gmail"/>
+  <int value="3" label="Autofill, Gmail"/>
+  <int value="4" label="Calendar"/>
+  <int value="5" label="Autofill, Calendar"/>
+  <int value="6" label="Gmail, Calendar"/>
+  <int value="7" label="Autofill, Gmail, Calendar"/>
+  <int value="8" label="Photos"/>
+  <int value="9" label="Autofill, Photos"/>
+  <int value="10" label="Gmail, Photos"/>
+  <int value="11" label="Autofill, Gmail, Photos"/>
+  <int value="12" label="Calendar, Photos"/>
+  <int value="13" label="Autofill, Calendar, Photos"/>
+  <int value="14" label="Gmail, Calendar, Photos"/>
+  <int value="15" label="Autofill, Gmail, Calendar, Photos"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/at_memory/memory_data_type.h:MemoryEntrySourceType) -->
+
+<enum name="AutofillAtMemoryQueryCompletedStatus">
+  <int value="0" label="Query returned data"/>
+  <int value="1" label="Query unsupported"/>
+  <int value="2" label="No data"/>
+  <int value="3" label="Network error"/>
+  <int value="4" label="Inference failure"/>
+  <int value="5" label="Internal error"/>
+</enum>
+
+<!-- LINT.IfChange(AutofillAtMemoryStateRestored) -->
+
+<enum name="AutofillAtMemoryStateRestored">
+  <int value="0" label="New session"/>
+  <int value="1" label="Restored with existing query"/>
+  <int value="2" label="Restored while searching"/>
+  <int value="3" label="Restored with response"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/at_memory/at_memory_metrics_recorder.h:AutofillAtMemoryStateRestored) -->
+
+<enum name="AutofillAtMemoryTriggerSource">
+  <int value="0" label="(Obsolete) Typed trigger"/>
+  <int value="1" label="Context menu"/>
+  <int value="2" label="Keyboard shortcut"/>
+  <int value="3" label="Double Ctrl"/>
+</enum>
+
+<!-- LINT.IfChange(AutofillAtMemoryUiSessionOutcome) -->
+
+<enum name="AutofillAtMemoryUiSessionOutcome">
+  <int value="0" label="Dismissed before query"/>
+  <int value="1" label="Dismissed before results"/>
+  <int value="2" label="Dismissed empty results"/>
+  <int value="3" label="Dismissed results before acceptance"/>
+  <int value="4" label="Suggestion accepted but not filled"/>
+  <int value="5" label="Suggestion filled"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/at_memory/at_memory_metrics_recorder.h:AtMemoryUiSessionOutcome) -->
 
 <enum name="AutofillAutocompleteState">
   <int value="0" label="None"/>
@@ -630,6 +846,10 @@ Called by update_autofill_enums.py.-->
   <int value="8" label="Password"/>
   <int value="9" label="WalletablePassConsent"/>
   <int value="10" label="WalletablePassSave"/>
+  <int value="11" label="OmniboxAutofill"/>
+  <int value="12" label="PaymentsChurnedUsers"/>
+  <int value="13" label="WalletReminderNotice"/>
+  <int value="14" label="GmailOtpOptIn"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/ui/autofill/bubble_controller_base.h:BubbleType) -->
@@ -1220,12 +1440,6 @@ Called by update_autofill_enums.py.-->
              edited"/>
   <int value="10561"
       label="ALTERNATIVE_FAMILY_NAME: Autofilled value accepted"/>
-  <int value="10624"
-      label="NAME_LAST_PREFIX: Not autofilled or autofilled value edited"/>
-  <int value="10625" label="NAME_LAST_PREFIX: Autofilled value accepted"/>
-  <int value="10688"
-      label="NAME_LAST_CORE: Not autofilled or autofilled value edited"/>
-  <int value="10689" label="NAME_LAST_CORE: Autofilled value accepted"/>
   <int value="10752"
       label="PASSPORT_NAME_TAG: Not autofilled or autofilled value edited"/>
   <int value="10753" label="PASSPORT_NAME_TAG: Autofilled value accepted"/>
@@ -1360,6 +1574,16 @@ Called by update_autofill_enums.py.-->
              autofilled value edited"/>
   <int value="12993"
       label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE: Autofilled value accepted"/>
+  <int value="13056"
+      label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: Not autofilled or
+             autofilled value edited"/>
+  <int value="13057"
+      label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: Autofilled value accepted"/>
+  <int value="13120"
+      label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: Not autofilled or autofilled
+             value edited"/>
+  <int value="13121"
+      label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: Autofilled value accepted"/>
   <int value="13184"
       label="FLIGHT_RESERVATION_DEPARTURE_DATE: Not autofilled or autofilled
              value edited"/>
@@ -1605,10 +1829,6 @@ Called by update_autofill_enums.py.-->
   <int value="2625" label="ALTERNATIVE_GIVEN_NAME: accepted"/>
   <int value="2640" label="ALTERNATIVE_FAMILY_NAME: edited"/>
   <int value="2641" label="ALTERNATIVE_FAMILY_NAME: accepted"/>
-  <int value="2656" label="NAME_LAST_PREFIX: edited"/>
-  <int value="2657" label="NAME_LAST_PREFIX: accepted"/>
-  <int value="2672" label="NAME_LAST_CORE: edited"/>
-  <int value="2673" label="NAME_LAST_CORE: accepted"/>
   <int value="2688" label="PASSPORT_NAME_TAG: edited"/>
   <int value="2689" label="PASSPORT_NAME_TAG: accepted"/>
   <int value="2704" label="PASSPORT_NUMBER: edited"/>
@@ -1673,6 +1893,10 @@ Called by update_autofill_enums.py.-->
   <int value="3233" label="ADDRESS_HOME_ZIP_SUFFIX: accepted"/>
   <int value="3248" label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE: edited"/>
   <int value="3249" label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE: accepted"/>
+  <int value="3264" label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: edited"/>
+  <int value="3265" label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: accepted"/>
+  <int value="3280" label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: edited"/>
+  <int value="3281" label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: accepted"/>
   <int value="3296" label="FLIGHT_RESERVATION_DEPARTURE_DATE: edited"/>
   <int value="3297" label="FLIGHT_RESERVATION_DEPARTURE_DATE: accepted"/>
   <int value="3312" label="ADDRESS_HOME_ZIP_AND_CITY: edited"/>
@@ -1691,6 +1915,17 @@ Called by update_autofill_enums.py.-->
   <int value="0" label="EMAIL: accepted"/>
   <int value="1" label="LOYALTY_CARD: accepted"/>
 </enum>
+
+<!-- LINT.IfChange(AutofillEmailSuggestionAcceptedStatus) -->
+
+<enum name="AutofillEmailSuggestionAcceptedStatus">
+  <int value="0" label="Only Addresses available and selected"/>
+  <int value="1" label="Only Autocomplete available and selected"/>
+  <int value="2" label="Both available, Address selected"/>
+  <int value="3" label="Both available, Autocomplete selected"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/metrics/suggestions_list_metrics.h:AutofillEmailSuggestionAcceptedStatus) -->
 
 <enum name="AutofillErrorDialogType">
   <int value="0" label="VIRTUAL_CARD_TEMPORARY_ERROR"/>
@@ -1725,8 +1960,8 @@ Called by update_autofill_enums.py.-->
   <int value="5" label="False Positive (Ambiguous)"/>
   <int value="6" label="False Positive (Unknown)"/>
   <int value="7" label="False Positive (Empty)"/>
-  <int value="8" label="False Negative (Mismatch)"/>
-  <int value="9" label="False Negative (Unknown)"/>
+  <int value="8" label="False Negative (Unknown)"/>
+  <int value="9" label="False Negative (Mismatch)"/>
 </enum>
 
 <enum name="AutofillFieldPredictionQualityByFieldType">
@@ -1741,8 +1976,8 @@ Called by update_autofill_enums.py.-->
   <int value="5" label="AMBIGUOUS: False Positive (Ambiguous)"/>
   <int value="6" label="AMBIGUOUS: False Positive (Unknown)"/>
   <int value="7" label="AMBIGUOUS: False Positive (Empty)"/>
-  <int value="8" label="AMBIGUOUS: False Negative (Mismatch)"/>
-  <int value="9" label="AMBIGUOUS: False Negative (Unknown)"/>
+  <int value="8" label="AMBIGUOUS: False Negative (Unknown)"/>
+  <int value="9" label="AMBIGUOUS: False Negative (Mismatch)"/>
   <int value="256" label="NAME: True Positive"/>
   <int value="257" label="NAME: True Negative (Ambiguous)"/>
   <int value="258" label="NAME: True Negative (Unknown)"/>
@@ -1751,8 +1986,8 @@ Called by update_autofill_enums.py.-->
   <int value="261" label="NAME: False Positive (Ambiguous)"/>
   <int value="262" label="NAME: False Positive (Unknown)"/>
   <int value="263" label="NAME: False Positive (Empty)"/>
-  <int value="264" label="NAME: False Negative (Mismatch)"/>
-  <int value="265" label="NAME: False Negative (Unknown)"/>
+  <int value="264" label="NAME: False Negative (Unknown)"/>
+  <int value="265" label="NAME: False Negative (Mismatch)"/>
   <int value="512" label="COMPANY: True Positive"/>
   <int value="513" label="COMPANY: True Negative (Ambiguous)"/>
   <int value="514" label="COMPANY: True Negative (Unknown)"/>
@@ -1761,8 +1996,8 @@ Called by update_autofill_enums.py.-->
   <int value="517" label="COMPANY: False Positive (Ambiguous)"/>
   <int value="518" label="COMPANY: False Positive (Unknown)"/>
   <int value="519" label="COMPANY: False Positive (Empty)"/>
-  <int value="520" label="COMPANY: False Negative (Mismatch)"/>
-  <int value="521" label="COMPANY: False Negative (Unknown)"/>
+  <int value="520" label="COMPANY: False Negative (Unknown)"/>
+  <int value="521" label="COMPANY: False Negative (Mismatch)"/>
   <int value="768" label="ADDRESS_LINE_1: True Positive"/>
   <int value="769" label="ADDRESS_LINE_1: True Negative (Ambiguous)"/>
   <int value="770" label="ADDRESS_LINE_1: True Negative (Unknown)"/>
@@ -1771,8 +2006,8 @@ Called by update_autofill_enums.py.-->
   <int value="773" label="ADDRESS_LINE_1: False Positive (Ambiguous)"/>
   <int value="774" label="ADDRESS_LINE_1: False Positive (Unknown)"/>
   <int value="775" label="ADDRESS_LINE_1: False Positive (Empty)"/>
-  <int value="776" label="ADDRESS_LINE_1: False Negative (Mismatch)"/>
-  <int value="777" label="ADDRESS_LINE_1: False Negative (Unknown)"/>
+  <int value="776" label="ADDRESS_LINE_1: False Negative (Unknown)"/>
+  <int value="777" label="ADDRESS_LINE_1: False Negative (Mismatch)"/>
   <int value="1024" label="ADDRESS_LINE_2: True Positive"/>
   <int value="1025" label="ADDRESS_LINE_2: True Negative (Ambiguous)"/>
   <int value="1026" label="ADDRESS_LINE_2: True Negative (Unknown)"/>
@@ -1781,8 +2016,8 @@ Called by update_autofill_enums.py.-->
   <int value="1029" label="ADDRESS_LINE_2: False Positive (Ambiguous)"/>
   <int value="1030" label="ADDRESS_LINE_2: False Positive (Unknown)"/>
   <int value="1031" label="ADDRESS_LINE_2: False Positive (Empty)"/>
-  <int value="1032" label="ADDRESS_LINE_2: False Negative (Mismatch)"/>
-  <int value="1033" label="ADDRESS_LINE_2: False Negative (Unknown)"/>
+  <int value="1032" label="ADDRESS_LINE_2: False Negative (Unknown)"/>
+  <int value="1033" label="ADDRESS_LINE_2: False Negative (Mismatch)"/>
   <int value="1280" label="ADDRESS_CITY: True Positive"/>
   <int value="1281" label="ADDRESS_CITY: True Negative (Ambiguous)"/>
   <int value="1282" label="ADDRESS_CITY: True Negative (Unknown)"/>
@@ -1791,8 +2026,8 @@ Called by update_autofill_enums.py.-->
   <int value="1285" label="ADDRESS_CITY: False Positive (Ambiguous)"/>
   <int value="1286" label="ADDRESS_CITY: False Positive (Unknown)"/>
   <int value="1287" label="ADDRESS_CITY: False Positive (Empty)"/>
-  <int value="1288" label="ADDRESS_CITY: False Negative (Mismatch)"/>
-  <int value="1289" label="ADDRESS_CITY: False Negative (Unknown)"/>
+  <int value="1288" label="ADDRESS_CITY: False Negative (Unknown)"/>
+  <int value="1289" label="ADDRESS_CITY: False Negative (Mismatch)"/>
   <int value="1536" label="ADDRESS_STATE: True Positive"/>
   <int value="1537" label="ADDRESS_STATE: True Negative (Ambiguous)"/>
   <int value="1538" label="ADDRESS_STATE: True Negative (Unknown)"/>
@@ -1801,8 +2036,8 @@ Called by update_autofill_enums.py.-->
   <int value="1541" label="ADDRESS_STATE: False Positive (Ambiguous)"/>
   <int value="1542" label="ADDRESS_STATE: False Positive (Unknown)"/>
   <int value="1543" label="ADDRESS_STATE: False Positive (Empty)"/>
-  <int value="1544" label="ADDRESS_STATE: False Negative (Mismatch)"/>
-  <int value="1545" label="ADDRESS_STATE: False Negative (Unknown)"/>
+  <int value="1544" label="ADDRESS_STATE: False Negative (Unknown)"/>
+  <int value="1545" label="ADDRESS_STATE: False Negative (Mismatch)"/>
   <int value="1792" label="ADDRESS_ZIP: True Positive"/>
   <int value="1793" label="ADDRESS_ZIP: True Negative (Ambiguous)"/>
   <int value="1794" label="ADDRESS_ZIP: True Negative (Unknown)"/>
@@ -1811,8 +2046,8 @@ Called by update_autofill_enums.py.-->
   <int value="1797" label="ADDRESS_ZIP: False Positive (Ambiguous)"/>
   <int value="1798" label="ADDRESS_ZIP: False Positive (Unknown)"/>
   <int value="1799" label="ADDRESS_ZIP: False Positive (Empty)"/>
-  <int value="1800" label="ADDRESS_ZIP: False Negative (Mismatch)"/>
-  <int value="1801" label="ADDRESS_ZIP: False Negative (Unknown)"/>
+  <int value="1800" label="ADDRESS_ZIP: False Negative (Unknown)"/>
+  <int value="1801" label="ADDRESS_ZIP: False Negative (Mismatch)"/>
   <int value="2048" label="ADDRESS_COUNTRY: True Positive"/>
   <int value="2049" label="ADDRESS_COUNTRY: True Negative (Ambiguous)"/>
   <int value="2050" label="ADDRESS_COUNTRY: True Negative (Unknown)"/>
@@ -1821,8 +2056,8 @@ Called by update_autofill_enums.py.-->
   <int value="2053" label="ADDRESS_COUNTRY: False Positive (Ambiguous)"/>
   <int value="2054" label="ADDRESS_COUNTRY: False Positive (Unknown)"/>
   <int value="2055" label="ADDRESS_COUNTRY: False Positive (Empty)"/>
-  <int value="2056" label="ADDRESS_COUNTRY: False Negative (Mismatch)"/>
-  <int value="2057" label="ADDRESS_COUNTRY: False Negative (Unknown)"/>
+  <int value="2056" label="ADDRESS_COUNTRY: False Negative (Unknown)"/>
+  <int value="2057" label="ADDRESS_COUNTRY: False Negative (Mismatch)"/>
   <int value="2304" label="ADDRESS_HOME_STREET_NAME: True Positive"/>
   <int value="2305"
       label="ADDRESS_HOME_STREET_NAME: True Negative (Ambiguous)"/>
@@ -1834,9 +2069,9 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_STREET_NAME: False Positive (Ambiguous)"/>
   <int value="2310" label="ADDRESS_HOME_STREET_NAME: False Positive (Unknown)"/>
   <int value="2311" label="ADDRESS_HOME_STREET_NAME: False Positive (Empty)"/>
-  <int value="2312"
+  <int value="2312" label="ADDRESS_HOME_STREET_NAME: False Negative (Unknown)"/>
+  <int value="2313"
       label="ADDRESS_HOME_STREET_NAME: False Negative (Mismatch)"/>
-  <int value="2313" label="ADDRESS_HOME_STREET_NAME: False Negative (Unknown)"/>
   <int value="2560" label="ADDRESS_HOME_HOUSE_NUMBER: True Positive"/>
   <int value="2561"
       label="ADDRESS_HOME_HOUSE_NUMBER: True Negative (Ambiguous)"/>
@@ -1850,9 +2085,9 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_HOUSE_NUMBER: False Positive (Unknown)"/>
   <int value="2567" label="ADDRESS_HOME_HOUSE_NUMBER: False Positive (Empty)"/>
   <int value="2568"
-      label="ADDRESS_HOME_HOUSE_NUMBER: False Negative (Mismatch)"/>
-  <int value="2569"
       label="ADDRESS_HOME_HOUSE_NUMBER: False Negative (Unknown)"/>
+  <int value="2569"
+      label="ADDRESS_HOME_HOUSE_NUMBER: False Negative (Mismatch)"/>
   <int value="2816" label="ADDRESS_HOME_SUBPREMISE: True Positive"/>
   <int value="2817" label="ADDRESS_HOME_SUBPREMISE: True Negative (Ambiguous)"/>
   <int value="2818" label="ADDRESS_HOME_SUBPREMISE: True Negative (Unknown)"/>
@@ -1862,8 +2097,8 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_SUBPREMISE: False Positive (Ambiguous)"/>
   <int value="2822" label="ADDRESS_HOME_SUBPREMISE: False Positive (Unknown)"/>
   <int value="2823" label="ADDRESS_HOME_SUBPREMISE: False Positive (Empty)"/>
-  <int value="2824" label="ADDRESS_HOME_SUBPREMISE: False Negative (Mismatch)"/>
-  <int value="2825" label="ADDRESS_HOME_SUBPREMISE: False Negative (Unknown)"/>
+  <int value="2824" label="ADDRESS_HOME_SUBPREMISE: False Negative (Unknown)"/>
+  <int value="2825" label="ADDRESS_HOME_SUBPREMISE: False Negative (Mismatch)"/>
   <int value="3072" label="PHONE: True Positive"/>
   <int value="3073" label="PHONE: True Negative (Ambiguous)"/>
   <int value="3074" label="PHONE: True Negative (Unknown)"/>
@@ -1872,8 +2107,8 @@ Called by update_autofill_enums.py.-->
   <int value="3077" label="PHONE: False Positive (Ambiguous)"/>
   <int value="3078" label="PHONE: False Positive (Unknown)"/>
   <int value="3079" label="PHONE: False Positive (Empty)"/>
-  <int value="3080" label="PHONE: False Negative (Mismatch)"/>
-  <int value="3081" label="PHONE: False Negative (Unknown)"/>
+  <int value="3080" label="PHONE: False Negative (Unknown)"/>
+  <int value="3081" label="PHONE: False Negative (Mismatch)"/>
   <int value="3328" label="FAX: True Positive"/>
   <int value="3329" label="FAX: True Negative (Ambiguous)"/>
   <int value="3330" label="FAX: True Negative (Unknown)"/>
@@ -1882,8 +2117,8 @@ Called by update_autofill_enums.py.-->
   <int value="3333" label="FAX: False Positive (Ambiguous)"/>
   <int value="3334" label="FAX: False Positive (Unknown)"/>
   <int value="3335" label="FAX: False Positive (Empty)"/>
-  <int value="3336" label="FAX: False Negative (Mismatch)"/>
-  <int value="3337" label="FAX: False Negative (Unknown)"/>
+  <int value="3336" label="FAX: False Negative (Unknown)"/>
+  <int value="3337" label="FAX: False Negative (Mismatch)"/>
   <int value="3584" label="EMAIL: True Positive"/>
   <int value="3585" label="EMAIL: True Negative (Ambiguous)"/>
   <int value="3586" label="EMAIL: True Negative (Unknown)"/>
@@ -1892,8 +2127,8 @@ Called by update_autofill_enums.py.-->
   <int value="3589" label="EMAIL: False Positive (Ambiguous)"/>
   <int value="3590" label="EMAIL: False Positive (Unknown)"/>
   <int value="3591" label="EMAIL: False Positive (Empty)"/>
-  <int value="3592" label="EMAIL: False Negative (Mismatch)"/>
-  <int value="3593" label="EMAIL: False Negative (Unknown)"/>
+  <int value="3592" label="EMAIL: False Negative (Unknown)"/>
+  <int value="3593" label="EMAIL: False Negative (Mismatch)"/>
   <int value="3840" label="CREDIT_CARD_NAME: True Positive"/>
   <int value="3841" label="CREDIT_CARD_NAME: True Negative (Ambiguous)"/>
   <int value="3842" label="CREDIT_CARD_NAME: True Negative (Unknown)"/>
@@ -1902,8 +2137,8 @@ Called by update_autofill_enums.py.-->
   <int value="3845" label="CREDIT_CARD_NAME: False Positive (Ambiguous)"/>
   <int value="3846" label="CREDIT_CARD_NAME: False Positive (Unknown)"/>
   <int value="3847" label="CREDIT_CARD_NAME: False Positive (Empty)"/>
-  <int value="3848" label="CREDIT_CARD_NAME: False Negative (Mismatch)"/>
-  <int value="3849" label="CREDIT_CARD_NAME: False Negative (Unknown)"/>
+  <int value="3848" label="CREDIT_CARD_NAME: False Negative (Unknown)"/>
+  <int value="3849" label="CREDIT_CARD_NAME: False Negative (Mismatch)"/>
   <int value="4096" label="CREDIT_CARD_NUMBER: True Positive"/>
   <int value="4097" label="CREDIT_CARD_NUMBER: True Negative (Ambiguous)"/>
   <int value="4098" label="CREDIT_CARD_NUMBER: True Negative (Unknown)"/>
@@ -1912,8 +2147,8 @@ Called by update_autofill_enums.py.-->
   <int value="4101" label="CREDIT_CARD_NUMBER: False Positive (Ambiguous)"/>
   <int value="4102" label="CREDIT_CARD_NUMBER: False Positive (Unknown)"/>
   <int value="4103" label="CREDIT_CARD_NUMBER: False Positive (Empty)"/>
-  <int value="4104" label="CREDIT_CARD_NUMBER: False Negative (Mismatch)"/>
-  <int value="4105" label="CREDIT_CARD_NUMBER: False Negative (Unknown)"/>
+  <int value="4104" label="CREDIT_CARD_NUMBER: False Negative (Unknown)"/>
+  <int value="4105" label="CREDIT_CARD_NUMBER: False Negative (Mismatch)"/>
   <int value="4352" label="CREDIT_CARD_DATE: True Positive"/>
   <int value="4353" label="CREDIT_CARD_DATE: True Negative (Ambiguous)"/>
   <int value="4354" label="CREDIT_CARD_DATE: True Negative (Unknown)"/>
@@ -1922,8 +2157,8 @@ Called by update_autofill_enums.py.-->
   <int value="4357" label="CREDIT_CARD_DATE: False Positive (Ambiguous)"/>
   <int value="4358" label="CREDIT_CARD_DATE: False Positive (Unknown)"/>
   <int value="4359" label="CREDIT_CARD_DATE: False Positive (Empty)"/>
-  <int value="4360" label="CREDIT_CARD_DATE: False Negative (Mismatch)"/>
-  <int value="4361" label="CREDIT_CARD_DATE: False Negative (Unknown)"/>
+  <int value="4360" label="CREDIT_CARD_DATE: False Negative (Unknown)"/>
+  <int value="4361" label="CREDIT_CARD_DATE: False Negative (Mismatch)"/>
   <int value="4608" label="CREDIT_CARD_TYPE: True Positive"/>
   <int value="4609" label="CREDIT_CARD_TYPE: True Negative (Ambiguous)"/>
   <int value="4610" label="CREDIT_CARD_TYPE: True Negative (Unknown)"/>
@@ -1932,8 +2167,8 @@ Called by update_autofill_enums.py.-->
   <int value="4613" label="CREDIT_CARD_TYPE: False Positive (Ambiguous)"/>
   <int value="4614" label="CREDIT_CARD_TYPE: False Positive (Unknown)"/>
   <int value="4615" label="CREDIT_CARD_TYPE: False Positive (Empty)"/>
-  <int value="4616" label="CREDIT_CARD_TYPE: False Negative (Mismatch)"/>
-  <int value="4617" label="CREDIT_CARD_TYPE: False Negative (Unknown)"/>
+  <int value="4616" label="CREDIT_CARD_TYPE: False Negative (Unknown)"/>
+  <int value="4617" label="CREDIT_CARD_TYPE: False Negative (Mismatch)"/>
   <int value="4864" label="PASSWORD: True Positive"/>
   <int value="4865" label="PASSWORD: True Negative (Ambiguous)"/>
   <int value="4866" label="PASSWORD: True Negative (Unknown)"/>
@@ -1942,8 +2177,8 @@ Called by update_autofill_enums.py.-->
   <int value="4869" label="PASSWORD: False Positive (Ambiguous)"/>
   <int value="4870" label="PASSWORD: False Positive (Unknown)"/>
   <int value="4871" label="PASSWORD: False Positive (Empty)"/>
-  <int value="4872" label="PASSWORD: False Negative (Mismatch)"/>
-  <int value="4873" label="PASSWORD: False Negative (Unknown)"/>
+  <int value="4872" label="PASSWORD: False Negative (Unknown)"/>
+  <int value="4873" label="PASSWORD: False Negative (Mismatch)"/>
   <int value="5120" label="ADDRESS_LINE_3: True Positive"/>
   <int value="5121" label="ADDRESS_LINE_3: True Negative (Ambiguous)"/>
   <int value="5122" label="ADDRESS_LINE_3: True Negative (Unknown)"/>
@@ -1952,8 +2187,8 @@ Called by update_autofill_enums.py.-->
   <int value="5125" label="ADDRESS_LINE_3: False Positive (Ambiguous)"/>
   <int value="5126" label="ADDRESS_LINE_3: False Positive (Unknown)"/>
   <int value="5127" label="ADDRESS_LINE_3: False Positive (Empty)"/>
-  <int value="5128" label="ADDRESS_LINE_3: False Negative (Mismatch)"/>
-  <int value="5129" label="ADDRESS_LINE_3: False Negative (Unknown)"/>
+  <int value="5128" label="ADDRESS_LINE_3: False Negative (Unknown)"/>
+  <int value="5129" label="ADDRESS_LINE_3: False Negative (Mismatch)"/>
   <int value="5376" label="USERNAME: True Positive"/>
   <int value="5377" label="USERNAME: True Negative (Ambiguous)"/>
   <int value="5378" label="USERNAME: True Negative (Unknown)"/>
@@ -1962,8 +2197,8 @@ Called by update_autofill_enums.py.-->
   <int value="5381" label="USERNAME: False Positive (Ambiguous)"/>
   <int value="5382" label="USERNAME: False Positive (Unknown)"/>
   <int value="5383" label="USERNAME: False Positive (Empty)"/>
-  <int value="5384" label="USERNAME: False Negative (Mismatch)"/>
-  <int value="5385" label="USERNAME: False Negative (Unknown)"/>
+  <int value="5384" label="USERNAME: False Negative (Unknown)"/>
+  <int value="5385" label="USERNAME: False Negative (Mismatch)"/>
   <int value="5632" label="STREET_ADDRESS: True Positive"/>
   <int value="5633" label="STREET_ADDRESS: True Negative (Ambiguous)"/>
   <int value="5634" label="STREET_ADDRESS: True Negative (Unknown)"/>
@@ -1972,8 +2207,8 @@ Called by update_autofill_enums.py.-->
   <int value="5637" label="STREET_ADDRESS: False Positive (Ambiguous)"/>
   <int value="5638" label="STREET_ADDRESS: False Positive (Unknown)"/>
   <int value="5639" label="STREET_ADDRESS: False Positive (Empty)"/>
-  <int value="5640" label="STREET_ADDRESS: False Negative (Mismatch)"/>
-  <int value="5641" label="STREET_ADDRESS: False Negative (Unknown)"/>
+  <int value="5640" label="STREET_ADDRESS: False Negative (Unknown)"/>
+  <int value="5641" label="STREET_ADDRESS: False Negative (Mismatch)"/>
   <int value="5888" label="CREDIT_CARD_VERIFICATION: True Positive"/>
   <int value="5889"
       label="CREDIT_CARD_VERIFICATION: True Negative (Ambiguous)"/>
@@ -1985,9 +2220,9 @@ Called by update_autofill_enums.py.-->
       label="CREDIT_CARD_VERIFICATION: False Positive (Ambiguous)"/>
   <int value="5894" label="CREDIT_CARD_VERIFICATION: False Positive (Unknown)"/>
   <int value="5895" label="CREDIT_CARD_VERIFICATION: False Positive (Empty)"/>
-  <int value="5896"
+  <int value="5896" label="CREDIT_CARD_VERIFICATION: False Negative (Unknown)"/>
+  <int value="5897"
       label="CREDIT_CARD_VERIFICATION: False Negative (Mismatch)"/>
-  <int value="5897" label="CREDIT_CARD_VERIFICATION: False Negative (Unknown)"/>
   <int value="6144" label="UNFILLABLE: True Positive"/>
   <int value="6145" label="UNFILLABLE: True Negative (Ambiguous)"/>
   <int value="6146" label="UNFILLABLE: True Negative (Unknown)"/>
@@ -1996,8 +2231,8 @@ Called by update_autofill_enums.py.-->
   <int value="6149" label="UNFILLABLE: False Positive (Ambiguous)"/>
   <int value="6150" label="UNFILLABLE: False Positive (Unknown)"/>
   <int value="6151" label="UNFILLABLE: False Positive (Empty)"/>
-  <int value="6152" label="UNFILLABLE: False Negative (Mismatch)"/>
-  <int value="6153" label="UNFILLABLE: False Negative (Unknown)"/>
+  <int value="6152" label="UNFILLABLE: False Negative (Unknown)"/>
+  <int value="6153" label="UNFILLABLE: False Negative (Mismatch)"/>
   <int value="6400" label="ADDRESS_HOME_APT_NUM: True Positive"/>
   <int value="6401" label="ADDRESS_HOME_APT_NUM: True Negative (Ambiguous)"/>
   <int value="6402" label="ADDRESS_HOME_APT_NUM: True Negative (Unknown)"/>
@@ -2006,8 +2241,8 @@ Called by update_autofill_enums.py.-->
   <int value="6405" label="ADDRESS_HOME_APT_NUM: False Positive (Ambiguous)"/>
   <int value="6406" label="ADDRESS_HOME_APT_NUM: False Positive (Unknown)"/>
   <int value="6407" label="ADDRESS_HOME_APT_NUM: False Positive (Empty)"/>
-  <int value="6408" label="ADDRESS_HOME_APT_NUM: False Negative (Mismatch)"/>
-  <int value="6409" label="ADDRESS_HOME_APT_NUM: False Negative (Unknown)"/>
+  <int value="6408" label="ADDRESS_HOME_APT_NUM: False Negative (Unknown)"/>
+  <int value="6409" label="ADDRESS_HOME_APT_NUM: False Negative (Mismatch)"/>
   <int value="6656" label="ADDRESS_HOME_SORTING_CODE: True Positive"/>
   <int value="6657"
       label="ADDRESS_HOME_SORTING_CODE: True Negative (Ambiguous)"/>
@@ -2021,9 +2256,9 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_SORTING_CODE: False Positive (Unknown)"/>
   <int value="6663" label="ADDRESS_HOME_SORTING_CODE: False Positive (Empty)"/>
   <int value="6664"
-      label="ADDRESS_HOME_SORTING_CODE: False Negative (Mismatch)"/>
-  <int value="6665"
       label="ADDRESS_HOME_SORTING_CODE: False Negative (Unknown)"/>
+  <int value="6665"
+      label="ADDRESS_HOME_SORTING_CODE: False Negative (Mismatch)"/>
   <int value="6912" label="ADDRESS_HOME_DEPENDENT_LOCALITY: True Positive"/>
   <int value="6913"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY: True Negative (Ambiguous)"/>
@@ -2040,9 +2275,9 @@ Called by update_autofill_enums.py.-->
   <int value="6919"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY: False Positive (Empty)"/>
   <int value="6920"
-      label="ADDRESS_HOME_DEPENDENT_LOCALITY: False Negative (Mismatch)"/>
-  <int value="6921"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY: False Negative (Unknown)"/>
+  <int value="6921"
+      label="ADDRESS_HOME_DEPENDENT_LOCALITY: False Negative (Mismatch)"/>
   <int value="7168" label="ADDRESS_HOME_OTHER_SUBUNIT: True Positive"/>
   <int value="7169"
       label="ADDRESS_HOME_OTHER_SUBUNIT: True Negative (Ambiguous)"/>
@@ -2057,9 +2292,9 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_OTHER_SUBUNIT: False Positive (Unknown)"/>
   <int value="7175" label="ADDRESS_HOME_OTHER_SUBUNIT: False Positive (Empty)"/>
   <int value="7176"
-      label="ADDRESS_HOME_OTHER_SUBUNIT: False Negative (Mismatch)"/>
-  <int value="7177"
       label="ADDRESS_HOME_OTHER_SUBUNIT: False Negative (Unknown)"/>
+  <int value="7177"
+      label="ADDRESS_HOME_OTHER_SUBUNIT: False Negative (Mismatch)"/>
   <int value="7424" label="ADDRESS_HOME_ADDRESS: True Positive"/>
   <int value="7425" label="ADDRESS_HOME_ADDRESS: True Negative (Ambiguous)"/>
   <int value="7426" label="ADDRESS_HOME_ADDRESS: True Negative (Unknown)"/>
@@ -2068,8 +2303,8 @@ Called by update_autofill_enums.py.-->
   <int value="7429" label="ADDRESS_HOME_ADDRESS: False Positive (Ambiguous)"/>
   <int value="7430" label="ADDRESS_HOME_ADDRESS: False Positive (Unknown)"/>
   <int value="7431" label="ADDRESS_HOME_ADDRESS: False Positive (Empty)"/>
-  <int value="7432" label="ADDRESS_HOME_ADDRESS: False Negative (Mismatch)"/>
-  <int value="7433" label="ADDRESS_HOME_ADDRESS: False Negative (Unknown)"/>
+  <int value="7432" label="ADDRESS_HOME_ADDRESS: False Negative (Unknown)"/>
+  <int value="7433" label="ADDRESS_HOME_ADDRESS: False Negative (Mismatch)"/>
   <int value="7680" label="ADDRESS_HOME_ADDRESS_WITH_NAME: True Positive"/>
   <int value="7681"
       label="ADDRESS_HOME_ADDRESS_WITH_NAME: True Negative (Ambiguous)"/>
@@ -2086,9 +2321,9 @@ Called by update_autofill_enums.py.-->
   <int value="7687"
       label="ADDRESS_HOME_ADDRESS_WITH_NAME: False Positive (Empty)"/>
   <int value="7688"
-      label="ADDRESS_HOME_ADDRESS_WITH_NAME: False Negative (Mismatch)"/>
-  <int value="7689"
       label="ADDRESS_HOME_ADDRESS_WITH_NAME: False Negative (Unknown)"/>
+  <int value="7689"
+      label="ADDRESS_HOME_ADDRESS_WITH_NAME: False Negative (Mismatch)"/>
   <int value="7936" label="ADDRESS_HOME_FLOOR: True Positive"/>
   <int value="7937" label="ADDRESS_HOME_FLOOR: True Negative (Ambiguous)"/>
   <int value="7938" label="ADDRESS_HOME_FLOOR: True Negative (Unknown)"/>
@@ -2097,8 +2332,8 @@ Called by update_autofill_enums.py.-->
   <int value="7941" label="ADDRESS_HOME_FLOOR: False Positive (Ambiguous)"/>
   <int value="7942" label="ADDRESS_HOME_FLOOR: False Positive (Unknown)"/>
   <int value="7943" label="ADDRESS_HOME_FLOOR: False Positive (Empty)"/>
-  <int value="7944" label="ADDRESS_HOME_FLOOR: False Negative (Mismatch)"/>
-  <int value="7945" label="ADDRESS_HOME_FLOOR: False Negative (Unknown)"/>
+  <int value="7944" label="ADDRESS_HOME_FLOOR: False Negative (Unknown)"/>
+  <int value="7945" label="ADDRESS_HOME_FLOOR: False Negative (Mismatch)"/>
   <int value="8192" label="UNKNOWN_TYPE: True Positive"/>
   <int value="8193" label="UNKNOWN_TYPE: True Negative (Ambiguous)"/>
   <int value="8194" label="UNKNOWN_TYPE: True Negative (Unknown)"/>
@@ -2107,8 +2342,8 @@ Called by update_autofill_enums.py.-->
   <int value="8197" label="UNKNOWN_TYPE: False Positive (Ambiguous)"/>
   <int value="8198" label="UNKNOWN_TYPE: False Positive (Unknown)"/>
   <int value="8199" label="UNKNOWN_TYPE: False Positive (Empty)"/>
-  <int value="8200" label="UNKNOWN_TYPE: False Negative (Mismatch)"/>
-  <int value="8201" label="UNKNOWN_TYPE: False Negative (Unknown)"/>
+  <int value="8200" label="UNKNOWN_TYPE: False Negative (Unknown)"/>
+  <int value="8201" label="UNKNOWN_TYPE: False Negative (Mismatch)"/>
   <int value="8448" label="BIRTHDATE: True Positive"/>
   <int value="8449" label="BIRTHDATE: True Negative (Ambiguous)"/>
   <int value="8450" label="BIRTHDATE: True Negative (Unknown)"/>
@@ -2117,8 +2352,8 @@ Called by update_autofill_enums.py.-->
   <int value="8453" label="BIRTHDATE: False Positive (Ambiguous)"/>
   <int value="8454" label="BIRTHDATE: False Positive (Unknown)"/>
   <int value="8455" label="BIRTHDATE: False Positive (Empty)"/>
-  <int value="8456" label="BIRTHDATE: False Negative (Mismatch)"/>
-  <int value="8457" label="BIRTHDATE: False Negative (Unknown)"/>
+  <int value="8456" label="BIRTHDATE: False Negative (Unknown)"/>
+  <int value="8457" label="BIRTHDATE: False Negative (Mismatch)"/>
   <int value="8704" label="IBAN: True Positive"/>
   <int value="8705" label="IBAN: True Negative (Ambiguous)"/>
   <int value="8706" label="IBAN: True Negative (Unknown)"/>
@@ -2127,8 +2362,8 @@ Called by update_autofill_enums.py.-->
   <int value="8709" label="IBAN: False Positive (Ambiguous)"/>
   <int value="8710" label="IBAN: False Positive (Unknown)"/>
   <int value="8711" label="IBAN: False Positive (Empty)"/>
-  <int value="8712" label="IBAN: False Negative (Mismatch)"/>
-  <int value="8713" label="IBAN: False Negative (Unknown)"/>
+  <int value="8712" label="IBAN: False Negative (Unknown)"/>
+  <int value="8713" label="IBAN: False Negative (Mismatch)"/>
   <int value="8960" label="ADDRESS_HOME_LANDMARK: True Positive"/>
   <int value="8961" label="ADDRESS_HOME_LANDMARK: True Negative (Ambiguous)"/>
   <int value="8962" label="ADDRESS_HOME_LANDMARK: True Negative (Unknown)"/>
@@ -2137,8 +2372,8 @@ Called by update_autofill_enums.py.-->
   <int value="8965" label="ADDRESS_HOME_LANDMARK: False Positive (Ambiguous)"/>
   <int value="8966" label="ADDRESS_HOME_LANDMARK: False Positive (Unknown)"/>
   <int value="8967" label="ADDRESS_HOME_LANDMARK: False Positive (Empty)"/>
-  <int value="8968" label="ADDRESS_HOME_LANDMARK: False Negative (Mismatch)"/>
-  <int value="8969" label="ADDRESS_HOME_LANDMARK: False Negative (Unknown)"/>
+  <int value="8968" label="ADDRESS_HOME_LANDMARK: False Negative (Unknown)"/>
+  <int value="8969" label="ADDRESS_HOME_LANDMARK: False Negative (Mismatch)"/>
   <int value="9216" label="ADDRESS_HOME_BETWEEN_STREETS: True Positive"/>
   <int value="9217"
       label="ADDRESS_HOME_BETWEEN_STREETS: True Negative (Ambiguous)"/>
@@ -2155,9 +2390,9 @@ Called by update_autofill_enums.py.-->
   <int value="9223"
       label="ADDRESS_HOME_BETWEEN_STREETS: False Positive (Empty)"/>
   <int value="9224"
-      label="ADDRESS_HOME_BETWEEN_STREETS: False Negative (Mismatch)"/>
-  <int value="9225"
       label="ADDRESS_HOME_BETWEEN_STREETS: False Negative (Unknown)"/>
+  <int value="9225"
+      label="ADDRESS_HOME_BETWEEN_STREETS: False Negative (Mismatch)"/>
   <int value="9472" label="ADDRESS_HOME_ADMIN_LEVEL2: True Positive"/>
   <int value="9473"
       label="ADDRESS_HOME_ADMIN_LEVEL2: True Negative (Ambiguous)"/>
@@ -2171,9 +2406,9 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_ADMIN_LEVEL2: False Positive (Unknown)"/>
   <int value="9479" label="ADDRESS_HOME_ADMIN_LEVEL2: False Positive (Empty)"/>
   <int value="9480"
-      label="ADDRESS_HOME_ADMIN_LEVEL2: False Negative (Mismatch)"/>
-  <int value="9481"
       label="ADDRESS_HOME_ADMIN_LEVEL2: False Negative (Unknown)"/>
+  <int value="9481"
+      label="ADDRESS_HOME_ADMIN_LEVEL2: False Negative (Mismatch)"/>
   <int value="9728" label="ADDRESS_HOME_STREET_LOCATION: True Positive"/>
   <int value="9729"
       label="ADDRESS_HOME_STREET_LOCATION: True Negative (Ambiguous)"/>
@@ -2190,9 +2425,9 @@ Called by update_autofill_enums.py.-->
   <int value="9735"
       label="ADDRESS_HOME_STREET_LOCATION: False Positive (Empty)"/>
   <int value="9736"
-      label="ADDRESS_HOME_STREET_LOCATION: False Negative (Mismatch)"/>
-  <int value="9737"
       label="ADDRESS_HOME_STREET_LOCATION: False Negative (Unknown)"/>
+  <int value="9737"
+      label="ADDRESS_HOME_STREET_LOCATION: False Negative (Mismatch)"/>
   <int value="9984" label="ADDRESS_HOME_OVERFLOW: True Positive"/>
   <int value="9985" label="ADDRESS_HOME_OVERFLOW: True Negative (Ambiguous)"/>
   <int value="9986" label="ADDRESS_HOME_OVERFLOW: True Negative (Unknown)"/>
@@ -2201,8 +2436,8 @@ Called by update_autofill_enums.py.-->
   <int value="9989" label="ADDRESS_HOME_OVERFLOW: False Positive (Ambiguous)"/>
   <int value="9990" label="ADDRESS_HOME_OVERFLOW: False Positive (Unknown)"/>
   <int value="9991" label="ADDRESS_HOME_OVERFLOW: False Positive (Empty)"/>
-  <int value="9992" label="ADDRESS_HOME_OVERFLOW: False Negative (Mismatch)"/>
-  <int value="9993" label="ADDRESS_HOME_OVERFLOW: False Negative (Unknown)"/>
+  <int value="9992" label="ADDRESS_HOME_OVERFLOW: False Negative (Unknown)"/>
+  <int value="9993" label="ADDRESS_HOME_OVERFLOW: False Negative (Mismatch)"/>
   <int value="10240" label="DELIVERY_INSTRUCTIONS: True Positive"/>
   <int value="10241" label="DELIVERY_INSTRUCTIONS: True Negative (Ambiguous)"/>
   <int value="10242" label="DELIVERY_INSTRUCTIONS: True Negative (Unknown)"/>
@@ -2211,8 +2446,8 @@ Called by update_autofill_enums.py.-->
   <int value="10245" label="DELIVERY_INSTRUCTIONS: False Positive (Ambiguous)"/>
   <int value="10246" label="DELIVERY_INSTRUCTIONS: False Positive (Unknown)"/>
   <int value="10247" label="DELIVERY_INSTRUCTIONS: False Positive (Empty)"/>
-  <int value="10248" label="DELIVERY_INSTRUCTIONS: False Negative (Mismatch)"/>
-  <int value="10249" label="DELIVERY_INSTRUCTIONS: False Negative (Unknown)"/>
+  <int value="10248" label="DELIVERY_INSTRUCTIONS: False Negative (Unknown)"/>
+  <int value="10249" label="DELIVERY_INSTRUCTIONS: False Negative (Mismatch)"/>
   <int value="10496" label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: True Positive"/>
   <int value="10497"
       label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: True Negative (Ambiguous)"/>
@@ -2229,9 +2464,9 @@ Called by update_autofill_enums.py.-->
   <int value="10503"
       label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: False Positive (Empty)"/>
   <int value="10504"
-      label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: False Negative (Mismatch)"/>
-  <int value="10505"
       label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: False Negative (Unknown)"/>
+  <int value="10505"
+      label="ADDRESS_HOME_OVERFLOW_AND_LANDMARK: False Negative (Mismatch)"/>
   <int value="10752"
       label="ADDRESS_HOME_BETWEEN_STREETS_OR_LANDMARK: True Positive"/>
   <int value="10753"
@@ -2255,10 +2490,10 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_BETWEEN_STREETS_OR_LANDMARK: False Positive (Empty)"/>
   <int value="10760"
       label="ADDRESS_HOME_BETWEEN_STREETS_OR_LANDMARK: False Negative
-             (Mismatch)"/>
+             (Unknown)"/>
   <int value="10761"
       label="ADDRESS_HOME_BETWEEN_STREETS_OR_LANDMARK: False Negative
-             (Unknown)"/>
+             (Mismatch)"/>
   <int value="11008"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LOCALITY: True Positive"/>
   <int value="11009"
@@ -2283,10 +2518,10 @@ Called by update_autofill_enums.py.-->
              (Empty)"/>
   <int value="11016"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LOCALITY: False Negative
-             (Mismatch)"/>
+             (Unknown)"/>
   <int value="11017"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LOCALITY: False Negative
-             (Unknown)"/>
+             (Mismatch)"/>
   <int value="11264"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LANDMARK: True Positive"/>
   <int value="11265"
@@ -2311,10 +2546,10 @@ Called by update_autofill_enums.py.-->
              (Empty)"/>
   <int value="11272"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LANDMARK: False Negative
-             (Mismatch)"/>
+             (Unknown)"/>
   <int value="11273"
       label="ADDRESS_HOME_STREET_LOCATION_AND_LANDMARK: False Negative
-             (Unknown)"/>
+             (Mismatch)"/>
   <int value="11520"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY_AND_LANDMARK: True Positive"/>
   <int value="11521"
@@ -2340,10 +2575,10 @@ Called by update_autofill_enums.py.-->
              (Empty)"/>
   <int value="11528"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY_AND_LANDMARK: False Negative
-             (Mismatch)"/>
+             (Unknown)"/>
   <int value="11529"
       label="ADDRESS_HOME_DEPENDENT_LOCALITY_AND_LANDMARK: False Negative
-             (Unknown)"/>
+             (Mismatch)"/>
   <int value="11776" label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: True Positive"/>
   <int value="11777"
       label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: True Negative (Ambiguous)"/>
@@ -2360,9 +2595,9 @@ Called by update_autofill_enums.py.-->
   <int value="11783"
       label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: False Positive (Empty)"/>
   <int value="11784"
-      label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: False Negative (Mismatch)"/>
-  <int value="11785"
       label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: False Negative (Unknown)"/>
+  <int value="11785"
+      label="ADDRESS_HOME_HOUSE_NUMBER_AND_APT: False Negative (Mismatch)"/>
   <int value="12032"
       label="STANDALONE_CREDIT_CARD_VERIFICATION: True Positive"/>
   <int value="12033"
@@ -2380,9 +2615,9 @@ Called by update_autofill_enums.py.-->
   <int value="12039"
       label="STANDALONE_CREDIT_CARD_VERIFICATION: False Positive (Empty)"/>
   <int value="12040"
-      label="STANDALONE_CREDIT_CARD_VERIFICATION: False Negative (Mismatch)"/>
-  <int value="12041"
       label="STANDALONE_CREDIT_CARD_VERIFICATION: False Negative (Unknown)"/>
+  <int value="12041"
+      label="STANDALONE_CREDIT_CARD_VERIFICATION: False Negative (Mismatch)"/>
   <int value="12288" label="AUTOFILL_AI: True Positive"/>
   <int value="12289" label="AUTOFILL_AI: True Negative (Ambiguous)"/>
   <int value="12290" label="AUTOFILL_AI: True Negative (Unknown)"/>
@@ -2391,8 +2626,8 @@ Called by update_autofill_enums.py.-->
   <int value="12293" label="AUTOFILL_AI: False Positive (Ambiguous)"/>
   <int value="12294" label="AUTOFILL_AI: False Positive (Unknown)"/>
   <int value="12295" label="AUTOFILL_AI: False Positive (Empty)"/>
-  <int value="12296" label="AUTOFILL_AI: False Negative (Mismatch)"/>
-  <int value="12297" label="AUTOFILL_AI: False Negative (Unknown)"/>
+  <int value="12296" label="AUTOFILL_AI: False Negative (Unknown)"/>
+  <int value="12297" label="AUTOFILL_AI: False Negative (Mismatch)"/>
   <int value="12544" label="LOYALTY_CARD: True Positive"/>
   <int value="12545" label="LOYALTY_CARD: True Negative (Ambiguous)"/>
   <int value="12546" label="LOYALTY_CARD: True Negative (Unknown)"/>
@@ -2401,8 +2636,8 @@ Called by update_autofill_enums.py.-->
   <int value="12549" label="LOYALTY_CARD: False Positive (Ambiguous)"/>
   <int value="12550" label="LOYALTY_CARD: False Positive (Unknown)"/>
   <int value="12551" label="LOYALTY_CARD: False Positive (Empty)"/>
-  <int value="12552" label="LOYALTY_CARD: False Negative (Mismatch)"/>
-  <int value="12553" label="LOYALTY_CARD: False Negative (Unknown)"/>
+  <int value="12552" label="LOYALTY_CARD: False Negative (Unknown)"/>
+  <int value="12553" label="LOYALTY_CARD: False Negative (Mismatch)"/>
   <int value="12800" label="ONE_TIME_PASSWORD: True Positive"/>
   <int value="12801" label="ONE_TIME_PASSWORD: True Negative (Ambiguous)"/>
   <int value="12802" label="ONE_TIME_PASSWORD: True Negative (Unknown)"/>
@@ -2411,8 +2646,8 @@ Called by update_autofill_enums.py.-->
   <int value="12805" label="ONE_TIME_PASSWORD: False Positive (Ambiguous)"/>
   <int value="12806" label="ONE_TIME_PASSWORD: False Positive (Unknown)"/>
   <int value="12807" label="ONE_TIME_PASSWORD: False Positive (Empty)"/>
-  <int value="12808" label="ONE_TIME_PASSWORD: False Negative (Mismatch)"/>
-  <int value="12809" label="ONE_TIME_PASSWORD: False Negative (Unknown)"/>
+  <int value="12808" label="ONE_TIME_PASSWORD: False Negative (Unknown)"/>
+  <int value="12809" label="ONE_TIME_PASSWORD: False Negative (Mismatch)"/>
   <int value="13056" label="ADDRESS_HOME_ZIP_AND_CITY: True Positive"/>
   <int value="13057"
       label="ADDRESS_HOME_ZIP_AND_CITY: True Negative (Ambiguous)"/>
@@ -2427,9 +2662,37 @@ Called by update_autofill_enums.py.-->
       label="ADDRESS_HOME_ZIP_AND_CITY: False Positive (Unknown)"/>
   <int value="13063" label="ADDRESS_HOME_ZIP_AND_CITY: False Positive (Empty)"/>
   <int value="13064"
-      label="ADDRESS_HOME_ZIP_AND_CITY: False Negative (Mismatch)"/>
-  <int value="13065"
       label="ADDRESS_HOME_ZIP_AND_CITY: False Negative (Unknown)"/>
+  <int value="13065"
+      label="ADDRESS_HOME_ZIP_AND_CITY: False Negative (Mismatch)"/>
+  <int value="13312" label="ADDRESS_HOME_ZIP_PREFIX: True Positive"/>
+  <int value="13313"
+      label="ADDRESS_HOME_ZIP_PREFIX: True Negative (Ambiguous)"/>
+  <int value="13314" label="ADDRESS_HOME_ZIP_PREFIX: True Negative (Unknown)"/>
+  <int value="13315" label="ADDRESS_HOME_ZIP_PREFIX: True Negative (Empty)"/>
+  <int value="13316"
+      label="ADDRESS_HOME_ZIP_PREFIX: False Positive (Mismatch)"/>
+  <int value="13317"
+      label="ADDRESS_HOME_ZIP_PREFIX: False Positive (Ambiguous)"/>
+  <int value="13318" label="ADDRESS_HOME_ZIP_PREFIX: False Positive (Unknown)"/>
+  <int value="13319" label="ADDRESS_HOME_ZIP_PREFIX: False Positive (Empty)"/>
+  <int value="13320" label="ADDRESS_HOME_ZIP_PREFIX: False Negative (Unknown)"/>
+  <int value="13321"
+      label="ADDRESS_HOME_ZIP_PREFIX: False Negative (Mismatch)"/>
+  <int value="13568" label="ADDRESS_HOME_ZIP_SUFFIX: True Positive"/>
+  <int value="13569"
+      label="ADDRESS_HOME_ZIP_SUFFIX: True Negative (Ambiguous)"/>
+  <int value="13570" label="ADDRESS_HOME_ZIP_SUFFIX: True Negative (Unknown)"/>
+  <int value="13571" label="ADDRESS_HOME_ZIP_SUFFIX: True Negative (Empty)"/>
+  <int value="13572"
+      label="ADDRESS_HOME_ZIP_SUFFIX: False Positive (Mismatch)"/>
+  <int value="13573"
+      label="ADDRESS_HOME_ZIP_SUFFIX: False Positive (Ambiguous)"/>
+  <int value="13574" label="ADDRESS_HOME_ZIP_SUFFIX: False Positive (Unknown)"/>
+  <int value="13575" label="ADDRESS_HOME_ZIP_SUFFIX: False Positive (Empty)"/>
+  <int value="13576" label="ADDRESS_HOME_ZIP_SUFFIX: False Negative (Unknown)"/>
+  <int value="13577"
+      label="ADDRESS_HOME_ZIP_SUFFIX: False Negative (Mismatch)"/>
 </enum>
 
 <enum name="AutofillFieldType">
@@ -2539,8 +2802,6 @@ Called by update_autofill_enums.py.-->
   <int value="163" label="ALTERNATIVE_FULL_NAME"/>
   <int value="164" label="ALTERNATIVE_GIVEN_NAME"/>
   <int value="165" label="ALTERNATIVE_FAMILY_NAME"/>
-  <int value="166" label="NAME_LAST_PREFIX"/>
-  <int value="167" label="NAME_LAST_CORE"/>
   <int value="168" label="PASSPORT_NAME_TAG"/>
   <int value="169" label="PASSPORT_NUMBER"/>
   <int value="170" label="PASSPORT_ISSUING_COUNTRY"/>
@@ -2573,6 +2834,8 @@ Called by update_autofill_enums.py.-->
   <int value="201" label="ADDRESS_HOME_ZIP_PREFIX"/>
   <int value="202" label="ADDRESS_HOME_ZIP_SUFFIX"/>
   <int value="203" label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE"/>
+  <int value="204" label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT"/>
+  <int value="205" label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT"/>
   <int value="206" label="FLIGHT_RESERVATION_DEPARTURE_DATE"/>
   <int value="207" label="ADDRESS_HOME_ZIP_AND_CITY"/>
   <int value="208" label="ORDER_ID"/>
@@ -2635,6 +2898,8 @@ Called by update_autofill_enums.py.-->
   <int value="12" label="SelectMultiple"/>
   <int value="14" label="TextArea"/>
 </enum>
+
+<!-- LINT.IfChange(AutofillFormEvent) -->
 
 <enum name="AutofillFormEvent">
   <int value="0" label="Interacted (once)"/>
@@ -2856,7 +3121,18 @@ Called by update_autofill_enums.py.-->
              cards with a benefit available were shown (once)"/>
   <int value="108" label="Local card suggestion selected"/>
   <int value="109" label="Local card suggestion selected (once)"/>
+  <int value="110" label="Suggestion for externally saved card shown"/>
+  <int value="111" label="Suggestion for externally saved card shown (once)"/>
+  <int value="112" label="Suggestion for externally saved card selected"/>
+  <int value="113"
+      label="Suggestion for externally saved card selected (once)"/>
+  <int value="114" label="Suggestion for never used card shown"/>
+  <int value="115" label="Suggestion for never used card shown (once)"/>
+  <int value="116" label="Suggestion for never used card selected"/>
+  <int value="117" label="Suggestion for never used card selected (once)"/>
 </enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/metrics/form_events/form_events.h:FormEvent) -->
 
 <enum name="AutofillGetRealPanResult">
   <int value="0" label="Success"/>
@@ -2889,6 +3165,26 @@ Called by update_autofill_enums.py.-->
   <int value="0" label="Suggestion shown"/>
   <int value="1" label="Suggestion Selected"/>
 </enum>
+
+<!-- LINT.IfChange(AutofillJavaScriptDropdownType) -->
+
+<enum name="AutofillJavaScriptDropdownType">
+  <int value="0" label="None"/>
+  <int value="1" label="Email Picker"/>
+  <int value="2" label="Address Picker"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/foundations/browser_autofill_manager.h:JavaScriptDropdownType) -->
+
+<!-- LINT.IfChange(AutofillKeyboardAccessoryInteraction) -->
+
+<enum name="AutofillKeyboardAccessoryInteraction">
+  <int value="0" label="The keyboard accessory was shown"/>
+  <int value="1" label="A suggestion was selected"/>
+  <int value="2" label="A suggestion was accepted"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/metrics/autofill_metrics.h:AutofillKeyboardAccessoryInteraction) -->
 
 <enum name="AutofillLoyaltyCardAffiliationCategoryFillingReadiness">
   <int value="0" label="No loyalty cards available"/>
@@ -2948,6 +3244,8 @@ Called by update_autofill_enums.py.-->
   <int value="3" label="Name"/>
 </enum>
 
+<!-- LINT.IfChange(AutofillOptionsReferrer) -->
+
 <enum name="AutofillOptionsReferrer">
   <int value="0" label="User entered the autofill options via main settings."/>
   <int value="1" label="User entered the autofill options via deep link."/>
@@ -2959,7 +3257,27 @@ Called by update_autofill_enums.py.-->
   <int value="4"
       label="User entered the autofill options via autofill and passwords
              fragment."/>
+  <int value="5"
+      label="User entered the autofill options via autofill identity docs
+             fragment."/>
+  <int value="6"
+      label="User entered the autofill options via autofill travel fragment."/>
+  <int value="7"
+      label="User entered the autofill options via autofill shopping
+             fragment."/>
+  <int value="8"
+      label="User entered the autofill options via private inference notice."/>
+  <int value="9"
+      label="User entered the autofill options via personal context atmemory
+             notice."/>
+  <int value="10"
+      label="User entered the autofill options via personal context ambient
+             autofill notice."/>
+  <int value="11"
+      label="User entered the autofill options via settings search."/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/android/preferences/autofill/settings_navigation_helper.h:AutofillOptionsReferrer) -->
 
 <enum name="AutofillOtpAuthEvent">
   <int value="0" label="Unknown result"/>
@@ -3001,15 +3319,6 @@ Called by update_autofill_enums.py.-->
              response"/>
 </enum>
 
-<enum name="AutofillPasswordFormType">
-  <int value="0" label="No password form"/>
-  <int value="1" label="Login form"/>
-  <int value="2" label="Signup form"/>
-  <int value="3" label="Change password form"/>
-  <int value="4" label="Reset password form"/>
-  <int value="5" label="Single username form"/>
-</enum>
-
 <enum name="AutofillPaymentMethodsActionEnum">
   <int value="0" label="Added with nickname"/>
   <int value="1" label="Added without nickname"/>
@@ -3022,13 +3331,6 @@ Called by update_autofill_enums.py.-->
   <int value="0" label="None: No phone number in import"/>
   <int value="1" label="Valid: Phone number was imported"/>
   <int value="2" label="Invalid: Phone number was removed before the import"/>
-</enum>
-
-<enum name="AutofillPlusAddressDelegateSuggestionContext">
-  <int value="0" label="Autofill profile filling on email field"/>
-  <int value="1" label="Autofill profile filling on non-email field"/>
-  <int value="2" label="Autocomplete"/>
-  <int value="3" label="Manual fallback"/>
 </enum>
 
 <enum name="AutofillPopupInteraction">
@@ -3601,16 +3903,6 @@ Called by update_autofill_enums.py.-->
   <int value="2642" label="ALTERNATIVE_FAMILY_NAME: kHeuristics"/>
   <int value="2643" label="ALTERNATIVE_FAMILY_NAME: kAutocomplete"/>
   <int value="2644" label="ALTERNATIVE_FAMILY_NAME: kRationalization"/>
-  <int value="2656" label="NAME_LAST_PREFIX: kServerCrowdsourcing"/>
-  <int value="2657" label="NAME_LAST_PREFIX: kServerOverride"/>
-  <int value="2658" label="NAME_LAST_PREFIX: kHeuristics"/>
-  <int value="2659" label="NAME_LAST_PREFIX: kAutocomplete"/>
-  <int value="2660" label="NAME_LAST_PREFIX: kRationalization"/>
-  <int value="2672" label="NAME_LAST_CORE: kServerCrowdsourcing"/>
-  <int value="2673" label="NAME_LAST_CORE: kServerOverride"/>
-  <int value="2674" label="NAME_LAST_CORE: kHeuristics"/>
-  <int value="2675" label="NAME_LAST_CORE: kAutocomplete"/>
-  <int value="2676" label="NAME_LAST_CORE: kRationalization"/>
   <int value="2704" label="PASSPORT_NUMBER: kServerCrowdsourcing"/>
   <int value="2705" label="PASSPORT_NUMBER: kServerOverride"/>
   <int value="2706" label="PASSPORT_NUMBER: kHeuristics"/>
@@ -3920,6 +4212,21 @@ Called by update_autofill_enums.py.-->
   <int value="8" label="EditedFallback"/>
 </enum>
 
+<!-- LINT.IfChange(AutofillPromoCodeFormEvent) -->
+
+<enum name="AutofillPromoCodeFormEvent">
+<!-- Enum value 0 is reserved for navigated to a page with a promo code field
+     and promo code present (once) -->
+
+<!-- Enum value 1 is reserved for navigated to a page with a promo code field
+     and no promo code present (once) -->
+
+  <int value="2" label="Promo code suggestions shown (once)"/>
+  <int value="3" label="Promo code suggestion filled (once)"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/promo_code_metrics.h:AutofillPromoCodeFormEvent) -->
+
 <enum name="AutofillPromptStatus">
   <int value="0" label="Address and credit card"/>
   <int value="1" label="Address only"/>
@@ -3950,15 +4257,6 @@ Called by update_autofill_enums.py.-->
   </summary>
   <int value="0" label="GET"/>
   <int value="1" label="POST"/>
-</enum>
-
-<enum name="AutofillQueryResult">
-  <int value="0" label="Sent"/>
-  <int value="1" label="Received"/>
-  <int value="2" label="Parsed"/>
-  <int value="3" label="Response matches local"/>
-  <int value="4" label="Response improves local (nonempty)"/>
-  <int value="5" label="Response improves local (empty)"/>
 </enum>
 
 <enum name="AutofillRationalizationQualityMetric">
@@ -4001,6 +4299,7 @@ Called by update_autofill_enums.py.-->
   <int value="1" label="Not shown, max strikes reached"/>
   <int value="2" label="Not shown, required delay has not passed"/>
   <int value="3" label="Not shown, CVC missing for possible card update"/>
+  <int value="4" label="Not shown, CVC missing for UnionPay upload"/>
 </enum>
 
 <!-- TODO(crbug.com/430588721): Clean up use of AutofillSavePaymentMethodPromptResultEnum once refactored save card metrics have rolled out. -->
@@ -4025,24 +4324,16 @@ Called by update_autofill_enums.py.-->
   <int value="2" label="Some other item selected"/>
 </enum>
 
-<enum name="AutofillScanCreditCardResult">
-  <int value="0" label="Unknown result"/>
-  <int value="1"
-      label="Credit card was scanned to fill the form and the form was
-             submitted without any additional edits by the user"/>
-  <int value="2"
-      label="Credit card was scanned to fill the form and the form was
-             submitted with edits by the user to fields that were NOT filled
-             by the scanner"/>
-  <int value="3"
-      label="Credit card was scanned to fill the form and the form was
-             submitted with edits by the user to fields filled by the scanner"/>
-  <int value="4"
-      label="Credit card was scanned to fill the form and but the form was
-             not submitted and instead the user closed the form"/>
-  <int value="5" label="Credit card scanner was started but cancelled"/>
-  <int value="6"
-      label="Credit card scanner option was shown to the user but not used"/>
+<enum name="AutofillScanCreditCardPromptEntryPoint">
+  <int value="0" label="Keyboard accessory"/>
+  <int value="1" label="Bottom sheet"/>
+  <int value="2" label="Settings page"/>
+</enum>
+
+<enum name="AutofillScanCreditCardScreenType">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="OCR"/>
+  <int value="2" label="NFC"/>
 </enum>
 
 <enum name="AutofillServerCardUnmaskResult">
@@ -4133,9 +4424,10 @@ Called by update_autofill_enums.py.-->
   <int value="1" label="SettingsMenu"/>
   <int value="2" label="AutofillAndPasswordsPage"/>
   <int value="3" label="FillingFlowDropdown"/>
+  <int value="4" label="SettingsSearch"/>
 </enum>
 
-<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/autofill_settings_metrics.h:AutofillSettingsReferrer,/chrome/browser/resources/settings/metrics_browser_proxy.ts:AutofillSettingsReferrer) -->
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/autofill_settings_metrics.h:AutofillSettingsReferrer, /chrome/browser/resources/settings/metrics_browser_proxy.ts:AutofillSettingsReferrer, /chrome/android/java/src/org/chromium/chrome/browser/autofill/settings/AutofillAndPasswordsFragment.java:AutofillSettingsReferrer) -->
 
 <enum name="AutofillSettingsVisibleTypes">
   <int value="0" label="Undefined"/>
@@ -4153,12 +4445,20 @@ Called by update_autofill_enums.py.-->
   <int value="13" label="AlternativeName"/>
 </enum>
 
-<enum name="AutofillSingleEntryRemovalMethod">
-  <int value="0" label="Keyboard shift + delete pressed"/>
-  <int value="1" label="Delete button clicked"/>
-  <int value="2"
-      label="Keyboard accessory suggestion long pressed and deletion dialog
-             confirmed"/>
+<enum name="AutofillSilentUpdateFieldMergeCategory">
+  <int value="0" label="No categories matched (Other)"/>
+  <int value="1" label="Capitalization update only"/>
+  <int value="2" label="Diacritic and capitalization update only"/>
+  <int value="3"
+      label="(Error) Capitalization only and Capitalization and diacritic
+             only update"/>
+  <int value="4" label="Empty to non-empty update only"/>
+  <int value="5" label="Capitalization and empty to non-empty update"/>
+  <int value="6"
+      label="Diacritic and capitalization, and empty to non-empty update"/>
+  <int value="7"
+      label="(Error) Capitalization only and Capitalization and diacritic
+             only and empty to non-empty update"/>
 </enum>
 
 <!-- LINT.IfChange(FieldPredictionOverlapXml) -->
@@ -4262,7 +4562,7 @@ Called by update_autofill_enums.py.-->
   <int value="3" label="Focus removed from field. Follows kEndEditing."/>
   <int value="4"
       label="Scrolling or zooming into the page displaces the popup."/>
-  <int value="5" label="A navigation on the page or frame level."/>
+  <int value="5" label="(Deprecated) A navigation on the page or frame level."/>
   <int value="6" label="The popup is or would become empty."/>
   <int value="7" label="The renderer explicitly requested closing the popup."/>
   <int value="8"
@@ -4320,6 +4620,41 @@ Called by update_autofill_enums.py.-->
 </enum>
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/suggestions/suggestion_hiding_reason.h:SuggestionHidingReason) -->
+
+<!-- LINT.IfChange(AutofillSuggestionTriggerSource) -->
+
+<enum name="AutofillSuggestionTriggerSource">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Form control element clicked"/>
+  <int value="2" label="Textarea focused without click"/>
+  <int value="3" label="Content editable clicked"/>
+  <int value="4" label="Text field's value did change"/>
+  <int value="5" label="Text field did receive keydown"/>
+  <int value="6" label="Open text data list chooser"/>
+  <int value="7" label="Show cards from account"/>
+  <int value="8" label="Password manager"/>
+  <int value="9" label="iOS"/>
+  <int value="10" label="Manual fallback address"/>
+  <int value="11" label="(Deprecated in M133) Manual fallback payments"/>
+  <int value="12" label="Manual fallback passwords"/>
+  <int value="13" label="(Deprecated in M133) Manual fallback plus addresses"/>
+  <int value="14" label="Show prompt after dialog closed non manual fallback"/>
+  <int value="15" label="Compose dialog lost focus"/>
+  <int value="16" label="Compose delayed proactive nudge"/>
+  <int value="17" label="Password manager processed focused field"/>
+  <int value="18" label="Autofill AI"/>
+  <int value="19" label="(Obsolete) Plus address update in browser process"/>
+  <int value="20" label="Proactive password recovery"/>
+  <int value="21" label="Glic"/>
+  <int value="22" label="(Obsolete) AtMemory trigger string"/>
+  <int value="23" label="AtMemory context menu"/>
+  <int value="24" label="AtMemory inactivity nudge"/>
+  <int value="25" label="AtMemory keyboard shortcut"/>
+  <int value="26" label="AtMemory double Ctrl"/>
+  <int value="27" label="Gmail One-Time Password Available"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/common/mojom/autofill_types.mojom:AutofillSuggestionTriggerSource) -->
 
 <!-- LINT.IfChange(AutofillSyncDisabledReason) -->
 
@@ -4395,6 +4730,30 @@ Called by update_autofill_enums.py.-->
   <int value="0" label="One strike logged"/>
   <int value="1" label="All strikes cleared"/>
 </enum>
+
+<!-- LINT.IfChange(AutofillWalletReminderNoticeInteraction) -->
+
+<enum name="AutofillWalletReminderNoticeInteraction">
+  <int value="0" label="Acknowledged notice"/>
+  <int value="1" label="Link in legal disclaimer clicked"/>
+  <int value="2" label="Dismissed notice"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/metrics/payments/wallet_reminder_notice_metrics.h:WalletReminderNoticeInteraction) -->
+
+<!-- LINT.IfChange(AutofillWalletReminderNoticeShowResult) -->
+
+<enum name="AutofillWalletReminderNoticeShowResult">
+  <int value="0" label="Shown successfully"/>
+  <int value="1" label="Not shown: already acknowledged according to server"/>
+  <int value="2" label="Not shown: already acknowledged according to pref"/>
+  <int value="3" label="Not shown: network or server error"/>
+  <int value="4" label="Not shown: preempted by mandatory reauth"/>
+  <int value="5" label="Not shown: preempted by VCN enrollment"/>
+  <int value="6" label="Not shown: preempted by card or CVC save"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/metrics/payments/wallet_reminder_notice_metrics.h:WalletReminderNoticeShowResult) -->
 
 <enum name="AutofillWebauthnOptInPromoUserDecision">
   <int value="0" label="Accepted"/>
@@ -4479,8 +4838,8 @@ Called by update_autofill_enums.py.-->
   <int value="301" label="RemoveEntityInstance: Failure"/>
   <int value="310" label="RemoveEntityInstancesModifiedBetween: Success"/>
   <int value="311" label="RemoveEntityInstancesModifiedBetween: Failure"/>
-  <int value="312" label="ClearLocalCvcsUpToMay2025: Success"/>
-  <int value="313" label="ClearLocalCvcsUpToMay2025: Failure"/>
+  <int value="312" label="(Deprecated) ClearLocalCvcsUpToMay2025: Success"/>
+  <int value="313" label="(Deprecated) ClearLocalCvcsUpToMay2025: Failure"/>
   <int value="314" label="CleanupForCrbug445879524: Success"/>
   <int value="315" label="CleanupForCrbug445879524: Failure"/>
   <int value="316" label="AddOrUpdateValuableMetadata: Success"/>
@@ -5019,10 +5378,6 @@ Called by update_autofill_enums.py.-->
   <int value="657" label="ALTERNATIVE_GIVEN_NAME: Accepted"/>
   <int value="660" label="ALTERNATIVE_FAMILY_NAME: Ignored"/>
   <int value="661" label="ALTERNATIVE_FAMILY_NAME: Accepted"/>
-  <int value="664" label="NAME_LAST_PREFIX: Ignored"/>
-  <int value="665" label="NAME_LAST_PREFIX: Accepted"/>
-  <int value="668" label="NAME_LAST_CORE: Ignored"/>
-  <int value="669" label="NAME_LAST_CORE: Accepted"/>
   <int value="672" label="PASSPORT_NAME_TAG: Ignored"/>
   <int value="673" label="PASSPORT_NAME_TAG: Accepted"/>
   <int value="676" label="PASSPORT_NUMBER: Ignored"/>
@@ -5087,6 +5442,10 @@ Called by update_autofill_enums.py.-->
   <int value="809" label="ADDRESS_HOME_ZIP_SUFFIX: Accepted"/>
   <int value="812" label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE: Ignored"/>
   <int value="813" label="KNOWN_TRAVELER_NUMBER_EXPIRATION_DATE: Accepted"/>
+  <int value="816" label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: Ignored"/>
+  <int value="817" label="FLIGHT_RESERVATION_DEPARTURE_AIRPORT: Accepted"/>
+  <int value="820" label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: Ignored"/>
+  <int value="821" label="FLIGHT_RESERVATION_ARRIVAL_AIRPORT: Accepted"/>
   <int value="824" label="FLIGHT_RESERVATION_DEPARTURE_DATE: Ignored"/>
   <int value="825" label="FLIGHT_RESERVATION_DEPARTURE_DATE: Accepted"/>
   <int value="828" label="ADDRESS_HOME_ZIP_AND_CITY: Ignored"/>
@@ -5120,6 +5479,31 @@ Called by update_autofill_enums.py.-->
 </enum>
 
 <!-- LINT.ThenChange(//components/autofill/ios/form_util/form_activity_tab_helper.mm:FormSubmissionOutcomeIOS) -->
+
+<!-- LINT.IfChange(GmailOneTimeTokensBackendErrorCode) -->
+
+<enum name="GmailOneTimeTokensBackendErrorCode">
+  <int value="8" label="Auth error"/>
+  <int value="9" label="Network error"/>
+  <int value="10" label="Invalid response"/>
+  <int value="12" label="Unknown error"/>
+  <int value="13" label="API not available"/>
+  <int value="14" label="Initialization failed"/>
+  <int value="15" label="Smart features in Gmail consent required"/>
+  <int value="16"
+      label="Smart features in other Google products consent required"/>
+  <int value="17" label="DMA cross product sharing consent required"/>
+  <int value="18" label="Bad message reference"/>
+  <int value="19" label="Message ID not found"/>
+  <int value="20" label="Wrong token type requested"/>
+  <int value="21" label="One time token expired"/>
+  <int value="22" label="OTP attribute not found"/>
+  <int value="23" label="Server error"/>
+  <int value="24" label="Subscription expired"/>
+  <int value="25" label="Message authentication failed"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/one_time_tokens/core/browser/one_time_token_retrieval_error.h) -->
 
 <enum name="IbanCountry">
   <int value="0" label="Unsupport"/>
@@ -5229,33 +5613,6 @@ Called by update_autofill_enums.py.-->
   <int value="5" label="Success, IBAN upload enabled"/>
 </enum>
 
-<enum name="InferredLabelSource">
-  <int value="0" label="No label"/>
-  <int value="1" label="&lt;label&gt; sibling/ancestor"/>
-  <int value="2" label="&lt;p&gt; sibling"/>
-  <int value="3" label="&lt;div&gt; ancestor"/>
-  <int value="4" label="&lt;td&gt; sibling"/>
-  <int value="5" label="&lt;dt&gt; sibling"/>
-  <int value="6" label="&lt;li&gt; ancestor"/>
-  <int value="7" label="placeholder attribute"/>
-  <int value="8" label="aria-label attribute"/>
-  <int value="9" label="Text node sibling (includes &lt;b&gt;, etc)"/>
-  <int value="10" label="value attribute"/>
-  <int value="11"
-      label="&lt;label&gt; for attribute linked to a control element via its
-             id attribute"/>
-  <int value="12"
-      label="&lt;label&gt; for attribute linked to a control element via its
-             name attribute"/>
-  <int value="13"
-      label="&lt;label&gt; for attribute linked to a control element inside a
-             shadow DOM via its id attribute"/>
-  <int value="14"
-      label="&lt;label&gt; for attribute linked to a control element inside a
-             shadow DOM via its name attribute"/>
-  <int value="15" label="Succeeding DOM node overlaying the input"/>
-</enum>
-
 <!-- LINT.IfChange(InvalidSubmittedFormReasonIOS) -->
 
 <enum name="InvalidSubmittedFormReasonIOS">
@@ -5333,6 +5690,103 @@ Called by update_autofill_enums.py.-->
 
 <!-- LINT.ThenChange(//components/autofill/core/browser/metrics/payments/mandatory_reauth_metrics.h:MandatoryReauthOptInConfirmationBubbleMetric) -->
 
+<!-- LINT.IfChange(MemoryDataType) -->
+
+<enum name="MemoryDataType">
+  <summary>
+    The type of data a query or piece of information is related to.
+  </summary>
+  <int value="0" label="Unknown"/>
+  <int value="1" label="NameFull"/>
+  <int value="2" label="AddressFull"/>
+  <int value="3" label="AddressStreetAddress"/>
+  <int value="4" label="AddressCity"/>
+  <int value="5" label="AddressState"/>
+  <int value="6" label="AddressZip"/>
+  <int value="7" label="AddressCountry"/>
+  <int value="8" label="Phone"/>
+  <int value="9" label="Email"/>
+  <int value="10" label="CompanyName"/>
+  <int value="11" label="Iban"/>
+  <int value="12" label="IbanNickname"/>
+  <int value="14" label="VehicleMake"/>
+  <int value="15" label="VehicleModel"/>
+  <int value="16" label="VehicleYear"/>
+  <int value="17" label="VehicleOwner"/>
+  <int value="18" label="VehiclePlateNumber"/>
+  <int value="19" label="VehiclePlateState"/>
+  <int value="20" label="VehicleVin"/>
+  <int value="22" label="PassportName"/>
+  <int value="23" label="PassportCountry"/>
+  <int value="24" label="PassportNumber"/>
+  <int value="25" label="PassportIssueDate"/>
+  <int value="26" label="PassportExpirationDate"/>
+  <int value="28" label="FlightReservationFlightNumber"/>
+  <int value="29" label="FlightReservationTicketNumber"/>
+  <int value="30" label="FlightReservationConfirmationCode"/>
+  <int value="31" label="FlightReservationPassengerName"/>
+  <int value="32" label="FlightReservationDepartureAirport"/>
+  <int value="33" label="FlightReservationArrivalAirport"/>
+  <int value="34" label="FlightReservationDepartureDate"/>
+  <int value="35" label="FlightReservationArrivalDate"/>
+  <int value="37" label="ShipmentTrackingNumber"/>
+  <int value="38" label="ShipmentAssociatedOrderId"/>
+  <int value="39" label="ShipmentDeliveryAddress"/>
+  <int value="40" label="ShipmentDeliveryZipCode"/>
+  <int value="41" label="ShipmentCarrierName"/>
+  <int value="42" label="ShipmentCarrierDomain"/>
+  <int value="43" label="ShipmentEstimatedDeliveryDate"/>
+  <int value="44" label="ShipmentShippedDate"/>
+  <int value="46" label="NationalIdCardName"/>
+  <int value="47" label="NationalIdCardCountry"/>
+  <int value="48" label="NationalIdCardNumber"/>
+  <int value="49" label="NationalIdCardIssueDate"/>
+  <int value="50" label="NationalIdCardExpirationDate"/>
+  <int value="52" label="RedressNumberName"/>
+  <int value="53" label="RedressNumberNumber"/>
+  <int value="55" label="KnownTravelerNumberName"/>
+  <int value="56" label="KnownTravelerNumberNumber"/>
+  <int value="57" label="KnownTravelerNumberExpirationDate"/>
+  <int value="59" label="DriversLicenseName"/>
+  <int value="60" label="DriversLicenseState"/>
+  <int value="61" label="DriversLicenseNumber"/>
+  <int value="62" label="DriversLicenseIssueDate"/>
+  <int value="63" label="DriversLicenseExpirationDate"/>
+  <int value="65" label="OrderId"/>
+  <int value="66" label="OrderAccount"/>
+  <int value="67" label="OrderDate"/>
+  <int value="68" label="OrderMerchantName"/>
+  <int value="69" label="OrderMerchantDomain"/>
+  <int value="70" label="OrderProductNames"/>
+  <int value="71" label="OrderGrandTotal"/>
+  <int value="72" label="CreditCardNumber"/>
+  <int value="73" label="CreditCardExpirationDate"/>
+  <int value="74" label="CreditCardSecurityCode"/>
+  <int value="75" label="CreditCardNameOnCard"/>
+  <int value="76" label="CreditCardNickname"/>
+  <int value="77" label="LoyaltyMembershipId"/>
+  <int value="78" label="LoyaltyMembershipProgram"/>
+  <int value="79" label="LoyaltyMembershipProvider"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/core/browser/integrators/at_memory/memory_data_type.h:MemoryDataType) -->
+
+<!-- LINT.IfChange(OmniboxAutofillEvents) -->
+
+<enum name="OmniboxAutofillEvents">
+  <int value="0" label="Chip shown"/>
+  <int value="1" label="Chip shown (once per page load)"/>
+  <int value="2" label="Chip clicked"/>
+  <int value="3" label="Chip clicked (once per page load)"/>
+  <int value="4" label="Suggestion accepted"/>
+  <int value="5" label="Suggestion accepted (once per page load)"/>
+  <int value="6" label="Form filled"/>
+  <int value="7" label="Form filled (once per page load)"/>
+  <int value="8" label="Form submitted (once per page load)"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/omnibox_autofill_metrics.h:OmniboxAutofillEvents) -->
+
 <!-- LINT.IfChange(OmniboxAutofillShowChipDecisionPart1) -->
 
 <enum name="OmniboxShowChipDecisionPart1">
@@ -5343,10 +5797,28 @@ Called by update_autofill_enums.py.-->
   <int value="3" label="Aborted; failed to fetch cached form"/>
   <int value="4" label="Aborted; card number or expiration date field missing"/>
   <int value="5" label="Aborted; form or client context not secure"/>
-  <int value="7" label="All prior checks passed; started IntersectionObserver"/>
+  <int value="6"
+      label="Aborted; found multiple visible credit card number fields"/>
+  <int value="7" label="Aborted; OptimizationGuideDecider missing"/>
+  <int value="8" label="Aborted; found field from non-allowlisted iframe"/>
+  <int value="9" label="All prior checks passed; started IntersectionObserver"/>
+  <int value="10"
+      label="Aborted; form did not contain a visible credit card number field"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/omnibox_autofill_metrics.h:OmniboxAutofillShowChipDecisionPart1) -->
+
+<!-- LINT.IfChange(OmniboxAutofillShowChipDecisionPart2) -->
+
+<enum name="OmniboxShowChipDecisionPart2">
+  <int value="0"
+      label="IntersectionObserver never reported that the field became
+             visible"/>
+  <int value="1"
+      label="IntersectionObserver reported that the field became visible"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/omnibox_autofill_metrics.h:OmniboxAutofillShowChipDecisionPart2) -->
 
 <!-- LINT.IfChange(OneTimeTokensBackendErrorCode) -->
 
@@ -5365,6 +5837,48 @@ Called by update_autofill_enums.py.-->
   <int value="1" label="Phishing"/>
   <int value="2" label="Not Phishing"/>
 </enum>
+
+<!-- LINT.IfChange(OneTimeTokensTickleArrival) -->
+
+<enum name="OneTimeTokensTickleArrival">
+  <summary>
+    The arrival order and timing of push notifications (tickles) relative to OTP
+    form detection on a web page.
+  </summary>
+  <int value="0" label="After OTP field detection"/>
+  <int value="1" label="Before OTP field detection (pre-arrival)"/>
+  <int value="2" label="Without OTP field detection (orphan/expired in cache)"/>
+  <int value="3" label="Expired on arrival (from push service)"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/one_time_tokens/core/browser/one_time_token_service_constants.h:TickleArrival) -->
+
+<!-- LINT.IfChange(OneTimeTokensTickleFormOutcome) -->
+
+<enum name="OneTimeTokensTickleFormOutcome">
+  <summary>
+    The outcome of an OTP web form relative to push notification delivery and
+    user interaction.
+  </summary>
+  <int value="0"
+      label="Tickle before user interaction (active and unedited field)"/>
+  <int value="1"
+      label="Tickle after user interaction (typed, pasted, submitted, or
+             navigated)"/>
+  <int value="2" label="No tickle received (3 minutes elapsed)"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/one_time_tokens/core/browser/one_time_token_service_constants.h:TickleFormOutcome) -->
+
+<!-- LINT.IfChange(OtpFillingSafeBrowsingCheckResult) -->
+
+<enum name="OtpFillingSafeBrowsingCheckResult">
+  <int value="0" label="Safe"/>
+  <int value="1" label="Unsafe"/>
+  <int value="2" label="Timeout"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/autofill/otp_filling_safe_browsing_checker_client.h:OtpFillingSafeBrowsingCheckResult) -->
 
 <!-- LINT.IfChange(PayLaterTabsFormEvent) -->
 
@@ -5391,12 +5905,55 @@ Called by update_autofill_enums.py.-->
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/bnpl_metrics.h:PayLaterTabsFormEvent) -->
 
+<!-- LINT.IfChange(PaymentsChurnedUsersUiShowResult) -->
+
+<enum name="PaymentsChurnedUsersUiShowResult">
+  <int value="0" label="Shown successfully"/>
+  <int value="1" label="Off The Record"/>
+  <int value="2" label="No Cached Form"/>
+  <int value="3" label="Strike Database Blocked"/>
+  <int value="4" label="No visible credit card form is present"/>
+  <int value="5" label="Pref Already Turned On"/>
+  <int value="6" label="Pref Not User Controlled"/>
+  <int value="7" label="No Account Info Present"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/payments/payments_churned_users_metrics.h:PaymentsChurnedUsersUiShowResult) -->
+
+<enum name="PaymentsUiClosedReason">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Accepted"/>
+  <int value="2" label="Cancelled"/>
+  <int value="3" label="Closed"/>
+  <int value="4" label="Not Interacted"/>
+  <int value="5" label="Lost Focus"/>
+</enum>
+
 <enum name="PaymentsWindowUserConsentDialogResult">
   <int value="0" label="The tab or browser was closed"/>
   <int value="1" label="The escape key was pressed, closing the dialog"/>
   <int value="2" label="The cancel button was pressed, closing the dialog"/>
   <int value="3" label="The accept button was pressed, closing the dialog"/>
 </enum>
+
+<!-- LINT.IfChange(PersonalContextNonEligibilityReason) -->
+
+<enum name="PersonalContextNonEligibilityReason">
+  <int value="0" label="Not signed in"/>
+  <int value="1" label="Not consumer account"/>
+  <int value="2" label="Not age eligible"/>
+  <int value="3" label="Not locale en-US"/>
+  <int value="4" label="Not GeoIP US"/>
+  <int value="5" label="Not opted in to context"/>
+  <int value="6" label="Photos and Workspace context unavailable"/>
+  <int value="7" label="Personal Intelligence preferences disabled"/>
+  <int value="8" label="Glic first run not complete"/>
+  <int value="9" label="Find and Fill with Gemini settings disabled"/>
+  <int value="10" label="Not G1 subscriber or Android premium device"/>
+  <int value="11" label="Eligible"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/personal_context/core/personal_context_types.h:PersonalContextNonEligibilityReason) -->
 
 <enum name="PhoneCollectionState">
   <int value="0" label="Phone Not Collected, WebOTP Not Used, OTC Not Used"/>
@@ -5509,6 +6066,15 @@ Called by update_autofill_enums.py.-->
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/save_and_fill_metrics.h:SaveAndFillFormEvent) -->
 
+<!-- LINT.IfChange(SaveAndFillFunnelCanceledStage) -->
+
+<enum name="SaveAndFillFunnelCanceledStage">
+  <int value="0" label="Suggestion ignored"/>
+  <int value="1" label="Dialog canceled"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/save_and_fill_metrics.h:SaveAndFillFunnelCanceledStage) -->
+
 <!-- LINT.IfChange(SaveAndFillFunnelSucceededStage) -->
 
 <enum name="SaveAndFillFunnelSucceededStage">
@@ -5529,7 +6095,23 @@ Called by update_autofill_enums.py.-->
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/save_and_fill_metrics.h:SaveAndFillPaymentsRequestResult) -->
 
-<!-- LINT.IfChange(SaveAndFillSuggestionNotShownReason) -->
+<!-- LINT.IfChange(SaveAndFillSuggestionEvent) -->
+
+<enum name="SaveAndFillSuggestionEvent">
+  <int value="0" label="The Save and Fill suggestion was shown"/>
+  <int value="1" label="Suggestion not shown: user is in incognito mode"/>
+  <int value="2"
+      label="Suggestion not shown: credit card form is not complete"/>
+  <int value="3"
+      label="Suggestion not shown: strike database required delay not met"/>
+  <int value="4"
+      label="Suggestion not shown: strike database max strike limit reached"/>
+  <int value="5"
+      label="Suggestion not shown: user already has cards saved in profile"/>
+  <int value="6" label="The Save and Fill suggestion was accepted"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/save_and_fill_metrics.h:SaveAndFillSuggestionEvent) -->
 
 <enum name="SaveAndFillSuggestionNotShownReason">
   <int value="0"
@@ -5538,8 +6120,6 @@ Called by update_autofill_enums.py.-->
   <int value="2" label="The user is in incognito mode"/>
   <int value="3" label="The credit card form is not complete"/>
 </enum>
-
-<!-- LINT.ThenChange(/components/autofill/core/browser/metrics/payments/save_and_fill_metrics.h:SaveAndFillSuggestionNotShownReason) -->
 
 <!-- LINT.IfChange(SaveCreditCardPromptResultIOS) -->
 
@@ -5579,6 +6159,44 @@ Called by update_autofill_enums.py.-->
 </enum>
 
 <!-- LINT.ThenChange(/components/one_time_tokens/android/backend/sms/sms_otp_retrieval_api_error_codes.h:SmsOtpRetrievalApiErrorCode) -->
+
+<!-- LINT.IfChange(SubmissionBlockedReasonIOS) -->
+
+<enum name="SubmissionBlockedReasonIOS">
+  <summary>
+    Represents the various reasons why a form submission might be blocked or
+    ignored by Autofill on iOS.
+  </summary>
+  <int value="0" label="No user gesture"/>
+  <int value="1" label="Autofill disabled"/>
+  <int value="2" label="No frame"/>
+  <int value="3" label="No driver"/>
+  <int value="4" label="Cross-origin frame"/>
+  <int value="5" label="No delegate"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/autofill/ios/browser/autofill_util.h:SubmissionBlockedReasonIOS) -->
+
+<!-- LINT.IfChange(SuggestionsFromGeminiAction) -->
+
+<enum name="SuggestionsFromGeminiAction">
+  <int value="0" label="Manage connected apps click"/>
+  <int value="1" label="Toggle on"/>
+  <int value="2" label="Toggle off"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/resources/settings/metrics_browser_proxy.ts:SuggestionsFromGeminiAction) -->
+
+<!-- LINT.IfChange(SuggestionsFromGeminiEntryPoint) -->
+
+<enum name="SuggestionsFromGeminiEntryPoint">
+  <int value="0" label="Your saved info"/>
+  <int value="1" label="Travel"/>
+  <int value="2" label="Shopping"/>
+  <int value="3" label="Identity docs"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/resources/settings/metrics_browser_proxy.ts:SuggestionsFromGeminiEntryPoint) -->
 
 <!-- LINT.IfChange(SuggestionType) -->
 
@@ -5633,13 +6251,13 @@ Called by update_autofill_enums.py.-->
   <int value="39" label="(Obsolete) Create new plus address"/>
   <int value="40" label="(Obsolete) Fill existing plus address"/>
   <int value="41" label="Merchant promo code entry"/>
-  <int value="42" label="See promo code details"/>
+  <int value="42" label="(Obsolete) See promo code details"/>
   <int value="43" label="Webauthn credential"/>
   <int value="44" label="Webauthn sign-in with another device"/>
   <int value="45" label="Title"/>
   <int value="46" label="Separator"/>
-  <int value="47" label="Undo or clear"/>
-  <int value="48" label="Mixed form message"/>
+  <int value="47" label="Undo"/>
+  <int value="48" label="(Obsolete) Mixed form message"/>
   <int value="49" label="Devtools test addresses"/>
   <int value="50" label="Devtools test address entry"/>
   <int value="51" label="Devtools test address by country entry"/>
@@ -5670,11 +6288,32 @@ Called by update_autofill_enums.py.-->
   <int value="75" label="Manage identity docs information"/>
   <int value="76" label="Manage travel information"/>
   <int value="77" label="Loading throbber"/>
-  <int value="78" label="@memory search result"/>
+  <int value="78" label="AtMemory search result"/>
   <int value="79" label="BNPL footnote"/>
   <int value="80" label="AtMemory inactivity nudge"/>
   <int value="81" label="Autocomplete AtMemory button"/>
-  <int value="82" label="Open Gemini"/>
+  <int value="82" label="AtMemory Open Gemini"/>
+  <int value="83" label="AtMemory no connection"/>
+  <int value="84" label="AtMemory search trigger affordance"/>
+  <int value="85" label="Personal context notice"/>
+  <int value="86" label="Webauthn passkey QR code"/>
+  <int value="87" label="Fetching Ambient Data"/>
+  <int value="88" label="AtMemory generic error"/>
+  <int value="89" label="Maximize credit card benefits entry"/>
+  <int value="90" label="Autofill AI other orders"/>
+  <int value="91" label="Manage shopping information"/>
+  <int value="92" label="Autofill AI private inference notice"/>
+  <int value="93" label="Manage enhanced autofill"/>
+  <int value="94" label="AtMemory AI disclosure"/>
+  <int value="95" label="Autofill AI other shipments"/>
+  <int value="96" label="AtMemory source attribution"/>
+  <int value="97" label="AtMemory fetching"/>
+  <int value="98" label="Remove Autofill AI info"/>
+  <int value="99" label="Autofill AI source attribution"/>
+  <int value="100" label="Gmail one time password entry"/>
+  <int value="101" label="Open Gmail for OTPs"/>
+  <int value="102" label="Manage offers"/>
+  <int value="103" label="AtMemory shortcut settings promo"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/autofill/core/browser/suggestions/suggestion_type.h:SuggestionType) -->
@@ -5799,7 +6438,7 @@ Called by update_autofill_enums.py.-->
   <int value="5" label="Shopping"/>
 </enum>
 
-<!-- LINT.ThenChange(/chrome/browser/resources/settings/metrics_browser_proxy.ts:YourSavedInfoDataCategory) -->
+<!-- LINT.ThenChange(/chrome/browser/resources/settings/metrics_browser_proxy.ts:YourSavedInfoDataCategory, /chrome/android/java/src/org/chromium/chrome/browser/autofill/settings/AutofillAndPasswordsFragment.java:YourSavedInfoDataCategory, /ios/chrome/browser/settings/autofill/autofill_and_passwords/coordinator/autofill_and_passwords_coordinator.mm:YourSavedInfoDataCategory) -->
 
 <!-- LINT.IfChange(YourSavedInfoDataChip) -->
 

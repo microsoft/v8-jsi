@@ -30,7 +30,9 @@
 #include "src/trace_processor/importers/common/mapping_tracker.h"
 #include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/importers/common/process_tracker.h"
+#include "src/trace_processor/importers/common/profiler_sample_tracker.h"
 #include "src/trace_processor/importers/common/stack_profile_tracker.h"
+#include "src/trace_processor/importers/common/stats_tracker.h"
 #include "src/trace_processor/storage/stats.h"
 #include "src/trace_processor/storage/trace_storage.h"
 #include "src/trace_processor/tables/profiler_tables_py.h"
@@ -40,7 +42,8 @@ namespace perfetto::trace_processor {
 
 LegacyV8CpuProfileTracker::LegacyV8CpuProfileTracker(
     TraceProcessorContext* context)
-    : context_(context) {}
+    : context_(context),
+      legacy_v8_source_id_(context->storage->InternString("legacy_v8")) {}
 
 LegacyV8CpuProfileTracker::~LegacyV8CpuProfileTracker() = default;
 
@@ -49,7 +52,7 @@ void LegacyV8CpuProfileTracker::Parse(int64_t ts,
   base::Status status =
       AddSample(ts, event.session_id, event.pid, event.tid, event.callsite_id);
   if (!status.ok()) {
-    context_->storage->IncrementStats(
+    context_->stats_tracker->IncrementStats(
         stats::legacy_v8_cpu_profile_invalid_sample);
   }
 }
@@ -113,11 +116,10 @@ base::Status LegacyV8CpuProfileTracker::AddCallsite(
       return base::ErrStatus(
           "v8 profile parent id does not exist: cannot insert callsite");
     }
-    auto row =
-        context_->storage->stack_profile_callsite_table().FindById(*parent_id);
+    auto row = context_->storage->stack_profile_callsite_table()[*parent_id];
     callsite_id = context_->stack_profile_tracker->InternCallsite(
-        *parent_id, frame_id, row->depth() + 1);
-    depth = row->depth() + 1;
+        *parent_id, frame_id, row.depth() + 1);
+    depth = row.depth() + 1;
   } else {
     callsite_id = context_->stack_profile_tracker->InternCallsite(std::nullopt,
                                                                   frame_id, 0);
@@ -149,11 +151,10 @@ base::Status LegacyV8CpuProfileTracker::AddCallsite(
       continue;
     }
     auto row =
-        context_->storage->mutable_stack_profile_callsite_table()->FindById(
-            *child_callsite_id);
-    PERFETTO_CHECK(row);
-    row->set_depth(depth + 1);
-    row->set_parent_id(callsite_id);
+        (*context_->storage
+              ->mutable_stack_profile_callsite_table())[*child_callsite_id];
+    row.set_depth(depth + 1);
+    row.set_parent_id(callsite_id);
   }
   return base::OkStatus();
 }
@@ -185,8 +186,16 @@ base::Status LegacyV8CpuProfileTracker::AddSample(int64_t ts,
     return base::ErrStatus("v8 callsite id does not exist: cannot add sample");
   }
   UniqueTid utid = context_->process_tracker->UpdateThread(tid, pid);
-  auto* samples = context_->storage->mutable_cpu_profile_stack_sample_table();
-  samples->Insert({ts, *id, utid, 0});
+  tables::ProfilerSampleTable::Row row;
+  row.ts = ts;
+  row.source = legacy_v8_source_id_;
+  tables::ProfilerTaskContextTable::Row task_context;
+  task_context.utid = utid;
+  task_context.upid = context_->process_tracker->GetOrCreateProcess(pid);
+  row.task_context_id =
+      context_->profiler_sample_tracker->InternTaskContext(task_context);
+  row.callsite_id = *id;
+  context_->profiler_sample_tracker->AddSample(row);
   return base::OkStatus();
 }
 

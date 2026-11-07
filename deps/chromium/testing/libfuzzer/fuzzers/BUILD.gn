@@ -4,6 +4,7 @@
 
 # Individual libfuzzer tests that didn't find their home yet.
 
+import("//build/config/features.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//third_party/protobuf/proto_library.gni")
 import("//v8/gni/v8.gni")
@@ -12,14 +13,36 @@ import("//v8/gni/v8.gni")
 group("fuzzers") {
 }
 
-fuzzer_test("empty_fuzzer") {
-  sources = [ "empty_fuzzer.cc" ]
-  additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
-}
-
 fuzzer_test("string_compare_fuzzer") {
   sources = [ "string_compare_fuzzer.cc" ]
   additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
+
+  # TODO(crbug.com/509668952): Remove this when smoke tests support FuzzTest.
+  is_fuzztest_compatible = false
+}
+
+test("string_compare_fuzztest_fuzzer") {
+  sources = [ "string_compare_fuzztest_fuzzer.cc" ]
+  fuzztests = [ "TestFuzzer.StringCompare" ]
+  deps = [ "//third_party/fuzztest:fuzztest_gtest_main" ]
+  configs += [ "//testing/libfuzzer:no_clusterfuzz" ]
+}
+
+if (use_centipede) {
+  # Manually wrap the LLVM-style fuzzer to use FUZZ_TEST.
+  test("string_compare_fuzztest_wrapper_fuzzer") {
+    sources = [ "string_compare_fuzzer.cc" ]
+    fuzztests = [ "LLVMFuzzer.TestOneInput" ]
+    deps = [ "//third_party/fuzztest:llvm_wrapper" ]
+    configs += [ "//testing/libfuzzer:no_clusterfuzz" ]
+  }
+}
+
+test("string_compare_seeded_fuzztest_fuzzer") {
+  sources = [ "string_compare_seeded_fuzztest_fuzzer.cc" ]
+  fuzztests = [ "TestFuzzer.StringCompareWithSeeds" ]
+  deps = [ "//third_party/fuzztest:fuzztest_gtest_main" ]
+  configs += [ "//testing/libfuzzer:no_clusterfuzz" ]
 }
 
 fuzzer_test("string_compare_proto_fuzzer") {
@@ -29,6 +52,9 @@ fuzzer_test("string_compare_proto_fuzzer") {
     "//third_party/libprotobuf-mutator",
   ]
   additional_configs = [ "//testing/libfuzzer:no_clusterfuzz" ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("snappy_compress_fuzzer") {
@@ -52,6 +78,7 @@ fuzzer_test("template_url_parser_fuzzer") {
     "//mojo/core/embedder",
     "//services/data_decoder/public/cpp",
     "//services/data_decoder/public/cpp:test_support",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
     "//third_party/libxml",
   ]
   dict = "//third_party/libxml/fuzz/xml.dict"
@@ -67,11 +94,18 @@ fuzzer_test("url_parse_proto_fuzzer") {
     "//third_party/libprotobuf-mutator",
     "//url",
   ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("libsrtp_fuzzer") {
   sources = [ "libsrtp_fuzzer.cc" ]
-  deps = [ "//third_party/libsrtp" ]
+  deps = [
+    "//base",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
+    "//third_party/libsrtp",
+  ]
   libfuzzer_options = [ "max_len=1500" ]
 }
 
@@ -104,6 +138,7 @@ fuzzer_test("libpng_progressive_read_fuzzer") {
   sources = [ "libpng_read_fuzzer.cc" ]
   deps = [
     "//base",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
     "//third_party/libpng:libpng_for_testonly",
   ]
   dict = "dicts/png.dict"
@@ -189,44 +224,25 @@ v8_fuzzer("regexp_parser_fuzzer") {
 
 if (v8_enable_webassembly) {
   v8_fuzzer("multi_return_fuzzer") {
-    # TODO(https://crbug.com/394563978): Remove once experiment ends.
-    high_end_job_required = true
-    high_end_debug_job_required = true
   }
 
   v8_fuzzer("wasm_code_fuzzer") {
     max_len = 500
-
-    # TODO(https://crbug.com/394563978): Remove once experiment ends.
-    high_end_job_required = true
-    high_end_debug_job_required = true
   }
 
   v8_fuzzer("wasm_module_fuzzer") {
     max_len = 500
     seed_corpus = "//testing/libfuzzer/fuzzers/wasm_corpus/"
-
-    # TODO(https://crbug.com/394563978): Remove once experiment ends.
-    high_end_job_required = true
-    high_end_debug_job_required = true
   }
 
   v8_fuzzer("wasm_async_fuzzer") {
     max_len = 500
     seed_corpus = "//testing/libfuzzer/fuzzers/wasm_corpus/"
-
-    # TODO(https://crbug.com/394563978): Remove once experiment ends.
-    high_end_job_required = true
-    high_end_debug_job_required = true
   }
 
   v8_fuzzer("wasm_streaming_fuzzer") {
     max_len = 500
     seed_corpus = "//testing/libfuzzer/fuzzers/wasm_corpus/"
-
-    # TODO(https://crbug.com/394563978): Remove once experiment ends.
-    high_end_job_required = true
-    high_end_debug_job_required = true
   }
 
   # These fuzzers are not supported in official builds as they depend on
@@ -235,58 +251,30 @@ if (v8_enable_webassembly) {
   if (!is_official_build) {
     v8_fuzzer("wasm_compile_all_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_compile_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_compile_simd_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_compile_wasmgc_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_compile_revec_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_init_expr_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
 
     v8_fuzzer("wasm_deopt_fuzzer") {
       max_len = 500
-
-      # TODO(https://crbug.com/394563978): Remove once experiment ends.
-      high_end_job_required = true
-      high_end_debug_job_required = true
     }
   }
 }
@@ -317,6 +305,7 @@ fuzzer_test("skia_path_fuzzer") {
   deps = [
     "//base",
     "//skia",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
   ]
   libfuzzer_options = [ "max_len=256" ]
   if (is_debug) {
@@ -334,6 +323,7 @@ fuzzer_test("skia_pathop_fuzzer") {
   deps = [
     "//base",
     "//skia",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
   ]
   libfuzzer_options = [ "max_len=512" ]
   if (is_debug) {
@@ -344,7 +334,10 @@ fuzzer_test("skia_pathop_fuzzer") {
 
 fuzzer_test("prtime_fuzzer") {
   sources = [ "prtime_fuzzer.cc" ]
-  deps = [ "//base" ]
+  deps = [
+    "//base",
+    "//testing/libfuzzer:libfuzzer_base_wrappers",
+  ]
   dict = "dicts/prtime.dict"
   libfuzzer_options = [ "max_len=1024" ]
 }
@@ -410,6 +403,9 @@ fuzzer_test("javascript_parser_proto_fuzzer") {
     "//v8",
     "//v8:v8_libplatform",
   ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 fuzzer_test("v8_fully_instrumented_fuzzer") {
@@ -443,6 +439,9 @@ fuzzer_test("skia_image_filter_proto_fuzzer") {
     "//testing/libfuzzer/proto:skia_image_filter_proto",
     "//third_party/libprotobuf-mutator",
   ]
+
+  # TODO(crbug.com/505034799): Migrate to FUZZ_TEST.
+  is_fuzztest_compatible = false
 }
 
 # We build the libyuv_scale_fuzzer both for fuzztest

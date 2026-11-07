@@ -50,8 +50,12 @@ TimeTicks CapAtOneDay(TimeTicks next_run_time, LazyNow* lazy_now) {
 BASE_FEATURE(kAvoidScheduleWorkDuringNativeEventProcessing,
              base::FEATURE_ENABLED_BY_DEFAULT);
 
-std::atomic_bool g_run_tasks_by_batches = false;
+BASE_FEATURE(kCurrentTaskRunnerInheritsThreadType,
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+std::atomic_bool g_run_tasks_by_batches = true;
 std::atomic_bool g_avoid_schedule_calls_during_native_event_processing = false;
+std::atomic_bool g_current_task_runner_inherits_thread_type = false;
 
 base::TimeDelta GetLeewayForWakeUp(std::optional<WakeUp> wake_up) {
   if (!wake_up || wake_up->delay_policy == subtle::DelayPolicy::kPrecise) {
@@ -69,13 +73,14 @@ void ThreadControllerWithMessagePumpImpl::InitializeFeatures() {
   g_avoid_schedule_calls_during_native_event_processing.store(
       FeatureList::IsEnabled(kAvoidScheduleWorkDuringNativeEventProcessing),
       std::memory_order_relaxed);
+  g_current_task_runner_inherits_thread_type.store(
+      FeatureList::IsEnabled(kCurrentTaskRunnerInheritsThreadType),
+      std::memory_order_relaxed);
 }
 
 // static
-void ThreadControllerWithMessagePumpImpl::ResetFeatures() {
-  g_run_tasks_by_batches.store(
-      base::kRunTasksByBatches.default_state == FEATURE_ENABLED_BY_DEFAULT,
-      std::memory_order_relaxed);
+void ThreadControllerWithMessagePumpImpl::ResetFeaturesForTesting() {
+  g_run_tasks_by_batches.store(true, std::memory_order_relaxed);
 }
 
 ThreadControllerWithMessagePumpImpl::ThreadControllerWithMessagePumpImpl(
@@ -83,11 +88,7 @@ ThreadControllerWithMessagePumpImpl::ThreadControllerWithMessagePumpImpl(
     : ThreadController(settings.clock),
       work_deduplicator_(associated_thread_),
       can_run_tasks_by_batches_(settings.can_run_tasks_by_batches),
-      is_main_thread_(settings.is_main_thread) {
-  if (settings.should_report_lock_metrics) {
-    LockMetricsRecorder::Get()->SetTargetCurrentThread();
-  }
-}
+      is_main_thread_(settings.is_main_thread) {}
 
 ThreadControllerWithMessagePumpImpl::ThreadControllerWithMessagePumpImpl(
     std::unique_ptr<MessagePump> message_pump,
@@ -227,9 +228,11 @@ bool ThreadControllerWithMessagePumpImpl::RunsTasksInCurrentSequence() {
 }
 
 void ThreadControllerWithMessagePumpImpl::SetDefaultTaskRunner(
-    scoped_refptr<SingleThreadTaskRunner> task_runner) {
+    scoped_refptr<SingleThreadTaskRunner> task_runner,
+    ThreadType thread_type) {
   base::internal::CheckedAutoLock lock(task_runner_lock_);
   task_runner_ = task_runner;
+  main_thread_only().thread_type_ = thread_type;
   if (associated_thread_->IsBound()) {
     DCHECK(associated_thread_->IsBoundToCurrentThread());
     // Thread task runner handle will be created in BindToCurrentThread().
@@ -458,6 +461,14 @@ std::optional<WakeUp> ThreadControllerWithMessagePumpImpl::DoWorkImpl(
 
       base::internal::CurrentTaskImportanceOverride thread_type_override(
           selected_task->thread_type);
+      std::optional<SingleThreadTaskRunner::CurrentDefaultHandle>
+          thread_task_runner_handle;
+      if (g_current_task_runner_inherits_thread_type &&
+          selected_task->thread_type < main_thread_only().thread_type_) {
+        thread_task_runner_handle.emplace(
+            selected_task->task.task_runner,
+            SingleThreadTaskRunner::CurrentDefaultHandle::MayAlreadyExist{});
+      }
 
       // Note: all arguments after task are just passed to a TRACE_EVENT for
       // logging so lambda captures are safe as lambda is executed inline.
@@ -566,7 +577,10 @@ void ThreadControllerWithMessagePumpImpl::DoIdleWork() {
   }
 #endif  // BUILDFLAG(IS_WIN)
 
-  LockMetricsRecorder::Get()->ReportLockAcquisitionTimes();
+  auto* recorder = base::LockMetricsRecorder::GetForCurrentThread();
+  if (recorder) {
+    recorder->ReportLockAcquisitionTimes();
+  }
 
   if (main_thread_only().task_source->OnIdle()) {
     work_id_provider_->IncrementWorkId();

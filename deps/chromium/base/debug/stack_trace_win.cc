@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
+#include "base/containers/span.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/memory/singleton.h"
@@ -187,8 +188,19 @@ bool MaybeLoadDbghelp() {
   if (!dbghelp_handle) {
     return false;
   }
+
+  // Starting in SDK 10.0.28000, dbghelp loads msdia140.dll dynamically at
+  // runtime instead of through delayloads, so we need to pre-load it manually.
+  HANDLE msdia140_handle = ::GetModuleHandle(L"msdia140.dll");
+  if (!msdia140_handle) {
+    msdia140_handle = ::LoadLibrary(L"msdia140.dll");
+  }
+  if (!msdia140_handle) {
+    return false;
+  }
+
   // If the module is loaded, force resolve delayloads.
-  auto loaded = base::win::LoadAllImportsForDll("dbghelp.dll");
+  auto loaded = base::win::LoadAllImportsForDllUnchecked("dbghelp.dll");
   // In tests where dbghelp is not delayloaded this can safely be 'false', a
   // failure only occurs when an error code is returned.
   return loaded.has_value();

@@ -92,12 +92,69 @@ chromium-metrics-reviews@google.com.
 <!-- LINT.IfChange(SendTabToSelfAutoOpenOutcome) -->
 
 <enum name="SendTabToSelfAutoOpenOutcome">
-  <int value="0" label="Success"/>
-  <int value="1" label="Marked as pending"/>
-  <int value="2" label="Opened pending notification"/>
+  <int value="0" label="Unopened immediately (no window or in background)"/>
+  <int value="1" label="First tab opened in foreground (Desktop)"/>
+  <int value="2" label="Tabs opened immediately in background"/>
+  <int value="3" label="Tabs opened upon browser activation"/>
+  <int value="4" label="Tab opened via notification click"/>
+  <int value="5" label="(Deprecated) Opened in native app immediately"/>
+  <int value="6"
+      label="(Deprecated) Opened in native app upon browser activation"/>
+  <int value="7" label="(Deprecated) Unopened upon browser activation"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:AutoOpenOutcome) -->
+
+<!-- LINT.IfChange(SendTabToSelfFormFactorCombination) -->
+
+<enum name="SendTabToSelfFormFactorCombination">
+  <int value="0" label="Desktop to Desktop"/>
+  <int value="1" label="Desktop to Phone"/>
+  <int value="2" label="Desktop to Tablet"/>
+  <int value="3" label="Desktop to Unknown/Other"/>
+  <int value="4" label="Phone to Desktop"/>
+  <int value="5" label="Phone to Phone"/>
+  <int value="6" label="Phone to Tablet"/>
+  <int value="7" label="Phone to Unknown/Other"/>
+  <int value="8" label="Tablet to Desktop"/>
+  <int value="9" label="Tablet to Phone"/>
+  <int value="10" label="Tablet to Tablet"/>
+  <int value="11" label="Tablet to Unknown/Other"/>
+  <int value="12" label="Unknown/Other to Desktop"/>
+  <int value="13" label="Unknown/Other to Phone"/>
+  <int value="14" label="Unknown/Other to Tablet"/>
+  <int value="15" label="Unknown/Other to Unknown/Other"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:SendTabToSelfFormFactorCombination) -->
+
+<!-- LINT.IfChange(SendTabToSelfFormFieldMatchOutcome) -->
+
+<enum name="SendTabToSelfFormFieldMatchOutcome">
+  <int value="0" label="Strict Match (ID, Name, Type)"/>
+  <int value="1" label="Signature Match"/>
+  <int value="2" label="Exact Type Set Match"/>
+  <int value="3" label="No Match (includes origin mismatches)"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:FormFieldMatchOutcome) -->
+
+<!-- LINT.IfChange(SendTabToSelfResult) -->
+
+<enum name="SendTabToSelfResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Success (Throttled)"/>
+  <int value="2" label="Failure: Not Tracking Metadata"/>
+  <int value="3" label="Failure: Invalid URL"/>
+  <int value="5" label="Failure: Commit Attempt Failed"/>
+  <int value="6" label="Failure: Commit Attempt Error"/>
+  <int value="7" label="Failure: Sync Disabled"/>
+  <int value="8" label="Failure: Entry Removed"/>
+  <int value="9" label="Failure: Commit Timeout"/>
+  <int value="10" label="Failure: No Internet Connection"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/send_tab_to_self/send_tab_to_self_model.h:SendTabToSelfResult) -->
 
 <!-- LINT.IfChange(SendTabToSelfScrollPositionGenerationOutcome) -->
 
@@ -110,9 +167,42 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Link generation error"/>
   <int value="6" label="Invalid selector"/>
   <int value="7" label="Renderer timeout"/>
+  <int value="8" label="Page not scrolled"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:ScrollPositionGenerationOutcome) -->
+
+<!-- LINT.IfChange(SendTabToSelfShareActivatedEntryPoint) -->
+
+<enum name="SendTabToSelfShareActivatedEntryPoint">
+  <int value="0" label="Auto-opened"/>
+  <int value="1" label="Desktop Toast"/>
+  <int value="2" label="Desktop Toolbar Bubble"/>
+  <int value="3" label="Mobile Notification"/>
+  <int value="4" label="Tab Strip or Switcher"/>
+  <int value="5" label="ChromeOS Birch"/>
+  <int value="6" label="Tab or Browser Closed Without Activation"/>
+  <int value="7" label="STTS Entry Expired Without Activation"/>
+  <int value="8" label="Mobile Message Banner"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:SendTabToSelfShareActivatedEntryPoint) -->
+
+<!-- LINT.IfChange(SendTabToSelfShareEntryPoint) -->
+
+<enum name="SendTabToSelfShareEntryPoint">
+  <int value="0" label="Content Menu"/>
+  <int value="1" label="Link Menu"/>
+  <int value="2" label="Omnibox Icon"/>
+  <int value="3" label="Omnibox Menu"/>
+  <int value="4" label="Share Menu"/>
+  <int value="5" label="Share Sheet"/>
+  <int value="6" label="Tab Menu"/>
+  <int value="7" label="Gesture"/>
+  <int value="8" label="Share Sheet Direct Share"/>
+</enum>
+
+<!-- LINT.ThenChange(/components/send_tab_to_self/metrics_util.h:SendTabToSelfShareEntryPoint) -->
 
 <enum name="ShareCustomAction">
   <int value="0" label="COPY"/>
@@ -129,6 +219,16 @@ chromium-metrics-reviews@google.com.
   <int value="11" label="REMOVE_PAGE_INFO"/>
   <int value="12" label="SHARE_AS_TAB_GROUP"/>
 </enum>
+
+<!-- LINT.IfChange(SharingShareSheetLongScreenshotsBitmapGenerationStatus) -->
+
+<enum name="SharingShareSheetLongScreenshotsBitmapGenerationStatus">
+  <int value="0" label="Capture Completed"/>
+  <int value="1" label="Insufficient Memory"/>
+  <int value="2" label="General Generation Error"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/share/android/java/src/org/chromium/chrome/browser/share/long_screenshots/LongScreenshotsUtils.java:BitmapGeneratorStatus) -->
 
 </enums>
 

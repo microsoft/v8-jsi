@@ -2,20 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "partition_alloc/slot_start.h"
-
 #include "partition_alloc/in_slot_metadata.h"
 
 #include <atomic>
 
 #include "partition_alloc/build_config.h"
 #include "partition_alloc/buildflags.h"
+#include "partition_alloc/debug_data_on_stack.h"
+#include "partition_alloc/internal/partition_root_internal.h"
+#include "partition_alloc/internal/thread_cache_internal.h"
 #include "partition_alloc/partition_alloc_base/logging.h"
 #include "partition_alloc/partition_bucket.h"
 #include "partition_alloc/partition_freelist_entry.h"
 #include "partition_alloc/partition_page.h"
-#include "partition_alloc/partition_root.h"
-#include "partition_alloc/thread_cache.h"
+#include "partition_alloc/slot_start.h"
 
 #if PA_BUILDFLAG(ENABLE_BACKUP_REF_PTR_SUPPORT)
 
@@ -123,7 +123,7 @@ InSlotMetadata::DoubleFreeOrCorruptionDetected(InSlotMetadata::CountType count,
 
   auto* thread_cache = root->GetThreadCache();
   if (ThreadCache::IsValid(thread_cache)) {
-    size_t bucket_index = slot_span->bucket - root->buckets_;
+    size_t bucket_index = slot_span->bucket - root->buckets_.data();
     if (thread_cache->IsInFreelist(slot_start, bucket_index, position)) {
       DoubleFreeDetected(position);
     }

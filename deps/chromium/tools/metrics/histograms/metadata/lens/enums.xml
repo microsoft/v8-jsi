@@ -39,6 +39,95 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//components/lens/lens_composebox_user_action.h:LensComposeboxUserAction) -->
 
+<!-- LINT.IfChange(ContextUploadTerminalStatus) -->
+
+<enum name="ContextUploadTerminalStatus">
+  <summary>
+    The terminal status of a contextual search file upload request in the
+    composebox.
+  </summary>
+  <int value="0" label="Success"/>
+  <int value="1" label="HTTP Error"/>
+  <int value="2" label="Never Issued"/>
+  <int value="3" label="Response After FileInfo Destroyed"/>
+  <int value="4" label="Pending Chunker Retry"/>
+  <int value="5" label="In-Flight At Teardown"/>
+  <int value="6" label="Cancelled"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/contextual_search/internal/composebox_query_controller.h:ContextUploadTerminalStatus) -->
+
+<!-- LINT.IfChange(LensComposeboxClusterInfoStatus) -->
+
+<enum name="LensComposeboxClusterInfoStatus">
+  <summary>Status of the Composebox ClusterInfo fetch request.</summary>
+  <int value="0" label="Success"/>
+  <int value="1" label="HTTP Error"/>
+  <int value="2" label="Proto Parse Error"/>
+  <int value="3" label="Backgrounded"/>
+  <int value="4" label="Max Retries Reached"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/contextual_search/internal/composebox_query_controller.h:LensComposeboxClusterInfoStatus) -->
+
+<!-- LINT.IfChange(LensContextualTasksQueryEligibility) -->
+
+<enum name="LensContextualTasksQueryEligibility">
+  <summary>
+    The eligibility state of a Lens query fulfilled in the Contextual Tasks
+    panel. Note that AIM ineligibility implies Cobrowse ineligibility; 'Cobrowse
+    Ineligible' indicates the user is AIM eligible but not Cobrowse eligible.
+  </summary>
+  <int value="0" label="Eligible"/>
+  <int value="1" label="AIM Ineligible"/>
+  <int value="2" label="Cobrowse Ineligible"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/lens/lens_overlay_metrics.h:LensContextualTasksQueryEligibility) -->
+
+<!-- LINT.IfChange(LensIdentityDelegationAccountErrorReason) -->
+
+<enum name="LensIdentityDelegationAccountErrorReason">
+  <summary>
+    The reason an identity delegation header fetch for Lens/Composebox requests
+    resolved to Account Error.
+  </summary>
+  <int value="0" label="Authuser Index Out Of Range"/>
+  <int value="1" label="Cookie Account Signed Out"/>
+  <int value="2" label="Invalid Session"/>
+  <int value="3" label="Persistent Auth Error"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/lens/lens_identity_delegation_helper.h:LensIdentityDelegationAccountErrorReason) -->
+
+<!-- LINT.IfChange(LensIdentityDelegationFetchStatus) -->
+
+<enum name="LensIdentityDelegationFetchStatus">
+  <summary>
+    The result status of attempting to fetch identity delegation headers for
+    Lens/Composebox requests.
+  </summary>
+  <int value="0" label="Success"/>
+  <int value="1" label="Signed Out"/>
+  <int value="2" label="Account Error"/>
+  <int value="3" label="No SAPISID Cookie"/>
+  <int value="4" label="Hash Failed"/>
+  <int value="5" label="No Cookie Manager"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/lens/lens_identity_delegation_helper.h:LensIdentityDelegationFetchStatus) -->
+
+<!-- LINT.IfChange(LensOverlayClusterInfoStatus) -->
+
+<enum name="LensOverlayClusterInfoStatus">
+  <summary>Status of the Lens Overlay ClusterInfo fetch request.</summary>
+  <int value="0" label="Success"/>
+  <int value="1" label="HTTP Error"/>
+  <int value="2" label="Proto Parse Error"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/lens/lens_overlay_metrics.h:LensOverlayClusterInfoStatus) -->
+
 <!-- LINT.IfChange(LensOverlayContextMenuOption) -->
 
 <enum name="LensOverlayContextMenuOption">
@@ -97,6 +186,7 @@ chromium-metrics-reviews@google.com.
   <int value="36" label="Contextual Tasks composebox context cleared"/>
   <int value="37" label="Contextual Tasks composebox lens button clicked"/>
   <int value="38" label="Contextual Tasks image uploads disabled"/>
+  <int value="39" label="Contextual Tasks Lens chip removed"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/lens/lens_overlay_dismissal_source.h:LensOverlayDismissalSource) -->
@@ -138,6 +228,12 @@ chromium-metrics-reviews@google.com.
   <int value="17" label="Omnibox Contextual Compose Flow"/>
   <int value="18" label="Contextual Tasks composebox"/>
   <int value="19" label="Cobrowse Toolbar Button"/>
+  <int value="20" label="Cobrowse Pinned Toolbar Button"/>
+  <int value="21" label="NTP Action Chips"/>
+  <int value="22" label="App Bar AIM Button"/>
+  <int value="23" label="Omnibox Everywhere Composebox"/>
+  <int value="24" label="Omnibox Popup Button"/>
+  <int value="25" label="Contextual Cue"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/lens/lens_overlay_invocation_source.h:LensOverlayInvocationSource) -->
@@ -243,21 +339,6 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//components/lens/lens_permission_user_action.h:LensPermissionUserAction) -->
-
-<!-- LINT.IfChange(LensSidePanelIframeLoadStatus) -->
-
-<enum name="LensSidePanelIframeLoadStatus">
-  <summary>The load status of the results iframe in the Lens Overlay.</summary>
-  <int value="0" label="Success"/>
-  <int value="1" label="Failed (Connection Refused)"/>
-  <int value="2" label="Failed (Connection Reset)"/>
-  <int value="3" label="Failed (Connection Timed Out)"/>
-  <int value="4" label="Failed (Timed Out)"/>
-  <int value="5" label="Failed (Name Not Resolved)"/>
-  <int value="6" label="Failed (Other)"/>
-</enum>
-
-<!-- LINT.ThenChange(//components/lens/lens_overlay_iframe_load_status.h:LensSidePanelIframeLoadStatus) -->
 
 <!-- LINT.IfChange(LensOverlayMimeType) -->
 

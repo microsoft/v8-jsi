@@ -26,29 +26,41 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<!-- LINT.IfChange(AbusiveNotificationPermissionsCheckResult) -->
+
+<enum name="AbusiveNotificationPermissionsCheckResult">
+  <int value="0" label="Safe"/>
+  <int value="1" label="Phishing"/>
+  <int value="2" label="Timeout"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/safety_hub/abusive_notification_permissions_manager.h:AbusiveNotificationPermissionsCheckResult) -->
+
 <enum name="AndroidSettingsFragmentHashes">
   <int value="-2093401879" label="SafetyCheckSettingsFragment"/>
   <int value="-2054907175" label="GroupedWebsitesSettings"/>
   <int value="-2049922448" label="NeverTranslateListFragment"/>
-  <int value="-1989639959" label="AdMeasurementFragment"/>
+  <int value="-2037155894" label="AutofillShoppingFragment"/>
+  <int value="-2030678569" label="AppLanguagePickerFragment"/>
+  <int value="-1989639959" label="(Obsolete) AdMeasurementFragment"/>
   <int value="-1897035940" label="ThemeSettingsFragment"/>
   <int value="-1806481374" label="ConfirmImportantSitesDialogFragment"/>
   <int value="-1768724911" label="HomepageSettings"/>
   <int value="-1752194986" label="SingleWebsiteSettings"/>
   <int value="-1696636734" label="EnhancedProtectionSettingsFragment"/>
-  <int value="-1583431738" label="FledgeLearnMoreFragment"/>
+  <int value="-1583431738" label="(Obsolete) FledgeLearnMoreFragment"/>
   <int value="-1481342482" label="LocationPermissionSubpageSettings"/>
   <int value="-1467975767" label="StandardPreloadingSettingsFragment"/>
   <int value="-1422587744" label="DownloadLocationPreferenceDialog"/>
-  <int value="-1413642316" label="TopicsFragment"/>
-  <int value="-1285374344" label="TopicsBlockedFragment"/>
+  <int value="-1413642316" label="(Obsolete) TopicsFragment"/>
+  <int value="-1285374344" label="(Obsolete) TopicsBlockedFragment"/>
   <int value="-1200678803" label="SearchEngineSettings"/>
   <int value="-1122629733" label="HttpsFirstModeSettingsFragment"/>
   <int value="-1091584228" label="NonCardPaymentMethodsManagementFragment"/>
   <int value="-1035378917" label="PrivacySettingsFragment"/>
   <int value="-1022730020" label="AutofillOptionsFragment"/>
   <int value="-988526347" label="(Obsolete) RWSCookieSettings"/>
-  <int value="-980428258" label="FledgeAllSitesFragment"/>
+  <int value="-980428258" label="(Obsolete) FledgeAllSitesFragment"/>
   <int value="-894030932" label="AutofillLocalIbanEditor"/>
   <int value="-847585811" label="DeveloperSettings"/>
   <int value="-789502130" label="AutofillCardBenefitsFragment"/>
@@ -72,16 +84,20 @@ chromium-metrics-reviews@google.com.
   <int value="-94642184" label="BlockedCredentialFragmentView"/>
   <int value="-67456740" label="MainSettings"/>
   <int value="-45144853" label="DownloadSettings"/>
-  <int value="-27162861" label="FledgeFragment"/>
+  <int value="-27162861" label="(Obsolete) FledgeFragment"/>
+  <int value="2516405" label="TranslateTargetLanguagePickerFragment"/>
+  <int value="6178351" label="ContentLanguagePickerFragment"/>
   <int value="19814032" label="(Renamed) ClearBrowsingDataFragmentAdvanced"/>
   <int value="51577713" label="AccessibilitySettings"/>
   <int value="91451948" label="ContextualSearchSettingsFragment"/>
   <int value="96645902" label="PersonalizeGoogleServicesSettings"/>
   <int value="168428260" label="PrivacyGuideFragment"/>
+  <int value="201053571" label="AutofillAndPasswordsFragment"/>
   <int value="217285687" label="AppearanceSettingsFragment"/>
-  <int value="323758419" label="TrackingProtectionSettings"/>
+  <int value="323758419" label="(Obsolete) TrackingProtectionSettings"/>
   <int value="351534386" label="SiteSearchSettings"/>
-  <int value="383093746" label="PrivacySandboxSettingsFragment"/>
+  <int value="358606168" label="NeverTranslateLanguagePickerFragment"/>
+  <int value="383093746" label="(Obsolete) PrivacySandboxSettingsFragment"/>
   <int value="406265787" label="LanguageSettings"/>
   <int value="436870314" label="SiteSettings"/>
   <int value="453432714" label="AboutChromeSettings"/>
@@ -103,21 +119,26 @@ chromium-metrics-reviews@google.com.
   <int value="887082954"
       label="(Obsolete) FingerprintingProtectionSettingsFragment"/>
   <int value="894297033" label="SingleCategorySettings"/>
-  <int value="903277107" label="FledgeBlockedSitesFragment"/>
+  <int value="895945357" label="AutofillPersonalContextFragment"/>
+  <int value="903277107" label="(Obsolete) FledgeBlockedSitesFragment"/>
   <int value="1015549581" label="AlwaysTranslateListFragment"/>
   <int value="1068718433" label="RecentSearchesFragment"/>
   <int value="1118292269" label="(Obsolete) HomeModulesConfigSettings"/>
-  <int value="1322563897" label="TopicsManageFragment"/>
+  <int value="1192397109" label="AlwaysTranslateLanguagePickerFragment"/>
+  <int value="1287752848" label="BookmarkBarSettingsFragment"/>
+  <int value="1322563897" label="(Obsolete) TopicsManageFragment"/>
   <int value="1370078648" label="AdaptiveToolbarSettingsFragment"/>
   <int value="1370406966" label="AutofillLocalCardEditor"/>
+  <int value="1398652905" label="UniversalOptOutSettings"/>
   <int value="1409846592" label="TabArchiveSettingsFragment"/>
   <int value="1421890558" label="PasswordSettings"/>
   <int value="1505293227" label="PrivacySettings"/>
   <int value="1603955025" label="SafetyHubPermissionsFragment"/>
   <int value="1624624514" label="FinancialAccountsManagementFragment"/>
-  <int value="1667127067" label="HomeOfTransactionsFragment"/>
-  <int value="1676521220" label="SelectLanguageFragment"/>
+  <int value="1667127067" label="(Obsolete) HomeOfTransactionsFragment"/>
+  <int value="1676521220" label="(Obsolete) SelectLanguageFragment"/>
   <int value="1764379105" label="TabsSettings"/>
+  <int value="1810785089" label="GlicActorLoginPermissionsFragment"/>
   <int value="1837742646" label="AutofillBuyNowPayLaterFragment"/>
   <int value="1849593145" label="AndroidPaymentAppsFragment"/>
   <int value="1891640238" label="AutofillPaymentMethodsFragment"/>
@@ -128,11 +149,7 @@ chromium-metrics-reviews@google.com.
   <int value="2070921964" label="(Obsolete) ClearBrowsingDataTabsFragment"/>
   <int value="2084696263"
       label="(Obsolete) IncognitoTrackingProtectionsFragment"/>
-</enum>
-
-<enum name="ClearBrowsingDataMyActivityNavigation">
-  <int value="0" label="Top level MyActivity URL"/>
-  <int value="1" label="Search history in MyActivity"/>
+  <int value="2136356721" label="TabPositionSettingsFragment"/>
 </enum>
 
 <!-- LINT.IfChange(DisruptiveNotificationRevocationResult) -->
@@ -206,11 +223,7 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Extended preloading"/>
 </enum>
 
-<enum name="PrivacySandboxReferrer">
-  <int value="0" label="Privacy Settings"/>
-  <int value="1" label="Cookie Settings Snackbar"/>
-  <int value="2" label="Privacy Sandbox Notice"/>
-</enum>
+<!-- LINT.IfChange(SafetyCheckNotificationsModuleInteractions) -->
 
 <enum name="SafetyCheckNotificationsModuleInteractions">
   <int value="0" label="Block"/>
@@ -225,6 +238,8 @@ chromium-metrics-reviews@google.com.
   <int value="9" label="Undo block all"/>
   <int value="10" label="Go to settings"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyCheckNotificationsModuleInteractions) -->
 
 <enum name="SafetyCheckPasswordsStatus">
   <int value="0" label="CHECKING"/>
@@ -252,6 +267,8 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="ENABLED_STANDARD_AVAILABLE_ENHANCED"/>
 </enum>
 
+<!-- LINT.IfChange(SafetyCheckUnusedSitePermissionsModuleInteractions) -->
+
 <enum name="SafetyCheckUnusedSitePermissionsModuleInteractions">
   <int value="0" label="Open review UI"/>
   <int value="1" label="Allow again"/>
@@ -261,6 +278,8 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Minimize review UI"/>
   <int value="6" label="Go to settings"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyCheckUnusedSitePermissionsModuleInteractions) -->
 
 <enum name="SafetyCheckUpdateStatus">
   <int value="0" label="CHECKING"/>
@@ -274,12 +293,20 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="OUTDATED"/>
 </enum>
 
+<!-- LINT.IfChange(SafetyHubCardState) -->
+
 <enum name="SafetyHubCardState">
   <int value="0" label="WARNING"/>
   <int value="1" label="WEAK"/>
   <int value="2" label="INFO"/>
   <int value="3" label="SAFE"/>
 </enum>
+
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyHubCardState,
+  //chrome/browser/ui/safety_hub/safety_hub_constants.h:SafetyHubCardState,
+  //chrome/browser/resources/settings/safety_hub/safety_hub_browser_proxy.ts:CardState
+) -->
 
 <enum name="SafetyHubDashboardInteractions">
   <int value="0" label="Open play store"/>
@@ -292,6 +319,8 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="Show sign in promo"/>
 </enum>
 
+<!-- LINT.IfChange(SafetyHubEntryPoint) -->
+
 <enum name="SafetyHubEntryPoint">
   <int value="0" label="Privacy page (safe)"/>
   <int value="1" label="Privacy page (warning)"/>
@@ -299,6 +328,11 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Three-dot menu notification"/>
   <int value="4" label="Notification settings"/>
 </enum>
+
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyHubEntryPoint,
+  //chrome/browser/ui/safety_hub/safety_hub_constants.h:SafetyHubEntryPoint
+) -->
 
 <enum name="SafetyHubExternalInteractions">
   <int value="0" label="Open Safety Hub (main settings)"/>
@@ -315,6 +349,8 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Loading"/>
 </enum>
 
+<!-- LINT.IfChange(SafetyHubModuleType) -->
+
 <enum name="SafetyHubModuleType">
   <int value="0" label="Unused site permissions"/>
   <int value="1" label="Notification permissions"/>
@@ -324,10 +360,22 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Version"/>
 </enum>
 
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyHubModuleType,
+  //chrome/browser/ui/safety_hub/safety_hub_constants.h:SafetyHubModuleType
+) -->
+
+<!-- LINT.IfChange(SafetyHubSurfaces) -->
+
 <enum name="SafetyHubSurfaces">
   <int value="0" label="Three-dot menu"/>
   <int value="1" label="Safety Hub page"/>
 </enum>
+
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:SafetyHubSurfaces,
+  //chrome/browser/ui/safety_hub/safety_hub_constants.h:SafetyHubSurfaces
+) -->
 
 <enum name="SessionStartupPref">
   <int value="0" label="Open home page (unused)"/>
@@ -346,7 +394,7 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Sync settings link clicked"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:AiPageAiSuggestionsInteractions) -->
+<!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:AiPageSuggestionsInteractions) -->
 
 <!-- LINT.IfChange(SettingsAiPageComposeInteractions) -->
 
@@ -380,6 +428,10 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Autofill AI row click"/>
   <int value="6" label="Automated Password Change"/>
   <int value="7" label="Suggestions row click"/>
+  <int value="8" label="Skills row click"/>
+  <int value="9" label="Indigo row click"/>
+  <int value="10" label="Google Search AI Mode Workspace row click"/>
+  <int value="11" label="Inline Cue Menu row click"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:AiPageInteractions) -->
@@ -428,6 +480,8 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:PrivacyElementInteractions) -->
 
+<!-- LINT.IfChange(SettingsPrivacyGuideInteractions) -->
+
 <enum name="SettingsPrivacyGuideInteractions">
   <int value="0" label="Welcome Page Next Button"/>
   <int value="1" label="MSBB Next Button"/>
@@ -438,12 +492,19 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="Settings Link Row Entry"/>
   <int value="7" label="Privacy Guide Promo Entry"/>
   <int value="8" label="sWAA Completion Link"/>
-  <int value="9" label="Privacy Sandbox Completion Link"/>
+  <int value="9" label="(Obsolete) Privacy Sandbox Completion Link"/>
   <int value="10" label="Search Suggestions Next Button"/>
   <int value="11" label="(Obsolete) Tracking Protection Completion Link"/>
-  <int value="12" label="Ad Topics Next Button"/>
+  <int value="12" label="(Obsolete) Ad Topics Next Button"/>
   <int value="13" label="AI settings Completion Link"/>
 </enum>
+
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:PrivacyGuideInteractions,
+  //chrome/browser/privacy_guide/privacy_guide.h:PrivacyGuideInteractions
+) -->
+
+<!-- LINT.IfChange(SettingsPrivacyGuideSettingsStates) -->
 
 <enum name="SettingsPrivacyGuideSettingsStates">
   <int value="0" label="MSBB Remains On"/>
@@ -466,11 +527,18 @@ chromium-metrics-reviews@google.com.
   <int value="17" label="Search Suggestions Turned Off"/>
   <int value="18" label="Search Suggestions Turned On"/>
   <int value="19" label="Search Suggestions Remain Off"/>
-  <int value="20" label="Ad Topics Remain On"/>
-  <int value="21" label="Ad Topics Turned Off"/>
-  <int value="22" label="Ad Topics Turned On"/>
-  <int value="23" label="Ad Topics Remain Off"/>
+  <int value="20" label="(Obsolete) Ad Topics Remain On"/>
+  <int value="21" label="(Obsolete) Ad Topics Turned Off"/>
+  <int value="22" label="(Obsolete) Ad Topics Turned On"/>
+  <int value="23" label="(Obsolete) Ad Topics Remain Off"/>
 </enum>
+
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:PrivacyGuideSettingsStates,
+  //chrome/browser/privacy_guide/privacy_guide.h:PrivacyGuideSettingsStates
+) -->
+
+<!-- LINT.IfChange(SettingsPrivacyGuideStepsEligibleAndReached) -->
 
 <enum name="SettingsPrivacyGuideStepsEligibleAndReached">
   <int value="0" label="MSBB card is eligible to be shown"/>
@@ -485,26 +553,14 @@ chromium-metrics-reviews@google.com.
   <int value="9" label="Completion card is reached"/>
   <int value="10" label="Search Suggestions card is eligible to be shown"/>
   <int value="11" label="Search Suggestions card is reached"/>
-  <int value="12" label="Ad Topics card is eligible to be shown"/>
-  <int value="13" label="Ad Topics card is reached"/>
+  <int value="12" label="(Obsolete) Ad Topics card is eligible to be shown"/>
+  <int value="13" label="(Obsolete) Ad Topics card is reached"/>
 </enum>
 
-<!-- LINT.IfChange(SettingsPrivacySandboxProfileEnabledState) -->
-
-<enum name="SettingsPrivacySandboxProfileEnabledState">
-  <int value="0" label="Profile1_True"/>
-  <int value="1" label="Profile1_False"/>
-  <int value="2" label="Profile2_True"/>
-  <int value="3" label="Profile2_False"/>
-  <int value="4" label="Profile3_True"/>
-  <int value="5" label="Profile3_False"/>
-  <int value="6" label="Profile4_True"/>
-  <int value="7" label="Profile4_False"/>
-  <int value="8" label="Profile5+_True"/>
-  <int value="9" label="Profile5+_False"/>
-</enum>
-
-<!-- LINT.ThenChange(//chrome/browser/privacy_sandbox/profile_bucket_metrics.h:SettingsPrivacySandboxProfileEnabledState) -->
+<!-- LINT.ThenChange(
+  //chrome/browser/resources/settings/metrics_browser_proxy.ts:PrivacyGuideStepsEligibleAndReached,
+  //chrome/browser/privacy_guide/privacy_guide.h:PrivacyGuideStepsEligibleAndReached
+) -->
 
 <enum name="SettingsSafetyCheckInteractions">
   <int value="0" label="Safety check started"/>
@@ -526,6 +582,16 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Search engine deactivated"/>
   <int value="2" label="Keyboard shortcut switched to Tab only"/>
   <int value="3" label="Keyboard shortcut switched to Space or Tab"/>
+  <int value="4" label="Expand site search shortcuts section"/>
+  <int value="5" label="Collapse site search shortcuts section"/>
+  <int value="6" label="Expand feature shortcuts section"/>
+  <int value="7" label="Collapse feature shortcuts section"/>
+  <int value="8" label="Click search engine more actions (three-dot menu)"/>
+  <int value="9" label="Click edit search engine"/>
+  <int value="10" label="Click add search engine button"/>
+  <int value="11" label="Navigate to nested search engines subpage"/>
+  <int value="12" label="Click disable extension (in three-dot menu)"/>
+  <int value="13" label="Click manage extension (in three-dot menu)"/>
 </enum>
 
 <!-- LINT.IfChange(SettingsSearchExitReason) -->
@@ -537,6 +603,28 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/settings/search/SettingsSearchCoordinator.java:ExitReason) -->
+
+<!-- LINT.IfChange(SettingsSearchExitReasonDesktop) -->
+
+<enum name="SettingsSearchExitReasonDesktop">
+  <int value="0" label="Interacted with a result"/>
+  <int value="1" label="Cleared a query"/>
+  <int value="2" label="Navigated away via sidebar"/>
+  <int value="3" label="Closed or left settings tab"/>
+  <int value="4" label="Navigated back or forward in history"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/resources/settings/metrics_browser_proxy.ts:SettingsSearchExitReasonDesktop) -->
+
+<!-- LINT.IfChange(SuperEncryptedHashResult) -->
+
+<enum name="SuperEncryptedHashResult">
+  <int value="0" label="Match"/>
+  <int value="1" label="Mismatch"/>
+  <int value="2" label="Missing"/>
+</enum>
+
+<!-- LINT.ThenChange(//services/preferences/tracked/pref_hash_store_impl.cc:SuperEncryptedHashResult) -->
 
 <enum name="TrackedPreference">
   <int value="0" label="kShowHomeButton"/>

@@ -1,0 +1,135 @@
+<!--
+Copyright 2026 The Chromium Authors
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<!--
+This file is used to generate a comprehensive list of CBOR histograms
+along with a detailed description for each histogram.
+
+For best practices on writing histogram descriptions, see
+https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/histograms/README.md
+
+Please follow the instructions in the OWNERS file in this directory to find a
+reviewer. If no OWNERS file exists, please consider signing up at
+go/reviewing-metrics (Googlers only), as all subdirectories are expected to
+have an OWNERS file. As a last resort you can send the CL to
+chromium-metrics-reviews@google.com.
+-->
+
+<histogram-configuration>
+
+<histograms>
+
+<histogram name="CBOR.Read.Duration" units="microseconds"
+    expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records the total elapsed time in microseconds for cbor::Reader::Read(),
+    which for the Rust parser includes both Rust parsing and the conversion of
+    the result to a C++ cbor::Value. Emitted once for every call to
+    cbor::Reader::Read() that leaves the choice of parser to the
+    kUseRustCborParser feature. Both the C++ and the Rust parser report here, so
+    the two can be compared across that feature's experiment groups. Calls that
+    select a parser themselves are not recorded, and neither is anything in
+    builds that do not include the Rust parser, as neither takes part in the
+    experiment. This metric is also only reported for clients with
+    high-resolution clocks.
+  </summary>
+</histogram>
+
+<histogram name="CBOR.Read.Result" enum="CBORDecoderError"
+    expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records the outcome (success or specific decoder error) of CBOR parsing
+    operations. Emitted once for every call to cbor::Reader::Read() that leaves
+    the choice of parser to the kUseRustCborParser feature. Both the C++ and the
+    Rust parser report here, so the two can be compared across that feature's
+    experiment groups. Calls that select a parser themselves are not recorded,
+    and neither is anything in builds that do not include the Rust parser, as
+    neither takes part in the experiment.
+  </summary>
+</histogram>
+
+<histogram name="CBOR.Read.Size" units="bytes" expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records the size of the payload in bytes provided to cbor::Reader::Read().
+    This provides context for CBOR.Read.Duration. Sizes above 10MB are recorded
+    in the overflow bucket. Emitted once for every call to cbor::Reader::Read()
+    that leaves the choice of parser to the kUseRustCborParser feature. Both the
+    C++ and the Rust parser report here, so the two can be compared across that
+    feature's experiment groups. Calls that select a parser themselves are not
+    recorded, and neither is anything in builds that do not include the Rust
+    parser, as neither takes part in the experiment.
+  </summary>
+</histogram>
+
+<histogram name="CBOR.Read.{CpuState}Duration" units="microseconds"
+    expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <improvement direction="LOWER_IS_BETTER"/>
+  <summary>
+    Records the part of CBOR.Read.Duration during which the parsing thread was
+    {CpuState}. The on-CPU part is the thread's CPU time during the parse,
+    capped at the elapsed time, and the off-CPU part is the rest, so for every
+    parse, CBOR.Read.OnCpuDuration and CBOR.Read.OffCpuDuration add up to
+    CBOR.Read.Duration. Emitted together with CBOR.Read.Duration, for the same
+    calls, unless the thread's CPU time cannot be measured precisely: on Windows
+    on Arm, on Windows clients whose CPU lacks an invariant time stamp counter
+    (TSC), and, on other Windows clients, for parses that start before the
+    process has measured the TSC frequency, which takes at least 50 ms from its
+    first reading of a thread's CPU time.
+  </summary>
+  <token key="CpuState">
+    <variant name="OffCpu"
+        summary="not running on a CPU, for example while waiting for storage
+                 to serve a major page fault, or for a CPU after being
+                 preempted"/>
+    <variant name="OnCpu"
+        summary="running on a CPU, including time spent in the kernel, for
+                 example handling minor page faults"/>
+  </token>
+</histogram>
+
+<histogram name="CBOR.Write.Duration" units="microseconds"
+    expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records the elapsed time for cbor::Writer::Write() (including C++-to-Rust
+    value conversion when using the Rust writer), for both successful and failed
+    calls. Emitted once per call controlled by kUseRustCborWriter in builds with
+    the Rust writer enabled, on clients with high-resolution clocks.
+  </summary>
+</histogram>
+
+<histogram name="CBOR.Write.Size" units="bytes" expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records the output size in bytes of successful cbor::Writer::Write() calls
+    (capped at 10MB). Emitted once per successful call controlled by
+    kUseRustCborWriter in builds with the Rust writer enabled.
+  </summary>
+</histogram>
+
+<histogram name="CBOR.Write.Success" enum="BooleanSuccess"
+    expires_after="2027-03-28">
+  <owner>zgroza@chromium.org</owner>
+  <owner>src/components/cbor/OWNERS</owner>
+  <summary>
+    Records whether cbor::Writer::Write() succeeded. Emitted once per call
+    controlled by kUseRustCborWriter in builds with the Rust writer enabled.
+  </summary>
+</histogram>
+
+</histograms>
+
+</histogram-configuration>

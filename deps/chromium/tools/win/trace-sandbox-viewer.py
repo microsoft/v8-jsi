@@ -165,13 +165,13 @@ def assign_interfaces_to_sandboxes(events):
             # If there is a sandbox, use that.
             if pid in pidmap:
                 sbox = pidmap[pid]
-                if not sbox in intmap:
+                if sbox not in intmap:
                     intmap[sbox] = set()
                 intmap[sbox].add(interface)
             # Otherwise if we saw a process, use that.
             elif pid in procmap:
                 sbox = "None(" + procmap[pid] + ")"
-                if not sbox in intmap:
+                if sbox not in intmap:
                     intmap[sbox] = set()
                 intmap[sbox].add(interface)
         elif event['cat'] == '__metadata' and event['name'] == 'process_name':
@@ -202,7 +202,8 @@ def main():
 
     events = read_json_events(
         args.files,
-        categories=['mojom', 'disabled-by-default-sandbox', '__metadata'])
+        categories=['mojom', 'disabled-by-default-sandbox', '__metadata'],
+    )
     interfaces = assign_interfaces_to_sandboxes(events)
 
     print(output_as_json(interfaces))

@@ -162,6 +162,18 @@ BASE_EXPORT bool PreventExecuteMappingUnchecked(
 BASE_EXPORT void SetExtraNoExecuteAllowedPath(int path_key);
 #endif  // BUILDFLAG(IS_WIN)
 
+#if BUILDFLAG(IS_MAC)
+enum class DarwinUserDirectory {
+  kUser,
+  kUserCache,
+  kUserTemp,
+};
+
+// Returns the canonicalized path of a Darwin user directory, or empty FilePath
+// on failure.
+BASE_EXPORT FilePath GetDarwinUserDirectory(DarwinUserDirectory directory);
+#endif  // BUILDFLAG(IS_MAC)
+
 // Moves the given path, whether it's a file or a directory.
 // If a simple rename is not possible, such as in the case where the paths are
 // on different volumes, this will attempt to copy and delete. Returns
@@ -220,11 +232,15 @@ BASE_EXPORT bool CopyDirectory(const FilePath& from_path,
                                const FilePath& to_path,
                                bool recursive);
 
-// Like CopyDirectory() except trying to overwrite an existing file will not
-// work and will return false.
-BASE_EXPORT bool CopyDirectoryExcl(const FilePath& from_path,
-                                   const FilePath& to_path,
-                                   bool recursive);
+#if BUILDFLAG(IS_POSIX)
+// Same as `CopyDirectory()` above, except returns false when symlinks and
+// non-regular files are encountered. Directory traversal is performed using
+// file descriptors with `O_NOFOLLOW` to prevent TOCTOU symlink traversal
+// attacks.
+BASE_EXPORT bool CopyDirectoryNoFollow(const FilePath& from_path,
+                                       const FilePath& to_path,
+                                       bool recursive);
+#endif  // BUILDFLAG(IS_POSIX)
 
 // Returns true if the given path exists on the local filesystem,
 // false otherwise.
@@ -301,8 +317,11 @@ BASE_EXPORT bool ReadFromFD(int fd, span<char> buffer);
 // wrapped in a ScopedFILE.
 // The caller is responsible for deleting the file `path` points to, if
 // appropriate.
-BASE_EXPORT ScopedFD CreateAndOpenFdForTemporaryFileInDir(const FilePath& dir,
-                                                          FilePath* path);
+// `name_prefix`: refer to `CreateAndOpenTemporaryFileInDir` for details.
+BASE_EXPORT ScopedFD
+CreateAndOpenFdForTemporaryFileInDir(const FilePath& dir,
+                                     FilePath::StringViewType name_prefix,
+                                     FilePath* path);
 
 #endif  // BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 
@@ -410,9 +429,47 @@ BASE_EXPORT FilePath GetHomeDir();
 //
 // On Windows, `additional_flags` will be combined with the default flags when
 // opening the file.
-BASE_EXPORT File CreateAndOpenTemporaryFileInDir(const FilePath& dir,
-                                                 FilePath* temp_file,
-                                                 uint32_t additional_flags = 0);
+//
+// `name_prefix`, when non-empty, is incorporated into the generated temporary
+// file name. On Windows it is prepended directly to the generated file name; on
+// POSIX it is appended after the platform-specific fixed prefix used by
+// FormatTemporaryFileName().
+BASE_EXPORT File
+CreateAndOpenTemporaryFileInDir(const FilePath& dir,
+                                FilePath* temp_file,
+                                uint32_t additional_flags = 0,
+                                FilePath::StringViewType name_prefix = {});
+
+#if BUILDFLAG(IS_WIN)
+// Similar to `CreateAndOpenTemporaryFileInDir`, but allows the caller to
+// specify custom `base::File::Flags` (defined in base/files/file.h) when
+// opening the file.
+// The `base::File::FLAG_CREATE` flag is automatically added to ensure atomic
+// creation (i.e. it will fail if the file already exists).
+// These custom |flags| completely replace the default flags used by
+// `CreateAndOpenTemporaryFileInDir`.
+// `name_prefix`: refer to `CreateAndOpenTemporaryFileInDir` for details.
+BASE_EXPORT File CreateAndOpenTemporaryFileInDirWithFlags(
+    const FilePath& dir,
+    FilePath* temp_file,
+    uint32_t flags,
+    FilePath::StringViewType name_prefix = {});
+#endif
+
+// Returns the non-empty name prefix that can be inferred from `temp_file`
+// if the file is generated using CreateAndOpenTemporaryFileInDir(). Returns
+// nullopt for files with an empty prefix.
+BASE_EXPORT std::optional<FilePath::StringType> GetNamePrefixForTemporaryFile(
+    const FilePath& temp_file);
+
+// Enumerates temporary files (as produced by CreateAndOpenTemporaryFileInDir())
+// directly under `dir` (non-recursive) and returns the path of the most
+// recently modified file whose inferred name prefix (see
+// GetNamePrefixForTemporaryFile()) equals `name_prefix`. Returns nullopt if no
+// matching file is found.
+BASE_EXPORT std::optional<FilePath> GetLatestTemporaryFileWithNamePrefix(
+    const FilePath& dir,
+    FilePath::StringViewType name_prefix);
 
 // Creates a temporary file. The full path is placed in `path`, and the
 // function returns true if was successful in creating the file. The file will
@@ -531,6 +588,17 @@ BASE_EXPORT FilePath MakeLongFilePath(const FilePath& input);
 // Returns true if the hard link is created, false if it fails.
 BASE_EXPORT bool CreateWinHardLink(const FilePath& to_file,
                                    const FilePath& from_file);
+
+// Like GetFileInfo(), but for cloud-backed placeholder files (e.g., OneDrive
+// Files On-Demand), opens the file to force the cloud provider to hydrate (and,
+// for files protected with a sensitivity label, decrypt) it before reading the
+// size, so the returned info reflects the full logical content rather than a
+// stub/placeholder size. For non-placeholder files, this behaves like
+// GetFileInfo(). May open the file and therefore block or trigger a network
+// download; only call from a context that allows blocking. Returns false on
+// failure.
+BASE_EXPORT bool GetHydratedFileInfo(const FilePath& file_path,
+                                     File::Info* info);
 #endif
 
 // This function will return if the given file is a symlink or not.
@@ -541,8 +609,8 @@ BASE_EXPORT bool GetFileInfo(const FilePath& file_path, File::Info* info);
 
 // Sets the time of the last access and the time of the last modification.
 BASE_EXPORT bool TouchFile(const FilePath& path,
-                           const Time& last_accessed,
-                           const Time& last_modified);
+                           Time last_accessed,
+                           Time last_modified);
 
 // Wrapper for fopen-like calls. Returns non-NULL FILE* on success. The
 // underlying file descriptor (POSIX) or handle (Windows) is unconditionally
@@ -751,7 +819,21 @@ BASE_EXPORT std::optional<FilePath> ResolveToContentUri(const FilePath& path);
 BASE_EXPORT std::optional<FilePath> ResolveToVirtualDocumentPath(
     const FilePath& path);
 
+// Copies a file from app-private storage into the public Downloads collection.
+// Returns the public content URI string on success, or std::nullopt on failure.
+BASE_EXPORT std::optional<std::string> CopyFileToDownloadsCollection(
+    const FilePath& file_path,
+    const std::string& mime_type);
+
 #endif
+
+// Returns whether the specified file name is a reserved name on Windows.
+// This includes names like "com2.zip" (which correspond to devices) and
+// desktop.ini and thumbs.db which have special meaning to the Windows shell.
+// Even on other platforms, this will return whether or not a file name is
+// reserved on Windows.
+BASE_EXPORT bool IsReservedNameOnWindows(
+    const base::FilePath::StringType& filename);
 
 // Internal --------------------------------------------------------------------
 

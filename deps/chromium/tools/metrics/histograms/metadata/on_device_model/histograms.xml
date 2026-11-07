@@ -63,7 +63,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.BenchmarkDuration" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-01-17">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -75,7 +75,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.BenchmarkEstimatedTokensPerSecond.{Stage}"
-    units="tk/s" expires_after="2026-09-06">
+    units="tk/s" expires_after="2027-02-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -91,7 +91,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.BenchmarkSuccess" enum="Boolean"
-    expires_after="2026-08-30">
+    expires_after="2027-01-03">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -103,7 +103,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.BenchmarkVeryLowReason"
-    enum="VeryLowPerformanceReason" expires_after="2026-09-06">
+    enum="VeryLowPerformanceReason" expires_after="2027-03-21">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -114,7 +114,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.DeviceHeapSize.{GpuType}" units="MB"
-    expires_after="2026-09-06">
+    expires_after="2027-02-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -175,7 +175,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.GpuBlockedReason" enum="GpuBlockedReason"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -186,7 +186,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.GpuErrorReason" enum="GpuErrorReason"
-    expires_after="2026-10-11">
+    expires_after="2027-02-14">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -197,7 +197,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.LoadModelDuration" units="ms"
-    expires_after="2026-09-06">
+    expires_after="2027-03-21">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -208,7 +208,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.LoadPlatformModelStatus"
-    enum="LoadPlatformModelStatus" expires_after="2026-09-06">
+    enum="LoadPlatformModelStatus" expires_after="2027-01-17">
   <owner>jmpollock@chromium.org</owner>
   <owner>yich@google.com</owner>
   <summary>
@@ -233,7 +233,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.QueueTime.{Priority}" units="ms"
-    expires_after="2026-10-25">
+    expires_after="2027-03-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -249,7 +249,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.SystemRAM.{GpuType}" units="MB"
-    expires_after="2026-09-06">
+    expires_after="2027-02-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -264,7 +264,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.TokenCount.Input{InputSource}{Type}"
-    units="tokens" expires_after="2026-10-11">
+    units="tokens" expires_after="2027-02-14">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -284,7 +284,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.TokenCount.{Stage}" units="tokens"
-    expires_after="2026-09-06">
+    expires_after="2027-02-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -300,7 +300,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.TokensPerSecond.Input{InputSource}{Type}"
-    units="tk/s" expires_after="2026-10-11">
+    units="tk/s" expires_after="2027-02-14">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -320,7 +320,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.TokensPerSecond.{Stage}" units="tk/s"
-    expires_after="2026-09-06">
+    expires_after="2027-02-07">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>
@@ -336,7 +336,7 @@ histograms along with a detailed description for each histogram.
 </histogram>
 
 <histogram name="OnDeviceModel.TotalTime.Input{InputSource}{Type}" units="ms"
-    expires_after="2026-10-11">
+    expires_after="2027-02-14">
   <owner>rmcelrath@chromium.org</owner>
   <owner>sophiechang@chromium.org</owner>
   <owner>src/services/on_device_model/OWNERS</owner>

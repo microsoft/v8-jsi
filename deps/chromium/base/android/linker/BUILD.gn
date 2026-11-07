@@ -23,6 +23,7 @@ shared_library("chromium_android_linker") {
   ]
 
   deps = [
+    "//base:compiler_specific",
     "//build:buildflag_header_h",
     "//third_party/jni_zero",
   ]
@@ -49,8 +50,8 @@ shared_library("chromium_android_linker") {
   # un-necessary code.
   no_default_deps = true
 
-  # The linker is used on Android platforms that do not support GNU-style
-  # hash tables, so ensure one isn't included in it to save space (since the SysV
+  # The linker is used on Android platforms that do not support GNU-style hash
+  # tables, so ensure one isn't included in it to save space (since the SysV
   # format is always supported). It would be nice to also remove the GNU version
   # tables, for the same reason, but a linker flag to disable them doesn't seem
   # to exist. This saves 52 bytes on ARM.

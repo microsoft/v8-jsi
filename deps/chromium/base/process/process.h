@@ -5,6 +5,7 @@
 #ifndef BASE_PROCESS_PROCESS_H_
 #define BASE_PROCESS_PROCESS_H_
 
+#include <iosfwd>
 #include <string_view>
 
 #include "base/base_export.h"
@@ -108,6 +109,17 @@ class BASE_EXPORT Process {
   ProcessHandle Handle() const;
 
   // Returns a second object that represents this process.
+  //
+  // Warning: on Windows this duplicates the process handle, which is not a
+  // cheap user-mode operation. Handle duplication takes the per-process handle
+  // table lock and, for process objects, the system-wide process table lock, so
+  // it contends with handle and process operations machine-wide and is prone to
+  // priority inversion. Third-party security software compounds this by
+  // registering ObRegisterCallbacks() callbacks that run inline on the calling
+  // thread. Stalls of seconds have been observed. Avoid calling this on the UI
+  // thread or any other latency-sensitive thread: pass an existing Process by
+  // reference where possible, or duplicate it off of the critical path. See
+  // https://crbug.com/40716800.
   Process Duplicate() const;
 
   // Relinquishes ownership of the handle and sets this to kNullProcessHandle.
@@ -177,13 +189,6 @@ class BASE_EXPORT Process {
   // NOTE: |exit_code| is optional, nullptr can be passed if the exit code
   // is not required.
   bool WaitForExitWithTimeout(TimeDelta timeout, int* exit_code) const;
-
-  // Indicates that the process has exited with the specified |exit_code|.
-  // This should be called if process exit is observed outside of this class.
-  // (i.e. Not because Terminate or WaitForExit, above, was called.)
-  // Note that nothing prevents this being called multiple times for a dead
-  // process though that should be avoided.
-  void Exited(int exit_code) const;
 
   // The different priorities that a process can have.
   enum class Priority {
@@ -331,6 +336,9 @@ class BASE_EXPORT Process {
 
 BASE_EXPORT const char* ProcessPriorityToString(
     Process::Priority process_priority);
+
+BASE_EXPORT std::ostream& operator<<(std::ostream& os,
+                                     Process::Priority priority);
 
 #if BUILDFLAG(IS_CHROMEOS)
 // Exposed for testing.

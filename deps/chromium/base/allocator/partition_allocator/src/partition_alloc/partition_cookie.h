@@ -5,6 +5,8 @@
 #ifndef PARTITION_ALLOC_PARTITION_COOKIE_H_
 #define PARTITION_ALLOC_PARTITION_COOKIE_H_
 
+#include <array>
+
 #include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 #include "partition_alloc/partition_alloc_check.h"
@@ -31,9 +33,11 @@ static constexpr size_t kCookieSize = 16;
 
 #if PA_BUILDFLAG(USE_PARTITION_COOKIE)
 
-inline constexpr unsigned char kCookieValue[] = {
-    0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xD0, 0x0D,
-    0x13, 0x37, 0xF0, 0x05, 0xBA, 0x11, 0xAB, 0x1E};
+// clang-format: off
+inline constexpr auto kCookieValue = std::to_array<unsigned char>(
+    {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xD0, 0x0D, 0x13, 0x37, 0xF0, 0x05,
+     0xBA, 0x11, 0xAB, 0x1E});
+// clang-format: on
 
 constexpr size_t kPartitionCookieSizeAdjustment = kCookieSize;
 
@@ -45,7 +49,7 @@ constexpr size_t kPartitionCookieSizeAdjustment = kCookieSize;
 PA_ALWAYS_INLINE void PartitionCookieCheckValue(const unsigned char* cookie_ptr,
                                                 size_t slot_usable_size) {
   for (size_t i = 0; i < kCookieSize; ++i, PA_UNSAFE_TODO(++cookie_ptr)) {
-    if (*cookie_ptr != PA_UNSAFE_TODO(kCookieValue[i])) {
+    if (*cookie_ptr != kCookieValue[i]) {
       CookieCorruptionDetected(cookie_ptr, slot_usable_size);
     }
   }
@@ -53,7 +57,7 @@ PA_ALWAYS_INLINE void PartitionCookieCheckValue(const unsigned char* cookie_ptr,
 
 PA_ALWAYS_INLINE void PartitionCookieWriteValue(unsigned char* cookie_ptr) {
   for (size_t i = 0; i < kCookieSize; ++i, PA_UNSAFE_TODO(++cookie_ptr)) {
-    *cookie_ptr = PA_UNSAFE_TODO(kCookieValue[i]);
+    *cookie_ptr = kCookieValue[i];
   }
 }
 

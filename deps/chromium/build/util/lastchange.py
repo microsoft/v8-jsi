@@ -2,7 +2,6 @@
 # Copyright 2012 The Chromium Authors
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
 """
 lastchange.py -- Chromium last change fetching utility.
 """
@@ -14,187 +13,214 @@ import hashlib
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 
 _THIS_DIR = os.path.abspath(os.path.dirname(__file__))
 _ROOT_DIR = os.path.abspath(
-    os.path.join(_THIS_DIR, "..", "..", "third_party/depot_tools"))
+    os.path.join(_THIS_DIR, "..", "..", "third_party/depot_tools")
+)
 
 sys.path.insert(0, _ROOT_DIR)
 
-import gclient_utils
+import gclient_utils  # noqa: E402
 
 VersionInfo = collections.namedtuple(
-    "VersionInfo", ("revision_id", "revision", "commit_position", "timestamp"))
+    "VersionInfo", ("revision_id", "revision", "commit_position", "timestamp")
+)
 _EMPTY_VERSION_INFO = VersionInfo('0' * 40, '0' * 40, '', 0)
 
 
 def GetFingerprint(revision_id):
-  return hashlib.sha256(revision_id.encode('utf-8')).hexdigest()
+    return hashlib.sha256(revision_id.encode('utf-8')).hexdigest()
 
-
-class GitError(Exception):
-  pass
 
 # This function exists for compatibility with logic outside this
 # repository that uses this file as a library.
 # TODO(eliribble) remove this function after it has been ported into
 # the repositories that depend on it
 def RunGitCommand(directory, command):
-  """
-  Launches git subcommand.
+    """
+    Launches git subcommand.
 
-  Errors are swallowed.
+    Errors are swallowed.
 
-  Returns:
-    A process object or None.
-  """
-  command = ['git'] + command
-  # Force shell usage under cygwin. This is a workaround for
-  # mysterious loss of cwd while invoking cygwin's git.
-  # We can't just pass shell=True to Popen, as under win32 this will
-  # cause CMD to be used, while we explicitly want a cygwin shell.
-  if sys.platform == 'cygwin':
-    command = ['sh', '-c', ' '.join(command)]
-  try:
-    proc = subprocess.Popen(command,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            cwd=directory,
-                            shell=(sys.platform=='win32'))
-    return proc
-  except OSError as e:
-    logging.error('Command %r failed: %s' % (' '.join(command), e))
-    return None
+    Returns:
+      A process object or None.
+    """
+    command = ['git'] + command
+    # Force shell usage under cygwin. This is a workaround for
+    # mysterious loss of cwd while invoking cygwin's git.
+    # We can't just pass shell=True to Popen, as under win32 this will
+    # cause CMD to be used, while we explicitly want a cygwin shell.
+    if sys.platform == 'cygwin':
+        command = ['sh', '-c', ' '.join(command)]
+    try:
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=directory,
+            shell=(sys.platform == 'win32'),
+        )
+        return proc
+    except OSError as e:
+        logging.error('Command %r failed: %s' % (' '.join(command), e))
+        return None
+
+
+def _RunCommand(directory, command):
+    """Launches command.
+
+    Returns:
+      The stripped stdout of the command.
+    Raises:
+      RuntimeError on failure, including a nonzero return code.
+    """
+    try:
+        logging.info("Executing '%s' in %s", ' '.join(command), directory)
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=directory,
+            shell=(sys.platform == 'win32'),
+        )
+        stdout, stderr = tuple(
+            x.decode(encoding='utf_8') for x in proc.communicate()
+        )
+        stdout = stdout.strip()
+        stderr = stderr.strip()
+        logging.debug("returncode: %d", proc.returncode)
+        logging.debug("stdout: %s", stdout)
+        logging.debug("stderr: %s", stderr)
+        if proc.returncode != 0 or not stdout:
+            raise RuntimeError(
+                (
+                    "Command '{}' in {} failed: rc={}, stdout='{}' stderr='{}'"
+                ).format(
+                    " ".join(command),
+                    directory,
+                    proc.returncode,
+                    stdout,
+                    stderr,
+                )
+            )
+        return stdout
+    except OSError as e:
+        raise RuntimeError(
+            "Command '{}' in {} failed: {}".format(
+                " ".join(command), directory, e
+            )
+        )
 
 
 def _RunGitCommand(directory, command):
-  """Launches git subcommand.
+    """Launches git subcommand in the git top-level directory.
 
-  Returns:
-    The stripped stdout of the git command.
-  Raises:
-    GitError on failure, including a nonzero return code.
-  """
-  command = ['git'] + command
-  # Force shell usage under cygwin. This is a workaround for
-  # mysterious loss of cwd while invoking cygwin's git.
-  # We can't just pass shell=True to Popen, as under win32 this will
-  # cause CMD to be used, while we explicitly want a cygwin shell.
-  if sys.platform == 'cygwin':
-    command = ['sh', '-c', ' '.join(command)]
-  try:
-    logging.info("Executing '%s' in %s", ' '.join(command), directory)
-    proc = subprocess.Popen(command,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            cwd=directory,
-                            shell=(sys.platform=='win32'))
-    stdout, stderr = tuple(x.decode(encoding='utf_8')
-                           for x in proc.communicate())
-    stdout = stdout.strip()
-    stderr = stderr.strip()
-    logging.debug("returncode: %d", proc.returncode)
-    logging.debug("stdout: %s", stdout)
-    logging.debug("stderr: %s", stderr)
-    if proc.returncode != 0 or not stdout:
-      raise GitError((
-          "Git command '{}' in {} failed: "
-          "rc={}, stdout='{}' stderr='{}'").format(
-          " ".join(command), directory, proc.returncode, stdout, stderr))
-    return stdout
-  except OSError as e:
-    raise GitError("Git command 'git {}' in {} failed: {}".format(
-        " ".join(command), directory, e))
+    Returns:
+      The stripped stdout of the git command.
+    Raises:
+      RuntimeError on failure, including a nonzero return code.
+    """
+    command = ['git'] + command
+    # Force shell usage under cygwin. This is a workaround for
+    # mysterious loss of cwd while invoking cygwin's git.
+    # We can't just pass shell=True to Popen, as under win32 this will
+    # cause CMD to be used, while we explicitly want a cygwin shell.
+    if sys.platform == 'cygwin':
+        command = ['sh', '-c', ' '.join(command)]
+    return _RunCommand(directory, command)
 
 
-def GetMergeBase(directory, ref):
-  """
-  Return the merge-base of HEAD and ref.
+def GetGitMergeBase(directory, ref):
+    """
+    Return the merge-base of HEAD and ref.
 
-  Args:
-    directory: The directory containing the .git directory.
-    ref: The ref to use to find the merge base.
-  Returns:
-    The git commit SHA of the merge-base as a string.
-  """
-  logging.debug("Calculating merge base between HEAD and %s in %s",
-                ref, directory)
-  command = ['merge-base', 'HEAD', ref]
-  return _RunGitCommand(directory, command)
+    Args:
+      directory: The directory containing the .git directory.
+      ref: The ref to use to find the merge base.
+    Returns:
+      The git commit SHA of the merge-base as a string.
+    """
+    logging.debug(
+        "Calculating merge base between HEAD and %s in %s", ref, directory
+    )
+    command = ['merge-base', 'HEAD', ref]
+    return _RunGitCommand(directory, command)
 
 
 def FetchGitRevision(directory, commit_filter, start_commit="HEAD"):
-  """
-  Fetch the Git hash (and Cr-Commit-Position if any) for a given directory.
+    """
+    Fetch the Git hash (and Cr-Commit-Position if any) for a given directory.
 
-  Args:
-    directory: The directory containing the .git directory.
-    commit_filter: A filter to supply to grep to filter commits
-    start_commit: A commit identifier. The result of this function
-      will be limited to only consider commits before the provided
-      commit.
-  Returns:
-    A VersionInfo object. On error all values will be 0.
-  """
-  hash_ = ''
+    Args:
+      directory: The directory containing the .git directory.
+      commit_filter: A filter to supply to grep to filter commits
+      start_commit: A commit identifier. The result of this function
+        will be limited to only consider commits before the provided
+        commit.
+    Returns:
+      A VersionInfo object. On error all values will be 0.
+    """
+    hash_ = ''
 
-  git_args = ['log', '-1', '--format=%H %ct']
-  if commit_filter is not None:
-    git_args.append('--grep=' + commit_filter)
+    git_args = ['log', '-1', '--format=%H %ct']
+    if commit_filter is not None:
+        git_args.append('--grep=' + commit_filter)
 
-  git_args.append(start_commit)
+    git_args.append(start_commit)
 
-  output = _RunGitCommand(directory, git_args)
-  hash_, commit_timestamp = output.split()
-  if not hash_:
-    return VersionInfo('0', '0', '', 0)
+    output = _RunGitCommand(directory, git_args)
+    hash_, commit_timestamp = output.split()
+    if not hash_:
+        return _EMPTY_VERSION_INFO
 
-  revision = hash_
-  pos = ''
-  output = _RunGitCommand(directory, ['cat-file', 'commit', hash_])
-  for line in reversed(output.splitlines()):
-    if line.startswith('Cr-Commit-Position:'):
-      pos = line.rsplit()[-1].strip()
-      logging.debug("Found Cr-Commit-Position '%s'", pos)
-      revision = "{}-{}".format(hash_, pos)
-      break
-  return VersionInfo(hash_, revision, pos, int(commit_timestamp))
+    revision = hash_
+    pos = ''
+    output = _RunGitCommand(directory, ['cat-file', 'commit', hash_])
+    for line in reversed(output.splitlines()):
+        if line.startswith('Cr-Commit-Position:'):
+            pos = line.rsplit()[-1].strip()
+            logging.debug("Found Cr-Commit-Position '%s'", pos)
+            revision = "{}-{}".format(hash_, pos)
+            break
+    return VersionInfo(hash_, revision, pos, int(commit_timestamp))
 
 
 def GetHeaderGuard(path):
-  """
-  Returns the header #define guard for the given file path.
-  This treats everything after the last instance of "src/" as being a
-  relevant part of the guard. If there is no "src/", then the entire path
-  is used.
-  """
-  src_index = path.rfind('src/')
-  if src_index != -1:
-    guard = path[src_index + 4:]
-  else:
-    guard = path
-  guard = guard.upper()
-  return guard.replace('/', '_').replace('.', '_').replace('\\', '_') + '_'
+    """
+    Returns the header #define guard for the given file path.
+    This treats everything after the last instance of "src/" as being a
+    relevant part of the guard. If there is no "src/", then the entire path
+    is used.
+    """
+    src_index = path.rfind('src/')
+    if src_index != -1:
+        guard = path[src_index + 4 :]
+    else:
+        guard = path
+    guard = guard.upper()
+    return guard.replace('/', '_').replace('.', '_').replace('\\', '_') + '_'
 
 
 def GetCommitPositionHeaderContents(path, define_prefix, version_info):
-  """
-  Returns what the contents of the header file should be that indicate the
-  commit position number of given version.
-  """
-  header_guard = GetHeaderGuard(path)
+    """
+    Returns what the contents of the header file should be that indicate the
+    commit position number of given version.
+    """
+    header_guard = GetHeaderGuard(path)
 
-  commit_position_number = ''
-  commit_position_ref = ''
-  if version_info.commit_position:
-    ref_and_number = version_info.commit_position.split('@', 2)
-    if len(ref_and_number) == 2:
-      commit_position_ref = ref_and_number[0]
-      commit_position_number = ref_and_number[1][2:-1]
+    commit_position_number = ''
+    commit_position_ref = ''
+    if version_info.commit_position:
+        ref_and_number = version_info.commit_position.split('@', 2)
+        if len(ref_and_number) == 2:
+            commit_position_ref = ref_and_number[0]
+            commit_position_number = ref_and_number[1][2:-1]
 
-  header_contents = """/* Generated by lastchange.py, do not edit.*/
+    header_contents = """/* Generated by lastchange.py, do not edit.*/
 
 #ifndef %(header_guard)s
 #define %(header_guard)s
@@ -204,23 +230,23 @@ def GetCommitPositionHeaderContents(path, define_prefix, version_info):
 
 #endif  // %(header_guard)s
 """ % {
-      'header_guard': header_guard,
-      'define': define_prefix,
-      'is_main': ('1' if commit_position_ref == 'refs/heads/main' else '0'),
-      'commit_position_number': commit_position_number,
-  }
+        'header_guard': header_guard,
+        'define': define_prefix,
+        'is_main': ('1' if commit_position_ref == 'refs/heads/main' else '0'),
+        'commit_position_number': commit_position_number,
+    }
 
-  return header_contents
+    return header_contents
 
 
 def GetHeaderContents(path, define, version):
-  """
-  Returns what the contents of the header file should be that indicate the given
-  revision.
-  """
-  header_guard = GetHeaderGuard(path)
+    """
+    Returns what the contents of the header file should be that indicate the given
+    revision.
+    """
+    header_guard = GetHeaderGuard(path)
 
-  header_contents = """/* Generated by lastchange.py, do not edit.*/
+    header_contents = """/* Generated by lastchange.py, do not edit.*/
 
 #ifndef %(header_guard)s
 #define %(header_guard)s
@@ -229,359 +255,674 @@ def GetHeaderContents(path, define, version):
 
 #endif  // %(header_guard)s
 """
-  header_contents = header_contents % { 'header_guard': header_guard,
-                                        'define': define,
-                                        'version': version }
-  return header_contents
+    header_contents = header_contents % {
+        'header_guard': header_guard,
+        'define': define,
+        'version': version,
+    }
+    return header_contents
 
 
 def GetGitTopDirectory(source_dir):
-  """Get the top git directory - the directory that contains the .git directory.
+    """Get the top git directory - the directory that contains the .git directory.
 
-  Args:
-    source_dir: The directory to search.
-  Returns:
-    The output of "git rev-parse --show-toplevel" as a string
-  """
-  return _RunGitCommand(source_dir, ['rev-parse', '--show-toplevel'])
+    Args:
+      source_dir: The directory to search.
+    Returns:
+      The output of "git rev-parse --show-toplevel" as a string
+    """
+    return _RunGitCommand(source_dir, ['rev-parse', '--show-toplevel'])
 
 
 def WriteIfChanged(file_name, contents):
-  """
-  Writes the specified contents to the specified file_name
-  iff the contents are different than the current contents.
-  Returns if new data was written.
-  """
-  try:
-    old_contents = open(file_name, 'r').read()
-  except EnvironmentError:
-    pass
-  else:
-    if contents == old_contents:
-      return False
-    os.unlink(file_name)
-  open(file_name, 'w').write(contents)
-  return True
+    """
+    Writes the specified contents to the specified file_name
+    iff the contents are different than the current contents.
+    Returns if new data was written.
+    """
+    try:
+        old_contents = open(file_name, 'r', encoding='utf-8').read()
+    except EnvironmentError:
+        pass
+    else:
+        if contents == old_contents:
+            return False
+        os.unlink(file_name)
+    open(file_name, 'w', encoding='utf-8', newline='').write(contents)
+    return True
+
+
+def GetGitVersion(source_dir, commit_filter, merge_base_ref):
+    """Fetch the revision and timestamp using Git.
+
+    Args:
+      source_dir: The directory to search.
+      commit_filter: Regex to filter commits by description.
+      merge_base_ref: Ref to compute the merge base against.
+
+    Returns:
+      VersionInfo object with the revision and timestamp.
+
+    Raises:
+      RuntimeError: If running `git rev-parse --show-toplevel` fails.
+    """
+    git_top_dir = GetGitTopDirectory(source_dir)
+    start_commit = 'HEAD'
+    version_info = None
+    if merge_base_ref:
+        try:
+            start_commit = GetGitMergeBase(git_top_dir, merge_base_ref)
+        except RuntimeError as e:
+            logging.error(
+                f"You requested a --merge-base-ref value of '{merge_base_ref}' but "
+                f"no merge base could be found between it and HEAD. Git reports: {e}"
+            )
+            return None
+    try:
+        version_info = FetchGitRevision(
+            git_top_dir, commit_filter, start_commit
+        )
+    except RuntimeError as e:
+        logging.error(f"Failed to get version info from git: {e}")
+    return version_info
+
+
+def GetJjWorkspaceRoot(source_dir):
+    """Get the JJ workspace root directory.
+
+    Args:
+      source_dir: The directory to search.
+    Returns:
+      The output of "jj root" as a string
+    """
+    return _RunCommand(source_dir, ['jj', 'root'])
+
+
+def GetJjVersion(source_dir, commit_filter, merge_base_ref):
+    """Fetch the revision and timestamp using JJ.
+
+    Args:
+      source_dir: The directory to search.
+      commit_filter: Regex to filter commits by description.
+      merge_base_ref: Ref to compute the merge base against.
+
+    Returns:
+      VersionInfo object with the revision and timestamp.
+
+    Raises:
+      RuntimeError: If running `jj root` to determine jj workspace root fails.
+    """
+    jj_root_dir = GetJjWorkspaceRoot(source_dir)  # noqa: F841
+
+    revset = '::@'
+    if merge_base_ref:
+        revset = f'::@ & ::{merge_base_ref}'
+
+    if commit_filter:
+        revset = f'description(regex:"(?m){commit_filter}") & {revset}'
+
+    template = (
+        'commit_id ++ "\\n" ++ committer.timestamp().format("%s") ++ '
+        '"\\n" ++ description'
+    )
+
+    try:
+        output = _RunCommand(
+            source_dir,
+            ['jj', 'log', '-G', '-n', '1', '-r', revset, '-T', template],
+        ).strip()
+    except RuntimeError as e:
+        logging.error("Failed to run jj log: %s", e)
+        return None
+
+    if not output:
+        logging.warning("Empty output from jj log")
+        return None
+
+    parts = output.split('\n', 2)
+    if len(parts) < 3:
+        logging.error("Unexpected output from jj log: %r", output)
+        return None
+
+    commit_id = parts[0].strip()
+    timestamp = parts[1].strip()
+    description = parts[2]
+
+    pos = ''
+    for line in reversed(description.splitlines()):
+        if line.startswith('Cr-Commit-Position:'):
+            pos = line.rsplit()[-1].strip()
+            break
+
+    revision = commit_id
+    if pos:
+        revision = "{}-{}".format(commit_id, pos)
+
+    return VersionInfo(commit_id, revision, pos, int(timestamp))
 
 
 def GetVersion(source_dir, commit_filter, merge_base_ref):
-  """
-  Returns the version information for the given source directory.
-  """
-  if 'BASE_COMMIT_SUBMISSION_MS' in os.environ:
-    return GetVersionInfoFromEnv()
+    """
+    Returns the version information for the given source directory.
 
-  if gclient_utils.IsEnvCog():
-    return _EMPTY_VERSION_INFO
+    Args:
+      source_dir: The directory to search.
+      commit_filter: Regex to filter commits by description.
+      merge_base_ref: Ref to compute the merge base against.
 
-  git_top_dir = None
-  try:
-    git_top_dir = GetGitTopDirectory(source_dir)
-  except GitError as e:
-    logging.warning("Failed to get git top directory from '%s': %s", source_dir,
-                    e)
+    Returns:
+      VersionInfo object with the revision and timestamp.
+    """
+    if 'BASE_COMMIT_SUBMISSION_MS' in os.environ:
+        return GetVersionInfoFromEnv()
 
-  merge_base_sha = 'HEAD'
-  if git_top_dir and merge_base_ref:
+    if gclient_utils.IsEnvCog():
+        return _EMPTY_VERSION_INFO
+
+    version_info = None
     try:
-      merge_base_sha = GetMergeBase(git_top_dir, merge_base_ref)
-    except GitError as e:
-      logging.error(
-          "You requested a --merge-base-ref value of '%s' but no "
-          "merge base could be found between it and HEAD. Git "
-          "reports: %s", merge_base_ref, e)
-      return None
+        version_info = GetGitVersion(source_dir, commit_filter, merge_base_ref)
+    except RuntimeError as e:
+        # If we're not in a Git working tree, maybe we're in a JJ workspace.
+        try:
+            version_info = GetJjVersion(
+                source_dir, commit_filter, merge_base_ref
+            )
+        except RuntimeError:
+            # Not a JJ workspace or JJ isn't installed, just emit the error from Git.
+            logging.error(f"Failed to get version info from git: {e}")
+            return None
 
-  version_info = None
-  if git_top_dir:
+    if not version_info:
+        logging.warning(
+            "Falling back to a version of 0.0.0 to allow script to finish. This is"
+            "normal if you are bootstrapping a new environment or do not have a "
+            "git/jj workspace for any other reason. If not, this could represent "
+            "a serious error."
+        )
+        # Use a dummy revision that has the same length as a Git commit hash,
+        # same as what we use in build/util/LASTCHANGE.dummy.
+        version_info = _EMPTY_VERSION_INFO
+
+    return version_info
+
+
+def GetCommitDescription(source_dir, revision_id):
+    """
+    Returns the commit description for the given commit hash.
+    """
     try:
-      version_info = FetchGitRevision(git_top_dir, commit_filter,
-                                      merge_base_sha)
-    except GitError as e:
-      logging.error("Failed to get version info: %s", e)
-
-  if not version_info:
-    logging.warning(
-        "Falling back to a version of 0.0.0 to allow script to "
-        "finish. This is normal if you are bootstrapping a new environment "
-        "or do not have a git repository for any other reason. If not, this "
-        "could represent a serious error.")
-    # Use a dummy revision that has the same length as a Git commit hash,
-    # same as what we use in build/util/LASTCHANGE.dummy.
-    version_info = _EMPTY_VERSION_INFO
-
-  return version_info
+        git_top_dir = GetGitTopDirectory(source_dir)
+    except RuntimeError:
+        # If we're not in a Git working tree, maybe we're in a JJ workspace.
+        try:
+            jj_root_dir = GetJjWorkspaceRoot(source_dir)
+        except RuntimeError:
+            # Not a JJ workspace or JJ isn't installed, just return an empty string.
+            return ''
+        else:
+            return _RunCommand(
+                jj_root_dir,
+                [
+                    'jj',
+                    'log',
+                    '-n',
+                    '1',
+                    '-G',
+                    '-r',
+                    revision_id,
+                    '-T',
+                    'description',
+                ],
+            )
+    else:
+        return _RunGitCommand(
+            git_top_dir, ['log', '-1', '--format=%B', revision_id]
+        )
 
 
 def GetVersionInfoFromEnv():
-  """
-  Returns the version information from the environment.
-  """
-  hash = os.environ.get('BASE_COMMIT_HASH', _EMPTY_VERSION_INFO.revision)
-  timestamp = int(
-      os.environ.get('BASE_COMMIT_SUBMISSION_MS',
-                     _EMPTY_VERSION_INFO.timestamp)) / 1000
-  return VersionInfo(hash, hash, '', int(timestamp))
+    """
+    Returns the version information from the environment.
+    """
+    hash = os.environ.get('BASE_COMMIT_HASH', _EMPTY_VERSION_INFO.revision)
+    timestamp = (
+        int(
+            os.environ.get(
+                'BASE_COMMIT_SUBMISSION_MS', _EMPTY_VERSION_INFO.timestamp
+            )
+        )
+        / 1000
+    )
+    return VersionInfo(hash, hash, '', int(timestamp))
 
 
 def GetFlexibleCppHeaderContents(path, version_info, description, keys):
-  """
-  Returns the contents of a C++ header file with a flexible set of commit info.
-  """
-  header_guard = GetHeaderGuard(path)
+    """
+    Returns the contents of a C++ header file with a flexible set of commit info.
+    """
+    header_guard = GetHeaderGuard(path)
 
-  # Start with the basic header structure.
-  header_contents = f"""/* Generated by lastchange.py, do not edit.*/
+    # Start with the basic header structure.
+    header_contents = f"""/* Generated by lastchange.py, do not edit.*/
 
 #ifndef {header_guard}
 #define {header_guard}
 
 """
 
-  # Add the requested macros.
-  if "hash" in keys:
-    header_contents += f'#define LAST_COMMIT_HASH "{version_info.revision_id}"\n'
-  if "time" in keys:
-    commit_time = datetime.datetime.fromtimestamp(
-        version_info.timestamp,
-        datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-    header_contents += f'#define LAST_COMMIT_TIME "{commit_time}"\n'
-  if "description" in keys:
-    escaped_description = description.replace('\\', '\\\\').replace(
-        '"', '\\"').replace('\n', '\\n')
-    header_contents += f'#define LAST_COMMIT_DESCRIPTION "{escaped_description}"\n'
-  if "year" in keys:
-    header_contents += f'#define LAST_COMMIT_YEAR {datetime.datetime.fromtimestamp(version_info.timestamp, datetime.timezone.utc).year}\n'
-  if "revision" in keys:
-    header_contents += f'#define LAST_COMMIT_REVISION "{version_info.revision}"\n'
-  if "fingerprint" in keys:
-    value = GetFingerprint(version_info.revision_id)
-    header_contents += f'#define LAST_COMMIT_FINGERPRINT "{value}"\n'
+    commit_dt = datetime.datetime.fromtimestamp(
+        version_info.timestamp, datetime.timezone.utc
+    )
 
-  # Add the closing guard.
-  header_contents += f"""
+    # Add the requested macros.
+    if "hash" in keys:
+        header_contents += (
+            f'#define LAST_COMMIT_HASH "{version_info.revision_id}"\n'
+        )
+    if "time" in keys:
+        commit_time = commit_dt.strftime('%Y-%m-%d %H:%M:%S')
+        header_contents += f'#define LAST_COMMIT_TIME "{commit_time}"\n'
+    if "description" in keys:
+        escaped_description = (
+            description.replace('\\', '\\\\')
+            .replace('"', '\\"')
+            .replace('\n', '\\n')
+        )
+        header_contents += (
+            f'#define LAST_COMMIT_DESCRIPTION "{escaped_description}"\n'
+        )
+    if "year" in keys:
+        header_contents += f'#define LAST_COMMIT_YEAR {commit_dt.year}\n'
+    if "revision" in keys:
+        header_contents += (
+            f'#define LAST_COMMIT_REVISION "{version_info.revision}"\n'
+        )
+    if "fingerprint" in keys:
+        value = GetFingerprint(version_info.revision_id)
+        header_contents += f'#define LAST_COMMIT_FINGERPRINT "{value}"\n'
+
+    # Add the closing guard.
+    header_contents += f"""
 #endif  // {header_guard}
 """
-  return header_contents
+    return header_contents
+
+
+# Minibranches are named "<parent branch>_<base build PATCH>", e.g.
+# refs/branch-heads/4844_74 was cut from 99.0.4844.74.
+_MINIBRANCH_REF_RE = re.compile(r'^refs/branch-heads/(\d+)_(\d+)$')
+
+
+def ParseMinibranchBaseVersion(description, major, minor):
+    """
+    Parses a commit's description for the version its minibranch was cut from.
+
+    Args:
+      description: The full commit message, including Cr-* footers.
+      major: The MAJOR component from chrome/VERSION.
+      minor: The MINOR component from chrome/VERSION.
+    Returns:
+      The base version string (e.g. "99.0.4844.74"), or an empty string if the
+      commit is not on a minibranch.
+    """
+    position = ''
+    for line in description.splitlines():
+        if line.startswith('Cr-Commit-Position:'):
+            position = line.removeprefix('Cr-Commit-Position:').strip()
+
+    ref = position.split('@', 1)[0]
+    match = _MINIBRANCH_REF_RE.match(ref)
+    if not match:
+        return ''
+
+    build, patch = match.groups()
+    return f'{major}.{minor}.{build}.{patch}'
+
+
+def ReadVersionFile(version_file):
+    """Returns a dict of the KEY=VALUE pairs in a chrome/VERSION file."""
+    values = {}
+    with open(version_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if '=' in line:
+                key, val = line.split('=', 1)
+                values[key] = val
+    return values
+
+
+def GetMinibranchContents(source_dir, version_file, merge_base_ref):
+    """
+    Returns the contents of the MINIBRANCH file for the given checkout.
+
+    The information is derived from the nearest ancestor of HEAD that has
+    a `Cr-Commit-Position` footer.
+    """
+    base_version = ''
+    version_info = GetVersion(
+        source_dir, '^Cr-Commit-Position:', merge_base_ref
+    )
+    if version_info and version_info.commit_position:
+        try:
+            description = GetCommitDescription(
+                source_dir, version_info.revision_id
+            )
+            version = ReadVersionFile(version_file)
+            base_version = ParseMinibranchBaseVersion(
+                description, version.get('MAJOR', ''), version.get('MINOR', '')
+            )
+        except (RuntimeError, EnvironmentError) as e:
+            logging.error(f"Failed to compute minibranch info: {e}")
+    return f'MINIBRANCH_BASE_VERSION={base_version}\n'
 
 
 def _PrintJsonOutput(version_info, source_dir):
-  """Writes all available commit information as a JSON object."""
-  commit_description = _RunGitCommand(
-      source_dir, ['log', '-1', '--format=%B', version_info.revision_id])
-  commit_time = datetime.datetime.fromtimestamp(
-      version_info.timestamp,
-      datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    """Writes all available commit information as a JSON object."""
+    commit_description = GetCommitDescription(
+        source_dir, version_info.revision_id
+    )
+    commit_time = datetime.datetime.fromtimestamp(
+        version_info.timestamp, datetime.timezone.utc
+    ).strftime('%Y-%m-%d %H:%M:%S')
 
-  commit_position = None
-  if version_info.commit_position:
-    ref_and_number = version_info.commit_position.split('@', 2)
-    if len(ref_and_number) == 2:
-      commit_position_ref = ref_and_number[0]
-      commit_position_number = ref_and_number[1][2:-1]
-      commit_position = {
-          "ref": commit_position_ref,
-          "number": commit_position_number,
-          "is_main": commit_position_ref == 'refs/heads/main',
-      }
+    commit_position = None
+    if version_info.commit_position:
+        ref_and_number = version_info.commit_position.split('@', 2)
+        if len(ref_and_number) == 2:
+            commit_position_ref = ref_and_number[0]
+            commit_position_number = ref_and_number[1][2:-1]
+            commit_position = {
+                "ref": commit_position_ref,
+                "number": commit_position_number,
+                "is_main": commit_position_ref == 'refs/heads/main',
+            }
 
-  output = {
-      "hash":
-      version_info.revision_id,
-      "revision":
-      version_info.revision,
-      "fingerprint":
-      GetFingerprint(version_info.revision_id),
-      "time":
-      commit_time,
-      "year":
-      datetime.datetime.fromtimestamp(version_info.timestamp,
-                                      datetime.timezone.utc).year,
-      "description":
-      commit_description,
-      "commit_position":
-      commit_position,
-  }
-  print(json.dumps(output, indent=2))
+    output = {
+        "hash": version_info.revision_id,
+        "revision": version_info.revision,
+        "fingerprint": GetFingerprint(version_info.revision_id),
+        "time": commit_time,
+        "year": datetime.datetime.fromtimestamp(
+            version_info.timestamp, datetime.timezone.utc
+        ).year,
+        "description": commit_description,
+        "commit_position": commit_position,
+    }
+    print(json.dumps(output, indent=2))
 
 
 def main(argv=None):
-  if argv is None:
-    argv = sys.argv
+    if argv is None:
+        argv = sys.argv
 
-  parser = argparse.ArgumentParser(usage="lastchange.py [options]")
-  parser.add_argument("-m", "--version-macro",
-                    help=("Name of C #define when using --header. Defaults to "
-                          "LAST_CHANGE."))
-  parser.add_argument("-o",
-                      "--output",
-                      metavar="FILE",
-                      help=("Write last change to FILE. "
-                            "Can be combined with other file-output-related "
-                            "options to write multiple files."))
-  parser.add_argument("--header",
-                      metavar="FILE",
-                      help=("Write last change to FILE as a C/C++ header. "
-                            "Can be combined with other file-output-related "
-                            "options to write multiple files."))
-  parser.add_argument(
-      "--header-out",
-      nargs=2,
-      metavar=("FILE", "KEYS"),
-      help=("Write a C++ header with a custom set of the last commit info. "
+    parser = argparse.ArgumentParser(usage="lastchange.py [options]")
+    parser.add_argument(
+        "-m",
+        "--version-macro",
+        help=(
+            "Name of C #define when using --header. Defaults to LAST_CHANGE."
+        ),
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        help=(
+            "Write last change to FILE. "
+            "Can be combined with other file-output-related "
+            "options to write multiple files."
+        ),
+    )
+    parser.add_argument(
+        "--header",
+        metavar="FILE",
+        help=(
+            "Write last change to FILE as a C/C++ header. "
+            "Can be combined with other file-output-related "
+            "options to write multiple files."
+        ),
+    )
+    parser.add_argument(
+        "--header-out",
+        nargs=2,
+        metavar=("FILE", "KEYS"),
+        help=(
+            "Write a C++ header with a custom set of the last commit info. "
             "Provide a filename and a comma-separated list of keys. "
             "Possible keys: hash, time, description, year, revision, "
-            "fingerprint."))
-  parser.add_argument("--commit-position-header",
-                      metavar="FILE",
-                      help=("Write the last commit position to FILE as a C/C++ "
-                            "header. Can be combined with other file-output-"
-                            "related options to write multiple files."))
-  parser.add_argument(
-      "--revision",
-      metavar="FILE",
-      help=("Write the last change to FILE as a one-line revision. "
+            "fingerprint."
+        ),
+    )
+    parser.add_argument(
+        "--commit-position-header",
+        metavar="FILE",
+        help=(
+            "Write the last commit position to FILE as a C/C++ "
+            "header. Can be combined with other file-output-"
+            "related options to write multiple files."
+        ),
+    )
+    parser.add_argument(
+        "--revision",
+        metavar="FILE",
+        help=(
+            "Write the last change to FILE as a one-line revision. "
             "Can be combined with other file-output-related "
-            "options to write multiple files."))
-  parser.add_argument("--merge-base-ref",
-                    default=None,
-                    help=("Only consider changes since the merge "
-                          "base between HEAD and the provided ref"))
-  parser.add_argument("--revision-id-only", action='store_true',
-                    help=("Output the revision as a VCS revision ID only (in "
-                          "Git, a 40-character commit hash, excluding the "
-                          "Cr-Commit-Position)."))
-  parser.add_argument("--fingerprint",
-                      action='store_true',
-                      help=("Output the revision as a fingerprint of the last "
-                            "change."))
-  parser.add_argument(
-      "--print-only",
-      action="store_true",
-      help=("Just print the last revision string. Overrides any "
-            "file-output-related options."))
-  parser.add_argument(
-      "--timestamp_only",
-      action="store_true",
-      help="Print the last commit timestamp in human-readable format.")
-  parser.add_argument("--commit-description_only",
-                      action="store_true",
-                      help="Print the last commit description.")
-  parser.add_argument(
-      "--json",
-      action="store_true",
-      help="Print all available information for the last commit as a JSON "
-      "object. "
-      "This is a useful debugging tool. "
-      "Outputs: hash, revision, time, year, description, commit_position.")
-  parser.add_argument("-s", "--source-dir", metavar="DIR",
-                    help="Use repository in the given directory.")
-  parser.add_argument("--filter", metavar="REGEX",
-                    help=("Only use log entries where the commit message "
-                          "matches the supplied filter regex. Defaults to "
-                          "'^Change-Id:' to suppress local commits."),
-                    default='^Change-Id:')
+            "options to write multiple files."
+        ),
+    )
+    parser.add_argument(
+        "--merge-base-ref",
+        default=None,
+        help=(
+            "Only consider changes since the merge "
+            "base between HEAD and the provided ref"
+        ),
+    )
+    parser.add_argument(
+        "--revision-id-only",
+        action='store_true',
+        help=(
+            "Output the revision as a VCS revision ID only (in "
+            "Git, a 40-character commit hash, excluding the "
+            "Cr-Commit-Position)."
+        ),
+    )
+    parser.add_argument(
+        "--fingerprint",
+        action='store_true',
+        help=("Output the revision as a fingerprint of the last change."),
+    )
+    parser.add_argument(
+        "--print-only",
+        action="store_true",
+        help=(
+            "Just print the last revision string. Overrides any "
+            "file-output-related options."
+        ),
+    )
+    parser.add_argument(
+        "--timestamp_only",
+        action="store_true",
+        help="Print the last commit timestamp in human-readable format.",
+    )
+    parser.add_argument(
+        "--commit-description_only",
+        action="store_true",
+        help="Print the last commit description.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print all available information for the last commit as a JSON "
+        "object. "
+        "This is a useful debugging tool. "
+        "Outputs: hash, revision, time, year, description, commit_position.",
+    )
+    parser.add_argument(
+        "-s",
+        "--source-dir",
+        metavar="DIR",
+        help="Use repository in the given directory.",
+    )
+    parser.add_argument(
+        "--filter",
+        metavar="REGEX",
+        help=(
+            "Only use log entries where the commit message "
+            "matches the supplied filter regex. Defaults to "
+            "'^Change-Id:' to suppress local commits."
+        ),
+        default='^Change-Id:',
+    )
+    parser.add_argument(
+        "--minibranch-out",
+        metavar="FILE",
+        help=(
+            "Write the version that the current minibranch was branched "
+            "from to FILE, as a MINIBRANCH_BASE_VERSION=... line. The value "
+            "is empty if the checkout is not on a minibranch. Ignores "
+            "--filter and all other output options."
+        ),
+    )
+    parser.add_argument(
+        "--version-file",
+        metavar="FILE",
+        default=os.path.join(_THIS_DIR, '..', '..', 'chrome', 'VERSION'),
+        help=(
+            "chrome/VERSION file to read MAJOR and MINOR from when using "
+            "--minibranch-out."
+        ),
+    )
 
-  args, extras = parser.parse_known_args(argv[1:])
+    args, extras = parser.parse_known_args(argv[1:])
 
-  logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.WARNING)
 
-  out_file = args.output
-  header = args.header
-  header_out = args.header_out
-  revision = args.revision
-  commit_filter = args.filter
-  commit_position_header = args.commit_position_header
+    out_file = args.output
+    header = args.header
+    header_out = args.header_out
+    revision = args.revision
+    commit_filter = args.filter
+    commit_position_header = args.commit_position_header
 
-  while len(extras) and out_file is None:
-    if out_file is None:
-      out_file = extras.pop(0)
-  if extras:
-    sys.stderr.write('Unexpected arguments: %r\n\n' % extras)
-    parser.print_help()
-    sys.exit(2)
+    while len(extras) and out_file is None:
+        if out_file is None:
+            out_file = extras.pop(0)
+    if extras:
+        sys.stderr.write('Unexpected arguments: %r\n\n' % extras)
+        parser.print_help()
+        sys.exit(2)
 
-  source_dir = args.source_dir or os.path.dirname(os.path.abspath(__file__))
+    source_dir = args.source_dir or os.path.dirname(os.path.abspath(__file__))
 
-  version_info = GetVersion(source_dir, commit_filter, args.merge_base_ref)
+    if args.minibranch_out:
+        WriteIfChanged(
+            args.minibranch_out,
+            GetMinibranchContents(
+                source_dir, args.version_file, args.merge_base_ref
+            ),
+        )
+        return 0
 
-  if args.json:
-    _PrintJsonOutput(version_info, source_dir)
-    return 0
+    version_info = GetVersion(source_dir, commit_filter, args.merge_base_ref)
 
-  if header_out:
-    commit_description = _RunGitCommand(
-        source_dir, ['log', '-1', '--format=%B', version_info.revision_id])
+    if args.json:
+        _PrintJsonOutput(version_info, source_dir)
+        return 0
+
     if header_out:
-      file_path, keys_string = header_out
-      keys = keys_string.split(',')
-      WriteIfChanged(
-          file_path,
-          GetFlexibleCppHeaderContents(file_path, version_info,
-                                       commit_description, keys))
+        commit_description = GetCommitDescription(
+            source_dir, version_info.revision_id
+        )
+        if header_out:
+            file_path, keys_string = header_out
+            keys = keys_string.split(',')
+            WriteIfChanged(
+                file_path,
+                GetFlexibleCppHeaderContents(
+                    file_path, version_info, commit_description, keys
+                ),
+            )
 
-  if args.timestamp_only:
-    print(
-        datetime.datetime.fromtimestamp(
-            version_info.timestamp,
-            datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
-    return 0
+    if args.timestamp_only:
+        print(
+            datetime.datetime.fromtimestamp(
+                version_info.timestamp, datetime.timezone.utc
+            ).strftime('%Y-%m-%d %H:%M:%S')
+        )
+        return 0
 
-  if args.commit_description_only:
-    print(
-        _RunGitCommand(source_dir,
-                       ['log', '-1', '--format=%B', version_info.revision_id]))
-    return 0
+    if args.commit_description_only:
+        print(GetCommitDescription(source_dir, version_info.revision_id))
+        return 0
 
-  revision_string = version_info.revision
-  if args.revision_id_only:
-    revision_string = version_info.revision_id
-  elif args.fingerprint:
-    revision_string = GetFingerprint(version_info.revision_id)
+    revision_string = version_info.revision
+    if args.revision_id_only:
+        revision_string = version_info.revision_id
+    elif args.fingerprint:
+        revision_string = GetFingerprint(version_info.revision_id)
 
-  if args.print_only:
-    print(revision_string)
-  else:
-    lastchange_year = datetime.datetime.fromtimestamp(
-        version_info.timestamp, datetime.timezone.utc).year
-    contents_lines = [
-        "LASTCHANGE=%s" % revision_string,
-        "LASTCHANGE_YEAR=%s" % lastchange_year,
-    ]
-    contents = '\n'.join(contents_lines) + '\n'
-    if not (out_file or header or commit_position_header or revision
-            or header_out):
-      sys.stdout.write(contents)
+    if args.print_only:
+        print(revision_string)
     else:
-      if out_file:
-        committime_file = out_file + '.committime'
-        out_changed = WriteIfChanged(out_file, contents)
-        if out_changed or not os.path.exists(committime_file):
-          with open(committime_file, 'w') as timefile:
-            timefile.write(str(version_info.timestamp))
-      if header:
-        WriteIfChanged(header,
-                       GetHeaderContents(header, args.version_macro,
-                                         revision_string))
-      if commit_position_header:
-        WriteIfChanged(
-            commit_position_header,
-            GetCommitPositionHeaderContents(commit_position_header,
-                                            args.version_macro, version_info))
-      if revision:
-        WriteIfChanged(revision, revision_string)
-      if header_out:
-        file_path, keys_string = header_out
-        keys = keys_string.split(',')
-        commit_description = _RunGitCommand(
-            source_dir, ['log', '-1', '--format=%B', version_info.revision_id])
-        WriteIfChanged(
-            file_path,
-            GetFlexibleCppHeaderContents(file_path, version_info,
-                                         commit_description, keys))
+        lastchange_year = datetime.datetime.fromtimestamp(
+            version_info.timestamp, datetime.timezone.utc
+        ).year
+        contents_lines = [
+            "LASTCHANGE=%s" % revision_string,
+            "LASTCHANGE_YEAR=%s" % lastchange_year,
+        ]
+        contents = '\n'.join(contents_lines) + '\n'
+        if not (
+            out_file
+            or header
+            or commit_position_header
+            or revision
+            or header_out
+        ):
+            sys.stdout.write(contents)
+        else:
+            if out_file:
+                committime_file = out_file + '.committime'
+                out_changed = WriteIfChanged(out_file, contents)
+                if out_changed or not os.path.exists(committime_file):
+                    with open(
+                        committime_file, 'w', encoding='utf-8'
+                    ) as timefile:
+                        timefile.write(str(version_info.timestamp))
+            if header:
+                WriteIfChanged(
+                    header,
+                    GetHeaderContents(
+                        header, args.version_macro, revision_string
+                    ),
+                )
+            if commit_position_header:
+                WriteIfChanged(
+                    commit_position_header,
+                    GetCommitPositionHeaderContents(
+                        commit_position_header, args.version_macro, version_info
+                    ),
+                )
+            if revision:
+                WriteIfChanged(revision, revision_string)
+            if header_out:
+                file_path, keys_string = header_out
+                keys = keys_string.split(',')
+                commit_description = GetCommitDescription(
+                    source_dir, version_info.revision_id
+                )
+                WriteIfChanged(
+                    file_path,
+                    GetFlexibleCppHeaderContents(
+                        file_path, version_info, commit_description, keys
+                    ),
+                )
 
-  return 0
+    return 0
 
 
 if __name__ == '__main__':
-  sys.exit(main())
+    sys.exit(main())

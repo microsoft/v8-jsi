@@ -3,15 +3,14 @@
 # found in the LICENSE file.
 
 import argparse
-import hashlib
 import json
 import os
-import pathlib
 import re
 import sys
 from typing import Dict, List
 import urllib.request
 
+import common
 import scripthash
 
 
@@ -26,35 +25,71 @@ def _find_valid_urls(release, artifact_regex):
     return urls
 
 
-def _latest(api_url, install_scripts=None, artifact_regex=None):
-    # Make the version change every time this file changes.
-    file_hash = scripthash.compute(extra_paths=install_scripts)
-
+def latest_release(project, artifact_regex=None):
+    """Returns the latest non-prerelease tag_name for a GitHub project."""
+    api_url = f'https://api.github.com/repos/{project}'
     releases: List[Dict] = _fetch_json(f'{api_url}/releases')
     for release in releases:
+        # Skip pre-releases; they may publish per-platform assets at different
+        # times, causing platforms to resolve to different versions.
+        if release.get('prerelease'):
+            continue
         tag_name = release['tag_name']
         urls = _find_valid_urls(release, artifact_regex)
         if len(urls) == 1:
-            print('{}.{}'.format(tag_name, file_hash))
-            return
-        print(f'Bad urls={urls} for tag_name={tag_name}, skipping.',
-              file=sys.stderr)
+            return tag_name
+        print(
+            f'Bad urls={urls} for tag_name={tag_name}, skipping.',
+            file=sys.stderr,
+        )
+    raise RuntimeError(f'No valid release found for {project}')
 
 
-def _get_url(api_url,
-             artifact_filename=None,
-             artifact_extension=None,
-             artifact_regex=None):
-    # Split off our md5 hash.
-    version = os.environ['_3PP_VERSION'].rsplit('.', 1)[0]
+def get_release_url(project, version, artifact_regex=None):
+    """Returns the single artifact download URL for the given release tag."""
+    api_url = f'https://api.github.com/repos/{project}'
     json_dict = _fetch_json(f'{api_url}/releases/tags/{version}')
     urls = _find_valid_urls(json_dict, artifact_regex)
-
     if len(urls) != 1:
         raise Exception('len(urls) != 1, urls: \n' + '\n'.join(urls))
+    return urls[0]
+
+
+def download_artifact(project, version, dest_path, artifact_regex=None):
+    """Downloads the release artifact for |version| to |dest_path|."""
+    url = get_release_url(project, version, artifact_regex=artifact_regex)
+    common.download_file(url, dest_path)
+
+
+def _latest(
+    project, install_scripts=None, artifact_regex=None, include_deps_hash=True
+):
+    # Make the version change every time this file changes. Omitted for
+    # ${platform}-pinned packages, which need identical versions per platform.
+    file_hash = (
+        scripthash.compute(extra_paths=install_scripts)
+        if include_deps_hash
+        else None
+    )
+    tag_name = latest_release(project, artifact_regex=artifact_regex)
+    print(f'{tag_name}.{file_hash}' if include_deps_hash else tag_name)
+
+
+def _get_url(
+    project,
+    artifact_filename=None,
+    artifact_extension=None,
+    artifact_regex=None,
+    include_deps_hash=True,
+):
+    version = os.environ['_3PP_VERSION']
+    if include_deps_hash:
+        # Split off our md5 hash.
+        version = version.rsplit('.', 1)[0]
+    url = get_release_url(project, version, artifact_regex=artifact_regex)
 
     partial_manifest = {
-        'url': urls,
+        'url': [url],
         'ext': artifact_extension or '',
     }
     if artifact_filename:
@@ -63,12 +98,15 @@ def _get_url(api_url,
     print(json.dumps(partial_manifest))
 
 
-def main(*,
-         project,
-         artifact_filename=None,
-         artifact_extension=None,
-         artifact_regex=None,
-         install_scripts=None):
+def main(
+    *,
+    project,
+    artifact_filename=None,
+    artifact_extension=None,
+    artifact_regex=None,
+    install_scripts=None,
+    include_deps_hash=True,
+):
     """The fetch.py script for a 3pp module.
 
     Args:
@@ -81,18 +119,26 @@ def main(*,
           list of artifacts on the release.
       install_scripts: List of script to add to the md5 of the version. The main
           module and this module are always included.
+      include_deps_hash: Whether to append the per-build script hash to the
+          version. Set False for ${platform}-pinned packages so the CIPD
+          version is identical across platforms.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument('action', choices=('latest', 'get_url'))
     args = parser.parse_args()
 
-    api_url = f'https://api.github.com/repos/{project}'
     if args.action == 'latest':
-        _latest(api_url,
-                install_scripts=install_scripts,
-                artifact_regex=artifact_regex)
+        _latest(
+            project,
+            install_scripts=install_scripts,
+            artifact_regex=artifact_regex,
+            include_deps_hash=include_deps_hash,
+        )
     else:
-        _get_url(api_url,
-                 artifact_filename=artifact_filename,
-                 artifact_extension=artifact_extension,
-                 artifact_regex=artifact_regex)
+        _get_url(
+            project,
+            artifact_filename=artifact_filename,
+            artifact_extension=artifact_extension,
+            artifact_regex=artifact_regex,
+            include_deps_hash=include_deps_hash,
+        )

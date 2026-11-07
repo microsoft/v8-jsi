@@ -34,7 +34,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="MessagePumpEpoll.WatchedFileDescriptors"
-    units="FileDescriptors" expires_after="2026-10-25">
+    units="FileDescriptors" expires_after="2027-02-28">
   <owner>mthiesse@chromium.org</owner>
   <owner>lizeb@chromium.org</owner>
   <summary>
@@ -45,8 +45,41 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="Scheduling.ContendedLockAcquisitionTime.{LockType}.{ProcessName}.{ThreadGroup}Worker"
+    units="microseconds" expires_after="2027-02-07">
+  <owner>fionav@google.com</owner>
+  <owner>clank-performance-team@google.com</owner>
+  <summary>
+    The time it takes to acquire a contended {LockType} on the {ThreadGroup}
+    thread pool in the {ProcessName} process. This is recorded with probability
+    1/1000 when acquisition of the lock is likely to cause the thread to wait in
+    the kernel.
+
+    Note: The metric is reported for only clients with high-resolution clocks (a
+    subset of Windows clients won't report it, see the
+    Windows.HasHighResolutionTimeTicks histogram).
+  </summary>
+  <token key="LockType">
+    <variant name="BaseLock" summary="base:Lock"/>
+    <variant name="PartitionAllocLock"
+        summary="partition_alloc::internal::Lock"/>
+  </token>
+  <token key="ThreadGroup">
+    <variant name="Background"
+        summary="a thread pool background worker thread"/>
+    <variant name="Foreground"
+        summary="a thread pool foreground worker thread"/>
+  </token>
+  <token key="ProcessName">
+    <variant name="Browser" summary="the browser process"/>
+    <variant name="GPU" summary="the gpu process"/>
+    <variant name="Renderer" summary="the renderer process"/>
+  </token>
+</histogram>
+
+<histogram
     name="Scheduling.ContendedLockAcquisitionTime.{LockType}.{ThreadName}"
-    units="microseconds" expires_after="2026-08-30">
+    units="microseconds" expires_after="2027-03-14">
   <owner>anandrv@google.com</owner>
   <owner>clank-performance-team@google.com</owner>
   <summary>
@@ -64,71 +97,57 @@ chromium-metrics-reviews@google.com.
         summary="partition_alloc::internal::Lock"/>
   </token>
   <token key="ThreadName">
+    <variant name="BrowserIO" summary="the browser IO thread"/>
+    <variant name="Compositor" summary="the compositor thread"/>
     <variant name="CrBrowserMain" summary="the browser main thread"/>
+    <variant name="CrGpuMain" summary="the gpu main thread"/>
     <variant name="CrRendererMain" summary="the renderer main thread"/>
+    <variant name="NetworkService" summary="the network service thread"/>
+    <variant name="VizCompositor" summary="the viz compositor thread"/>
   </token>
 </histogram>
 
-<histogram name="Scheduling.DBusSchedQoS.PidReusedOnSetProcessState"
-    enum="PidReuseResult" expires_after="2025-10-26">
-  <owner>kawasin@google.com</owner>
-  <owner>joelaf@google.com</owner>
+<histogram name="Scheduling.DelayedTask.LongDelayedTaskPostedLocation"
+    units="hash" expires_after="2027-06-05">
+  <owner>peilinwang@google.com</owner>
+  <owner>clank-performance-team@google.com</owner>
   <summary>
-    Records whether or not a pid is reused between the time a SetProcessState
-    DBus request is dispatched and when the request's result is processed. Pid
-    reuse can race with the DBus request to result in the requested scheduler
-    settings being applied to the wrong process, although this metric cannot
-    differentiate between winning and losing that race. This is emitted every
-    time a new Chrome process is created or changes background state.
+    Records the hash of callers (file_name:function_name) that post delayed
+    tasks with a delay longer than 25 minutes. Recorded in
+    TaskQueueImpl::MakeDelayedTask when the DelayedTask is created.
+
+    Subsampled with probability 1/1000.
   </summary>
 </histogram>
 
-<histogram name="Scheduling.DBusSchedQoS.PidReusedOnSetThreadState"
-    enum="PidReuseResult" expires_after="2025-10-26">
-  <owner>kawasin@google.com</owner>
-  <owner>joelaf@google.com</owner>
+<histogram name="Scheduling.MessagePump.WakeupCount2.{ThreadName}"
+    enum="BooleanHit" expires_after="2027-02-07">
+  <owner>pasko@chromium.org</owner>
+  <owner>joenotcharles@google.com</owner>
   <summary>
-    Records whether or not a pid is reused between the time a SetThreadState
-    DBus request is dispatched and when the request's result is processed. Pid
-    reuse can race with the DBus request to result in the requested scheduler
-    settings being applied to the wrong thread, although this metric cannot
-    differentiate between winning and losing that race. This is emitted every
-    time Chrome creates a thread or changes a thread type.
-  </summary>
-</histogram>
+    Records true every time the underlying OS event successfully wakes up thread
+    {ThreadName} from idle sleep.
 
-<histogram name="Scheduling.DBusSchedQoS.ServiceConnectionSuccess"
-    enum="Boolean" expires_after="2025-11-02">
-  <owner>kawasin@google.com</owner>
-  <owner>joelaf@google.com</owner>
-  <summary>
-    Records whether ResourcedClient::WaitForServiceToBeAvailable() succeeds or
-    not. It fails only when ObjectProxy::ConnectToNameOwnerChangedSignal() fails
-    which we expect to fail very rarely. This is emitted every time the callback
-    of ResourcedClient::WaitForServiceToBeAvailable() runs.
-  </summary>
-</histogram>
+    Avoids recording spurious OS wakeups: when no events are processed. This can
+    happen because of timeouts when waiting.
 
-<histogram name="Scheduling.DBusSchedQoS.SetProcessStateLatency"
-    units="microseconds" expires_after="2025-10-26">
-  <owner>kawasin@google.com</owner>
-  <owner>joelaf@google.com</owner>
-  <summary>
-    Records amount of time it takes to execute SetProcessState DBus request on
-    ChromeOS. This is emitted every time a new Chrome process is created or
-    changes background state. All ChromeOS clients have high-resolution timers.
-  </summary>
-</histogram>
+    Also excludes samples for 'synthetic wakeups', such as when an event is
+    discovered by BusyWaitOnEvent. In Finch experiments, enabling busy waiting
+    should directly reduce the volume of recorded wakeups.
 
-<histogram name="Scheduling.DBusSchedQoS.SetThreadStateLatency"
-    units="microseconds" expires_after="2025-10-26">
-  <owner>kawasin@google.com</owner>
-  <owner>joelaf@google.com</owner>
-  <summary>
-    Records amount of time it takes to execute SetThreadState DBus request on
-    ChromeOS. This is emitted every time Chrome creates a thread or changes a
-    thread type. All ChromeOS clients have high-resolution timers.
+    Note: The recording of this metric may be inhibited on x86_64 macOS by the
+    InhibitMessagePumpWakeupCounter experiment to measure its performance
+    impact.
   </summary>
+  <token key="ThreadName">
+    <variant name="BrowserIO"/>
+    <variant name="BrowserMain"/>
+    <variant name="Compositor"/>
+    <variant name="GpuMain"/>
+    <variant name="NetworkService"/>
+    <variant name="RendererMain"/>
+    <variant name="VizCompositor"/>
+  </token>
 </histogram>
 
 <histogram name="Scheduling.MessagePumpDefault.BusyLoop.Duration.TaskArrived"
@@ -208,7 +227,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Scheduling.MessagePumpTimeKeeper.{NamedThread}"
-    enum="MessagePumpPhases" expires_after="2026-10-19">
+    enum="MessagePumpPhases" expires_after="2027-02-28">
   <owner>gab@chromium.org</owner>
   <owner>fdoray@chromium.org</owner>
   <owner>spvm@chromium.org</owner>
@@ -284,7 +303,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveIntervalDuration.{Length}.{NamedThread}"
-    units="ms" expires_after="2026-08-30">
+    units="ms" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -315,7 +334,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveIntervalOffCpuDuration.{Length}.{NamedThread}"
-    units="ms" expires_after="2026-08-30">
+    units="ms" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -346,7 +365,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveIntervalOnCpuDuration.{Length}.{NamedThread}"
-    units="ms" expires_after="2026-08-30">
+    units="ms" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -360,7 +379,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveIntervalOnCpuPercentage.Short.{NamedThread}"
-    units="%" expires_after="2026-09-13">
+    units="%" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -373,7 +392,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveIntervalOnCpuPercentage.{Length}.{NamedThread}"
-    units="%" expires_after="2026-08-30">
+    units="%" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -387,7 +406,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveOffCpuVsWallTimePercentage.CrGpuMain"
-    units="%" expires_after="2026-05-07">
+    units="%" expires_after="never">
+<!-- expires-never: used by downstream media quality regression automation -->
+
   <owner>henrika@google.com</owner>
   <owner>handellm@google.com</owner>
   <summary>
@@ -408,7 +429,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveOnCpuVsWallTimePercentage.CrGpuMain"
-    units="%" expires_after="2026-05-07">
+    units="%" expires_after="never">
+<!-- expires-never: used by downstream media quality regression automation -->
+
   <owner>henrika@google.com</owner>
   <owner>handellm@google.com</owner>
   <summary>
@@ -429,7 +452,9 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.ActiveVsWallTimePercentage.CrGpuMain"
-    units="%" expires_after="2026-05-07">
+    units="%" expires_after="never">
+<!-- expires-never: used by downstream media quality regression automation -->
+
   <owner>henrika@google.com</owner>
   <owner>handellm@google.com</owner>
   <summary>
@@ -464,7 +489,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="Scheduling.ThreadController.IdleDuration.{Length}.{NamedThread}"
-    units="ms" expires_after="2026-08-30">
+    units="ms" expires_after="2027-02-07">
   <owner>olivierli@google.com</owner>
   <owner>etienneb@google.com</owner>
   <summary>
@@ -477,7 +502,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Scheduling.ThreadPriority.Browser.{ThreadName}" units="int"
-    expires_after="2026-10-25">
+    expires_after="2027-03-07">
   <owner>anandrv@google.com</owner>
   <owner>clank-performance-team@google.com</owner>
   <summary>
@@ -497,7 +522,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Scheduling.ThreadPriority.GPUProcess.{ThreadName}" units="int"
-    expires_after="2026-10-25">
+    expires_after="2027-03-07">
   <owner>anandrv@google.com</owner>
   <owner>clank-performance-team@google.com</owner>
   <summary>
@@ -517,7 +542,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Scheduling.ThreadPriority.Renderer.{ThreadName}" units="int"
-    expires_after="2026-10-25">
+    expires_after="2027-03-07">
   <owner>anandrv@google.com</owner>
   <owner>clank-performance-team@google.com</owner>
   <summary>
@@ -537,7 +562,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ThreadPool.UnnecessaryWakeup.{ThreadPoolName}.{WorkerGroup}"
-    enum="BooleanHit" expires_after="2026-08-30">
+    enum="BooleanHit" expires_after="2027-02-28">
   <owner>spvm@chromium.org</owner>
   <owner>gab@chromium.org</owner>
   <summary>

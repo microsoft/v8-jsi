@@ -8,9 +8,9 @@
 #include <concepts>
 #include <cstdint>
 #include <iosfwd>
+#include <optional>
 
 #include "base/base_export.h"
-#include "base/byte_count.h"
 #include "base/numerics/checked_math.h"
 #include "base/numerics/safe_conversions.h"
 
@@ -28,16 +28,16 @@ namespace base {
 // Sample usage:
 //
 //   // Do not reinvent conversion between units.
-//   constexpr ByteSize kBufferSize = MiBU(1);
+//   constexpr ByteSize kBufferSize = MiB(1);
 //   std::vector<char> buffer(kBufferSize.InBytes());
 //
 //   // Enforce that correct units are used across APIs at compile time.
 //   ByteSize quota = GetQuota();
-//   SetMetadataSize(KiBU(10));
-//   ByteSizeDelta remaining_quota = quota - KiBU(10);
+//   SetMetadataSize(KiB(10));
+//   ByteSizeDelta remaining_quota = quota - KiB(10);
 //   SetDatabaseSize(remaining_quota.AsByteSize());
 //
-// KiBU()/KiBS(), MiBU()/MiBS(), etc. can take float parameters. This will
+// KiB()/KiBS(), MiB()/MiBS(), etc. can take float parameters. This will
 // return the nearest integral number of bytes, rounding towards zero.
 
 namespace internal {
@@ -182,16 +182,6 @@ class BASE_EXPORT ByteSize : public internal::ByteSizeBase {
   static constexpr ByteSize FromByteSizeDelta(ByteSizeDelta delta);
   constexpr ByteSizeDelta AsByteSizeDelta() const;
 
-  // Converts ByteSize to and from a deprecated ByteCount. Converting from a
-  // ByteCount CHECK's that it's in range (ie. non-negative). Converting to a
-  // ByteCount always succeeds.
-  static constexpr ByteSize FromDeprecatedByteCount(ByteCount count) {
-    return ByteSize(count.InBytesUnsigned());
-  }
-  constexpr ByteCount AsDeprecatedByteCount() const {
-    return ByteCount::FromUnsigned(InBytes());
-  }
-
   // Returns a value corresponding to the "maximum" number of bytes possible.
   // Useful as a constant to mean "unlimited".
   static constexpr ByteSize Max() {
@@ -311,14 +301,6 @@ class BASE_EXPORT ByteSizeDelta : public internal::ByteSizeBase {
     return ByteSize(checked_cast<uint64_t>(InBytes()));
   }
 
-  // Converts ByteSizeDelta to and from a deprecated ByteCount. Always succeeds.
-  static constexpr ByteSizeDelta FromDeprecatedByteCount(ByteCount count) {
-    return ByteSizeDelta(count.InBytes());
-  }
-  constexpr ByteCount AsDeprecatedByteCount() const {
-    return ByteCount(InBytes());
-  }
-
   // Returns a value corresponding to the "maximum" (positive) number of bytes
   // possible. Useful as a constant to mean "unlimited" in the positive
   // direction.
@@ -429,19 +411,16 @@ class BASE_EXPORT ByteSizeDelta : public internal::ByteSizeBase {
 // Templated functions to construct from various types. Note that integers must
 // be converted to CheckedNumeric BEFORE multiplying to detect overflows, while
 // floats must be converted AFTER multiplying to avoid premature truncation.
-//
-// TODO(crbug.com/448661443): After all uses of KiB, etc, are migrated to
-// explicit signed/ unsigned, rename KiBU to KiB.
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize KiBU(T kib) {
+constexpr ByteSize KiB(T kib) {
   return ByteSize(kib) * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize KiBU(T kib) {
+constexpr ByteSize KiB(T kib) {
   return ByteSize(checked_cast<uint64_t>(kib * 1024.0));
 }
 
@@ -459,13 +438,13 @@ constexpr ByteSizeDelta KiBS(T kib) {
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize MiBU(T mib) {
+constexpr ByteSize MiB(T mib) {
   return ByteSize(mib) * 1024 * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize MiBU(T mib) {
+constexpr ByteSize MiB(T mib) {
   return ByteSize(checked_cast<uint64_t>(mib * 1024.0 * 1024.0));
 }
 
@@ -483,13 +462,13 @@ constexpr ByteSizeDelta MiBS(T mib) {
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize GiBU(T gib) {
+constexpr ByteSize GiB(T gib) {
   return ByteSize(gib) * 1024 * 1024 * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize GiBU(T gib) {
+constexpr ByteSize GiB(T gib) {
   return ByteSize(checked_cast<uint64_t>(gib * 1024.0 * 1024.0 * 1024.0));
 }
 
@@ -507,13 +486,13 @@ constexpr ByteSizeDelta GiBS(T gib) {
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize TiBU(T tib) {
+constexpr ByteSize TiB(T tib) {
   return ByteSize(tib) * 1024 * 1024 * 1024 * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize TiBU(T tib) {
+constexpr ByteSize TiB(T tib) {
   return ByteSize(
       checked_cast<uint64_t>(tib * 1024.0 * 1024.0 * 1024.0 * 1024.0));
 }
@@ -533,13 +512,13 @@ constexpr ByteSizeDelta TiBS(T tib) {
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize PiBU(T pib) {
+constexpr ByteSize PiB(T pib) {
   return ByteSize(pib) * 1024 * 1024 * 1024 * 1024 * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize PiBU(T pib) {
+constexpr ByteSize PiB(T pib) {
   return ByteSize(
       checked_cast<uint64_t>(pib * 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0));
 }
@@ -559,13 +538,13 @@ constexpr ByteSizeDelta PiBS(T pib) {
 
 template <typename T>
   requires std::integral<T>
-constexpr ByteSize EiBU(T eib) {
+constexpr ByteSize EiB(T eib) {
   return ByteSize(eib) * 1024 * 1024 * 1024 * 1024 * 1024 * 1024;
 }
 
 template <typename T>
   requires std::floating_point<T>
-constexpr ByteSize EiBU(T eib) {
+constexpr ByteSize EiB(T eib) {
   return ByteSize(checked_cast<uint64_t>(eib * 1024.0 * 1024.0 * 1024.0 *
                                          1024.0 * 1024.0 * 1024.0));
 }
@@ -587,6 +566,10 @@ constexpr ByteSizeDelta EiBS(T eib) {
 
 BASE_EXPORT std::ostream& operator<<(std::ostream& os, ByteSize size);
 BASE_EXPORT std::ostream& operator<<(std::ostream& os, ByteSizeDelta delta);
+BASE_EXPORT std::ostream& operator<<(std::ostream& os,
+                                     std::optional<ByteSize> size);
+BASE_EXPORT std::ostream& operator<<(std::ostream& os,
+                                     std::optional<ByteSizeDelta> delta);
 
 // Implementation.
 

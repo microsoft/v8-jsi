@@ -21,52 +21,69 @@
 #include <openssl/x509.h>
 
 #include "../asn1/internal.h"
-#include "../mem_internal.h"
 #include "../internal.h"
+#include "../mem_internal.h"
 
 // Internal structures.
 
 DECLARE_OPAQUE_STRUCT(x509_st, X509Impl)
 DECLARE_OPAQUE_STRUCT(x509_store_st, X509Store)
 DECLARE_OPAQUE_STRUCT(X509_name_st, X509Name)
-
-struct X509_pubkey_st {
-  X509_ALGOR algor;
-  ASN1_BIT_STRING public_key;
-  EVP_PKEY *pkey;
-} /* X509_PUBKEY */;
+DECLARE_OPAQUE_STRUCT(X509_name_entry_st, X509NameEntry)
+DECLARE_OPAQUE_STRUCT(X509_pubkey_st, X509Pubkey)
 
 BSSL_NAMESPACE_BEGIN
 
-void x509_pubkey_init(X509_PUBKEY *key);
-void x509_pubkey_cleanup(X509_PUBKEY *key);
+void x509_algor_init(X509_ALGOR *alg);
+void x509_algor_cleanup(X509_ALGOR *alg);
+
+// A ScopedX509Algor is a stack-allocatable `X509_ALGOR` with managed lifetime.
+// This cannot use `DECLARE_OPAQUE_STRUCT` because `X509_ALGOR` is a public
+// struct.
+BORINGSSL_MAKE_STACK_TRAITS(X509_ALGOR, x509_algor_init, x509_algor_cleanup)
+using ScopedX509Algor = internal::StackAllocated<X509_ALGOR>;
+
+// x509_parse_algorithm parses a DER-encoded, AlgorithmIdentifier from `cbs` and
+// writes the result to `*out`. It returns one on success and zero on error.
+int x509_parse_algorithm(CBS *cbs, X509_ALGOR *out);
+
+// x509_marshal_algorithm marshals `in` as a DER-encoded, AlgorithmIdentifier
+// and writes the result to `out`. It returns one on success and zero on error.
+int x509_marshal_algorithm(CBB *out, const X509_ALGOR *in);
+
+class X509Pubkey : public X509_pubkey_st {
+ public:
+  ScopedX509Algor algor;
+  ScopedASN1String public_key{V_ASN1_BIT_STRING};
+  UniquePtr<EVP_PKEY> pkey;
+};
 
 int x509_parse_public_key(CBS *cbs, X509_PUBKEY *out,
                           Span<const EVP_PKEY_ALG *const> algs);
 int x509_marshal_public_key(CBB *cbb, const X509_PUBKEY *in);
 int x509_pubkey_set1(X509_PUBKEY *key, EVP_PKEY *pkey);
 
-// X509_PUBKEY is an |ASN1_ITEM| whose ASN.1 type is SubjectPublicKeyInfo and C
-// type is |X509_PUBKEY*|.
-// TODO(crbug.com/42290417): Remove this when |X509| and |X509_REQ| no longer
+// X509_PUBKEY is an `ASN1_ITEM` whose ASN.1 type is SubjectPublicKeyInfo and C
+// type is `X509_PUBKEY*`.
+// TODO(crbug.com/42290417): Remove this when `X509` and `X509_REQ` no longer
 // depend on the tables.
 DECLARE_ASN1_ITEM(X509_PUBKEY)
 
-BSSL_NAMESPACE_END
+class X509NameEntry : public X509_name_entry_st {
+ public:
+  static constexpr bool kAllowUniquePtr = true;
+  X509NameEntry();
 
-struct X509_name_entry_st {
-  ASN1_OBJECT *object;
-  ASN1_STRING value;
-  int set;
-} /* X509_NAME_ENTRY */;
+  UniquePtr<ASN1_OBJECT> object;
+  ScopedASN1String value{-1};
+  int set = 0;
+};
 
-BSSL_NAMESPACE_BEGIN
-
-// X509_NAME_ENTRY is an |ASN1_ITEM| whose ASN.1 type is AttributeTypeAndValue
-// (RFC 5280) and C type is |X509_NAME_ENTRY*|.
+// X509_NAME_ENTRY is an `ASN1_ITEM` whose ASN.1 type is AttributeTypeAndValue
+// (RFC 5280) and C type is `X509_NAME_ENTRY*`.
 DECLARE_ASN1_ITEM(X509_NAME_ENTRY)
 
-struct X509_NAME_CACHE {
+struct X509NameCache {
   static constexpr bool kAllowUniquePtr = true;
   // canon contains the DER-encoded canonicalized X.509 Name, not including the
   // outermost TLV.
@@ -77,8 +94,14 @@ struct X509_NAME_CACHE {
 
 class X509Name : public X509_name_st {
  public:
-  STACK_OF(X509_NAME_ENTRY) *entries = nullptr;
-  mutable bssl::Atomic<bssl::X509_NAME_CACHE *> cache;
+  ~X509Name();
+
+  // TODO(crbug.com/42290036): Switch to `Vector<UniquePtr<X509NameEntry>>`,
+  // which would save an allocation. Potentially `Vector<X509NameEntry>` if we
+  // are willing to break pointer stability of entries after
+  // `X509_NAME_add_entry` or `X509_NAME_delete_entry`.
+  UniquePtr<STACK_OF(X509_NAME_ENTRY)> entries;
+  mutable Atomic<X509NameCache *> cache = nullptr;
 } /* X509_NAME */;
 
 BSSL_NAMESPACE_END
@@ -90,8 +113,8 @@ struct x509_attributes_st {
 
 BSSL_NAMESPACE_BEGIN
 
-// X509_ATTRIBUTE is an |ASN1_ITEM| whose ASN.1 type is Attribute (RFC 2986) and
-// C type is |X509_ATTRIBUTE*|.
+// X509_ATTRIBUTE is an `ASN1_ITEM` whose ASN.1 type is Attribute (RFC 2986) and
+// C type is `X509_ATTRIBUTE*`.
 DECLARE_ASN1_ITEM(X509_ATTRIBUTE)
 
 typedef struct x509_cert_aux_st {
@@ -111,14 +134,14 @@ struct X509_extension_st {
   ASN1_OCTET_STRING *value;
 } /* X509_EXTENSION */;
 
-// X509_EXTENSION is an |ASN1_ITEM| whose ASN.1 type is X.509 Extension (RFC
-// 5280) and C type is |X509_EXTENSION*|.
+// X509_EXTENSION is an `ASN1_ITEM` whose ASN.1 type is X.509 Extension (RFC
+// 5280) and C type is `X509_EXTENSION*`.
 DECLARE_ASN1_ITEM(X509_EXTENSION)
 
 BSSL_NAMESPACE_BEGIN
 
-// X509_EXTENSIONS is an |ASN1_ITEM| whose ASN.1 type is SEQUENCE of Extension
-// (RFC 5280) and C type is |STACK_OF(X509_EXTENSION)*|.
+// X509_EXTENSIONS is an `ASN1_ITEM` whose ASN.1 type is SEQUENCE of Extension
+// (RFC 5280) and C type is `STACK_OF(X509_EXTENSION)*`.
 DECLARE_ASN1_ITEM(X509_EXTENSIONS)
 
 class X509Impl : public x509_st, public RefCounted<X509Impl> {
@@ -126,36 +149,36 @@ class X509Impl : public x509_st, public RefCounted<X509Impl> {
   X509Impl();
 
   // TBSCertificate fields:
-  uint8_t version = X509_VERSION_1;  // One of the |X509_VERSION_*| constants.
-  ASN1_INTEGER serialNumber;
-  X509_ALGOR tbs_sig_alg;
+  uint8_t version = X509_VERSION_1;  // One of the `X509_VERSION_*` constants.
+  ScopedASN1String serialNumber{V_ASN1_INTEGER};
+  ScopedX509Algor tbs_sig_alg;
   X509Name issuer;
-  ASN1_TIME notBefore;
-  ASN1_TIME notAfter;
+  ScopedASN1String notBefore{-1};
+  ScopedASN1String notAfter{-1};
   X509Name subject;
-  X509_PUBKEY key;
-  ASN1_BIT_STRING *issuerUID = nullptr;            // [ 1 ] optional in v2
-  ASN1_BIT_STRING *subjectUID = nullptr;           // [ 2 ] optional in v2
+  X509Pubkey key;
+  UniquePtr<ASN1_BIT_STRING> issuerUID;            // [ 1 ] optional in v2
+  UniquePtr<ASN1_BIT_STRING> subjectUID;           // [ 2 ] optional in v2
   STACK_OF(X509_EXTENSION) *extensions = nullptr;  // [ 3 ] optional in v3
   // Certificate fields:
-  X509_ALGOR sig_alg;
-  ASN1_BIT_STRING signature;
+  ScopedX509Algor sig_alg;
+  ScopedASN1String signature{V_ASN1_BIT_STRING};
   // Other state:
   // buf, if not nullptr, contains a copy of the serialized Certificate.
-  // TODO(davidben): Now every parsed |X509| has an underlying |CRYPTO_BUFFER|,
-  // but |X509|s created peacemeal do not. Can we make this more uniform?
-  CRYPTO_BUFFER *buf = nullptr;
+  // TODO(davidben): Now every parsed `X509` has an underlying `CRYPTO_BUFFER`,
+  // but `X509`s created peacemeal do not. Can we make this more uniform?
+  UniquePtr<CRYPTO_BUFFER> buf;
   CRYPTO_EX_DATA ex_data;
   // These contain copies of various extension values
   long ex_pathlen = -1;
   uint32_t ex_flags = 0;
   uint32_t ex_kusage = 0;
   uint32_t ex_xkusage = 0;
-  ASN1_OCTET_STRING *skid = nullptr;
-  AUTHORITY_KEYID *akid = nullptr;
-  STACK_OF(DIST_POINT) *crldp = nullptr;
-  STACK_OF(GENERAL_NAME) *altname = nullptr;
-  NAME_CONSTRAINTS *nc = nullptr;
+  UniquePtr<ASN1_OCTET_STRING> skid;
+  UniquePtr<AUTHORITY_KEYID> akid;
+  UniquePtr<STACK_OF(DIST_POINT)> crldp;
+  UniquePtr<STACK_OF(GENERAL_NAME)> altname;
+  UniquePtr<NAME_CONSTRAINTS> nc;
   unsigned char cert_hash[SHA256_DIGEST_LENGTH] = {};
   bssl::X509_CERT_AUX *aux = nullptr;
   Mutex lock;
@@ -165,10 +188,22 @@ class X509Impl : public x509_st, public RefCounted<X509Impl> {
   ~X509Impl();
 } /* X509 */;
 
+// x509_marshal_tbs_cert sets `cbb` to the serialized TBSCertificate of `x509`.
+// It either replays the saved TBSCertificate encoding from the `CRYPTO_BUFFER`,
+// or marshals the TBSCertificate from fields set on `x509`. It returns one on
+// success or zero on error.
 int x509_marshal_tbs_cert(CBB *cbb, const X509 *x509);
 
-// X509 is an |ASN1_ITEM| whose ASN.1 type is X.509 Certificate (RFC 5280) and C
-// type is |X509*|.
+// x509_get_or_marshal_tbs_cert sets `out` to the serialized TBSCertificate of
+// `x509`. If possible, it gets the saved TBSCertificate encoding from the
+// `CRYPTO_BUFFER` of `x509`, otherwise it marshals the TBSCertificate from
+// fields set on `x509` into `scratch`. It returns one on success or zero on
+// error.
+int x509_get_or_marshal_tbs_cert(CBS *out, Array<uint8_t> *scratch,
+                                 const X509 *x509);
+
+// X509 is an `ASN1_ITEM` whose ASN.1 type is X.509 Certificate (RFC 5280) and C
+// type is `X509*`.
 DECLARE_ASN1_ITEM(X509)
 
 typedef struct {
@@ -192,8 +227,8 @@ struct X509_req_st {
 
 BSSL_NAMESPACE_BEGIN
 
-// X509_REQ is an |ASN1_ITEM| whose ASN.1 type is CertificateRequest (RFC 2986)
-// and C type is |X509_REQ*|.
+// X509_REQ is an `ASN1_ITEM` whose ASN.1 type is CertificateRequest (RFC 2986)
+// and C type is `X509_REQ*`.
 DECLARE_ASN1_ITEM(X509_REQ)
 
 BSSL_NAMESPACE_END
@@ -208,9 +243,9 @@ struct x509_revoked_st {
 
 BSSL_NAMESPACE_BEGIN
 
-// X509_REVOKED is an |ASN1_ITEM| whose ASN.1 type is an element of the
+// X509_REVOKED is an `ASN1_ITEM` whose ASN.1 type is an element of the
 // revokedCertificates field of TBSCertList (RFC 5280) and C type is
-// |X509_REVOKED*|.
+// `X509_REVOKED*`.
 DECLARE_ASN1_ITEM(X509_REVOKED)
 
 typedef struct {
@@ -228,22 +263,6 @@ DECLARE_ASN1_FUNCTIONS_const(X509_CRL_INFO)
 
 BSSL_NAMESPACE_END
 
-// Values in idp_flags field
-// IDP present
-#define IDP_PRESENT 0x1
-// IDP values inconsistent
-#define IDP_INVALID 0x2
-// onlyuser true
-#define IDP_ONLYUSER 0x4
-// onlyCA true
-#define IDP_ONLYCA 0x8
-// onlyattr true
-#define IDP_ONLYATTR 0x10
-// indirectCRL true
-#define IDP_INDIRECT 0x20
-// onlysomereasons present
-#define IDP_REASONS 0x40
-
 struct X509_crl_st {
   // actual signature
   bssl::X509_CRL_INFO *crl;
@@ -254,23 +273,21 @@ struct X509_crl_st {
   // Copies of various extensions
   AUTHORITY_KEYID *akid;
   ISSUING_DIST_POINT *idp;
-  // Convenient breakdown of IDP
-  int idp_flags;
   unsigned char crl_hash[SHA256_DIGEST_LENGTH];
 } /* X509_CRL */;
 
 BSSL_NAMESPACE_BEGIN
 
-// X509_CRL is an |ASN1_ITEM| whose ASN.1 type is X.509 CertificateList (RFC
-// 5280) and C type is |X509_CRL*|.
+// X509_CRL is an `ASN1_ITEM` whose ASN.1 type is X.509 CertificateList (RFC
+// 5280) and C type is `X509_CRL*`.
 DECLARE_ASN1_ITEM(X509_CRL)
 
-// GENERAL_NAME is an |ASN1_ITEM| whose ASN.1 type is GeneralName and C type is
-// |GENERAL_NAME*|.
+// GENERAL_NAME is an `ASN1_ITEM` whose ASN.1 type is GeneralName and C type is
+// `GENERAL_NAME*`.
 DECLARE_ASN1_ITEM(GENERAL_NAME)
 
-// GENERAL_NAMES is an |ASN1_ITEM| whose ASN.1 type is SEQUENCE OF GeneralName
-// and C type is |GENERAL_NAMES*|, aka |STACK_OF(GENERAL_NAME)*|.
+// GENERAL_NAMES is an `ASN1_ITEM` whose ASN.1 type is SEQUENCE OF GeneralName
+// and C type is `GENERAL_NAMES*`, aka `STACK_OF(GENERAL_NAME)*`.
 DECLARE_ASN1_ITEM(GENERAL_NAMES)
 
 BSSL_NAMESPACE_END
@@ -305,12 +322,12 @@ struct x509_object_st {
 
 BSSL_NAMESPACE_BEGIN
 
-// NETSCAPE_SPKI is an |ASN1_ITEM| whose ASN.1 type is
-// SignedPublicKeyAndChallenge and C type is |NETSCAPE_SPKI*|.
+// NETSCAPE_SPKI is an `ASN1_ITEM` whose ASN.1 type is
+// SignedPublicKeyAndChallenge and C type is `NETSCAPE_SPKI*`.
 DECLARE_ASN1_ITEM(NETSCAPE_SPKI)
 
-// NETSCAPE_SPKAC is an |ASN1_ITEM| whose ASN.1 type is PublicKeyAndChallenge
-// and C type is |NETSCAPE_SPKAC*|.
+// NETSCAPE_SPKAC is an `ASN1_ITEM` whose ASN.1 type is PublicKeyAndChallenge
+// and C type is `NETSCAPE_SPKAC*`.
 DECLARE_ASN1_ITEM(NETSCAPE_SPKAC)
 
 BSSL_NAMESPACE_END
@@ -356,12 +373,12 @@ BSSL_NAMESPACE_END
 // This is the functions plus an instance of the local variables.
 struct x509_lookup_st {
   const X509_LOOKUP_METHOD *method;  // the functions
-  void *method_data;           // method data
+  void *method_data;                 // method data
 
   X509_STORE *store_ctx;  // who owns us
 } /* X509_LOOKUP */;
 
-// This is a used when verifying cert chains.  Since the
+// This is used when verifying cert chains.  Since the
 // gathering of the cert chain can take some time (and have to be
 // 'retried', this needs to be kept and passed around.
 struct x509_store_ctx_st {
@@ -375,11 +392,11 @@ struct x509_store_ctx_st {
   X509_VERIFY_PARAM *param;
 
   // trusted_stack, if non-NULL, is a set of trusted certificates to consider
-  // instead of those from |X509_STORE|.
+  // instead of those from `X509_STORE`.
   STACK_OF(X509) *trusted_stack;
 
   // Callbacks for various operations
-  X509_STORE_CTX_verify_cb verify_cb;       // error callback
+  X509_STORE_CTX_verify_cb verify_cb;  // error callback
 
   // The following is built up
   int last_untrusted;     // index of last untrusted cert
@@ -406,20 +423,20 @@ int X509_CERT_AUX_print(BIO *bp, X509_CERT_AUX *x, int indent);
 
 // RSA-PSS functions.
 
-// x509_rsa_pss_to_ctx configures |ctx| for an RSA-PSS operation based on
-// signature algorithm parameters in |sigalg| (which must have type
-// |NID_rsassaPss|) and key |pkey|. It returns one on success and zero on
+// x509_rsa_pss_to_ctx configures `ctx` for an RSA-PSS operation based on
+// signature algorithm parameters in `sigalg` (which must have type
+// `NID_rsassaPss`) and key `pkey`. It returns one on success and zero on
 // error.
 int x509_rsa_pss_to_ctx(EVP_MD_CTX *ctx, const X509_ALGOR *sigalg,
                         EVP_PKEY *pkey);
 
-// x509_rsa_pss_to_ctx sets |algor| to the signature algorithm parameters for
-// |ctx|, which must have been configured for an RSA-PSS signing operation. It
+// x509_rsa_pss_to_ctx sets `algor` to the signature algorithm parameters for
+// `ctx`, which must have been configured for an RSA-PSS signing operation. It
 // returns one on success and zero on error.
 int x509_rsa_ctx_to_pss(EVP_MD_CTX *ctx, X509_ALGOR *algor);
 
 // x509_print_rsa_pss_params prints a human-readable representation of RSA-PSS
-// parameters in |sigalg| to |bp|. It returns one on success and zero on
+// parameters in `sigalg` to `bp`. It returns one on success and zero on
 // error.
 int x509_print_rsa_pss_params(BIO *bp, const X509_ALGOR *sigalg, int indent,
                               ASN1_PCTX *pctx);
@@ -427,25 +444,32 @@ int x509_print_rsa_pss_params(BIO *bp, const X509_ALGOR *sigalg, int indent,
 
 // Signature algorithm functions.
 
-// x509_digest_sign_algorithm encodes the signing parameters of |ctx| as an
-// AlgorithmIdentifier and saves the result in |algor|. It returns one on
+// x509_digest_sign_algorithm encodes the signing parameters of `ctx` as an
+// AlgorithmIdentifier and saves the result in `algor`. It returns one on
 // success, or zero on error.
 int x509_digest_sign_algorithm(EVP_MD_CTX *ctx, X509_ALGOR *algor);
 
-// x509_digest_verify_init sets up |ctx| for a signature verification operation
-// with public key |pkey| and parameters from |algor|. The |ctx| argument must
-// have been initialised with |EVP_MD_CTX_init|. It returns one on success, or
+// x509_digest_verify_init sets up `ctx` for a signature verification operation
+// with public key `pkey` and parameters from `algor`. The `ctx` argument must
+// have been initialised with `EVP_MD_CTX_init`. It returns one on success, or
 // zero on error.
 int x509_digest_verify_init(EVP_MD_CTX *ctx, const X509_ALGOR *sigalg,
                             EVP_PKEY *pkey);
 
-// x509_verify_signature verifies a |signature| using |sigalg| and |pkey| over
-// |in|. It returns one if the signature is valid and zero on error.
+// x509_verify_signature verifies a `signature` using `sigalg` and `pkey` over
+// `in`. It returns one if the signature is valid and zero on error.
 int x509_verify_signature(const X509_ALGOR *sigalg,
                           const ASN1_BIT_STRING *signature,
                           Span<const uint8_t> in, EVP_PKEY *pkey);
 
-// x509_sign_to_bit_string signs |in| using |ctx| and saves the result in |out|.
+// x509_verify_signature_bytes behaves like `x509_verify_signature` but takes in
+// a span containing the signature bytes (without ASN.1 headers). It returns one
+// if the signature is valid and zero on error.
+int x509_verify_signature_bytes(const X509_ALGOR *sigalg,
+                                Span<const uint8_t> signature,
+                                Span<const uint8_t> in, EVP_PKEY *pkey);
+
+// x509_sign_to_bit_string signs `in` using `ctx` and saves the result in `out`.
 // It returns the length of the signature on success and zero on error.
 int x509_sign_to_bit_string(EVP_MD_CTX *ctx, ASN1_BIT_STRING *out,
                             Span<const uint8_t> in);
@@ -453,124 +477,124 @@ int x509_sign_to_bit_string(EVP_MD_CTX *ctx, ASN1_BIT_STRING *out,
 
 // Path-building functions.
 
-// X509_policy_check checks certificate policies in |certs|. |user_policies| is
-// the user-initial-policy-set. If |user_policies| is NULL or empty, it is
-// interpreted as anyPolicy. |flags| is a set of |X509_V_FLAG_*| values to
-// apply. It returns |X509_V_OK| on success and |X509_V_ERR_*| on error. It
-// additionally sets |*out_current_cert| to the certificate where the error
+// X509_policy_check checks certificate policies in `certs`. `user_policies` is
+// the user-initial-policy-set. If `user_policies` is NULL or empty, it is
+// interpreted as anyPolicy. `flags` is a set of `X509_V_FLAG_*` values to
+// apply. It returns `X509_V_OK` on success and `X509_V_ERR_*` on error. It
+// additionally sets `*out_current_cert` to the certificate where the error
 // occurred. If the function succeeded, or the error applies to the entire
-// chain, it sets |*out_current_cert| to NULL.
+// chain, it sets `*out_current_cert` to NULL.
 int X509_policy_check(const STACK_OF(X509) *certs,
                       const STACK_OF(ASN1_OBJECT) *user_policies,
                       unsigned long flags, X509 **out_current_cert);
 
-// x509_check_issued_with_callback calls |X509_check_issued|, but allows the
+// x509_check_issued_with_callback calls `X509_check_issued`, but allows the
 // verify callback to override the result. It returns one on success and zero on
 // error.
 //
 // TODO(davidben): Reduce the scope of the verify callback and remove this. The
-// callback only runs with |X509_V_FLAG_CB_ISSUER_CHECK|, which is only used by
+// callback only runs with `X509_V_FLAG_CB_ISSUER_CHECK`, which is only used by
 // one internal project and rust-openssl, who use it by mistake.
 int x509_check_issued_with_callback(X509_STORE_CTX *ctx, const X509 *x,
                                     const X509 *issuer);
 
-// x509v3_bytes_to_hex encodes |len| bytes from |in| to hex and returns a
+// x509v3_bytes_to_hex encodes `len` bytes from `in` to hex and returns a
 // newly-allocated NUL-terminated string containing the result, or NULL on
 // allocation error.
 //
-// This function was historically named |hex_to_string| in OpenSSL. Despite the
-// name, |hex_to_string| converted to hex.
+// This function was historically named `hex_to_string` in OpenSSL. Despite the
+// name, `hex_to_string` converted to hex.
 OPENSSL_EXPORT char *x509v3_bytes_to_hex(const uint8_t *in, size_t len);
 
-// x509v3_hex_string_to_bytes decodes |str| in hex and returns a newly-allocated
-// array containing the result, or NULL on error. On success, it sets |*len| to
+// x509v3_hex_string_to_bytes decodes `str` in hex and returns a newly-allocated
+// array containing the result, or NULL on error. On success, it sets `*len` to
 // the length of the result. Colon separators between bytes in the input are
 // allowed and ignored.
 //
-// This function was historically named |string_to_hex| in OpenSSL. Despite the
-// name, |string_to_hex| converted from hex.
+// This function was historically named `string_to_hex` in OpenSSL. Despite the
+// name, `string_to_hex` converted from hex.
 unsigned char *x509v3_hex_to_bytes(const char *str, size_t *len);
 
-// x509v3_conf_name_matches returns one if |name| is equal to |cmp| or begins
-// with |cmp| followed by '.', and zero otherwise.
+// x509v3_conf_name_matches returns one if `name` is equal to `cmp` or begins
+// with `cmp` followed by '.', and zero otherwise.
 int x509v3_conf_name_matches(const char *name, const char *cmp);
 
-// x509v3_looks_like_dns_name returns one if |in| looks like a DNS name and zero
+// x509v3_looks_like_dns_name returns one if `in` looks like a DNS name and zero
 // otherwise.
 OPENSSL_EXPORT int x509v3_looks_like_dns_name(const unsigned char *in,
                                               size_t len);
 
 // x509v3_cache_extensions fills in a number of fields relating to X.509
-// extensions in |x|. It returns one on success and zero if some extensions were
+// extensions in `x`. It returns one on success and zero if some extensions were
 // invalid.
 OPENSSL_EXPORT int x509v3_cache_extensions(X509 *x);
 
-// x509v3_a2i_ipadd decodes |ipasc| as an IPv4 or IPv6 address. IPv6 addresses
+// x509v3_a2i_ipadd decodes `ipasc` as an IPv4 or IPv6 address. IPv6 addresses
 // use colon-separated syntax while IPv4 addresses use dotted decimal syntax. If
 // it decodes an IPv4 address, it writes the result to the first four bytes of
-// |ipout| and returns four. If it decodes an IPv6 address, it writes the result
-// to all 16 bytes of |ipout| and returns 16. Otherwise, it returns zero.
+// `ipout` and returns four. If it decodes an IPv6 address, it writes the result
+// to all 16 bytes of `ipout` and returns 16. Otherwise, it returns zero.
 int x509v3_a2i_ipadd(unsigned char ipout[16], const char *ipasc);
 
-// A |BIT_STRING_BITNAME| is used to contain a list of bit names.
+// A `BIT_STRING_BITNAME` is used to contain a list of bit names.
 typedef struct {
   int bitnum;
   const char *lname;
   const char *sname;
 } BIT_STRING_BITNAME;
 
-// x509V3_add_value_asn1_string appends a |CONF_VALUE| with the specified name
-// and value to |*extlist|. if |*extlist| is NULL, it sets |*extlist| to a
-// newly-allocated |STACK_OF(CONF_VALUE)| first. It returns one on success and
+// x509V3_add_value_asn1_string appends a `CONF_VALUE` with the specified name
+// and value to `*extlist`. if `*extlist` is NULL, it sets `*extlist` to a
+// newly-allocated `STACK_OF(CONF_VALUE)` first. It returns one on success and
 // zero on error.
 int x509V3_add_value_asn1_string(const char *name, const ASN1_STRING *value,
                                  STACK_OF(CONF_VALUE) **extlist);
 
-// X509V3_NAME_from_section adds attributes to |nm| by interpreting the
-// key/value pairs in |dn_sk|. It returns one on success and zero on error.
-// |chtype|, which should be one of |MBSTRING_*| constants, determines the
+// X509V3_NAME_from_section adds attributes to `nm` by interpreting the
+// key/value pairs in `dn_sk`. It returns one on success and zero on error.
+// `chtype`, which should be one of `MBSTRING_*` constants, determines the
 // character encoding used to interpret values.
 int X509V3_NAME_from_section(X509_NAME *nm, const STACK_OF(CONF_VALUE) *dn_sk,
                              int chtype);
 
-// X509V3_bool_from_string decodes |str| as a boolean. On success, it returns
-// one and sets |*out_bool| to resulting value. Otherwise, it returns zero.
+// X509V3_bool_from_string decodes `str` as a boolean. On success, it returns
+// one and sets `*out_bool` to resulting value. Otherwise, it returns zero.
 int X509V3_bool_from_string(const char *str, ASN1_BOOLEAN *out_bool);
 
-// X509V3_get_value_bool decodes |value| as a boolean. On success, it returns
-// one and sets |*out_bool| to the resulting value. Otherwise, it returns zero.
+// X509V3_get_value_bool decodes `value` as a boolean. On success, it returns
+// one and sets `*out_bool` to the resulting value. Otherwise, it returns zero.
 int X509V3_get_value_bool(const CONF_VALUE *value, ASN1_BOOLEAN *out_bool);
 
-// X509V3_get_value_int decodes |value| as an integer. On success, it returns
-// one and sets |*aint| to the resulting value. Otherwise, it returns zero. If
-// |*aint| was non-NULL at the start of the function, it frees the previous
+// X509V3_get_value_int decodes `value` as an integer. On success, it returns
+// one and sets `*aint` to the resulting value. Otherwise, it returns zero. If
+// `*aint` was non-NULL at the start of the function, it frees the previous
 // value before writing a new one.
 int X509V3_get_value_int(const CONF_VALUE *value, ASN1_INTEGER **aint);
 
-// X509V3_get_section behaves like |NCONF_get_section| but queries |ctx|'s
+// X509V3_get_section behaves like `NCONF_get_section` but queries `ctx`'s
 // config database.
 const STACK_OF(CONF_VALUE) *X509V3_get_section(const X509V3_CTX *ctx,
                                                const char *section);
 
-// X509V3_add_value appends a |CONF_VALUE| containing |name| and |value| to
-// |*extlist|. It returns one on success and zero on error. If |*extlist| is
-// NULL, it sets |*extlist| to a newly-allocated |STACK_OF(CONF_VALUE)|
-// containing the result. Either |name| or |value| may be NULL to omit the
+// X509V3_add_value appends a `CONF_VALUE` containing `name` and `value` to
+// `*extlist`. It returns one on success and zero on error. If `*extlist` is
+// NULL, it sets `*extlist` to a newly-allocated `STACK_OF(CONF_VALUE)`
+// containing the result. Either `name` or `value` may be NULL to omit the
 // field.
 //
-// On failure, if |*extlist| was NULL, |*extlist| will remain NULL when the
+// On failure, if `*extlist` was NULL, `*extlist` will remain NULL when the
 // function returns.
 int X509V3_add_value(const char *name, const char *value,
                      STACK_OF(CONF_VALUE) **extlist);
 
-// X509V3_add_value_bool behaves like |X509V3_add_value| but stores the value
-// "TRUE" if |asn1_bool| is non-zero and "FALSE" otherwise.
+// X509V3_add_value_bool behaves like `X509V3_add_value` but stores the value
+// "TRUE" if `asn1_bool` is non-zero and "FALSE" otherwise.
 int X509V3_add_value_bool(const char *name, int asn1_bool,
                           STACK_OF(CONF_VALUE) **extlist);
 
-// X509V3_add_value_bool behaves like |X509V3_add_value| but stores a string
-// representation of |aint|. Note this string representation may be decimal or
-// hexadecimal, depending on the size of |aint|.
+// X509V3_add_value_bool behaves like `X509V3_add_value` but stores a string
+// representation of `aint`. Note this string representation may be decimal or
+// hexadecimal, depending on the size of `aint`.
 int X509V3_add_value_int(const char *name, const ASN1_INTEGER *aint,
                          STACK_OF(CONF_VALUE) **extlist);
 
@@ -580,16 +604,13 @@ STACK_OF(CONF_VALUE) *X509V3_parse_list(const char *line);
   ERR_add_error_data(6, "section:", (val)->section, ",name:", (val)->name, \
                      ",value:", (val)->value);
 
-// GENERAL_NAME_cmp returns zero if |a| and |b| are equal and a non-zero
+// GENERAL_NAME_cmp returns zero if `a` and `b` are equal and a non-zero
 // value otherwise. Note this function does not provide a comparison suitable
 // for sorting.
-//
-// This function is exported for testing.
-OPENSSL_EXPORT int GENERAL_NAME_cmp(const GENERAL_NAME *a,
-                                    const GENERAL_NAME *b);
+int GENERAL_NAME_cmp(const GENERAL_NAME *a, const GENERAL_NAME *b);
 
-// X509_VERIFY_PARAM_lookup returns a pre-defined |X509_VERIFY_PARAM| named by
-// |name|, or NULL if no such name is defined.
+// X509_VERIFY_PARAM_lookup returns a pre-defined `X509_VERIFY_PARAM` named by
+// `name`, or NULL if no such name is defined.
 const X509_VERIFY_PARAM *X509_VERIFY_PARAM_lookup(const char *name);
 
 GENERAL_NAME *v2i_GENERAL_NAME(const X509V3_EXT_METHOD *method,
@@ -608,35 +629,48 @@ int X509_is_valid_trust_id(int trust);
 
 int X509_PURPOSE_get_trust(const X509_PURPOSE *xp);
 
-// TODO(https://crbug.com/boringssl/695): Remove this.
-int DIST_POINT_set_dpname(DIST_POINT_NAME *dpn, X509_NAME *iname);
-
-void x509_name_init(X509_NAME *name);
-void x509_name_cleanup(X509_NAME *name);
-
-// x509_parse_name parses a DER-encoded, X.509 Name from |cbs| and writes the
-// result to |*out|. It returns one on success and zero on error.
+// x509_parse_name parses a DER-encoded, X.509 Name from `cbs` and writes the
+// result to `*out`. It returns one on success and zero on error.
 int x509_parse_name(CBS *cbs, X509_NAME *out);
 
-// x509_marshal_name marshals |in| as a DER-encoded, X.509 Name and writes the
-// result to |out|. It returns one on success and zero on error.
+// x509_marshal_name marshals `in` as a DER-encoded, X.509 Name and writes the
+// result to `out`. It returns one on success and zero on error.
 int x509_marshal_name(CBB *out, const X509_NAME *in);
 
-const X509_NAME_CACHE *x509_name_get_cache(const X509_NAME *name);
+const X509NameCache *x509_name_get_cache(const X509_NAME *name);
 void x509_name_invalidate_cache(X509_NAME *name);
 
 int x509_name_copy(X509_NAME *dst, const X509_NAME *src);
 
-void x509_algor_init(X509_ALGOR *alg);
-void x509_algor_cleanup(X509_ALGOR *alg);
 
-// x509_parse_algorithm parses a DER-encoded, AlgorithmIdentifier from |cbs| and
-// writes the result to |*out|. It returns one on success and zero on error.
-int x509_parse_algorithm(CBS *cbs, X509_ALGOR *out);
+// Merkle Tree Certificate (MTC) verification functions.
 
-// x509_marshal_algorithm marshals |in| as a DER-encoded, AlgorithmIdentifier
-// and writes the result to |out|. It returns one on success and zero on error.
-int x509_marshal_algorithm(CBB *out, const X509_ALGOR *in);
+// x509_is_merkle_tree_ca returns whether `x509` contains an extension of type
+// id-pe-mtcCertificationAuthority.
+bool x509_is_merkle_tree_ca(const X509 *x509);
+
+// x509_evaluate_mtc_subtree_inclusion_proof carries out the procedure in
+// section 4.3.2 of draft-ietf-plants-merkle-tree-certs to evaluate a subtree
+// inclusion proof for an entry at index `index` with hash `entry_hash` of a
+// subtree defined by [`subtree_start`, `subtree_end`). The `inclusion_proof` to
+// be evaluated is passed as a byte array consisting of concatenated hashes
+// produced from the `log_hash` algorithm. This function returns true if
+// inclusion proof evaluation succeeded, and if so, writes the expected subtree
+// hash for the specified subtree containing the entry to `out`, which must be
+// the right size for `log_hash`. It returns false on error, including if the
+// inclusion proof fails to evaluate.
+bool x509_evaluate_mtc_subtree_inclusion_proof(
+    Span<uint8_t> out, const EVP_MD *log_hash,
+    Span<const uint8_t> inclusion_proof, uint64_t index,
+    Span<const uint8_t> entry_hash, uint64_t subtree_start,
+    uint64_t subtree_end);
+
+// x509_verify_mtc verifies `x509` as a Merkle Tree Certificate issued by
+// `issuer`, which must be an MTC CA represented in X.509 format. `pkey` is the
+// `issuer`'s public key. It returns one if the MTC is valid, or zero on error.
+// This function only checks the MTC proof itself and does not perform a full
+// certificate validation.
+int x509_verify_mtc(const X509 *x509, const EVP_PKEY *pkey, const X509 *issuer);
 
 
 // Standard extensions.

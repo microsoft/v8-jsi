@@ -26,6 +26,53 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<!-- LINT.IfChange(AIPageContentExtractionConcurrency) -->
+
+<enum name="AIPageContentExtractionConcurrency">
+  <int value="0" label="No active extraction"/>
+  <int value="1" label="Active extraction with matching options"/>
+  <int value="2" label="Active extraction with different options only"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_provider.cc:AIPageContentExtractionConcurrency) -->
+
+<!-- LINT.IfChange(AIPageContentExtractionStatus) -->
+
+<enum name="AIPageContentExtractionStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="Main frame not live"/>
+  <int value="2" label="Main frame timeout"/>
+  <int value="3" label="Main frame empty or disconnected renderer response"/>
+  <int value="4" label="Main frame redacted"/>
+  <int value="5" label="Main frame torn down"/>
+  <int value="6" label="Attribute type mismatch"/>
+  <int value="7" label="Missing iframe data"/>
+  <int value="8" label="Subframe torn down"/>
+  <int value="9" label="Iframe not child of current frame"/>
+  <int value="10" label="Remote frame has child nodes"/>
+  <int value="11" label="Remote frame has inline content"/>
+  <int value="12" label="Local frame missing content"/>
+  <int value="13" label="Unexpected iframe in popup"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_provider.h:AIPageContentExtractionStatus) -->
+
+<!-- LINT.IfChange(AIPageContentGetImageBytesStatus) -->
+
+<enum name="AIPageContentGetImageBytesStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="Node not found"/>
+  <int value="2" label="Target frame not found"/>
+  <int value="3" label="Agent frame not found"/>
+  <int value="4" label="Cross-tree query"/>
+  <int value="5" label="Not an image node"/>
+  <int value="6" label="Image resource error"/>
+  <int value="7" label="No resource buffer"/>
+  <int value="8" label="BigBuffer copy failed"/>
+</enum>
+
+<!-- LINT.ThenChange(//third_party/blink/renderer/modules/content_extraction/ai_page_content_agent.cc:GetImageBytesStatus) -->
+
 <enum name="AIPageContentMode">
   <int value="0" label="Default"/>
   <int value="1" label="ActionableElements"/>
@@ -34,11 +81,6 @@ chromium-metrics-reviews@google.com.
 <enum name="BooleanAnnotated">
   <int value="0" label="Not Annotated"/>
   <int value="1" label="Annotated"/>
-</enum>
-
-<enum name="BooleanStored">
-  <int value="0" label="Not Stored"/>
-  <int value="1" label="Stored"/>
 </enum>
 
 <enum name="FeatureCurrentlyEnabledResult">
@@ -80,18 +122,6 @@ chromium-metrics-reviews@google.com.
       label="Not visible because the device is unsupported by the feature."/>
 </enum>
 
-<enum name="HintCacheStoreEntryType">
-  <summary>
-    Possible store entry types contained within the HintCacheStore.
-  </summary>
-  <int value="0" label="Unknown"/>
-  <int value="1" label="Metadata"/>
-  <int value="2" label="Component Hint"/>
-  <int value="3" label="Fetched Hint"/>
-  <int value="4" label="Prediction Model"/>
-  <int value="5" label="[Deprecated] Host Model Features"/>
-</enum>
-
 <!-- LINT.IfChange(OnDeviceBaseModelEnum) -->
 
 <enum name="InstalledModel">
@@ -102,21 +132,15 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="v3Nano"/>
   <int value="5" label="v3NanoCpu"/>
   <int value="6" label="v3NanoGpu"/>
+  <int value="7" label="Gemma4"/>
+  <int value="8" label="Classifier"/>
+  <int value="9" label="LanguageDetection"/>
+  <int value="10" label="ProofreaderSmallExpert"/>
+  <int value="11" label="SpeechRecognitionSmallExpert"/>
+  <int value="12" label="SummarizerSmallExpert"/>
 </enum>
 
-<!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/manifest_broker/manifest_asset_manager.cc:OnDeviceBaseModelEnum) -->
-
-<!-- Use following code to get the hash from the model version.
-import struct
-import hashlib
-version='2025.5.5.2308'
-struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
--->
-
-<enum name="OnDeviceBaseModelVersion">
-  <summary>The versions for the foundational model</summary>
-  <int value="946907700" label="2025.5.5.2308"/>
-</enum>
+<!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/on_device_model_names.h:OnDeviceBaseModelEnum) -->
 
 <enum name="OnDeviceModelAdaptationAvailability">
   <int value="0" label="Adaptation model was available"/>
@@ -160,6 +184,7 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   <int value="4" label="Parse error"/>
   <int value="5" label="Not allowed by user setting"/>
   <int value="6" label="The installed component is obsolete"/>
+  <int value="7" label="Evicted due to no recent usage"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/manifest_broker/manifest.h:UninstallReason) -->
@@ -171,14 +196,6 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   <int value="3" label="Non matching output"/>
   <int value="4" label="Service crash"/>
   <int value="5" label="Interrupted"/>
-</enum>
-
-<enum name="OnDeviceTextSafetyModelMetadataValidity">
-  <int value="0" label="Unknown"/>
-  <int value="1" label="No metadata"/>
-  <int value="2" label="Wrong metadata type"/>
-  <int value="3" label="No feature configs"/>
-  <int value="4" label="Valid"/>
 </enum>
 
 <enum name="OptimizationGuideAccessTokenResult">
@@ -224,16 +241,6 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   <int value="8" label="User not signed-in">
     Request was not started because user was not signed-in.
   </int>
-</enum>
-
-<enum name="OptimizationGuideHintCacheLevelDBStoreLoadMetadataResult">
-  <int value="0" label="Success"/>
-  <int value="1" label="LoadMetadataFailed"/>
-  <int value="2" label="SchemaMetadataMissing"/>
-  <int value="3" label="SchemaMetadataWrongVersion"/>
-  <int value="4" label="ComponentMetadataMissing"/>
-  <int value="5" label="FetchedMetadataMissing"/>
-  <int value="6" label="ComponentAndFetchedMetadataMissing"/>
 </enum>
 
 <enum name="OptimizationGuideHintCacheLevelDBStoreStatus">
@@ -473,38 +480,13 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
     There was no on-device feature usage so the model has not been downloaded
     yet.
   </int>
+  <int value="19" label="Insufficient disk space to build caches">
+    The device does not have enough disk space to build caches for the on-device
+    model.
+  </int>
 </enum>
 
 <!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/on_device_capability.h:OnDeviceModelEligibilityReason) -->
-
-<enum name="OptimizationGuideOnDeviceModelStatus">
-  <int value="0" label="Ready">The model is ready to use.</int>
-  <int value="1" label="Not eligible for installation">
-    The model is not eligible for installation.
-  </int>
-  <int value="2" label="Install not done">
-    The model installation has not been completed.
-  </int>
-  <int value="3" label="Model not registered">
-    The model installer was not registered, even though the client would be
-    eligible to install right now. This likely means the state of the system has
-    changed recently.
-  </int>
-  <int value="4" label="Installed too late">
-    The model is ready, but it wasn't ready early enough for
-    OnDeviceModelServiceController to use it.
-  </int>
-  <int value="5" label="Not ready for unknown reason">
-    The model is not ready, and the reason is unknown.
-  </int>
-  <int value="6" label="Insufficient disk space">
-    The client does not have enough space to install the model.
-  </int>
-  <int value="7" label="No on-device feature used">
-    The client is eligible for downloading and installing the model, but there
-    was no on-device feature used so the model is not installed yet.
-  </int>
-</enum>
 
 <enum name="OptimizationGuideOptimizationFilterStatus">
   <int value="0" label="Found a server filter configuration">
@@ -725,21 +707,6 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   </int>
 </enum>
 
-<enum name="OptimizationGuideReadCacheResult">
-  <int value="0" label="Unknown"/>
-  <int value="1" label="Success"/>
-  <int value="2" label="Invalid protobuf"/>
-  <int value="3" label="Base64 decoding error"/>
-</enum>
-
-<enum name="OptimizationGuideTextSafetyInferenceResult">
-  <int value="0" label="Success"/>
-  <int value="1" label="Encoding failed"/>
-  <int value="2" label="Model creation failed"/>
-  <int value="3" label="Model execution failed"/>
-  <int value="4" label="Regression failed"/>
-</enum>
-
 <enum name="OptimizationGuideUserFeedback">
   <int value="0" label="Unknown"/>
   <int value="1" label="Thumbs Down"/>
@@ -860,6 +827,14 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   <int value="124" label="BUY_NOW_PAY_LATER_BLOCKLIST_AFFIRM_ANDROID"/>
   <int value="125" label="BUY_NOW_PAY_LATER_BLOCKLIST_ZIP_ANDROID"/>
   <int value="126" label="BUY_NOW_PAY_LATER_BLOCKLIST_KLARNA_ANDROID"/>
+  <int value="127" label="CURINOS_CREDIT_CARD_FLIGHT_BENEFITS"/>
+  <int value="128" label="CURINOS_CREDIT_CARD_HOTEL_BENEFITS"/>
+  <int value="129" label="CURINOS_CREDIT_CARD_CAR_RENTAL_BENEFITS"/>
+  <int value="130" label="FILTER_TASKS_SUPPORTED"/>
+  <int value="131" label="FILTER_EXTRACT_ATTRIBUTES"/>
+  <int value="132" label="AUTOFILL_AT_MEMORY_BLOCKED"/>
+  <int value="133" label="FILTER_EXECUTION_STRATEGY"/>
+  <int value="134" label="PAYMENT_QR_CODE_MERCHANT_URL_REGEX_ALLOWLIST"/>
 </enum>
 
 <enum name="PageContentAnnotationsStorageStatus">
@@ -888,6 +863,48 @@ struct.unpack('>L', hashlib.md5(version.encode('utf-8')).digest()[4:8])[0]
   <int value="5" label="ContentsDeletedOnTabClose"/>
   <int value="6" label="ContentsDeletedOnTabUpdate"/>
 </enum>
+
+<!-- LINT.IfChange(PageContentExtractionEnablementReason) -->
+
+<enum name="PageContentExtractionEnablementReason">
+  <int value="0" label="Automatic extraction feature enabled"/>
+  <int value="1" label="Observer registered"/>
+  <int value="2" label="Allowed on-demand without observers"/>
+  <int value="3" label="Disabled: on-demand request denied"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/page_content_annotations/content/page_content_extraction_service.h:PageContentExtractionEnablementReason) -->
+
+<!-- LINT.IfChange(PageContentExtractionEnablementSource) -->
+
+<enum name="PageContentExtractionEnablementSource">
+  <int value="0" label="None"/>
+  <int value="1" label="Feature flag"/>
+  <int value="2" label="Observer(s) present"/>
+  <int value="3" label="Both"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/page_content_annotations/content/page_content_extraction_service.cc:EnablementSource) -->
+
+<!-- LINT.IfChange(PageContentExtractionPDFDocumentStatus) -->
+
+<enum name="PageContentExtractionPDFDocumentStatus">
+  <int value="0" label="LoadComplete"/>
+  <int value="1" label="LoadNotComplete"/>
+  <int value="2" label="PDFDocumentHelperUnavailable"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/page_content_annotations/content/annotate_page_content_request_metrics.h:PDFDocumentStatus) -->
+
+<!-- LINT.IfChange(PageContentExtractionRequestType) -->
+
+<enum name="PageContentExtractionRequestType">
+  <int value="0" label="AnnotatedPageContent"/>
+  <int value="1" label="PdfText"/>
+  <int value="2" label="PdfPageCount"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/page_content_annotations/content/annotate_page_content_request_metrics.h:ExtractionRequestType) -->
 
 </enums>
 

@@ -4,7 +4,6 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file or at
 # https://developers.google.com/open-source/licenses/bsd
-
 """Contains routines for printing protocol messages in JSON format.
 
 Simple usage example:
@@ -19,20 +18,18 @@ Simple usage example:
 
 __author__ = 'jieluo@google.com (Jie Luo)'
 
-
 import base64
 from collections import OrderedDict
 import json
 import math
 from operator import methodcaller
 import re
-import warnings
 
 from google.protobuf import descriptor
+from google.protobuf import descriptor_pool
 from google.protobuf import message_factory
 from google.protobuf import symbol_database
 from google.protobuf.internal import type_checkers
-
 
 _INT_TYPES = frozenset([
     descriptor.FieldDescriptor.CPPTYPE_INT32,
@@ -85,9 +82,10 @@ def MessageToJson(
     sort_keys=False,
     use_integers_for_enums=False,
     descriptor_pool=None,
-    float_precision=None,
     ensure_ascii=True,
     always_print_fields_with_no_presence=False,
+    *,
+    unquote_int64_if_possible=False,
 ):
   """Converts protobuf message to JSON format.
 
@@ -107,10 +105,11 @@ def MessageToJson(
     use_integers_for_enums: If true, print integers instead of enum names.
     descriptor_pool: A Descriptor Pool for resolving types. If None use the
       default.
-    float_precision: Deprecated. If set, use this to specify float field valid
-      digits.
     ensure_ascii: If True, strings with non-ASCII characters are escaped. If
       False, Unicode strings are returned unchanged.
+    unquote_int64_if_possible: If True, unquote int64 fields for values that are
+      safe to emit as numbers (all values smaller than 2^53 and a sparse set of
+      values that are larger).
 
   Returns:
     A string containing the JSON formatted protocol buffer message.
@@ -119,8 +118,8 @@ def MessageToJson(
       preserving_proto_field_name,
       use_integers_for_enums,
       descriptor_pool,
-      float_precision,
       always_print_fields_with_no_presence,
+      unquote_int64_if_possible=unquote_int64_if_possible,
   )
   return printer.ToJsonString(message, indent, sort_keys, ensure_ascii)
 
@@ -131,11 +130,12 @@ def MessageToDict(
     preserving_proto_field_name=False,
     use_integers_for_enums=False,
     descriptor_pool=None,
-    float_precision=None,
+    *,
+    unquote_int64_if_possible=False,
 ):
   """Converts protobuf message to a dictionary.
 
-  When the dictionary is encoded to JSON, it conforms to proto3 JSON spec.
+  When the dictionary is encoded to JSON, it conforms to ProtoJSON spec.
 
   Args:
     message: The protocol buffers message instance to serialize.
@@ -149,8 +149,9 @@ def MessageToDict(
     use_integers_for_enums: If true, print integers instead of enum names.
     descriptor_pool: A Descriptor Pool for resolving types. If None use the
       default.
-    float_precision: Deprecated. If set, use this to specify float field valid
-      digits.
+    unquote_int64_if_possible: If True, unquote int64 fields for values that are
+      safe to emit as numbers (all values smaller than 2^53 and a sparse set of
+      values that are larger).
 
   Returns:
     A dict representation of the protocol buffer message.
@@ -159,8 +160,8 @@ def MessageToDict(
       preserving_proto_field_name,
       use_integers_for_enums,
       descriptor_pool,
-      float_precision,
       always_print_fields_with_no_presence,
+      unquote_int64_if_possible=unquote_int64_if_possible,
   )
   # pylint: disable=protected-access
   return printer._MessageToJsonObject(message)
@@ -182,8 +183,9 @@ class _Printer(object):
       preserving_proto_field_name=False,
       use_integers_for_enums=False,
       descriptor_pool=None,
-      float_precision=None,
       always_print_fields_with_no_presence=False,
+      *,
+      unquote_int64_if_possible=False,
   ):
     self.always_print_fields_with_no_presence = (
         always_print_fields_with_no_presence
@@ -191,15 +193,7 @@ class _Printer(object):
     self.preserving_proto_field_name = preserving_proto_field_name
     self.use_integers_for_enums = use_integers_for_enums
     self.descriptor_pool = descriptor_pool
-    if float_precision:
-      warnings.warn(
-          'float_precision option is deprecated for json_format. '
-          'This will turn into error in 7.34.0, please remove it '
-          'before that.'
-      )
-      self.float_format = '.{}g'.format(float_precision)
-    else:
-      self.float_format = None
+    self.unquote_int64_if_possible = unquote_int64_if_possible
 
   def ToJsonString(self, message, indent, sort_keys, ensure_ascii):
     js = self._MessageToJsonObject(message)
@@ -208,7 +202,7 @@ class _Printer(object):
     )
 
   def _MessageToJsonObject(self, message):
-    """Converts message to an object according to Proto3 JSON Specification."""
+    """Converts message to an object according to ProtoJSON Specification."""
     message_descriptor = message.DESCRIPTOR
     full_name = message_descriptor.full_name
     if _IsWrapperMessage(message_descriptor):
@@ -219,7 +213,7 @@ class _Printer(object):
     return self._RegularMessageToJsonObject(message, js)
 
   def _RegularMessageToJsonObject(self, message, js):
-    """Converts normal message according to Proto3 JSON Specification."""
+    """Converts normal message according to ProtoJSON Specification."""
     fields = message.ListFields()
 
     try:
@@ -285,7 +279,7 @@ class _Printer(object):
     return js
 
   def _FieldToJsonObject(self, field, value):
-    """Converts field value according to Proto3 JSON Specification."""
+    """Converts field value according to ProtoJSON Specification."""
     if field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_MESSAGE:
       return self._MessageToJsonObject(value)
     elif field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_ENUM:
@@ -295,6 +289,9 @@ class _Printer(object):
         return None
       enum_value = field.enum_type.values_by_number.get(value, None)
       if enum_value is not None:
+        option = _GetJsonEnumValueOption(enum_value)
+        if option is not None:
+          return option.string
         return enum_value.name
       else:
         if field.enum_type.is_closed:
@@ -313,7 +310,10 @@ class _Printer(object):
     elif field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_BOOL:
       return bool(value)
     elif field.cpp_type in _INT64_TYPES:
-      return str(value)
+      if self.unquote_int64_if_possible and float(value) == value:
+        return value
+      else:
+        return str(value)
     elif field.cpp_type in _FLOAT_TYPES:
       if math.isinf(value):
         if value < 0.0:
@@ -322,15 +322,13 @@ class _Printer(object):
           return _INFINITY
       if math.isnan(value):
         return _NAN
-      if self.float_format:
-        return float(format(value, self.float_format))
       elif field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_FLOAT:
         return type_checkers.ToShortestFloat(value)
 
     return value
 
   def _AnyMessageToJsonObject(self, message):
-    """Converts Any message according to Proto3 JSON Specification."""
+    """Converts Any message according to ProtoJSON Specification."""
     if not message.ListFields():
       return {}
     # Must print @type first, use OrderedDict instead of {}
@@ -352,13 +350,13 @@ class _Printer(object):
     return self._RegularMessageToJsonObject(sub_message, js)
 
   def _GenericMessageToJsonObject(self, message):
-    """Converts message according to Proto3 JSON Specification."""
+    """Converts message according to ProtoJSON Specification."""
     # Duration, Timestamp and FieldMask have ToJsonString method to do the
     # convert. Users can also call the method directly.
     return message.ToJsonString()
 
   def _ValueMessageToJsonObject(self, message):
-    """Converts Value message according to Proto3 JSON Specification."""
+    """Converts Value message according to ProtoJSON Specification."""
     which = message.WhichOneof('kind')
     # If the Value message is not set treat as null_value when serialize
     # to JSON. The parse back result will be different from original message.
@@ -384,11 +382,11 @@ class _Printer(object):
     return self._FieldToJsonObject(oneof_descriptor, value)
 
   def _ListValueMessageToJsonObject(self, message):
-    """Converts ListValue message according to Proto3 JSON Specification."""
+    """Converts ListValue message according to ProtoJSON Specification."""
     return [self._ValueMessageToJsonObject(value) for value in message.values]
 
   def _StructMessageToJsonObject(self, message):
-    """Converts Struct message according to Proto3 JSON Specification."""
+    """Converts Struct message according to ProtoJSON Specification."""
     fields = message.fields
     ret = {}
     for key in fields:
@@ -527,6 +525,10 @@ class _Parser(object):
     Raises:
       ParseError: In case of convert problems.
     """
+    # Increment recursion depth at message entry. The max_recursion_depth limit
+    # is exclusive: a depth value equal to max_recursion_depth will trigger an
+    # error. For example, with max_recursion_depth=5, nesting up to depth 4 is
+    # allowed, but attempting depth 5 raises ParseError.
     self.recursion_depth += 1
     if self.recursion_depth > self.max_recursion_depth:
       raise ParseError(
@@ -747,12 +749,9 @@ class _Parser(object):
           value['value'], sub_message, '{0}.value'.format(path)
       )
     elif full_name in _WKTJSONMETHODS:
-      methodcaller(
-          _WKTJSONMETHODS[full_name][1],
-          value['value'],
-          sub_message,
-          '{0}.value'.format(path),
-      )(self)
+      # For well-known types (including nested Any), use ConvertMessage
+      # to ensure recursion depth is properly tracked
+      self.ConvertMessage(value['value'], sub_message, '{0}.value'.format(path))
     else:
       del value['@type']
       try:
@@ -775,9 +774,9 @@ class _Parser(object):
   def _ConvertValueMessage(self, value, message, path):
     """Convert a JSON representation into Value message."""
     if isinstance(value, dict):
-      self._ConvertStructMessage(value, message.struct_value, path)
+      self.ConvertMessage(value, message.struct_value, path)
     elif isinstance(value, _LIST_LIKE):
-      self._ConvertListOrTupleValueMessage(value, message.list_value, path)
+      self.ConvertMessage(value, message.list_value, path)
     elif value is None:
       message.null_value = 0
     elif isinstance(value, bool):
@@ -801,7 +800,7 @@ class _Parser(object):
       )
     message.ClearField('values')
     for index, item in enumerate(value):
-      self._ConvertValueMessage(
+      self.ConvertMessage(
           item, message.values.add(), '{0}[{1}]'.format(path, index)
       )
 
@@ -815,7 +814,7 @@ class _Parser(object):
     # there are no values.
     message.Clear()
     for key in value:
-      self._ConvertValueMessage(
+      self.ConvertMessage(
           value[key], message.fields[key], '{0}.{1}'.format(path, key)
       )
     return
@@ -907,6 +906,25 @@ class _Parser(object):
       if not self.ignore_unknown_fields:
         raise
 
+def _GetJsonEnumValueOption(ev):
+  """Helper to get the JsonEnumValueOptions for an enum value.
+
+  Args:
+    ev: The EnumValueDescriptor.
+
+  Returns:
+    The JsonEnumValueOptions message if the extension is present,
+    otherwise None.
+  """
+  try:
+    extension_descriptor = descriptor_pool.Default().FindExtensionByName(
+        'pb.enumvalue.json'
+    )
+  except KeyError:
+    return None
+  if ev.GetOptions().HasExtension(extension_descriptor):
+    return ev.GetOptions().Extensions[extension_descriptor]
+  return None
 
 def _ConvertScalarFieldValue(value, field, path, require_str=False):
   """Convert a single scalar field value.
@@ -949,6 +967,14 @@ def _ConvertScalarFieldValue(value, field, path, require_str=False):
     elif field.cpp_type == descriptor.FieldDescriptor.CPPTYPE_ENUM:
       # Convert an enum value.
       enum_value = field.enum_type.values_by_name.get(value, None)
+      # First check to see if we have a custom enum string.
+      if enum_value is None:
+        for ev in field.enum_type.values:
+          option = _GetJsonEnumValueOption(ev)
+          if option is not None and option.string == value:
+            enum_value = ev
+            break
+      # If not, try parsing it as an integer.
       if enum_value is None:
         try:
           number = int(value)

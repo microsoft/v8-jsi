@@ -6,7 +6,6 @@
 #define BASE_FEATURE_H_
 
 #include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -15,15 +14,13 @@
 #include "base/containers/span.h"
 #include "base/feature_buildflags.h"
 #include "base/feature_internal.h"
-#include "build/build_config.h"
-
-#if BUILDFLAG(ENABLE_BANNED_BASE_FEATURE_PREFIX)
 #include "base/logging.h"
-#endif
+#include "build/build_config.h"
 
 namespace base {
 
 class FeatureList;
+class FeatureListTest;
 
 // Recommended macros for declaring and defining features and parameters:
 //
@@ -40,14 +37,31 @@ class FeatureList;
 //
 //   BASE_DECLARE_FEATURE(kMyFeature);
 //
+// Note that the `extern "C"` here is necessary to make Features accessible
+// across FFI boundaries (motivated, in particular, by the need for Rust
+// interop.)
+//
 // If the feature needs to be marked as exported, i.e. it is referenced by
 // multiple components, then write:
 //
 //   COMPONENT_EXPORT(MY_COMPONENT) BASE_DECLARE_FEATURE(kMyFeature);
 #define BASE_DECLARE_FEATURE(kFeature) \
-  extern constinit const base::Feature kFeature
+  extern "C" constinit const base::Feature kFeature
 
 // Provides a definition for `kFeature` with `name` and `default_state`, e.g.
+//
+// There are two versions of this macro: one for runtime static features, whose
+// state is fixed at initialization time, and one for runtime mutable features,
+// whose state may be updated at runtime as new Variations seeds are received.
+//
+// TODO: http://crbug.com/482450632 - Runtime mutable features are not fully
+// implemented or supported; they are not yet ready for general use. Update
+// documentation when they are ready for general use.
+//
+// The feature state of runtime mutable features, and any related parameters,
+// may only be queried from the main thread. Additionally, runtime mutable
+// features must have their runtime mutability explicitly enabled via the
+// `FeatureList::EnableRuntimeMutability()` function call.
 //
 // This macro can be used in two ways:
 //
@@ -56,11 +70,16 @@ class FeatureList;
 //    name and helps prevent typos.
 //
 //      BASE_FEATURE(kMyFeature, base::FEATURE_DISABLED_BY_DEFAULT);
+//      BASE_RUNTIME_MUTABLE_FEATURE(kMyRuntimeMutableFeature,
+//                                   base::FEATURE_DISABLED_BY_DEFAULT);
 //
 //    This is equivalent to:
 //
 //      BASE_FEATURE(kMyFeature, "MyFeature",
 //                   base::FEATURE_DISABLED_BY_DEFAULT);
+//      BASE_RUNTIME_MUTABLE_FEATURE(kMyRuntimeMutableFeature,
+//                                   "MyRuntimeMutableFeature",
+//                                   base::FEATURE_DISABLED_BY_DEFAULT);
 //
 // 2. With three arguments, to explicitly specify the C++ identifier and the
 //    name of the feature. This form should be used only if the feature needs
@@ -69,13 +88,20 @@ class FeatureList;
 //
 //      BASE_FEATURE(kMyFeature, "MyFeatureName",
 //                   base::FEATURE_DISABLED_BY_DEFAULT);
+//      BASE_RUNTIME_MUTABLE_FEATURE(kMyRuntimeMutableFeature,
+//                                   "MyRuntimeMutableFeatureName",
+//                                   base::FEATURE_DISABLED_BY_DEFAULT);
 //
 // Features should *not* be defined in header files; do not use this macro in
 // header files.
 #define BASE_FEATURE(...)                        \
   BASE_FEATURE_INTERNAL_GET_FEATURE_MACRO(       \
       __VA_ARGS__, BASE_FEATURE_INTERNAL_3_ARGS, \
-      BASE_FEATURE_INTERNAL_2_ARGS)(__VA_ARGS__)
+      BASE_FEATURE_INTERNAL_2_ARGS)(false, __VA_ARGS__)
+#define BASE_RUNTIME_MUTABLE_FEATURE(...)        \
+  BASE_FEATURE_INTERNAL_GET_FEATURE_MACRO(       \
+      __VA_ARGS__, BASE_FEATURE_INTERNAL_3_ARGS, \
+      BASE_FEATURE_INTERNAL_2_ARGS)(true, __VA_ARGS__)
 
 // Provides a forward declaration for `feature_object_name` in a header file,
 // e.g.
@@ -120,7 +146,8 @@ class FeatureList;
 //                         "my_feature_param", 0);
 //
 // `T` is a parameter type, one of bool, int, size_t, double, std::string, and
-// base::TimeDelta. Enum types are not supported for now.
+// base::TimeDelta. Enum types are not supported for now. Note that size_t is
+// backed by int in the underlying API, and thus should not exceed INT_MAX.
 //
 // It should *not* be defined in header files; do not use this macro in header
 // files.
@@ -148,7 +175,26 @@ class FeatureList;
 enum FeatureState {
   FEATURE_DISABLED_BY_DEFAULT,
   FEATURE_ENABLED_BY_DEFAULT,
+  // The feature is disabled only for the countries specified. Defaults to
+  // enabled if Chrome does not have information about the current country.
+  // Use only together with `BASE_FEATURE_WITH_COUNTRY_RESTRICTIONS`.
+  FEATURE_DISABLED_FOR_COUNTRIES,
+  // The feature is enabled only for the countries specified. Defaults to
+  // disabled if Chrome does not have information about the current country.
+  // Use only together with `BASE_FEATURE_WITH_COUNTRY_RESTRICTIONS`.
+  FEATURE_ENABLED_FOR_COUNTRIES,
 };
+
+constexpr bool IsCountrySpecificFeatureState(FeatureState state) {
+  switch (state) {
+    case FEATURE_DISABLED_BY_DEFAULT:
+    case FEATURE_ENABLED_BY_DEFAULT:
+      return false;
+    case FEATURE_DISABLED_FOR_COUNTRIES:
+    case FEATURE_ENABLED_FOR_COUNTRIES:
+      return true;
+  }
+}
 
 // The Feature struct is used to define the default state for a feature. There
 // must only ever be one struct instance for a given feature name—generally
@@ -173,31 +219,36 @@ enum FeatureState {
 // https://crsrc.org/c/docs/speed/binary_size/android_binary_size_trybot.md#Mutable-Constants
 struct BASE_EXPORT LOGICALLY_CONST Feature {
   // The type used to store the cached state of a feature. This is a uint32_t
-  // that is packed with the override state, logging information, and a caching
-  // context ID.
-  // See the comments on `cached_value` below for more details.
+  // that is packed with the override state, logging and mutability flags, and
+  // a caching context ID. See the comments on `cached_value` below for more
+  // details.
   using FeatureStateCache = uint32_t;
-  static constexpr FeatureStateCache kCachedLogGeneralMask = 0x00010000;
-  static constexpr FeatureStateCache kCachedLogEarlyMask = 0x00020000;
 
   constexpr Feature(const char* name,
                     FeatureState default_state,
-                    internal::FeatureMacroHandshake)
-      : name(name), default_state(default_state) {
-#if BUILDFLAG(ENABLE_BANNED_BASE_FEATURE_PREFIX)
-    if (std::string_view(name).starts_with(
-            BUILDFLAG(BANNED_BASE_FEATURE_PREFIX))) {
-      LOG(FATAL) << "Invalid feature name " << name << " starts with "
-                 << BUILDFLAG(BANNED_BASE_FEATURE_PREFIX);
-    }
-#endif  // BUILDFLAG(ENABLE_BANNED_BASE_FEATURE_PREFIX)
-  }
+                    bool is_runtime_mutable,
+                    internal::FeatureMacroHandshake handshake)
+      : Feature(name,
+                default_state,
+                is_runtime_mutable,
+                handshake,
+                /*is_country_specific=*/false) {}
 
   // Non-copyable since:
   // - there should be only one `Feature` instance per unique name.
   // - a `Feature` contains internal cached state about the override state.
   Feature(const Feature&) = delete;
   Feature& operator=(const Feature&) = delete;
+
+  // Returns true if this feature is a runtime mutable feature.
+  bool IsRuntimeMutable() const;
+
+  // Returns true if this feature has runtime mutability disabled.
+  bool HasRuntimeMutabilityDisabled() const;
+
+  // Returns true if this feature was accessed before the FeatureList was
+  // initialized.
+  bool WasAccessedEarly() const;
 
   // The name of the feature. This should be unique to each feature and is used
   // for enabling/disabling features via command line flags and experiments.
@@ -210,18 +261,46 @@ struct BASE_EXPORT LOGICALLY_CONST Feature {
   // command line switch.
   const FeatureState default_state;
 
+ protected:
+  // Base constructor that performs initialization and checks, with an option to
+  // bypass the country-specific state check for subclasses.
+  constexpr Feature(const char* name,
+                    FeatureState default_state,
+                    bool is_runtime_mutable,
+                    internal::FeatureMacroHandshake handshake,
+                    bool is_country_specific)
+      : name(name),
+        default_state(default_state),
+        cached_value(is_runtime_mutable ? kRuntimeMutabilityMask : 0) {
+    if (is_country_specific != IsCountrySpecificFeatureState(default_state)) {
+      LOG(FATAL) << "Pass a country-specific default state if and only if you "
+                    "are using FeatureWithCountryRestriction.";
+    }
+#if BUILDFLAG(ENABLE_BANNED_BASE_FEATURE_PREFIX)
+    if (std::string_view(name).starts_with(
+            BUILDFLAG(BANNED_BASE_FEATURE_PREFIX))) {
+      LOG(FATAL) << "Invalid feature name " << name << " starts with "
+                 << BUILDFLAG(BANNED_BASE_FEATURE_PREFIX);
+    }
+#endif  // BUILDFLAG(ENABLE_BANNED_BASE_FEATURE_PREFIX)
+  }
+
  private:
   friend class FeatureList;
+  friend class FeatureListTest;
+
+  // Keep this in sync with base/feature_list_internal.h:kRuntimeMutabilityMask
+  enum { kRuntimeMutabilityMask = 1 << 18 };
 
   // A packed value where the first 8 bits represent the `OverrideState` of this
-  // feature, the next 8 bits are reserved for flags (e.g. logging), and the
-  // last 16 bits are a caching context ID used to allow ScopedFeatureLists to
-  // invalidate these cached values in testing. A value of 0 in the caching
-  // context ID field indicates that this value has never been looked up and
-  // cached, a value of 1 indicates this value contains the cached
-  // `OverrideState` that was looked up via `base::FeatureList`, and any other
-  // value indicate that this cached value is only valid for a particular
-  // ScopedFeatureList instance.
+  // feature, the next 8 bits are reserved for flags (e.g. logging, runtime
+  // mutability, etc.), and the last 16 bits are a caching context ID used to
+  // allow ScopedFeatureLists to invalidate these cached values in testing. A
+  // value of 0 in the caching context ID field indicates that this value has
+  // never been looked up and cached, a value of 1 indicates this value contains
+  // the cached `OverrideState` that was looked up via `base::FeatureList`,
+  // and any other value indicate that this cached value is only valid for a
+  // particular ScopedFeatureList instance.
   //
   // Packing these values into a uint32_t makes it so that atomic operations
   // performed on this fields can be lock free.
@@ -232,7 +311,62 @@ struct BASE_EXPORT LOGICALLY_CONST Feature {
   // feature list and the cache is updated.
   // The logging bits (16 and 17) are used to ensure that we only log the
   // feature access once per session, even if the cached value is invalidated.
-  mutable std::atomic<FeatureStateCache> cached_value = 0;
+  mutable std::atomic<FeatureStateCache> cached_value;
+};
+
+// `FeatureWithCountryRestriction` allows enabling or disabling a feature for a
+// given set of countries. This country set is referenced in the `countries`
+// member of the struct.
+//
+// Querying the feature state (via `FeatureList::IsEnabled`) or using it with
+// `FeatureParam` works exactly the same as for `Feature` (due to implicit
+// upcasting). Having a separate class is only a memory/binary-size
+// optimization. Differences are:
+// - Use BASE_DECLARE_FEATURE_WITH_COUNTRY_RESTRICTIONS and
+//   BASE_FEATURE_WITH_COUNTRY_RESTRICTIONS to declare and define
+//   `FeatureWithCountryRestriction`.
+// - Use only `FEATURE_DISABLED_FOR_COUNTRIES` and
+//   `FEATURE_ENABLED_FOR_COUNTRIES` as default states. Everything else should
+//   use the BASE_FEATURE macros.
+// - Pass a non-empty list of two-letter, lower-case country codes as string
+//   literals to define the country set.
+// - Currently, passing an explicit name string (similar to the 3-argument
+//   version of BASE_FEATURE) and runtime mutability are not supported.
+//
+// Example usage:
+// - Declaration in a header:
+//
+//   BASE_DECLARE_FEATURE_WITH_COUNTRY_RESTRICTIONS(kMyFeature);
+//
+// - Definition:
+//
+//   BASE_FEATURE_WITH_COUNTRY_RESTRICTIONS(kMyFeature,
+//       base::FEATURE_ENABLED_FOR_COUNTRIES, "us", "de", "fr");
+//
+//   The resulting feature is default-enabled if and only if the permanent
+//   variations country is either US, Germany, or France.
+struct BASE_EXPORT LOGICALLY_CONST FeatureWithCountryRestriction
+    : public Feature {
+  constexpr FeatureWithCountryRestriction(
+      const char* feature_name,
+      FeatureState feature_default_state,
+      base::span<const std::string_view> countries_list,
+      internal::FeatureMacroHandshake handshake)
+      : Feature(feature_name,
+                feature_default_state,
+                /*is_runtime_mutable=*/false,
+                handshake,
+                /*is_country_specific=*/true),
+        countries(countries_list) {}
+
+  FeatureWithCountryRestriction(const FeatureWithCountryRestriction&) = delete;
+  FeatureWithCountryRestriction& operator=(
+      const FeatureWithCountryRestriction&) = delete;
+
+  // RAW_PTR_EXCLUSION: base::FeatureWithCountryRestriction is constructed via
+  // macros that guarantee static storage duration for the span. The exclusion
+  // is also necessary to avoid errors due to non-trivial exit-time destructors.
+  RAW_PTR_EXCLUSION const base::span<const std::string_view> countries;
 };
 
 }  // namespace base

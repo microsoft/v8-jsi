@@ -4,15 +4,14 @@
 """Utility methods for Skia Gold functionality unittests."""
 
 import argparse
-import collections
 import typing
 from typing import Optional
 
-import dataclasses  # Built-in, but pylint gives an ordering false positive.
+import dataclasses
 
 
 @dataclasses.dataclass
-class _SkiaGoldArgs():
+class _SkiaGoldArgs:
   local_pixel_tests: Optional[bool] = None
   no_luci_auth: Optional[bool] = None
   service_account: Optional[str] = None

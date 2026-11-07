@@ -1,15 +1,18 @@
 Name: Mold Linker
 Short Name: mold
-Version: 2.40.4
+Version: N/A
+Revision: a1b3d1a6ad03c6de4a287f8393e0a52579a5a3cf
 Update Mechanism: Manual
 License: MIT
 License File: LICENSE
 Security Critical: No
 Shipped: no
-URL: https://github.com/rui314/mold
+URL: https://github.com/agrieve/mold
 
 Description:
 A Linux linker optimized for speed.
+
+Forked from the upstream repo in order to support PROVIDE_HIDDEN().
 
 Local Modifications:
 None

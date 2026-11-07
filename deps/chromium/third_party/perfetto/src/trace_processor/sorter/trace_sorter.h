@@ -31,6 +31,7 @@
 #include "perfetto/base/logging.h"
 #include "perfetto/ext/base/circular_queue.h"
 #include "perfetto/public/compiler.h"
+#include "src/trace_processor/importers/common/global_stats_tracker.h"
 #include "src/trace_processor/importers/common/parser_types.h"
 #include "src/trace_processor/sorter/trace_token_buffer.h"
 #include "src/trace_processor/storage/stats.h"
@@ -290,6 +291,7 @@ class TraceSorter {
   SortingMode sorting_mode_ = SortingMode::kDefault;
 
   TraceStorage* storage_;
+  GlobalStatsTracker* global_stats_tracker_;
 
   // Buffer for storing tokenized objects while the corresponding events are
   // being sorted.
@@ -362,12 +364,15 @@ class TraceSorter::Stream {
  public:
   // Public API for tokenizers.
   void Push(int64_t ts, T data) {
-    if (PERFETTO_UNLIKELY(sorter_->event_handling_ == EventHandling::kDrop)) {
+    // Record the negative timestamp drop even when events are dropped
+    // (tokenize-only mode): the UI's merge dialog dry-runs a tokenize-only
+    // pass and relies on this stat to warn about misconfigured offsets.
+    if (PERFETTO_UNLIKELY(ts < 0)) {
+      sorter_->global_stats_tracker_->IncrementGlobalStats(
+          stats::trace_sorter_negative_timestamp_dropped);
       return;
     }
-    if (PERFETTO_UNLIKELY(ts < 0)) {
-      sorter_->storage_->IncrementStats(
-          stats::trace_sorter_negative_timestamp_dropped);
+    if (PERFETTO_UNLIKELY(sorter_->event_handling_ == EventHandling::kDrop)) {
       return;
     }
     if constexpr (std::is_same_v<T, JsonEvent>) {

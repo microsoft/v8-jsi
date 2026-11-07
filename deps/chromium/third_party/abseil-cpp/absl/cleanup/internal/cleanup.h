@@ -19,6 +19,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "absl/base/config.h"
+#include "absl/base/internal/hardening.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/utility/utility.h"
@@ -32,13 +34,12 @@ struct Tag {};
 
 template <typename Arg, typename... Args>
 constexpr bool WasDeduced() {
-  return (std::is_same<cleanup_internal::Tag, Arg>::value) &&
-         (sizeof...(Args) == 0);
+  return (std::is_same_v<cleanup_internal::Tag, Arg>) && (sizeof...(Args) == 0);
 }
 
 template <typename Callback>
 constexpr bool ReturnsVoid() {
-  return (std::is_same<std::invoke_result_t<Callback>, void>::value);
+  return (std::is_same_v<std::invoke_result_t<Callback>, void>);
 }
 
 template <typename Callback>
@@ -55,7 +56,7 @@ class Storage {
   }
 
   Storage(Storage&& other) {
-    ABSL_HARDENING_ASSERT(other.IsCallbackEngaged());
+    absl::base_internal::HardeningAssert(other.IsCallbackEngaged());
 
     ::new (GetCallbackBuffer()) Callback(std::move(other.GetCallback()));
     is_callback_engaged_ = true;

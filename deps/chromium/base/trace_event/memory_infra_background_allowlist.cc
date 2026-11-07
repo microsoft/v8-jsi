@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "base/containers/fixed_flat_set.h"
+#include "base/containers/span.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "partition_alloc/buildflags.h"
@@ -76,6 +77,7 @@ constexpr auto kDumpProviderAllowlist =
         "LevelDB",
         "LeveldbValueStore",
         "LocalStorage",
+        "LocalStorageSqlite",
         "MadvFreeDiscardableMemoryAllocator",
         "Malloc",
         "ManualFillingCache",
@@ -86,15 +88,17 @@ constexpr auto kDumpProviderAllowlist =
         "PartitionAlloc",
         "PartitionAlloc.AddressSpace",
         "ProcessMemoryMetrics",
+        "SessionStorageSqlite",
         "SharedContextState",
         "SharedImageManager",
         "SharedMemoryTracker",
         "Skia",
         "Sql",
         "TabRestoreServiceHelper",
-        "TextureOwner"
-        "URLRequestContext",
+        "TextureOwner",
         "V8Isolate",
+        "viz::SkiaRenderer",
+        "WebGL",
         "WebMediaPlayer_MainThread",
         "WebMediaPlayer_MediaThread",
         // clang-format on
@@ -163,6 +167,9 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "font_caches/font_platform_data_cache",
         "font_caches/shape_caches",
         "frame_evictor",
+#if BUILDFLAG(IS_MAC)
+        "gpu/angle/metal",
+#endif
         "gpu/command_buffer_memory/buffer_0x?",
         "gpu/dawn",
         "gpu/dawn/textures",
@@ -182,6 +189,7 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "gpu/transfer_buffer_memory/buffer_0x?",
         "gpu/transfer_cache/cache_0x?",
         "gpu/transfer_cache/cache_0x?/avg_image_size",
+        "gpu/viz_buffer_queue/queue_0x?",
         "gpu/vulkan/vma_allocator_0x?",
         "gpu/vulkan/graphite_allocator",
         "history/delta_file_service/leveldb_0x?",
@@ -203,6 +211,7 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "malloc",
         "malloc/allocated_objects",
 #if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC)
+        "malloc/allocated_objects/partitions",
         "malloc/extreme_lud",
         "malloc/extreme_lud/small_objects",
         "malloc/extreme_lud/large_objects",
@@ -215,6 +224,7 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "malloc/partitions/allocator/thread_cache",
         "malloc/partitions/allocator/thread_cache/main_thread",
         "malloc/partitions/aligned",
+        "malloc/partitions/leaked",
         "malloc/partitions/original",
         "malloc/sys_malloc",
         "malloc/win_heap",
@@ -250,6 +260,8 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "web_cache/Code_cache",
         "web_cache/Encoded_size_duplicated_in_data_urls",
         "web_cache/Other_resources",
+        "webgl/context_0x?",
+        "webgl/offscreen_context_0x?",
         "partition_alloc/allocated_objects",
         "partition_alloc/address_space",
         "partition_alloc/partitions",
@@ -334,18 +346,25 @@ constexpr auto kAllocatorDumpNameAllowlist =
         "v8/workers/heap/trusted_large_object_space/isolate_0x?",
         "v8/workers/malloc/isolate_0x?",
         "v8/workers/zapped_for_debug/isolate_0x?",
-        "site_storage/index_db/db_0x?",
-        "site_storage/index_db/memenv_0x?",
-        "site_storage/index_db/in_flight_0x?",
+        "site_storage/indexed_db/database_engine_0x?",
+        "site_storage/indexed_db/memenv_0x?",
+        "site_storage/indexed_db/in_flight_0x?",
+        "site_storage/indexed_db/database_engine_0x?/sqlite_db_0x?",
         "site_storage/local_storage/0x?/cache_size",
         "site_storage/localstorage/0x?/cache_size",
         "site_storage/localstorage/0x?/leveldb",
+        "site_storage/localstorage/0x?/sqlite",
         "site_storage/session_storage/0x?",
         "site_storage/session_storage/0x?/cache_size",
+        "site_storage/sessionstorage/0x?/leveldb",
+        "site_storage/sessionstorage/0x?/sqlite",
+        "site_storage/localstorage/sqlite/db_0x?",
+        "site_storage/sessionstorage/sqlite/db_0x?",
         "tab_restore/service_helper_0x?/entries",
         "tab_restore/service_helper_0x?/entries/group_0x?",
         "tab_restore/service_helper_0x?/entries/tab_0x?",
         "tab_restore/service_helper_0x?/entries/window_0x?",
+        "tab_restore/service_helper_0x?/entries/split_0x?",
         "tracing/heap_profiler_blink_gc/AllocationRegister",
         "tracing/heap_profiler_malloc/AllocationRegister",
         "tracing/heap_profiler_partition_alloc/AllocationRegister",

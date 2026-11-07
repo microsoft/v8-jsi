@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <ostream>
 #include <string_view>
 
@@ -15,6 +16,7 @@
 #include "base/debug/debugging_buildflags.h"
 #include "base/files/file_path.h"
 #include "base/logging.h"
+#include "base/not_fatal_until.h"
 #include "base/notreached.h"
 #include "base/numerics/checked_math.h"
 #include "base/strings/strcat.h"
@@ -91,11 +93,13 @@ size_t GetSwitchPrefixLength(CommandLine::StringViewType string) {
 
 // Fills in |switch_string| and |switch_value| if |string| is a switch.
 // This will preserve the input switch prefix in the output |switch_string|.
+// |switch_value| will contain a value if a value separator ('=') was present,
+// or std::nullopt if no value was specified.
 bool IsSwitch(const CommandLine::StringType& string,
               CommandLine::StringType* switch_string,
-              CommandLine::StringType* switch_value) {
+              std::optional<CommandLine::StringType>* switch_value) {
   switch_string->clear();
-  switch_value->clear();
+  switch_value->reset();
   size_t prefix_length = GetSwitchPrefixLength(string);
   if (prefix_length == 0 || prefix_length == string.length()) {
     return false;
@@ -173,6 +177,7 @@ std::wstring QuoteForCommandLineToArgvWInternal(
 
   return out;
 }
+
 #endif  // BUILDFLAG(IS_WIN)
 
 }  // namespace
@@ -648,7 +653,7 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
 #endif
 
     CommandLine::StringType switch_string;
-    CommandLine::StringType switch_value;
+    std::optional<CommandLine::StringType> switch_value;
     parse_switches &= (arg != kSwitchTerminator);
     if (parse_switches && IsSwitch(arg, &switch_string, &switch_value)) {
 #if BUILDFLAG(IS_WIN)
@@ -657,9 +662,11 @@ void CommandLine::AppendSwitchesAndArguments(span<const StringType> argv) {
         ParseAsSingleArgument(switch_string);
         return;
       }
-      AppendSwitchNative(WideToUTF8(switch_string), switch_value);
+      AppendSwitchNative(WideToUTF8(switch_string),
+                         switch_value.value_or(CommandLine::StringType()));
 #elif BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
-      AppendSwitchNative(switch_string, switch_value);
+      AppendSwitchNative(switch_string,
+                         switch_value.value_or(CommandLine::StringType()));
 #else
 #error Unsupported platform
 #endif
@@ -681,19 +688,19 @@ CommandLine::StringType CommandLine::GetArgumentsStringInternal(
   for (size_t i = 1; i < argv_.size(); ++i) {
     StringType arg = argv_[i];
     StringType switch_string;
-    StringType switch_value;
+    std::optional<StringType> switch_value;
     parse_switches &= arg != kSwitchTerminator;
     if (i > 1) {
       params.append(FILE_PATH_LITERAL(" "));
     }
     if (parse_switches && IsSwitch(arg, &switch_string, &switch_value)) {
       params.append(switch_string);
-      if (!switch_value.empty()) {
+      if (switch_value.has_value()) {
 #if BUILDFLAG(IS_WIN)
-        switch_value = QuoteForCommandLineToArgvWInternal(
-            switch_value, allow_unsafe_insert_sequences);
+        *switch_value = QuoteForCommandLineToArgvWInternal(
+            *switch_value, allow_unsafe_insert_sequences);
 #endif
-        params.append(kSwitchValueSeparator + switch_value);
+        params.append(kSwitchValueSeparator + *switch_value);
       }
     } else {
 #if BUILDFLAG(IS_WIN)
@@ -780,12 +787,53 @@ void CommandLine::ParseAsSingleArgument(
   // Remove any previously parsed arguments.
   argv_.resize(static_cast<size_t>(begin_args_));
 
-  // Locate "--single-argument" in the process's raw command line. Results are
-  // unpredictable if "--single-argument" appears as part of a previous
+  // Find the end of the program path in the raw command line to avoid
+  // matching switches inside the program path itself (which can happen
+  // with PWA launchers on Windows where the PWA name contains switches).
+  //
+  // We can estimate this by finding the first non-space character (start of
+  // program) and adding the length of the program name parsed by
+  // CommandLineToArgvW (stored in argv_[0]).
+  //
+  // Invariants we expect:
+  // 1. `CommandLineToArgvW` treats backslashes as literal characters (not
+  //    escapes) when parsing the application name (first argument).
+  // 2. Windows filenames cannot contain double quotes (").
+  // 3. Thus, the program path in the raw command line can never contain
+  //    escaped quotes. It is either unquoted (ends at first space) or quoted
+  //    (starts and ends with double quotes, with no quotes in between).
+  //
+  // This means the length of `GetProgram()` is exactly the length of the
+  // program path in the raw command line (minus the outer quotes if it
+  // was quoted).
+  size_t program_start = raw_command_line_string_.find_first_not_of(L' ');
+  if (program_start == StringType::npos) {
+    return;
+  }
+
+  size_t switches_and_args_start = program_start + argv_[0].length();
+  const bool is_quoted = raw_command_line_string_[program_start] == L'"';
+  if (is_quoted) {
+    switches_and_args_start += 2;  // Account for the start and end quotes.
+  }
+
+  if (switches_and_args_start >= raw_command_line_string_.length()) {
+    return;
+  }
+
+  if (is_quoted) {
+    CHECK_EQ(raw_command_line_string_[switches_and_args_start - 1], L'"',
+             base::NotFatalUntil::M154);
+  }
+
+  // Locate "--single-argument" in the process's switches and arguments. Results
+  // are unpredictable if "--single-argument" appears as part of a previous
   // argument or switch.
   const size_t single_arg_switch_position =
-      raw_command_line_string_.find(single_arg_switch);
-  DCHECK_NE(single_arg_switch_position, StringType::npos);
+      raw_command_line_string_.find(single_arg_switch, switches_and_args_start);
+  if (single_arg_switch_position == StringType::npos) {
+    return;
+  }
 
   // Append the portion of the raw command line that starts one character past
   // "--single-argument" as the one and only argument, or return if no

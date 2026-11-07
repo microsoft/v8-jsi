@@ -50,6 +50,9 @@ if (enable_perfetto_trace_processor && enable_perfetto_trace_processor_sqlite) {
     all_targets += [ "src/bigtrace/worker:worker_main" ]
   }
   all_targets += [ "src/trace_processor:trace_processor_shell" ]
+  if (perfetto_build_standalone) {
+    all_targets += [ "src/tools/pfsql" ]
+  }
 }
 
 if (enable_perfetto_trace_processor) {
@@ -74,6 +77,10 @@ if (enable_perfetto_traceconv) {
       "src/proto_utils($host_toolchain)",
     ]
   }
+}
+
+if (enable_perfetto_protovm_compiler) {
+  all_targets += [ "src/protovm/compiler:protovm_compiler" ]
 }
 
 if (enable_perfetto_heapprofd) {
@@ -109,6 +116,7 @@ if (enable_perfetto_tools) {
 
 if (enable_perfetto_unittests) {
   import("gn/perfetto_unittests.gni")
+
   perfetto_generate_unittests("perfetto_unittests") {
   }
   all_targets += [ ":perfetto_unittests" ]
@@ -116,12 +124,14 @@ if (enable_perfetto_unittests) {
 
 if (enable_perfetto_integration_tests) {
   import("gn/perfetto_integrationtests.gni")
+
   test("perfetto_integrationtests") {
     deps = [
       "gn:default_deps",
       "test:integrationtest_main",
     ]
     deps += perfetto_integrationtests_targets
+    data_deps = perfetto_integrationtests_data_targets
   }
   all_targets += [
     ":perfetto_integrationtests",
@@ -162,6 +172,7 @@ if (enable_perfetto_trace_processor_json) {
 
 if (enable_perfetto_benchmarks) {
   import("gn/perfetto_benchmarks.gni")
+
   executable("perfetto_benchmarks") {
     testonly = true
     deps = perfetto_benchmarks_targets
@@ -171,6 +182,7 @@ if (enable_perfetto_benchmarks) {
 
 if (enable_perfetto_fuzzers) {
   import("gn/perfetto_fuzzers.gni")
+
   group("fuzzers") {
     testonly = true
     deps = perfetto_fuzzers_targets
@@ -201,8 +213,12 @@ if (perfetto_build_standalone) {
   if (is_linux || is_android || is_mac || is_freebsd) {
     all_targets += [ "src/tracebox" ]
   }
+}
 
-  # This is needed by `tools/gen_c_protos`.
+# Needed by `tools/gen_c_protos` (standalone) and `tools/gen_android_bp`
+# (generator), which lists the host target in default_targets so Soong gets a
+# cc_binary_host for Android-tree .pzc.h codegen.
+if (perfetto_build_standalone || is_perfetto_build_generator) {
   all_targets += [ "src/protozero/protoc_plugin:protozero_c_plugin" ]
 }
 
@@ -261,6 +277,12 @@ if (!build_with_chromium) {
       "gn:default_deps",
       "src/tracing:client_api",
     ]
+
+    # Additional /ext/ target exposed exclusively to the perfetto_hprof ART
+    # plugin in the android platform.
+    if (perfetto_build_with_android) {
+      public_deps += [ "src/profiling/smaps" ]
+    }
     sources = [ "include/perfetto/tracing.h" ]
     assert_no_deps = [ "gn:protobuf_lite" ]
 
@@ -307,7 +329,7 @@ if (build_with_chromium) {
         "src/tracing/ipc/producer",
         "src/tracing/ipc/service",
       ]
-      public_deps += [ "include/perfetto/ext/tracing/ipc:ipc" ]
+      public_deps += [ "include/perfetto/ext/tracing/ipc" ]
     }
     if (perfetto_libperfetto_includes_json) {
       deps += [
@@ -340,6 +362,7 @@ if (build_with_chromium) {
     configs += [ "//build/config/compiler:no_chromium_code" ]  # nogncheck
     public_deps = [ "include/perfetto/trace_processor" ]
   }
+
   component("perfetto_test_support") {
     testonly = true
     public_configs = [ "gn:public_config" ]
@@ -374,11 +397,5 @@ group("default") {
 if (enable_perfetto_ui) {
   group("ui") {
     deps = [ "ui" ]
-  }
-}
-
-if (enable_perfetto_site) {
-  group("site") {
-    deps = [ "infra/perfetto.dev:site" ]
   }
 }

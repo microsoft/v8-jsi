@@ -23,6 +23,51 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<!-- LINT.IfChange(IndigoApiStatus) -->
+
+<enum name="IndigoApiStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="HTTP Error"/>
+  <int value="2" label="Parse Error"/>
+  <int value="3" label="Too Large"/>
+  <int value="4" label="No Signed In User"/>
+  <int value="5" label="Invalid URL"/>
+  <int value="6" label="API Error"/>
+  <int value="7" label="Network Error"/>
+  <int value="8" label="Invalid Response"/>
+  <int value="9" label="Cancelled"/>
+  <int value="10" label="Other Error"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoApiStatus) -->
+
+<!-- LINT.IfChange(IndigoMaybeInvokeGlicResult) -->
+
+<enum name="IndigoMaybeInvokeGlicResult">
+  <int value="0" label="Invoked"/>
+  <int value="1" label="Feature disabled"/>
+  <int value="2" label="Side panel already showing"/>
+  <int value="3" label="No GlicKeyedService"/>
+  <int value="4" label="Existing conversation in progress"/>
+  <int value="5" label="Prompt empty"/>
+  <int value="6" label="Invocation rejected"/>
+  <int value="7" label="No WebContents"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoMaybeInvokeGlicResult) -->
+
+<!-- LINT.IfChange(IndigoPageActionEntryPoint) -->
+
+<enum name="IndigoPageActionEntryPoint">
+  <int value="0" label="Suggestion Chip"/>
+  <int value="1" label="Proactive Anchored Message"/>
+  <int value="2" label="Reactive Anchored Message"/>
+  <int value="3" label="Error Toast"/>
+  <int value="4" label="Context Menu"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoPageActionEntryPoint) -->
+
 <!-- LINT.IfChange(IndigoTransformationResult) -->
 
 <enum name="IndigoTransformationResult">
@@ -37,9 +82,41 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="Missing user image"/>
   <int value="9" label="Not onboarded"/>
   <int value="10" label="Generate image error"/>
+  <int value="11" label="Refresh token in persistent error state"/>
+  <int value="12" label="Managed domain"/>
+  <int value="13" label="Glic disabled for profile"/>
+  <int value="14" label="Enterprise disallowed"/>
+  <int value="15" label="Primary image disconnected"/>
+  <int value="16" label="Empty primary image size"/>
+  <int value="17" label="Primary image too small"/>
+  <int value="18" label="No primary image found"/>
+  <int value="19" label="Primary image replacement creation failed"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_page_action_controller.h:IndigoTransformationResult) -->
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoTransformationResult) -->
+
+<!-- LINT.IfChange(IndigoTransformationTriggerSource) -->
+
+<enum name="IndigoTransformationTriggerSource">
+  <int value="0" label="Page Action"/>
+  <int value="1" label="Error Toast Retry"/>
+  <int value="2" label="Regenerate"/>
+  <int value="3" label="Replace Photo"/>
+  <int value="4" label="Context Menu"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoTransformationTriggerSource) -->
+
+<!-- LINT.IfChange(IndigoTriggerSource) -->
+
+<enum name="IndigoTriggerSource">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Forced"/>
+  <int value="2" label="Optimization Guide"/>
+  <int value="3" label="Local Product Keyword Heuristic"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/indigo/indigo_metrics.h:IndigoTriggerSource) -->
 
 </enums>
 

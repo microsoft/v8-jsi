@@ -26,6 +26,7 @@
 #include "base/trace_event/trace_event_impl.h"
 #include "base/trace_event/traced_value_support.h"
 #include "base/tracing_buildflags.h"
+#include "third_party/perfetto/include/perfetto/tracing/track.h"
 #include "third_party/perfetto/include/perfetto/tracing/track_event_args.h"
 
 // Legacy TRACE_EVENT_API entrypoints. Do not use from new code.
@@ -60,7 +61,7 @@
 //                    const char* name,
 //                    uint64_t id,
 //                    base::PlatformThreadId thread_id,
-//                    const TimeTicks& timestamp,
+//                    TimeTicks timestamp,
 //                    base::trace_event::TraceArguments* args,
 //                    unsigned int flags)
 #define TRACE_EVENT_API_ADD_TRACE_EVENT_WITH_THREAD_ID_AND_TIMESTAMP \
@@ -129,7 +130,7 @@ void BASE_EXPORT AddTraceEventWithThreadIdAndTimestamp(
     const char* name,
     uint64_t id,
     base::PlatformThreadId thread_id,
-    const base::TimeTicks& timestamp,
+    base::TimeTicks timestamp,
     base::trace_event::TraceArguments* args,
     unsigned int flags);
 
@@ -139,7 +140,7 @@ void BASE_EXPORT AddTraceEventWithThreadIdAndTimestamps(
     const char* name,
     uint64_t id,
     base::PlatformThreadId thread_id,
-    const base::TimeTicks& timestamp,
+    base::TimeTicks timestamp,
     unsigned int flags);
 
 void BASE_EXPORT
@@ -159,14 +160,12 @@ template <class TrackType>
 class TrackRegistration {
  public:
   explicit TrackRegistration(const TrackType& track) : track_(track) {
-    if (perfetto::Tracing::IsInitialized()) {
-      // SetTrackDescriptor may crash in unit tests where tracing isn't
-      // initialized.
+    if (perfetto::internal::TrackRegistry::Get()) {
       base::TrackEvent::SetTrackDescriptor(track, track.Serialize());
     }
   }
   ~TrackRegistration() {
-    if (perfetto::Tracing::IsInitialized()) {
+    if (perfetto::internal::TrackRegistry::Get()) {
       base::TrackEvent::EraseTrackDescriptor(track_);
     }
   }

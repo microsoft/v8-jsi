@@ -16,6 +16,10 @@
 
 #include <assert.h>
 
+#include <algorithm>
+#include <optional>
+
+#include <openssl/bytestring.h>
 #include <openssl/hkdf.h>
 #include <openssl/span.h>
 
@@ -35,6 +39,56 @@ static UniquePtr<STACK_OF(CRYPTO_BUFFER)> new_leafless_chain() {
   }
 
   return chain;
+}
+
+static bool get_oid_component(Span<const uint8_t> *in,
+                              Span<const uint8_t> *out) {
+  if (in->empty() || in->front() == 0x80) {
+    // Missing component, or not minimally-encoded.
+    return false;
+  }
+  for (size_t i = 0; i < in->size(); i++) {
+    // OID components end at a byte with the MSB unset.
+    if (((*in)[i] & 0x80) == 0) {
+      *out = in->subspan(0, i + 1);
+      *in = in->subspan(i + 1);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool oid_component_less_than(Span<const uint8_t> a,
+                                    Span<const uint8_t> b) {
+  // OID component encodings are order-preserving on (length, value).
+  if (a.size() != b.size()) {
+    return a.size() < b.size();
+  }
+  return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+}
+
+bool ssl_trust_anchor_pattern_matches_id(Span<const uint8_t> pattern,
+                                         Span<const uint8_t> id) {
+  while (!id.empty()) {
+    // Read a component from `id` and a min/max pair from `pattern`.
+    Span<const uint8_t> v, min, max;
+    if (!get_oid_component(&id, &v) ||         //
+        !get_oid_component(&pattern, &min) ||  //
+        oid_component_less_than(v, min) ||     //
+        pattern.empty()) {
+      return false;
+    }
+    // `max` may be infinity, signaled by the marker 0x80.
+    if (pattern.front() == 0x80) {
+      pattern = pattern.subspan(1);
+    } else {
+      if (!get_oid_component(&pattern, &max) ||  //
+          oid_component_less_than(max, v)) {
+        return false;
+      }
+    }
+  }
+  return pattern.empty();
 }
 
 bool ssl_get_full_credential_list(SSL_HANDSHAKE *hs,
@@ -82,9 +136,10 @@ bool ssl_credential_matches_requested_issuers(SSL_HANDSHAKE *hs,
       }
     }
   }
+
   // If the credential has a trust anchor ID and it matches one sent by the
   // peer, it is good.
-  if (!cred->trust_anchor_id.empty() && hs->peer_requested_trust_anchors) {
+  if (hs->peer_requested_trust_anchors) {
     CBS cbs = CBS(*hs->peer_requested_trust_anchors), candidate;
     while (CBS_len(&cbs) > 0) {
       if (!CBS_get_u8_length_prefixed(&cbs, &candidate) ||
@@ -92,7 +147,13 @@ bool ssl_credential_matches_requested_issuers(SSL_HANDSHAKE *hs,
         OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
         return false;
       }
-      if (candidate == Span(cred->trust_anchor_id)) {
+      if (candidate == Span(cred->trust_anchor_id) ||
+          std::any_of(cred->trust_anchor_group_patterns.begin(),
+                      cred->trust_anchor_group_patterns.end(),
+                      [&](const auto &pattern) {
+                        return ssl_trust_anchor_pattern_matches_id(pattern,
+                                                                   candidate);
+                      })) {
         hs->matched_peer_trust_anchor = true;
         return true;
       }
@@ -127,13 +188,14 @@ SSLCredential::~SSLCredential() {
   CRYPTO_free_ex_data(&g_ex_data_class, &ex_data);
 }
 
-static CRYPTO_BUFFER *buffer_up_ref(const CRYPTO_BUFFER *buffer) {
-  CRYPTO_BUFFER_up_ref(const_cast<CRYPTO_BUFFER *>(buffer));
-  return const_cast<CRYPTO_BUFFER *>(buffer);
-}
-
 UniquePtr<SSLCredential> SSLCredential::Dup() const {
+  // This method is only used on the legacy credential, so it only needs to
+  // support fields that are reachable from the legacy credential's APIs.
   assert(type == SSLCredentialType::kX509);
+  assert(dc == nullptr);
+  assert(dc_algorithm == 0);
+  assert(sid_ctx.empty());
+
   UniquePtr<SSLCredential> ret = MakeUnique<SSLCredential>(type);
   if (ret == nullptr) {
     return nullptr;
@@ -147,17 +209,15 @@ UniquePtr<SSLCredential> SSLCredential::Dup() const {
   }
 
   if (chain) {
-    ret->chain.reset(sk_CRYPTO_BUFFER_deep_copy(chain.get(), buffer_up_ref,
-                                                CRYPTO_BUFFER_free));
+    ret->chain.reset(sk_CRYPTO_BUFFER_deep_copy(
+        chain.get(), CRYPTO_BUFFER_dup_ref, CRYPTO_BUFFER_free));
     if (!ret->chain) {
       return nullptr;
     }
   }
 
-  ret->dc = UpRef(dc);
   ret->signed_cert_timestamp_list = UpRef(signed_cert_timestamp_list);
   ret->ocsp_response = UpRef(ocsp_response);
-  ret->dc_algorithm = dc_algorithm;
   return ret;
 }
 
@@ -197,8 +257,8 @@ bool SSLCredential::UsesPrivateKey() const {
 }
 
 bool SSLCredential::IsComplete() const {
-  // APIs like |SSL_use_certificate| and |SSL_set1_chain| configure the leaf and
-  // other certificates separately. It is possible for |chain| have a null leaf.
+  // APIs like `SSL_use_certificate` and `SSL_set1_chain` configure the leaf and
+  // other certificates separately. It is possible for `chain` have a null leaf.
   if (UsesX509() && (sk_CRYPTO_BUFFER_num(chain.get()) == 0 ||
                      sk_CRYPTO_BUFFER_value(chain.get(), 0) == nullptr)) {
     return false;
@@ -372,6 +432,18 @@ SSL_CREDENTIAL *SSL_CREDENTIAL_new_pre_shared_key(
   return cred.release();
 }
 
+const uint8_t *SSL_CREDENTIAL_get0_pre_shared_key_id(const SSL_CREDENTIAL *cred,
+                                                     size_t *id_len) {
+  *id_len = 0;
+  auto *cred_impl = FromOpaque(cred);
+  if (cred_impl == nullptr ||
+      cred_impl->type != SSLCredentialType::kPreSharedKey) {
+    return nullptr;
+  }
+  *id_len = cred_impl->epsk_id.size();
+  return cred_impl->epsk_id.data();
+}
+
 SSL_CREDENTIAL *SSL_CREDENTIAL_new_delegated() {
   return New<SSLCredential>(SSLCredentialType::kDelegated);
 }
@@ -411,6 +483,15 @@ void SSL_CREDENTIAL_up_ref(SSL_CREDENTIAL *cred) {
   FromOpaque(cred)->UpRefInternal();
 }
 
+SSL_CREDENTIAL *SSL_CREDENTIAL_dup_ref(const SSL_CREDENTIAL *cred) {
+  if (cred == nullptr) {
+    return nullptr;
+  }
+  auto *cred_impl = FromOpaque(cred);
+  cred_impl->UpRefInternal();
+  return const_cast<SSL_CREDENTIAL *>(cred);
+}
+
 void SSL_CREDENTIAL_free(SSL_CREDENTIAL *cred) {
   if (cred != nullptr) {
     FromOpaque(cred)->DecRefInternal();
@@ -428,7 +509,7 @@ int SSL_CREDENTIAL_set1_private_key(SSL_CREDENTIAL *cred, EVP_PKEY *key) {
     return 0;
   }
 
-  // If the public half has been configured, check |key| matches. |pubkey| will
+  // If the public half has been configured, check `key` matches. `pubkey` will
   // have been extracted from the certificate, delegated credential, etc.
   if (cred_impl->pubkey != nullptr &&
       !ssl_compare_public_and_private_key(cred_impl->pubkey.get(), key)) {
@@ -654,18 +735,19 @@ SSL_CREDENTIAL *SSL_CREDENTIAL_new_spake2plusv1_server(
   return cred.release();
 }
 
-int SSL_CTX_add1_credential(SSL_CTX *ctx, SSL_CREDENTIAL *cred) {
+int SSL_CTX_add1_credential(SSL_CTX *ctx, const SSL_CREDENTIAL *cred) {
   auto *cred_impl = FromOpaque(cred);
   if (!cred_impl->IsComplete()) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
-  return ctx->cert->credentials.Push(UpRef(cred_impl));
+  return FromOpaque(ctx)->cert->credentials.Push(UpRef(cred_impl));
 }
 
-int SSL_add1_credential(SSL *ssl, SSL_CREDENTIAL *cred) {
+int SSL_add1_credential(SSL *ssl, const SSL_CREDENTIAL *cred) {
+  auto *ssl_impl = FromOpaque(ssl);
   auto *cred_impl = FromOpaque(cred);
-  if (ssl->config == nullptr) {
+  if (ssl_impl->config == nullptr) {
     return 0;
   }
 
@@ -673,14 +755,15 @@ int SSL_add1_credential(SSL *ssl, SSL_CREDENTIAL *cred) {
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
-  return ssl->config->cert->credentials.Push(UpRef(cred_impl));
+  return ssl_impl->config->cert->credentials.Push(UpRef(cred_impl));
 }
 
 const SSL_CREDENTIAL *SSL_get0_selected_credential(const SSL *ssl) {
-  if (ssl->s3->hs == nullptr) {
+  auto *ssl_impl = FromOpaque(ssl);
+  if (ssl_impl->s3->hs == nullptr) {
     return nullptr;
   }
-  return ssl->s3->hs->credential.get();
+  return ssl_impl->s3->hs->credential.get();
 }
 
 int SSL_CREDENTIAL_get_ex_new_index(long argl, void *argp,
@@ -704,6 +787,11 @@ void SSL_CREDENTIAL_set_must_match_issuer(SSL_CREDENTIAL *cred, int match) {
 
 int SSL_CREDENTIAL_set1_trust_anchor_id(SSL_CREDENTIAL *cred, const uint8_t *id,
                                         size_t id_len) {
+  if (!ssl_is_valid_trust_anchor_id(Span(id, id_len))) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_TRUST_ANCHOR_ID);
+    return 0;
+  }
+
   auto *cred_impl = FromOpaque(cred);
   // For now, this is only valid for X.509.
   if (!cred_impl->UsesX509()) {
@@ -719,6 +807,21 @@ int SSL_CREDENTIAL_set1_trust_anchor_id(SSL_CREDENTIAL *cred, const uint8_t *id,
   return 1;
 }
 
+int SSL_CREDENTIAL_add1_trust_anchor_group(SSL_CREDENTIAL *cred,
+                                           const uint8_t *pattern,
+                                           size_t pattern_len) {
+  auto *cred_impl = FromOpaque(cred);
+  // For now, this is only valid for X.509.
+  if (!cred_impl->UsesX509()) {
+    OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+
+  Array<uint8_t> copy;
+  return copy.CopyFrom(Span(pattern, pattern_len)) &&
+         cred_impl->trust_anchor_group_patterns.Push(std::move(copy));
+}
+
 int SSL_CREDENTIAL_set1_certificate_properties(
     SSL_CREDENTIAL *cred, CRYPTO_BUFFER *cert_property_list) {
   auto *cred_impl = FromOpaque(cred);
@@ -727,53 +830,85 @@ int SSL_CREDENTIAL_set1_certificate_properties(
     OPENSSL_PUT_ERROR(SSL, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
     return 0;
   }
-  std::optional<CBS> trust_anchor;
-  CBS cbs, cpl;
-  CRYPTO_BUFFER_init_CBS(cert_property_list, &cbs);
 
-  if (!CBS_get_u16_length_prefixed(&cbs, &cpl)) {
+  CBS cbs, list;
+  CRYPTO_BUFFER_init_CBS(cert_property_list, &cbs);
+  if (!CBS_get_u16_length_prefixed(&cbs, &list) || CBS_len(&cbs) != 0) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
     return 0;
   }
-  while (CBS_len(&cpl) != 0) {
-    uint16_t cp_type;
-    CBS cp_data;
-    if (!CBS_get_u16(&cpl, &cp_type) ||
-        !CBS_get_u16_length_prefixed(&cpl, &cp_data)) {
+  std::optional<uint16_t> last_type;
+  while (CBS_len(&list) != 0) {
+    uint16_t type;
+    CBS data;
+    if (!CBS_get_u16(&list, &type) ||
+        !CBS_get_u16_length_prefixed(&list, &data) ||
+        // Properties must be numerically sorted by type and must not contain
+        // duplicates.
+        (last_type.has_value() && type <= last_type.value())) {
       OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
       return 0;
     }
-    switch (cp_type) {
-      case 0:  // trust anchor identifier.
-        if (trust_anchor.has_value()) {
+    last_type = type;
+
+    switch (type) {
+      case 0:  // trust_anchor_id
+        // See draft-ietf-tls-trust-anchor-ids-06, Section 7.1.
+        // `SSL_CREDENTIAL_set1_trust_anchor_id` will check that `data` is
+        // valid.
+        if (!SSL_CREDENTIAL_set1_trust_anchor_id(cred_impl, CBS_data(&data),
+                                                 CBS_len(&data))) {
+          return 0;
+        }
+        break;
+      case 1: {  // trust_anchor_groups
+        // See draft-ietf-tls-trust-anchor-ids-06, Section 7.2.
+        CBS pattern_list;
+        if (!CBS_get_u16_length_prefixed(&data, &pattern_list) ||
+            CBS_len(&data) != 0 || CBS_len(&pattern_list) == 0) {
           OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
           return 0;
         }
-        trust_anchor = cp_data;
+        while (CBS_len(&pattern_list) != 0) {
+          CBS pattern;
+          if (!CBS_get_u8_length_prefixed(&pattern_list, &pattern)) {
+            OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
+            return 0;
+          }
+          if (!SSL_CREDENTIAL_add1_trust_anchor_group(
+                  cred_impl, CBS_data(&pattern), CBS_len(&pattern))) {
+            return 0;
+          }
+        }
         break;
+      }
+      case 2: {  // trust_anchor_negotiation
+        // See draft-ietf-tls-trust-anchor-ids-06, Section 7.3.
+        if (CBS_len(&data) != 0) {
+          OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
+          return 0;
+        }
+        SSL_CREDENTIAL_set_must_match_issuer(cred_impl, 1);
+        break;
+      }
       default:
         break;
     }
   }
-  if (CBS_len(&cbs) != 0) {
-    OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_CERTIFICATE_PROPERTY_LIST);
+
+  // We do not currently retain `cert_property_list`, but if we define another
+  // property with larger fields (e.g. stapled SCTs), it may make sense for
+  // those fields to retain `cert_property_list` and alias into it.
+  return 1;
+}
+
+int SSL_CREDENTIAL_set1_session_id_context(SSL_CREDENTIAL *cred,
+                                           const uint8_t *sid_ctx,
+                                           size_t sid_ctx_len) {
+  if (!FromOpaque(cred)->sid_ctx.TryCopyFrom(Span(sid_ctx, sid_ctx_len))) {
+    OPENSSL_PUT_ERROR(SSL, SSL_R_SSL_SESSION_ID_CONTEXT_TOO_LONG);
     return 0;
   }
-  // Certificate property list has parsed correctly.
 
-  // We do not currently retain |cert_property_list|, but if we define another
-  // property with larger fields (e.g. stapled SCTs), it may make sense for
-  // those fields to retain |cert_property_list| and alias into it.
-  if (trust_anchor.has_value()) {
-    if (!CBS_len(&trust_anchor.value())) {
-      OPENSSL_PUT_ERROR(SSL, SSL_R_INVALID_TRUST_ANCHOR_LIST);
-      return 0;
-    }
-    if (!SSL_CREDENTIAL_set1_trust_anchor_id(cred_impl,
-                                             CBS_data(&trust_anchor.value()),
-                                             CBS_len(&trust_anchor.value()))) {
-      return 0;
-    }
-  }
   return 1;
 }

@@ -13,6 +13,7 @@ ActorUiHandoffButtonControllerPixelTest.*
 *AutofillAiLocalSaveNotificationViewBrowsertest.*
 AddNewAddressProfileTest.*
 AppInfoDialogBrowserTest.*
+AppMenuAiRingBrowserTest*.InvokeUi_*
 AppMenuBrowserTest*.InvokeUi_*
 AskGoogleForSuggestionsDialogTest.*
 *AutofillAiImportDataBubbleViewBrowsertest.*
@@ -28,16 +29,19 @@ BrowserViewTabbedLayoutImplUiTest.*
 BubbleFrameViewBrowserTest.*
 BubbleSignInPromoInteractiveUITest.*
 CaptionBubbleBrowserTest.*
+CastBrowserControllerTest.*
 ChromeLabs*UiTest.*
 ChromeSignoutConfirmationPromptPixelTest.*
 ChromeSignoutConfirmationPromptWithExtensionsPixelTest.*
 ConfirmBubbleTest.*
+ComposeboxDriveSignInPromoViewPixelTest.*
 ContentAnalysysDialogUiTest.*
 ContentSettingBubbleDialogTest.*
 CookieClearOnExitMigrationNoticePixelTest.*
 CookieControlsBubbleViewPixelTest.*
 *CreatePopupRowViewTest.*
 *CreatePopupRowViewWithNoUserEducationRateLimitTest.*
+CrossDeviceSigninQrBubbleUIPixelTest.*
 CryptoModulePasswordDialogTest.*
 *DataControlsDialogUiTest.*
 DashboardKombuchaInteractiveUITest.*
@@ -51,7 +55,9 @@ DeleteAddressProfileDialogControllerImplTest.InvokeUi_*
 DesktopBnplUiDelegateBrowserTest.*
 DesktopMediaPickerViewsBrowserTest.*
 DesktopPaymentsWindowManagerInteractiveUiTest*
-DocumentPictureInPicturePixelTest.*
+*DeviceSignalsDisclaimerModalPixelTest.*
+*DeviceSignalsDisclaimerProfilePickerPixelTest.*
+*DocumentPictureInPicturePixelTest.*
 EditAddressProfileDialogControllerImplTest.InvokeUi_*
 *EmbeddedPermissionPromptUiTest.InvokeUi_*
 MahiMenuPixelBrowserTest.*
@@ -64,8 +70,12 @@ FeaturePromoDialogTest.InvokeUi_*
 FileSystemAccessUsageBubbleViewTest.*
 FirstRunDefaultBrowserPixelTest.*
 FirstRunDialogTest.*
+FirstRunFeatureShowcasePixelTest.*
+FirstRunFinishOrContinuePixelTest.*
 FirstRunIntroPixelTest.*
+FirstRunSignInCelebrationPixelTest.*
 GlobalErrorBubbleTest.*
+*GmailOtpOptInBubbleViewBrowsertest.*
 HatsBubbleTest.*
 HistorySyncOptinUIDialogPixelTest.*
 HomeButtonUiTest.*
@@ -94,11 +104,13 @@ NtpPromoVisualUiTest.*
 NtpRealboxUiScreenshotTest.*
 OfferNotificationBubbleViewPixelBrowserTest.*
 OmniboxAimWebUiInteractiveTest.QueryWithTabContext*
+OrganizerPanelPixelTest.*
 OutdatedUpgradeBubbleTest.*
 PageActionPixelIconsHiddenTest.*
 PageActionPixelShowIconTest.*
 PageActionPixelShowChipTest.*
 PageActionPixelTestShowChipReduced.*
+PageActionAnchoredMessagePixelTest.*
 PageInfoBubbleViewAboutThisSiteDialogBrowserTest.*
 PageInfoBubbleViewDialogBrowserTest.*
 PageInfoBubbleViewPrivacySandboxDialogBrowserTest.*
@@ -111,6 +123,7 @@ ParentPermissionDialogViewTest.*
 *PasswordCrossDomainConfirmationPopupViewBrowsertest.*
 *PasswordChangeToastBrowserTest.InvokeUi_*
 *PasswordChangeUiBrowserTest.*
+*PasswordDialogViewTest.*
 *PasswordGenerationPopupViewBrowsertest.*
 *PasswordGenerationPopupViewWithSoftNudgeBrowsertest.*
 *PasswordManagementRevampedBubbleInteractiveUiTest.*
@@ -118,6 +131,7 @@ PasswordBubbleInteractiveUiTest.NavigateToManagementDetailsViewAndTakeScreenshot
 PasswordBubbleInteractiveUiTest.NavigateToManagementDetailsViewWithMoveFooterVisibleAndTakeScreenshot
 *PasswordBubbleWithManagePasswordButtonInteractiveUiTest.*
 PasswordReuseModalWarningTest.*
+*PaymentsChurnedUsersBubbleViewsBrowserTest*
 PaymentsWindowUserConsentDialogBrowserTest*
 PerformanceInterventionInteractiveTest.InterventionToolbarButton
 PermissionChipKombuchaInteractiveUITest.PermissionChipClickTest
@@ -126,11 +140,7 @@ PermissionChipKombuchaInteractiveUITest.QuietestPermissionChipClickTest
 PermissionRequestChipBrowserUiTest.*
 *PermissionPromptBubble*View*BrowserTest.InvokeUi_*
 PermissionPromptPreviewBrowserTest.InvokeUi_*
-*PlusAddressCreationDialogUiVariationsTest*
-*PlusAddressCreationDialogUiVariationsOnboardingTest*
-PlusAddressCreationDialogWithNoticeTest.ShowNoticeAndCancel
 *PopupViewViewsBrowsertest*
-*PopupViewViewsPlusAddressSuggestionBrowsertest*
 PriceTrackingBubbleDialogViewBrowserTest.*
 ProfileMenuViewPixelTest.*
 ProfilePickerSigninToolbarUIPixelTest.*
@@ -150,6 +160,7 @@ SearchEngineChoiceUIPixelTest.*
 SecurePaymentConfirmationDialogViewTest.InvokeUi_*
 *SendTabToSelfBubbleTest.*
 SendTabToSelfInteractiveUiTest.*
+SendTabToSelfIphInteractiveUiTest.CaptureTutorialScreenshots
 SendTabToSelfToolbarIconControllerInteractiveUiTest.*
 SessionCrashedBubbleViewTest.*
 SettingsOverriddenExplicitChoiceDialogInteractiveUiTest.*
@@ -179,7 +190,8 @@ WebAppConfirmViewBrowserTest.*
 WebAppInstallDialogBrowserTest.*
 WebAppMenuBrowserTest.*
 WebAppUpdateReviewDialog.*
-WebUIToolbarWebViewPixelBrowserTest.*
+WebUIToolbarGlicPixelInteractiveUiTest.*
+WebUIToolbarPixelInteractiveUiTest.*
 ZoomBubbleDialogTest.*
 
 # To temporarily disable a test, add it here with a leading '-', like this:

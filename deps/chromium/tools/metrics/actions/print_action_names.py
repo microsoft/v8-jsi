@@ -13,7 +13,9 @@ import sys
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.actions.action_utils as action_utils
+import chromium_src.tools.metrics.common.path_util as path_util
 
 
 def _get_actions(xml_content):
@@ -30,8 +32,9 @@ def _get_actions(xml_content):
   return actions_dict
 
 
-def get_modified_action_names(current_actions_dict, prev_actions_dict,
-                              added_names):
+def get_modified_action_names(
+  current_actions_dict, prev_actions_dict, added_names
+):
   """Returns all modified action names from two xml strings.
 
   Args:
@@ -49,8 +52,8 @@ def get_modified_action_names(current_actions_dict, prev_actions_dict,
   return modified_names
 
 
-def _get_actions_xml_path():
-  return os.path.join(os.path.dirname(__file__), 'actions.xml')
+def _get_actions_xml_path() -> str:
+  return str(path_util.METRICS_TOOLS_PATH / 'actions' / 'actions.xml')
 
 
 def get_action_diff(prev_content, current_content):
@@ -74,8 +77,9 @@ def get_action_diff(prev_content, current_content):
   added_names = sorted(current_actions_dict.keys() - prev_actions_dict.keys())
   removed_names = sorted(prev_actions_dict.keys() - current_actions_dict.keys())
 
-  modified_names = get_modified_action_names(current_actions_dict,
-                                             prev_actions_dict, added_names)
+  modified_names = get_modified_action_names(
+    current_actions_dict, prev_actions_dict, added_names
+  )
 
   return (added_names, removed_names, modified_names)
 
@@ -83,13 +87,14 @@ def get_action_diff(prev_content, current_content):
 def _print_diff_names(revision):
   """Prints the added / removed action names relative to provided revision."""
   actions_xml_path = _get_actions_xml_path()
-  actions_xml_path_relative = os.path.join('tools', 'metrics', 'actions',
-                                           'actions.xml')
+  actions_xml_path_relative = os.path.join(
+    'tools', 'metrics', 'actions', 'actions.xml'
+  )
 
   try:
     prev_content = subprocess.check_output(
-        ['git', 'show',
-         f'{revision}:{actions_xml_path_relative}']).decode('utf-8')
+      ['git', 'show', f'{revision}:{actions_xml_path_relative}']
+    ).decode('utf-8')
   except subprocess.CalledProcessError:
     # Path might not exist in the provided revision.
     prev_content = ''
@@ -98,25 +103,26 @@ def _print_diff_names(revision):
     current_content = f.read()
 
   added_names, removed_names, modified_names = get_action_diff(
-      prev_content, current_content)
-  print("%d actions added:" % len(added_names))
+    prev_content, current_content
+  )
+  print('%d actions added:' % len(added_names))
   for name in added_names:
     print(name)
 
-  print("%d actions modified:" % len(modified_names))
+  print('%d actions modified:' % len(modified_names))
   for name in modified_names:
     print(name)
 
-  print("%d actions removed:" % len(removed_names))
+  print('%d actions removed:' % len(removed_names))
   for name in removed_names:
     print(name)
 
 
 def main(argv):
   parser = argparse.ArgumentParser(description='Print user action names.')
-  parser.add_argument('--diff',
-                      type=str,
-                      help='Git revision to diff against (e.g. HEAD~)')
+  parser.add_argument(
+    '--diff', type=str, help='Git revision to diff against (e.g. HEAD~)'
+  )
   args = parser.parse_args(argv[1:])
   if args.diff is not None:
     _print_diff_names(args.diff)

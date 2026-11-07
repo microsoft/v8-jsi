@@ -23,24 +23,14 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
-<histogram name="AccountManager.AccountAdditionResultStatus"
-    enum="AccountManagerAccountUpsertionResultStatus"
-    expires_after="2024-11-01">
-  <owner>sinhak@chromium.org</owner>
-  <owner>emaamari@google.com</owner>
-  <summary>
-    Records the result of in-session account addition (or re-authentication)
-    triggers on Chrome OS. This is recorded whenever an in-session account
-    addition (or re-authentication) is triggered and user finishes or cancels
-    the flow.
-  </summary>
-</histogram>
-
 <histogram name="AccountManager.AccountAdditionSource"
-    enum="AccountManagerAccountAdditionSource" expires_after="2025-12-28">
+    enum="AccountManagerAccountAdditionSource" expires_after="2027-06-25">
   <owner>sinhak@chromium.org</owner>
   <owner>emaamari@google.com</owner>
   <summary>
+    Warning: this histogram was expired from 2025-12-28 to 2026-06-30; data may
+    be missing.
+
     Records the source of in-session account addition (or re-authentication)
     triggers on Chrome OS. This is recorded whenever an in-session account
     addition (or re-authentication) is triggered - either explicitely by the
@@ -49,8 +39,22 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="AccountManager.AccountUpsertionResultStatus"
+    enum="AccountManagerAccountUpsertionResultStatus"
+    expires_after="2027-06-25">
+  <owner>sinhak@chromium.org</owner>
+  <owner>emaamari@google.com</owner>
+  <owner>diwux@google.com</owner>
+  <summary>
+    Records the result of in-session account upsertion (addition or
+    re-authentication) triggers on Chrome OS. This is recorded whenever an
+    in-session account addition or re-authentication is triggered and the user
+    finishes or cancels the flow.
+  </summary>
+</histogram>
+
 <histogram name="AccountManager.EduCoexistence.FetchAccessTokenResult"
-    enum="GoogleServiceAuthError" expires_after="2026-10-01">
+    enum="GoogleServiceAuthError" expires_after="2027-06-25">
   <owner>longbowei@google.com</owner>
   <owner>zhangwenyu@google.com</owner>
   <owner>cros-families-eng@google.com</owner>
@@ -62,7 +66,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.EduCoexistenceV2.InSessionFlowResult"
-    enum="EduCoexistenceFlowV2Result" expires_after="2026-10-01">
+    enum="EduCoexistenceFlowV2Result" expires_after="2027-06-25">
   <owner>longbowei@google.com</owner>
   <owner>zhangwenyu@google.com</owner>
   <owner>cros-families-eng@google.com</owner>
@@ -73,7 +77,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.EduCoexistenceV2.OnboardingFlowResult"
-    enum="EduCoexistenceFlowV2Result" expires_after="2026-10-01">
+    enum="EduCoexistenceFlowV2Result" expires_after="2027-06-25">
   <owner>longbowei@google.com</owner>
   <owner>zhangwenyu@google.com</owner>
   <owner>cros-families-eng@google.com</owner>
@@ -83,24 +87,14 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="AccountManager.FacadeGetAccountsMojoStatus"
-    enum="AccountManagerFacadeMojoStatus" expires_after="2024-11-01">
-  <owner>emaamari@google.com</owner>
-  <owner>droger@chromium.org</owner>
-  <owner>chrome-signin-team@google.com</owner>
-  <summary>
-    Records the status of the mojo connection between the Ash account manager
-    and the Lacros account manager facade, when
-    `AccountManagerFacade::GetAccounts()` is called. See
-    https://crbug.com/1287297
-  </summary>
-</histogram>
-
 <histogram name="AccountManager.InitializationTime" units="microseconds"
-    expires_after="2024-11-01">
+    expires_after="2027-06-25">
   <owner>sinhak@chromium.org</owner>
   <owner>emaamari@google.com</owner>
   <summary>
+    Warning: this histogram was expired from 2024-11-01 to 2026-06-30; data may
+    be missing.
+
     Measures the time taken to fully initialize Chrome OS Account Manager. This
     is recorded once per user session, at login time. This metric only reports
     from Chrome OS, which has a high resolution clock.
@@ -108,58 +102,19 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="AccountManager.ManageAccountsServiceType"
-    enum="GaiaServiceType" expires_after="2024-11-01">
+    enum="GaiaServiceType" expires_after="2027-06-25">
   <owner>sinhak@chromium.org</owner>
   <owner>emaamari@google.com</owner>
   <summary>
+    Warning: this histogram was expired from 2024-11-01 to 2026-06-30; data may
+    be missing.
+
     Tracks the service type received with the mirror response header.
   </summary>
 </histogram>
 
-<histogram name="AccountManager.MojoDisconnections.AccessTokenFetcherRemote"
-    units="count" expires_after="2024-11-01">
-  <owner>sinhak@chromium.org</owner>
-  <owner>emaamari@google.com</owner>
-  <summary>
-    Tracks the number of Mojo pipe disconnections observed by the access token
-    fetcher Mojo remote in `AccountManagerFacadeImpl`. This is logged at the end
-    of the destruction of `AccountManagerFacadeImpl::AccessTokenFetcher`. This
-    will correspond to the end of an access token fetch request. This is logged
-    for Ash - ChromeOS and Lacros - ChromeOS.
-  </summary>
-</histogram>
-
-<histogram
-    name="AccountManager.MojoDisconnections.AccountManagerObserverReceiver"
-    units="count" expires_after="2024-11-01">
-  <owner>sinhak@chromium.org</owner>
-  <owner>emaamari@google.com</owner>
-  <summary>
-    Tracks the number of Mojo pipe disconnections observed by the
-    `AccountManagerObserver` Mojo receiver in `AccountManagerFacadeImpl`. This
-    is logged at the end of the destruction of `AccountManagerFacadeImpl`. Since
-    `AccountManagerFacadeImpl` is a singleton, this is logged once per session
-    (Per browser session for Lacros and per user session for Ash). This is
-    logged for Ash - ChromeOS and Lacros - ChromeOS.
-  </summary>
-</histogram>
-
-<histogram name="AccountManager.MojoDisconnections.AccountManagerRemote"
-    units="count" expires_after="2024-11-01">
-  <owner>sinhak@chromium.org</owner>
-  <owner>emaamari@google.com</owner>
-  <summary>
-    Tracks the number of Mojo pipe disconnections observed by the Account
-    Manager Mojo remote in `AccountManagerFacadeImpl`. This is logged at the end
-    of the destruction of `AccountManagerFacadeImpl`. Since
-    `AccountManagerFacadeImpl` is a singleton, this is logged once per session
-    (Per browser session for Lacros and per user session for Ash). This is
-    logged for Ash - ChromeOS and Lacros - ChromeOS.
-  </summary>
-</histogram>
-
 <histogram name="AccountManager.NumAccounts" units="count"
-    expires_after="2026-09-27">
+    expires_after="2027-06-25">
   <owner>sinhak@chromium.org</owner>
   <owner>emaamari@google.com</owner>
   <summary>
@@ -168,26 +123,14 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="AccountManager.ReportAuthError.IsAccountKeyEmpty"
-    enum="BooleanEmpty" expires_after="2024-11-01">
-  <owner>sinhak@chromium.org</owner>
-  <owner>emaamari@google.com</owner>
-  <summary>
-    Indicates if the account whose authentication error is being reported to
-    AccountManagerMojoService has an empty account id. This is recorded whenever
-    AccountManagerMojoService receives a notification for an authentication
-    error for an account.
-
-    This histogram will be used to decide the severity of
-    AccountManagerMojoService receiving malformed account ids.
-  </summary>
-</histogram>
-
 <histogram name="AccountManager.TokenLoadStatus"
-    enum="AccountManagerTokenLoadStatus" expires_after="2025-01-05">
+    enum="AccountManagerTokenLoadStatus" expires_after="2027-06-25">
   <owner>sinhak@chromium.org</owner>
   <owner>emaamari@google.com</owner>
   <summary>
+    Warning: this histogram was expired from 2025-01-05 to 2026-06-30; data may
+    be missing.
+
     Tracks the status of token loads from disk by Chrome OS Account Manager, for
     a given user. This is recorded only once per session, at login time.
   </summary>

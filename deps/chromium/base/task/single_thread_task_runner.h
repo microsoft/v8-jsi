@@ -11,7 +11,6 @@
 #include "base/dcheck_is_on.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/raw_ptr.h"
-#include "base/memory/raw_ptr_exclusion.h"
 #include "base/task/sequenced_task_runner.h"
 
 namespace blink::scheduler {
@@ -20,6 +19,7 @@ class MainThreadSchedulerImpl;
 
 namespace base::sequence_manager::internal {
 class CurrentDefaultHandleOverrideForRunOrPostTask;
+class ThreadControllerWithMessagePumpImpl;
 }
 
 namespace base {
@@ -114,6 +114,8 @@ class BASE_EXPORT SingleThreadTaskRunner : public SequencedTaskRunner {
     friend class CurrentHandleOverrideForTesting;
     friend class sequence_manager::internal::
         CurrentDefaultHandleOverrideForRunOrPostTask;
+    friend class sequence_manager::internal::
+        ThreadControllerWithMessagePumpImpl;
     friend class ScopedMockTimeMessageLoopTaskRunner;
     friend class ScopedMockTimeMessageLoopTaskRunnerTest;
     FRIEND_TEST_ALL_PREFIXES(SingleThreadTaskRunnerCurrentDefaultHandleTest,
@@ -126,9 +128,10 @@ class BASE_EXPORT SingleThreadTaskRunner : public SequencedTaskRunner {
                              OverrideWithNonNull);
 
     scoped_refptr<SingleThreadTaskRunner> task_runner_;
-    // RAW_PTR_EXCLUSION: Performance reasons (based on analysis of
+    // Uses UnprotectedInRelease: Performance reasons (based on analysis of
     // speedometer3).
-    RAW_PTR_EXCLUSION CurrentDefaultHandle* previous_handle_ = nullptr;
+    raw_ptr<CurrentDefaultHandle, UnprotectedInRelease> previous_handle_ =
+        nullptr;
     SequencedTaskRunner::CurrentDefaultHandle sequenced_handle_;
   };
 

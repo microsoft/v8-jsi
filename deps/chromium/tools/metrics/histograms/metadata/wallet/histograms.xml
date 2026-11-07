@@ -23,6 +23,8 @@ chromium-metrics-reviews@google.com.
 <histograms>
 
 <variants name="Wallet.NetworkRequest.RequestType">
+  <variant name="GetDetailsForUpsertPass"
+      summary="getting details for upsert pass"/>
   <variant name="GetUnmaskedPrivatePass" summary="unmasking a private pass"/>
   <variant name="UpsertPass" summary="upserting a public pass"/>
   <variant name="UpsertPrivatePass" summary="upserting a private pass"/>
@@ -37,7 +39,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="Wallet.NetworkRequest.OauthError"
-    enum="GoogleServiceAuthError" expires_after="2026-12-31">
+    enum="GoogleServiceAuthError" expires_after="2027-03-21">
   <owner>vizcay@google.com</owner>
   <owner>1p-integrations-autofill@google.com</owner>
   <summary>
@@ -47,7 +49,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Wallet.NetworkRequest.{RequestType}.HttpResponseOrErrorCode"
-    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2026-12-31">
+    enum="CombinedHttpResponseAndNetErrorCode" expires_after="2027-03-07">
   <owner>vizcay@google.com</owner>
   <owner>1p-integrations-autofill@google.com</owner>
   <summary>
@@ -58,7 +60,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Wallet.NetworkRequest.{RequestType}.Latency" units="ms"
-    expires_after="2026-12-31">
+    expires_after="2027-03-07">
   <owner>vizcay@google.com</owner>
   <owner>1p-integrations-autofill@google.com</owner>
   <summary>

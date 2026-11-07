@@ -30,6 +30,22 @@ chromium-metrics-reviews@google.com.
   <variant name="WebOmnibox" summary="Web Omnibox"/>
 </variants>
 
+<!-- LINT.IfChange(ContextualSearchAttachmentButtonType) -->
+
+<variants name="ContextualSearchAttachmentButtonType">
+  <variant name="Camera" summary="Camera"/>
+  <variant name="Clipboard" summary="Clipboard"/>
+  <variant name="CurrentTab" summary="Current Tab button"/>
+  <variant name="Drive" summary="Drive file picker"/>
+  <variant name="Files" summary="File picker"/>
+  <variant name="Gallery" summary="Image picker"/>
+  <variant name="RecentTab" summary="Recent Tab"/>
+  <variant name="SuggestedTab" summary="Suggested Tab"/>
+  <variant name="TabPicker" summary="Tab picker"/>
+</variants>
+
+<!-- LINT.ThenChange(//components/contextual_search/contextual_search_metrics_recorder.h:ContextualSearchAttachmentButtonType) -->
+
 <variants name="ContextualSearchFileTypes">
   <variant name="Image"/>
   <variant name="Other"/>
@@ -49,10 +65,12 @@ chromium-metrics-reviews@google.com.
 <!-- LINT.IfChange(ContextualSearchSource) -->
 
 <variants name="ContextualSearchSource">
+  <variant name="ContextualCue"/>
   <variant name="ContextualTasks"/>
   <variant name="Lens"/>
   <variant name="NewTabPage"/>
   <variant name="Omnibox"/>
+  <variant name="OmniboxEverywhere"/>
   <variant name="Unknown"/>
 </variants>
 
@@ -68,9 +86,29 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//tools/metrics/actions/actions.xml:PopupType) -->
 
+<!-- LINT.IfChange(TabPickerSurface) -->
+
+<variants name="TabPickerSurface">
+  <variant name="ContextualTasksExtension"
+      summary="the tab picker page served by the Contextual Tasks component
+               extension and embedded by the AI Mode web page, used by the
+               rearchitected side panel"/>
+  <variant name="ContextualTasksWebUi"
+      summary="the tab picker flyout embedded in the in-WebUI composebox
+               action menu in Contextual Tasks"/>
+  <variant name="NewTabPage"
+      summary="the tab picker flyout embedded in the in-WebUI composebox
+               action menu on the New Tab Page"/>
+  <variant name="Omnibox"
+      summary="the tab picker flyout embedded in the composebox action menu
+               in the Omnibox (native Views and WebUI)"/>
+</variants>
+
+<!-- LINT.ThenChange(//ui/webui/resources/cr_components/composebox/common.ts:TabPickerSurface) -->
+
 <histogram
     name="ContextualSearch.ActiveTabsCountOnContextMenuOpen.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-11">
+    units="count" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -83,7 +121,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.AddedTabContextRecencyRanking.{ContextualSearchSource}"
-    units="rank" expires_after="2026-10-25">
+    units="rank" expires_after="2027-03-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -96,8 +134,67 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="ContextualSearch.AddTabsButton.Clicked.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when the user clicks the &quot;Add Tabs&quot; menu item via keydown
+    in the contextual action menu on {ContextualSearchSource}. Always logged as
+    true.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.AddTabsButton.Hovered.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when the user hovers over the &quot;Add Tabs&quot; menu item in the
+    contextual action menu on {ContextualSearchSource}. Always logged as true.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram name="ContextualSearch.AddTabsButton.Shown.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when the &quot;Add Tabs&quot; menu item in the contextual action
+    menu is shown on {ContextualSearchSource}. Always logged as true.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram name="ContextualSearch.AddTabsFlyout.Shown.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when the &quot;Add Tabs&quot; flyout is opened and tab suggestions
+    are shown on {ContextualSearchSource}. Always logged as true.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.AddTabsFlyout.TabSelected.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when the user adds a tab from the &quot;Add Tabs&quot; flyout on
+    {ContextualSearchSource}. Always logged as true.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
     name="ContextualSearch.AiModeButtonClick.{ContextualSearchAiModeButtonSurface}"
-    enum="Boolean" expires_after="2026-10-11">
+    enum="Boolean" expires_after="2027-02-14">
   <owner>niharm@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -106,6 +203,40 @@ chromium-metrics-reviews@google.com.
   </summary>
   <token key="ContextualSearchAiModeButtonSurface"
       variants="ContextualSearchAiModeButtonSurface"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.AttachmentButtonShown.{ContextualSearchSource}"
+    enum="FuseboxAttachmentButtonType" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records when an attachment button is shown in the composebox.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.AttachmentButtonUsed.{ContextualSearchSource}"
+    enum="FuseboxAttachmentButtonType" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records when an attachment button is used in the composebox.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.AttachmentsMenuToggled.{ContextualSearchSource}"
+    enum="Boolean" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records true when the menu is opened. Records false when the menu is closed
+    without user action.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
 <histogram name="ContextualSearch.ConfigParseSuccess.{ContextualSearchSource}"
@@ -123,7 +254,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.ContextAdded.ContextAddedMethod.{ContextualSearchSource}"
-    enum="ContextAddedMethod" expires_after="2026-10-11">
+    enum="ContextAddedMethod" expires_after="2027-02-14">
   <owner>niharm@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -137,7 +268,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.ContextMenuEntry.Clicked.{ContextualSearchSource}"
-    enum="BooleanOccurred" expires_after="2026-10-25">
+    enum="BooleanOccurred" expires_after="2027-03-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -150,7 +281,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.DuplicateTabTitlesShownCount.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-04">
+    units="count" expires_after="2027-02-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -175,7 +306,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.ErrorPageShown.{ContextualSearchSource}"
-    enum="ContextualSearchErrorPage" expires_after="2026-09-13">
+    enum="ContextualSearchErrorPage" expires_after="2027-02-07">
   <owner>nguyenbryan@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -185,8 +316,55 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="ContextualSearch.File.Size.{ContextualSearchFileTypes}.{ContextualSearchSource}"
-    units="bytes" expires_after="2027-01-20">
+    name="ContextualSearch.File.PickedCount.{ContextualSearchAttachmentButtonType}.{ContextualSearchSource}"
+    units="count" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records the count of attachments picked via a specific button. Recorded when
+    the user picks an attachment (image, file, tab).
+  </summary>
+  <token key="ContextualSearchAttachmentButtonType"
+      variants="ContextualSearchAttachmentButtonType"/>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.File.Size.V2.Tab.PageContents.{ContextualSearchSource}"
+    units="bytes" expires_after="2027-05-25">
+  <owner>jkoblinsky@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    The size of the extracted page contents for a tab attachment upload,
+    qualified by the contextual search source. Emitted when the upload is
+    initiated on the client side, before the upload has reached the server.
+    Duplicate tab uploads will emit duplicate samples. Both cached and
+    non-chached tabs will emit a sample. An emission will still occur if the
+    attachment is removed from the attachment list before the server upload is
+    complete.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.File.Size.V2.Tab.ViewportScreenshot.{ContextualSearchSource}"
+    units="bytes" expires_after="2027-05-25">
+  <owner>jkoblinsky@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    The size of the viewport screenshot for a tab attachment upload, qualified
+    by the contextual search source. Emitted when the upload is initiated on the
+    client side, before the upload has reached the server. Duplicate tab uploads
+    will emit duplicate samples. Both cached and non-chached tabs will emit a
+    sample. An emission will still occur if the attachment is removed from the
+    attachment list before the server upload is complete.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.File.Size.V2.{ContextualSearchFileTypes}.{ContextualSearchSource}"
+    units="bytes" expires_after="2027-04-04">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -199,8 +377,8 @@ chromium-metrics-reviews@google.com.
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
-<histogram name="ContextualSearch.File.Size.{ContextualSearchSource}"
-    units="bytes" expires_after="2027-01-05">
+<histogram name="ContextualSearch.File.Size.V2.{ContextualSearchSource}"
+    units="bytes" expires_after="2027-03-07">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -225,7 +403,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Inputs.TypeOnSubmission.{ContextualSearchSource}"
-    enum="ContextualSearchAimInputType" expires_after="2026-08-06">
+    enum="ContextualSearchAimInputType" expires_after="2027-02-07">
   <owner>khalidpeer@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -238,15 +416,35 @@ chromium-metrics-reviews@google.com.
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
+<histogram name="ContextualSearch.Models.ChangedByAIM.{ContextualSearchSource}"
+    enum="OmniboxModelMode" expires_after="2027-08-11">
+  <owner>jamesleung@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Tracks model mode changes triggered by AIM webpage via SILK.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
 <histogram
     name="ContextualSearch.Models.ModeOnSubmission.{ContextualSearchSource}"
-    enum="OmniboxModelMode" expires_after="2026-10-11">
+    enum="OmniboxModelMode" expires_after="2027-02-14">
   <owner>bofengchen@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
     Tracks what model the user was using when they submitted the query. This
     metric is recorded only once the user has submitted the query and navigated
     to AIM.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram name="ContextualSearch.Models.Selected.{ContextualSearchSource}"
+    enum="OmniboxModelMode" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records when a model is explicitly selected by the user in the menu.
   </summary>
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
@@ -260,7 +458,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Models.{ContextualSearchSource}"
-    enum="OmniboxModelMode" expires_after="2026-10-11">
+    enum="OmniboxModelMode" expires_after="2027-02-14">
   <owner>bofengchen@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -271,8 +469,34 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="ContextualSearch.NoAcMatch.SubmitQuery.{ContextualSearchSource}"
+    enum="ContextualSearchNoAcMatchState" expires_after="2027-03-15">
+  <owner>niharm@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when a query is submitted without an autocomplete match selection
+    from {ContextualSearchSource}. Used for debugging query submission
+    modalities.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.Query.AttachmentCount.{ContextualSearchFileTypes}.{ContextualSearchSource}"
+    units="count" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records the count of attachments of a specific type at query submission.
+    Recorded when the user submits a query with attachments.
+  </summary>
+  <token key="ContextualSearchFileTypes" variants="ContextualSearchFileTypes"/>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram
     name="ContextualSearch.Query.FileCount.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-25">
+    units="count" expires_after="2027-03-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -285,7 +509,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Query.FileCount.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-11">
+    units="count" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -297,7 +521,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Query.Modality.V2.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    enum="ContextualSearchMultimodalState" expires_after="2026-09-06">
+    enum="ContextualSearchMultimodalState" expires_after="2027-02-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -310,19 +534,22 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Query.Modality.V2.{ContextualSearchSource}"
-    enum="ContextualSearchMultimodalState" expires_after="2026-09-06">
+    enum="ContextualSearchMultimodalState" expires_after="2027-02-07">
   <owner>hujaosonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
     Records the combination of input types used to form the query. Recorded
     after navigation to the AIM page occurs.
+
+    In M149+, this does not record clicks on the AI Mode button as a query
+    submission when no text and no files are present.
   </summary>
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
 <histogram
     name="ContextualSearch.Query.TextLength.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="characters" expires_after="2027-01-20">
+    units="characters" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -335,7 +562,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Query.TextLength.{ContextualSearchSource}"
-    units="characters" expires_after="2027-01-20">
+    units="characters" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -348,7 +575,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Query.Time.ToSubmission.{ContextualSearchSource}"
-    units="ms" expires_after="2026-09-27">
+    units="ms" expires_after="2027-04-04">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -363,7 +590,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.Duration.Total.{ContextualSearchSource}"
-    units="ms" expires_after="2026-10-11">
+    units="ms" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -379,7 +606,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.Duration.{Status}.{ContextualSearchSource}"
-    units="ms" expires_after="2026-09-27">
+    units="ms" expires_after="2027-02-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -417,7 +644,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadAttemptCount.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -432,7 +659,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadAttemptCount.{ContextualSearchFileTypes}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -449,7 +676,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadAttemptCount.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -463,7 +690,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadFailureCount.FunnelMetrics.{ContextualSearchFileTypes}.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -480,7 +707,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadFailureCount.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-19">
+    units="count" expires_after="2027-03-21">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -496,7 +723,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadFailureCount.{ContextualSearchFileTypes}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -513,7 +740,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadFailureCount.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-19">
+    units="count" expires_after="2027-03-21">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -527,7 +754,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadSuccessCount.FunnelMetrics.{ContextualSearchFileTypes}.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2026-06-21">
+    units="count" expires_after="2026-12-22">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -544,7 +771,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadSuccessCount.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-21">
+    units="count" expires_after="2027-03-28">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -560,7 +787,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadSuccessCount.{ContextualSearchFileTypes}.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-25">
+    units="count" expires_after="2027-03-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -577,7 +804,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.File.Browser.UploadSuccessCount.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-21">
+    units="count" expires_after="2027-03-28">
   <owner>wenhuc@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -606,6 +833,13 @@ chromium-metrics-reviews@google.com.
   <token key="ErrorType">
     <variant name="AbortedError"/>
     <variant name="BrowserProcessingError"/>
+    <variant name="BrowserProcessingFileEmptyError"/>
+    <variant name="BrowserProcessingFileTooLargeError"/>
+    <variant name="BrowserProcessingFileUploadNotAllowedError"/>
+    <variant name="BrowserProcessingMaxFilesExceededError"/>
+    <variant name="BrowserProcessingMaxImagesExceededError"/>
+    <variant name="BrowserProcessingMaxPdfsExceededError"/>
+    <variant name="BrowserProcessingUnsupportedFileTypeError"/>
     <variant name="ImageProcessingError"/>
     <variant name="NetworkError"/>
     <variant name="ServerError"/>
@@ -629,6 +863,13 @@ chromium-metrics-reviews@google.com.
   <token key="ErrorType">
     <variant name="AbortedError"/>
     <variant name="BrowserProcessingError"/>
+    <variant name="BrowserProcessingFileEmptyError"/>
+    <variant name="BrowserProcessingFileTooLargeError"/>
+    <variant name="BrowserProcessingFileUploadNotAllowedError"/>
+    <variant name="BrowserProcessingMaxFilesExceededError"/>
+    <variant name="BrowserProcessingMaxImagesExceededError"/>
+    <variant name="BrowserProcessingMaxPdfsExceededError"/>
+    <variant name="BrowserProcessingUnsupportedFileTypeError"/>
     <variant name="ImageProcessingError"/>
     <variant name="NetworkError"/>
     <variant name="ServerError"/>
@@ -667,7 +908,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.Session.QueryCount.FunnelMetrics.{ContextualSearchFunnel}.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-11">
+    units="count" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -681,20 +922,23 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Session.QueryCount.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-25">
+    units="count" expires_after="2027-03-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
     Tracks the number of queries submitted per session. Multiple queries may be
     submitted when the AIM page is opened in a new tab or window and the
     composebox remains open. Recorded at the end of the session.
+
+    In M149+, this does not record clicks on the AI Mode button as a query
+    submission when no text and no files are present.
   </summary>
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
 <histogram
     name="ContextualSearch.Session.QuerySubmittedWithoutSessionStart.{ContextualSearchSource}"
-    enum="Boolean" expires_after="2026-09-13">
+    enum="Boolean" expires_after="2027-02-07">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -751,8 +995,95 @@ chromium-metrics-reviews@google.com.
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
+<histogram
+    name="ContextualSearch.SingleTabMenuItem.Action.{ContextualSearchSource}"
+    enum="ContextualSearchSingleTabMenuItemAction" expires_after="2027-07-16">
+  <owner>ananyaseelam@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when a user selects or deselects the standalone single tab menu
+    item in the contextual action menu, or submits a query with a tab attached
+    via the standalone single tab menu item on {ContextualSearchSource}.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.MenuOptionClicked"
+    enum="SmartTabSharingToggleState" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Recorded when a user explicitly toggles the Smart Tab Sharing menu option ON
+    or OFF.
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.MenuOptionShown"
+    enum="SmartTabSharingSurface" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Recorded when the Smart Tab Sharing option is rendered inside the Composebox
+    menu.
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.OptOutMidThread"
+    enum="Boolean" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Records true when the user explicitly turns OFF Smart Tab Sharing mid-thread
+    after having already submitted queries with it ON, and false when they
+    submit another query with it still ON mid-thread.
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.PromoInteraction"
+    enum="SmartTabSharingPromoAction" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Tracks user interaction with the FRE IPH or the in-thread &quot;try-it&quot;
+    promo (Shown, Turned On, Dismissed/Not Now).
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.TabFilterReason"
+    enum="SmartTabSharingFilterReason" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Recorded for each open tab evaluated by the on-device model to categorize
+    why it was included or filtered out.
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.SmartTabSharing.ThreadWithTabsSubmitted"
+    enum="Boolean" expires_after="2027-07-22">
+  <owner>kiehl@google.com</owner>
+  <owner>chrome-search-ai@google.com</owner>
+  <summary>
+    Records true if the current AIM thread had Smart Tab Sharing active (toggled
+    ON) upon query submission, and false if it was inactive (toggled OFF).
+  </summary>
+</histogram>
+
+<histogram name="ContextualSearch.TabContextAdded.AccountMatches"
+    enum="Boolean" expires_after="2027-03-21">
+  <owner>sophiechang@chromium.org</owner>
+  <owner>chrome-contextual-tasks-eng@google.com</owner>
+  <summary>
+    Recorded when a tab context upload flow is started in contextual search.
+    Records whether the primary account of the browser profile matches the web
+    identity account associated with the session URL (or the session's auth user
+    index / default cookie jar account if no user index is specified in the
+    URL).
+  </summary>
+</histogram>
+
 <histogram name="ContextualSearch.TabContextAdded.V2.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-11">
+    units="count" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -765,7 +1096,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.TabContextAddedFromPlusButton.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -778,7 +1109,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.TabContextAddedFromTabSuggestionChip.{ContextualSearchSource}"
-    units="count" expires_after="2027-01-20">
+    units="count" expires_after="2027-03-21">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -790,8 +1121,56 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="ContextualSearch.TabPicker.SelectedTabIsActive.{TabPickerSurface}"
+    enum="Boolean" expires_after="2027-03-07">
+  <owner>hujasonx@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when a user attaches a tab from the tab picker on
+    {TabPickerSurface}. True if the attached tab was the tab the user was
+    already viewing.
+
+    This is derived from TabInfo.show_in_current_tab_chip, which the browser
+    computes by comparing the candidate tab's URL against the active tab's URL.
+    Note that it is a URL comparison rather than a tab identity comparison, so a
+    duplicate tab showing the same URL as the active tab also counts as true.
+
+    Only recorded when an eligible active tab is present in the suggestion list,
+    so modes where no candidate is active (such as full tab mode or New Tab
+    Page, where the active tab is an internal chrome:// page) do not record
+    samples.
+
+    Split out by surface to compare usage across surfaces and implementations.
+  </summary>
+  <token key="TabPickerSurface" variants="TabPickerSurface"/>
+</histogram>
+
+<histogram
+    name="ContextualSearch.TabPicker.SelectedTabPosition.{TabPickerSurface}"
+    units="index" expires_after="2027-03-07">
+  <owner>hujasonx@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Recorded when a user attaches a tab from the tab picker on
+    {TabPickerSurface}. Records the zero-based position of the attached tab
+    within the suggestion list, which the browser sorts by descending recency.
+    Position 0 is therefore the most recently active eligible tab, and is the
+    entry the UI badges as &quot;Recent&quot;. Used to judge how well the
+    recency ranking matches user intent.
+
+    Positions at or beyond 20 are bucketed into the final overflow bucket. In
+    practice the list is capped by the NtpComposeboxContextMenuMaxTabSuggestions
+    feature param, which defaults to 3. Not recorded if the attached tab is no
+    longer present in the suggestion list.
+
+    Split out by surface to compare usage across surfaces and implementations.
+  </summary>
+  <token key="TabPickerSurface" variants="TabPickerSurface"/>
+</histogram>
+
+<histogram
     name="ContextualSearch.TabWithDuplicateTitleClicked.V2.{ContextualSearchSource}"
-    units="count" expires_after="2026-10-11">
+    units="count" expires_after="2027-02-14">
   <owner>hujasonx@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -802,15 +1181,36 @@ chromium-metrics-reviews@google.com.
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
 
+<histogram name="ContextualSearch.Tools.ChangedByAIM.{ContextualSearchSource}"
+    enum="OmniboxToolMode" expires_after="2027-08-11">
+  <owner>jamesleung@google.com</owner>
+  <owner>chrome-desktop-search@google.com</owner>
+  <summary>
+    Tracks tool mode changes triggered by AIM webpage via SILK, such as when the
+    user sends a message to AIM that triggers Canvas mode automatically.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
 <histogram
     name="ContextualSearch.Tools.ModeOnSubmission.{ContextualSearchSource}"
-    enum="OmniboxToolMode" expires_after="2026-10-11">
+    enum="OmniboxToolMode" expires_after="2027-02-14">
   <owner>bofengchen@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
     Tracks what tool mode the user was in when they submitted the query. This
     metric is recorded only once the user has submitted the query and navigated
     to AIM.
+  </summary>
+  <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
+</histogram>
+
+<histogram name="ContextualSearch.Tools.Selected.{ContextualSearchSource}"
+    enum="OmniboxToolMode" expires_after="2027-05-13">
+  <owner>ameurhosni@google.com</owner>
+  <owner>chrome-mobile-search@google.com</owner>
+  <summary>
+    Records when a tool is explicitly selected by the user in the menu.
   </summary>
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
@@ -824,7 +1224,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="ContextualSearch.Tools.{ContextualSearchSource}"
-    enum="OmniboxToolMode" expires_after="2026-10-11">
+    enum="OmniboxToolMode" expires_after="2027-02-14">
   <owner>bofengchen@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -836,7 +1236,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.TypedSuggestNavigation.IsVerbatim.{ContextualSearchSource}"
-    enum="Boolean" expires_after="2026-08-09">
+    enum="Boolean" expires_after="2027-02-07">
   <owner>niharm@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -849,7 +1249,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.UserAction.DeleteAutoSuggestedTab.{ContextualSearchSource}"
-    enum="Boolean" expires_after="2026-10-11">
+    enum="Boolean" expires_after="2027-02-14">
   <owner>sophiechang@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -880,6 +1280,9 @@ chromium-metrics-reviews@google.com.
     Records the context state when a query is submitted from
     {ContextualSearchSource}. Note that more than one entry can be submitted per
     query submission if it overlaps with WithContextNoText.
+
+    In M149+, this does not record clicks on the AI Mode button as a query
+    submission when no text and no files are present.
   </summary>
   <token key="ContextualSearchSource" variants="ContextualSearchSource"/>
 </histogram>
@@ -898,7 +1301,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="ContextualSearch.ZeroSuggestClickV2.IsContextual.{ContextualSearchSource}"
-    enum="Boolean" expires_after="2026-10-11">
+    enum="Boolean" expires_after="2027-02-14">
   <owner>niharm@google.com</owner>
   <owner>chrome-desktop-search@google.com</owner>
   <summary>
@@ -912,7 +1315,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="{ContextualSearchSource}.AimEntrypoint.{PopupType}.ContextualElement.Clicked"
-    enum="ContextType" expires_after="2026-11-12">
+    enum="ContextType" expires_after="2027-03-21">
   <owner>mfacey@chromium.org</owner>
   <owner>mahmadi@chromium.org</owner>
   <owner>khalidpeer@chromium.org</owner>
@@ -930,7 +1333,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="{ContextualSearchSource}.AimEntrypoint.{PopupType}.ContextualElement.Shown"
-    enum="ContextType" expires_after="2026-11-12">
+    enum="ContextType" expires_after="2027-03-21">
   <owner>mfacey@chromium.org</owner>
   <owner>mahmadi@chromium.org</owner>
   <owner>khalidpeer@chromium.org</owner>

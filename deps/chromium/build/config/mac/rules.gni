@@ -248,6 +248,7 @@ template("mac_framework_bundle") {
 
   # Create the symlinks.
   _framework_package_target = target_name + "_package"
+
   action(_framework_package_target) {
     script = "//build/config/mac/package_framework.py"
 
@@ -311,6 +312,7 @@ template("mac_framework_bundle") {
   }
 
   _framework_public_config = _target_name + "_public_config"
+
   config(_framework_public_config) {
     visibility = [ ":$_framework_target+link" ]
     framework_dirs = [ root_out_dir ]
@@ -493,6 +495,7 @@ template("mac_app_bundle") {
                            "*",
                            [
                              "assert_no_deps",
+                             "bundle_deps",
                              "data_deps",
                              "info_plist",
                              "output_name",
@@ -542,6 +545,9 @@ template("mac_app_bundle") {
                            ])
     if (!defined(deps)) {
       deps = []
+    }
+    if (defined(invoker.bundle_deps)) {
+      deps += invoker.bundle_deps
     }
     deps += [
       ":$_executable_bundle_data",

@@ -9,6 +9,7 @@ import sys
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.histograms.histogram_paths as histogram_paths
 
 
@@ -16,8 +17,10 @@ def main():
   exit_code = 0
   if not histogram_paths.ValidateHistogramsGniFile():
     exit_code = 1
-    logging.error('histograms_xml_files.gni is not up-to-date. Please run '
-                  'histogram_paths.py to update it.')
+    logging.error(
+      'histograms_xml_files.gni is not up-to-date. Please run '
+      'histogram_paths.py to update it.'
+    )
   sys.exit(exit_code)
 
 

@@ -20,16 +20,22 @@ assert(enable_perfetto_trace_processor_sqlite)
 # Per (device, curve_type) CSVs. Each curve_type's compressed blob is the
 # union of the rows in every device folder for that curve type.
 _cpu_1d_csvs = [
+  "data/MT6789/cpu_1d.csv",
+  "data/MT6858/cpu_1d.csv",
   "data/MT6897/cpu_1d.csv",
+  "data/SM8750/cpu_1d.csv",
   "data/SXR2230P/cpu_1d.csv",
   "data/Tensor/cpu_1d.csv",
   "data/Tensor_G4/cpu_1d.csv",
   "data/Tensor_G5/cpu_1d.csv",
+  "data/Tensor_G6/cpu_1d.csv",
   "data/monaco/cpu_1d.csv",
   "data/neo/cpu_1d.csv",
 ]
 
 _cpu_2d_csvs = [
+  "data/MT6789/cpu_2d.csv",
+  "data/MT6858/cpu_2d.csv",
   "data/MT6897/cpu_2d.csv",
   "data/SXR2230P/cpu_2d.csv",
   "data/Tensor/cpu_2d.csv",
@@ -40,6 +46,7 @@ _cpu_2d_csvs = [
 _gpu_csvs = [
   "data/Tensor/gpu.csv",
   "data/Tensor_G5/gpu.csv",
+  "data/Tensor_G6/gpu.csv",
 ]
 
 _l3_csvs = [
@@ -48,7 +55,10 @@ _l3_csvs = [
   "data/Tensor_G5/l3.csv",
 ]
 
-_tpu_csvs = [ "data/Tensor_G5/tpu.csv" ]
+_tpu_csvs = [
+  "data/Tensor_G5/tpu.csv",
+  "data/Tensor_G6/tpu.csv",
+]
 
 _curve_blob_targets = []
 
@@ -97,6 +107,7 @@ source_set("wattson") {
     "plugin.cc",
     "table_function.cc",
     "table_function.h",
+    "wattson.h",
   ]
   deps = [
     ":gen_cpu_1d_curves",
@@ -110,17 +121,8 @@ source_set("wattson") {
     "../../containers",
     "../../core/dataframe",
     "../../core/plugin",
-    "../../perfetto_sql/intrinsics/table_functions",
     "../../storage",
     "../../types",
-    "../../util:gzip",
+    "../../util:decompressor",
   ]
-
-  # plugin.cc self-registers through a global static initializer, which the
-  # linker drops when this target is consumed as a static archive. Generators
-  # translate this metadata into `alwayslink = True` (Bazel) and
-  # `whole_static_libs` (Soong).
-  metadata = {
-    perfetto_force_alwayslink = [ true ]
-  }
 }

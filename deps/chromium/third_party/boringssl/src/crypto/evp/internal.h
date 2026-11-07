@@ -36,7 +36,7 @@ typedef struct evp_pkey_ctx_method_st EVP_PKEY_CTX_METHOD;
 BSSL_NAMESPACE_END
 
 struct evp_pkey_alg_st {
-  // method and pkey_method implement operations for this |EVP_PKEY_ALG|.
+  // method and pkey_method implement operations for this `EVP_PKEY_ALG`.
   const bssl::EVP_PKEY_ASN1_METHOD *method;
   const bssl::EVP_PKEY_CTX_METHOD *pkey_method;
 };
@@ -50,7 +50,7 @@ enum evp_decode_result_t {
 };
 
 struct evp_pkey_asn1_method_st {
-  // pkey_id contains one of the |EVP_PKEY_*| values and corresponds to the OID
+  // pkey_id contains one of the `EVP_PKEY_*` values and corresponds to the OID
   // in the key type's AlgorithmIdentifier.
   int pkey_id;
   uint8_t oid[9];
@@ -58,53 +58,53 @@ struct evp_pkey_asn1_method_st {
 
   const EVP_PKEY_CTX_METHOD *pkey_method;
 
-  // pub_decode decodes |params| and |key| as a SubjectPublicKeyInfo
-  // and writes the result into |out|. It returns |evp_decode_ok| on success,
-  // and |evp_decode_error| on error, and |evp_decode_unsupported| if the input
-  // was not supported by this |EVP_PKEY_ALG|. In case of
-  // |evp_decode_unsupported|, it does not add an error to the error queue. May
-  // modify |params| and |key|. Callers must make a copy if calling in a loop.
+  // pub_decode decodes `params` and `key` as a SubjectPublicKeyInfo
+  // and writes the result into `out`. It returns `evp_decode_ok` on success,
+  // and `evp_decode_error` on error, and `evp_decode_unsupported` if the input
+  // was not supported by this `EVP_PKEY_ALG`. In case of
+  // `evp_decode_unsupported`, it does not add an error to the error queue. May
+  // modify `params` and `key`. Callers must make a copy if calling in a loop.
   //
-  // |params| is the AlgorithmIdentifier after the OBJECT IDENTIFIER type field,
-  // and |key| is the contents of the subjectPublicKey with the leading padding
+  // `params` is the AlgorithmIdentifier after the OBJECT IDENTIFIER type field,
+  // and `key` is the contents of the subjectPublicKey with the leading padding
   // byte checked and removed. Although X.509 uses BIT STRINGs to represent
   // SubjectPublicKeyInfo, every key type defined encodes the key as a byte
   // string with the same conversion to BIT STRING.
   evp_decode_result_t (*pub_decode)(const EVP_PKEY_ALG *alg, EvpPkey *out,
                                     CBS *params, CBS *key);
 
-  // pub_encode encodes |key| as a SubjectPublicKeyInfo and appends the result
-  // to |out|. It returns one on success and zero on error.
+  // pub_encode encodes `key` as a SubjectPublicKeyInfo and appends the result
+  // to `out`. It returns one on success and zero on error.
   int (*pub_encode)(CBB *out, const EvpPkey *key);
 
   bool (*pub_equal)(const EvpPkey *a, const EvpPkey *b);
 
-  // pub_present returns true iff the |pk| has a public key. (If so, validity
+  // pub_present returns true iff the `pk` has a public key. (If so, validity
   // is not guaranteed and should be checked separately.)
   bool (*pub_present)(const EvpPkey *pk);
 
-  // pub_copy sets the key data of |out| to a newly allocated key data structure
-  // which contains a copy of only the public key of |pk|, freeing any key
-  // previously in |out|. Returns true on success or false on failure.
+  // pub_copy sets the key data of `out` to a newly allocated key data structure
+  // which contains a copy of only the public key of `pk`, freeing any key
+  // previously in `out`. Returns true on success or false on failure.
   bool (*pub_copy)(EvpPkey *out, const EvpPkey *pk);
 
-  // priv_decode decodes |params| and |key| as a PrivateKeyInfo and writes the
-  // result into |out|.  It returns |evp_decode_ok| on success, and
-  // |evp_decode_error| on error, and |evp_decode_unsupported| if the key type
-  // was not supported by this |EVP_PKEY_ALG|. In case of
-  // |evp_decode_unsupported|, it does not add an error to the error queue. May
-  // modify |params| and |key|. Callers must make a copy if calling in a loop.
+  // priv_decode decodes `params` and `key` as a PrivateKeyInfo and writes the
+  // result into `out`.  It returns `evp_decode_ok` on success, and
+  // `evp_decode_error` on error, and `evp_decode_unsupported` if the key type
+  // was not supported by this `EVP_PKEY_ALG`. In case of
+  // `evp_decode_unsupported`, it does not add an error to the error queue. May
+  // modify `params` and `key`. Callers must make a copy if calling in a loop.
   //
-  // |params| is the AlgorithmIdentifier after the OBJECT IDENTIFIER type field,
-  // and |key| is the contents of the OCTET STRING privateKey field.
+  // `params` is the AlgorithmIdentifier after the OBJECT IDENTIFIER type field,
+  // and `key` is the contents of the OCTET STRING privateKey field.
   evp_decode_result_t (*priv_decode)(const EVP_PKEY_ALG *alg, EvpPkey *out,
                                      CBS *params, CBS *key);
 
-  // priv_encode encodes |key| as a PrivateKeyInfo and appends the result to
-  // |out|. It returns one on success and zero on error.
+  // priv_encode encodes `key` as a PrivateKeyInfo and appends the result to
+  // `out`. It returns one on success and zero on error.
   int (*priv_encode)(CBB *out, const EvpPkey *key);
 
-  // priv_present returns true iff the |pk| has a private key. (If so, validity
+  // priv_present returns true iff the `pk` has a private key. (If so, validity
   // is not guaranteed and should be checked separately.)
   bool (*priv_present)(const EvpPkey *pk);
 
@@ -116,9 +116,9 @@ struct evp_pkey_asn1_method_st {
   int (*get_pub_raw)(const EvpPkey *pkey, uint8_t *out, size_t *out_len);
 
   // TODO(davidben): Can these be merged with the functions above? OpenSSL does
-  // not implement |EVP_PKEY_get_raw_public_key|, etc., for |EVP_PKEY_EC|, but
+  // not implement `EVP_PKEY_get_raw_public_key`, etc., for `EVP_PKEY_EC`, but
   // the distinction seems unimportant. OpenSSL 3.0 has since renamed
-  // |EVP_PKEY_get1_tls_encodedpoint| to |EVP_PKEY_get1_encoded_public_key|, and
+  // `EVP_PKEY_get1_tls_encodedpoint` to `EVP_PKEY_get1_encoded_public_key`, and
   // what is the difference between "raw" and an "encoded" public key.
   //
   // One nuisance is the notion of "raw" is slightly ambiguous for EC keys. Is
@@ -126,7 +126,7 @@ struct evp_pkey_asn1_method_st {
   int (*set1_tls_encodedpoint)(EvpPkey *pkey, const uint8_t *in, size_t len);
   size_t (*get1_tls_encodedpoint)(const EvpPkey *pkey, uint8_t **out_ptr);
 
-  // pkey_opaque returns 1 if the |pk| is opaque. Opaque keys are backed by
+  // pkey_opaque returns 1 if the `pk` is opaque. Opaque keys are backed by
   // custom implementations which do not expose key material and parameters.
   int (*pkey_opaque)(const EvpPkey *pk);
 
@@ -144,7 +144,7 @@ class EvpPkey : public evp_pkey_st, public RefCounted<EvpPkey> {
  public:
   EvpPkey();
 
-  // pkey contains a pointer to a structure dependent on |ameth|.
+  // pkey contains a pointer to a structure dependent on `ameth`.
   void *pkey = nullptr;
 
   // ameth contains a pointer to a method table that determines the key type, or
@@ -175,12 +175,12 @@ class EvpPkey : public evp_pkey_st, public RefCounted<EvpPkey> {
 
 #define EVP_PKEY_OP_TYPE_GEN (EVP_PKEY_OP_KEYGEN | EVP_PKEY_OP_PARAMGEN)
 
-// EVP_PKEY_CTX_ctrl performs |cmd| on |ctx|. The |keytype| and |optype|
+// EVP_PKEY_CTX_ctrl performs `cmd` on `ctx`. The `keytype` and `optype`
 // arguments can be -1 to specify that any type and operation are acceptable,
-// otherwise |keytype| must match the type of |ctx| and the bits of |optype|
-// must intersect the operation flags set on |ctx|.
+// otherwise `keytype` must match the type of `ctx` and the bits of `optype`
+// must intersect the operation flags set on `ctx`.
 //
-// The |p1| and |p2| arguments depend on the value of |cmd|.
+// The `p1` and `p2` arguments depend on the value of `cmd`.
 //
 // It returns one on success and zero on error.
 OPENSSL_EXPORT int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
@@ -189,14 +189,14 @@ OPENSSL_EXPORT int EVP_PKEY_CTX_ctrl(EVP_PKEY_CTX *ctx, int keytype, int optype,
 #define EVP_PKEY_CTRL_MD 1
 #define EVP_PKEY_CTRL_GET_MD 2
 
-// EVP_PKEY_CTRL_PEER_KEY is called with different values of |p1|:
-//   0: Is called from |EVP_PKEY_derive_set_peer| and |p2| contains a peer key.
+// EVP_PKEY_CTRL_PEER_KEY is called with different values of `p1`:
+//   0: Is called from `EVP_PKEY_derive_set_peer` and `p2` contains a peer key.
 //      If the return value is <= 0, the key is rejected.
-//   1: Is called at the end of |EVP_PKEY_derive_set_peer| and |p2| contains a
+//   1: Is called at the end of `EVP_PKEY_derive_set_peer` and `p2` contains a
 //      peer key. If the return value is <= 0, the key is rejected.
-//   2: Is called with |p2| == NULL to test whether the peer's key was used.
+//   2: Is called with `p2` == NULL to test whether the peer's key was used.
 //      (EC)DH always return one in this case.
-//   3: Is called with |p2| == NULL to set whether the peer's key was used.
+//   3: Is called with `p2` == NULL to set whether the peer's key was used.
 //      (EC)DH always return one in this case. This was only used for GOST.
 #define EVP_PKEY_CTRL_PEER_KEY 3
 
@@ -229,10 +229,20 @@ class EvpPkeyCtx : public evp_pkey_ctx_st {
  public:
   static constexpr bool kAllowUniquePtr = true;
 
-  // TODO(crbug.com/487376811): This destructor is virtual to confirm that we
-  // can emit vtables in libcrypto. Later we should replace |pmeth| with virtual
-  // methods and subclassing.
+  // Use an optional virtual destructor. This class does not (yet) have a need
+  // for a vtable, but we intend to write code with vtables in the future.
+  // Virtual destructors add a reference to symbols in the C++ runtime, so trial
+  // the dependency here. This is, temporarily, gated on a build define. If this
+  // breaks your build, build with `BORINGSSL_TEMPORARY_NO_CXX_RUNTIME` and then
+  // contact the BoringSSL team, so we can help fix your build.
+  //
+  // TODO(crbug.com/486922845): Remove the `BORINGSSL_TEMPORARY_NO_CXX_RUNTIME`
+  // case.
+#if defined(BORINGSSL_TEMPORARY_NO_CXX_RUNTIME)
+  ~EvpPkeyCtx();
+#else
   virtual ~EvpPkeyCtx();
+#endif
 
   // Method associated with this operation
   const bssl::EVP_PKEY_CTX_METHOD *pmeth = nullptr;
@@ -240,10 +250,10 @@ class EvpPkeyCtx : public evp_pkey_ctx_st {
   bssl::UniquePtr<EvpPkey> pkey;
   // Peer key for key agreement, may be nullptr
   bssl::UniquePtr<EvpPkey> peerkey;
-  // operation contains one of the |EVP_PKEY_OP_*| values.
+  // operation contains one of the `EVP_PKEY_OP_*` values.
   int operation = EVP_PKEY_OP_UNDEFINED;
   // Algorithm specific data.
-  // TODO(crbug.com/487376811): Since a |EVP_PKEY_CTX| never has its type change
+  // TODO(crbug.com/487376811): Since a `EVP_PKEY_CTX` never has its type change
   // after creation, this should instead be a base class, with the
   // algorithm-specific data on the subclass, coming from the same allocation.
   void *data = nullptr;
@@ -252,7 +262,7 @@ class EvpPkeyCtx : public evp_pkey_ctx_st {
 struct evp_pkey_ctx_method_st {
   int pkey_id;
 
-  // |alg| may be nullptr. If non-null, |ctx| will have a key set.
+  // `alg` may be nullptr. If non-null, `ctx` will have a key set.
   int (*init)(EvpPkeyCtx *ctx, const EVP_PKEY_ALG *alg);
   int (*copy)(EvpPkeyCtx *dst, EvpPkeyCtx *src);
   void (*cleanup)(EvpPkeyCtx *ctx);
@@ -304,13 +314,22 @@ struct evp_kem_st {
   // Constant lengths of ciphertexts and secrets produced/consumed by this KEM.
   size_t ciphertext_len;
   size_t secret_len;
+  // Fixed length of external entropy for testing.
+  size_t entropy_len;
 
-  int (*encap)(uint8_t *out_ciphertext, size_t ciphertext_len,
-               uint8_t *out_secret, size_t secret_len,
-               const EVP_PKEY *peer_key);
-  int (*decap)(uint8_t *out_secret, size_t secret_len,
-               const uint8_t *ciphertext, size_t ciphertext_len,
-               const EVP_PKEY *key);
+  // check_key, if non-null, returns whether `key`, whose type matches
+  // `pkey_id`, is usable with this KEM.
+  bool (*check_key)(const EVP_KEM *kem, const EVP_PKEY *key);
+
+  int (*encap)(const EVP_KEM *kem, bssl::Span<uint8_t> out_ciphertext,
+               bssl::Span<uint8_t> out_secret, const EVP_PKEY *peer_key);
+  int (*encap_external_entropy)(const EVP_KEM *kem,
+                                bssl::Span<uint8_t> out_ciphertext,
+                                bssl::Span<uint8_t> out_secret,
+                                const EVP_PKEY *peer_key,
+                                bssl::Span<const uint8_t> entropy);
+  int (*decap)(const EVP_KEM *kem, bssl::Span<uint8_t> out_secret,
+               bssl::Span<const uint8_t> ciphertext, const EVP_PKEY *key);
 } /* EVP_KEM */;
 
 BSSL_NAMESPACE_BEGIN
@@ -339,8 +358,8 @@ struct KemAdapter {
       OPENSSL_PUT_ERROR(EVP, EVP_R_BUFFER_TOO_SMALL);
       return 0;
     }
-    if (KEM.encap(out_ciphertext, KEM.ciphertext_len, out_secret,
-                  KEM.secret_len, ctx->pkey.get())) {
+    if (KEM.encap(&KEM, Span(out_ciphertext, KEM.ciphertext_len),
+                  Span(out_secret, KEM.secret_len), ctx->pkey.get())) {
       *out_ciphertext_len = KEM.ciphertext_len;
       *out_secret_len = KEM.secret_len;
       return 1;
@@ -359,8 +378,8 @@ struct KemAdapter {
       OPENSSL_PUT_ERROR(EVP, EVP_R_BUFFER_TOO_SMALL);
       return 0;
     }
-    if (KEM.decap(out_secret, KEM.secret_len, ciphertext, ciphertext_len,
-                  ctx->pkey.get())) {
+    if (KEM.decap(&KEM, Span(out_secret, KEM.secret_len),
+                  Span(ciphertext, ciphertext_len), ctx->pkey.get())) {
       *out_secret_len = KEM.secret_len;
       return 1;
     }
@@ -368,27 +387,27 @@ struct KemAdapter {
   }
 };
 
-// evp_pkey_ec_no_curve returns an internal curveless EC |EVP_PKEY_ALG|. This
+// evp_pkey_ec_no_curve returns an internal curveless EC `EVP_PKEY_ALG`. This
 // cannot be used to parse anything and is only useful for key generation.
 const EVP_PKEY_ALG *evp_pkey_ec_no_curve();
 
-// evp_pkey_hkdf returns an internal |EVP_PKEY_ALG| used to implement
-// |EVP_PKEY_HKDF|. It has no associated key type.
+// evp_pkey_hkdf returns an internal `EVP_PKEY_ALG` used to implement
+// `EVP_PKEY_HKDF`. It has no associated key type.
 const EVP_PKEY_ALG *evp_pkey_hkdf();
 
-// evp_pkey_ctx_new_alg behaves like |EVP_PKEY_CTX_new_id| but takes an
-// |EVP_PKEY_ALG|.
+// evp_pkey_ctx_new_alg behaves like `EVP_PKEY_CTX_new_id` but takes an
+// `EVP_PKEY_ALG`.
 UniquePtr<EvpPkeyCtx> evp_pkey_ctx_new_alg(const EVP_PKEY_ALG *alg);
 
-// evp_pkey_set0 sets |pkey|'s method to |method| and data to |pkey_data|,
+// evp_pkey_set0 sets `pkey`'s method to `method` and data to `pkey_data`,
 // freeing any key that may previously have been configured. This function takes
-// ownership of |pkey_data|, which must be of the type expected by |method|.
+// ownership of `pkey_data`, which must be of the type expected by `method`.
 void evp_pkey_set0(EvpPkey *pkey, const EVP_PKEY_ASN1_METHOD *method,
                    void *pkey_data);
 
 inline auto GetDefaultEVPAlgorithms() {
-  // A set of algorithms to use by default in |EVP_parse_public_key| and
-  // |EVP_parse_private_key|.
+  // A set of algorithms to use by default in `EVP_parse_public_key` and
+  // `EVP_parse_private_key`.
   return std::array{
       EVP_pkey_ec_p224(),
       EVP_pkey_ec_p256(),
@@ -403,7 +422,7 @@ inline auto GetDefaultEVPAlgorithms() {
       EVP_pkey_ml_kem_768(),
       EVP_pkey_ml_kem_1024(),
       // TODO(crbug.com/438761503): Remove DSA from this set, after callers that
-      // need DSA pass in |EVP_pkey_dsa| explicitly.
+      // need DSA pass in `EVP_pkey_dsa` explicitly.
       EVP_pkey_dsa(),
   };
 }

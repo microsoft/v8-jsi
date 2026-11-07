@@ -8,6 +8,7 @@ import io
 import unittest
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.histograms.print_expanded_histograms as print_expanded_histograms
 
 

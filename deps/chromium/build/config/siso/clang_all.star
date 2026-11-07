@@ -10,6 +10,7 @@ load("@builtin//struct.star", "module")
 load("./ar.star", "ar")
 load("./config.star", "config")
 load("./gn_logs.star", "gn_logs")
+load("./linux_sysroot.star", "linux_sysroot")
 load("./mac_sdk.star", "mac_sdk")
 load("./win_sdk.star", "win_sdk")
 load("./clang_code_coverage_wrapper.star", "clang_code_coverage_wrapper")
@@ -54,14 +55,6 @@ def __filegroups(ctx):
             "type": "glob",
             "includes": ["*.h"],
         },
-        # vendor provided headers for libc++.
-        path.join(root, "buildtools/third_party/libc++") + ":headers": {
-            "type": "glob",
-            "includes": [
-                "__*",
-            ],
-        },
-
         # toolchain root
         # :headers for compiling
         path.join(root, "third_party/llvm-build/Release+Asserts") + ":headers": {
@@ -71,37 +64,58 @@ def __filegroups(ctx):
                 "*.modulemap",
                 "bin/clang",
                 "bin/clang++",
-                "bin/clang-*",  # clang-cl, clang-<ver>
+                "bin/clang-cl",
+                "bin/clang-cl.exe",
+                # clang-<ver> is the real binary behind the clang symlinks
+                # when LLVM is built by tools/clang/scripts/build.py.
+                "bin/clang-[0-9]*",
                 "*_ignorelist.txt",
                 # https://crbug.com/335997052
                 "clang_rt.profile*.lib",
             ],
+        },
+        path.join(root, "third_party/llvm-build/Release+Asserts/bin:llddeps"): {
+            "type": "glob",
+            "includes": [
+                "clang*",
+                "ld.lld",
+                "ld64.lld",
+                "lld",
+                "llvm-nm",
+                "llvm-objcopy",
+                "llvm-objdump",
+                "llvm-otool",
+                "llvm-readelf",
+                "llvm-readobj",
+                "llvm-strip",
+            ],
+        },
+        path.join(root, "third_party/llvm-build/Release+Asserts/lib/clang:libs"): {
+            "type": "glob",
+            "includes": ["*/lib/*/*", "*/lib/*", "*/share/*"],
         },
     }
     if win_sdk.enabled(ctx):
         fg.update(win_sdk.filegroups(ctx))
     if mac_sdk.enabled(ctx):
         fg.update(mac_sdk.filegroups(ctx))
+    if linux_sysroot.enabled(ctx):
+        fg.update(linux_sysroot.filegroups(ctx))
     return fg
 
 def __input_deps(ctx):
     build_dir = ctx.fs.canonpath(".")
 
-    return {
-        # need this because we use
-        # third_party/libc++/src/include:headers,
-        # but scandeps doesn't scan `__config` file, which uses
-        # `#include <__config_site>`
-        # also need `__assertion_handler`. b/321171148
-        "third_party/libc++/src/include": [
-            "buildtools/third_party/libc++:headers",
-        ],
-        # This is necessary for modules build where libc++ headers are copied to build directory.
-        path.join(build_dir, "gen/third_party/libc++/src/include") + ":headers": [
-            path.join(build_dir, "gen/third_party/libc++/src/include/module.modulemap"),
-            path.join(build_dir, "phony/buildtools/third_party/libc++/copy_custom_headers") + ":inputs",
-            path.join(build_dir, "phony/buildtools/third_party/libc++/copy_libcxx_headers") + ":inputs",
-        ],
+    libcxx_inputs = [
+        "buildtools/third_party/libc++/__assertion_handler",
+        "buildtools/third_party/libc++/__config_site",
+    ]
+
+    inputs = {
+        "third_party/llvm-build/Release+Asserts/bin/clang++": libcxx_inputs,
+        "third_party/llvm-build/Release+Asserts/bin/clang++.exe": libcxx_inputs,
+        "third_party/llvm-build/Release+Asserts/bin/clang-cl": libcxx_inputs,
+        "third_party/llvm-build/Release+Asserts/bin/clang-cl.exe": libcxx_inputs,
         "third_party/llvm-build/Release+Asserts/bin/lld-link": [
             "build/config/c++/libc++.natvis",
             "build/win/as_invoker.manifest",
@@ -113,6 +127,9 @@ def __input_deps(ctx):
             "third_party/llvm-build/Release+Asserts/bin/lld",
             "tools/win/DebugVisualizers/absl.natvis",
             "tools/win/DebugVisualizers/blink.natvis",
+            "tools/win/DebugVisualizers/cc-component-build.natvis",
+            "tools/win/DebugVisualizers/cc-non-component-build.natvis",
+            "tools/win/DebugVisualizers/cc.natvis",
             "tools/win/DebugVisualizers/chrome.natvis",
         ],
         "third_party/llvm-build/Release+Asserts/bin/lld-link.exe": [
@@ -126,6 +143,9 @@ def __input_deps(ctx):
             "third_party/llvm-build/Release+Asserts/bin/lld.exe",
             "tools/win/DebugVisualizers/absl.natvis",
             "tools/win/DebugVisualizers/blink.natvis",
+            "tools/win/DebugVisualizers/cc-component-build.natvis",
+            "tools/win/DebugVisualizers/cc-non-component-build.natvis",
+            "tools/win/DebugVisualizers/cc.natvis",
             "tools/win/DebugVisualizers/chrome.natvis",
         ],
         "build/toolchain/gcc_solink_wrapper.py": [
@@ -155,9 +175,24 @@ def __input_deps(ctx):
             "build/toolchain/apple/solink_driver.py",
             "build/toolchain/whole_archive.py",
         ],
+        "third_party/llvm-build/Release+Asserts/bin/clang++:link": [
+            "third_party/llvm-build/Release+Asserts/bin:llddeps",
+        ],
+        "third_party/llvm-build/Release+Asserts:link": [
+            "third_party/llvm-build/Release+Asserts/bin:llddeps",
+            "third_party/llvm-build/Release+Asserts/lib/clang:libs",
+        ],
     }
+    if win_sdk.enabled(ctx):
+        inputs.update(win_sdk.input_deps(ctx))
+    if linux_sysroot.enabled(ctx):
+        inputs.update(linux_sysroot.input_deps(ctx))
+    return inputs
 
 def __lld_link(ctx, cmd):
+    if not (config.get(ctx, "remote-link") or config.get(ctx, "default-remote")):
+        return
+
     # Replace thin archives with /start-lib ... /end-lib in rsp file.
     new_lines = []
     for line in str(cmd.rspfile_content).split("\n"):
@@ -195,7 +230,7 @@ def __lld_link(ctx, cmd):
 
 def __thin_archive(ctx, cmd):
     # TODO: This handler can be used despite remote linking?
-    if not config.get(ctx, "remote-link"):
+    if not (config.get(ctx, "remote-link") or config.get(ctx, "default-remote")):
         return
     if "lld-link" in cmd.args[0]:
         if not "/llvmlibthin" in cmd.args:

@@ -30,7 +30,7 @@ if sys.platform.startswith('linux'):
   _TOOLS_PATH = os.path.dirname(os.path.abspath(__file__))
   _TOOLS_LINUX_PATH = os.path.join(_TOOLS_PATH, 'linux')
   sys.path.append(_TOOLS_LINUX_PATH)
-  import procfs  # pylint: disable=F0401
+  import procfs
 
 
 class _NullHandler(logging.Handler):
@@ -111,7 +111,7 @@ def count_statm(pids):
       continue
     resident += statm.resident
     shared += statm.share
-    private += (statm.resident - statm.share)
+    private += statm.resident - statm.share
 
   return (resident, shared, private)
 
@@ -119,8 +119,9 @@ def count_statm(pids):
 def main(argv):
   logging_handler = logging.StreamHandler()
   logging_handler.setLevel(logging.WARNING)
-  logging_handler.setFormatter(logging.Formatter(
-      '%(asctime)s:%(name)s:%(levelname)s:%(message)s'))
+  logging_handler.setFormatter(
+    logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+  )
 
   _LOGGER.setLevel(logging.WARNING)
   _LOGGER.addHandler(logging_handler)

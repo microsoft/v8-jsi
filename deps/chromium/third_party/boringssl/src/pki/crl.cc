@@ -25,9 +25,11 @@
 #include "parse_values.h"
 #include "parser.h"
 #include "revocation_util.h"
+#include "simple_path_builder_delegate.h"
 #include "signature_algorithm.h"
 #include "verify_name_match.h"
 #include "verify_signed_data.h"
+#include "verify_certificate_chain.h"
 
 BSSL_NAMESPACE_BEGIN
 
@@ -360,6 +362,11 @@ CRLRevocationStatus GetCRLStatusForCert(
       return CRLRevocationStatus::UNKNOWN;
     }
 
+    // TODO(crbug.com/533048005): We do not check `revoked_cert_serial_number`
+    // is a valid INTEGER because our certificate parser does not yet check for
+    // valid INTEGERs. This ensures those non-integers can be represented in
+    // CRLs.
+
     //              revocationDate          Time,
     der::GeneralizedTime unused_revocation_date;
     if (!ReadUTCOrGeneralizedTime(&crl_entry_parser, &unused_revocation_date)) {
@@ -408,7 +415,7 @@ CRLRevocationStatus GetCRLStatusForCert(
     return CRLRevocationStatus::REVOKED;
   }
 
-  // |cert| is not present in the revokedCertificates list.
+  // `cert` is not present in the revokedCertificates list.
   return CRLRevocationStatus::GOOD;
 }
 
@@ -420,8 +427,10 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
                              size_t target_cert_index,
                              const ParsedDistributionPoint &cert_dp,
                              int64_t verify_time_epoch_seconds,
-                             std::optional<int64_t> max_age_seconds) {
+                             std::optional<int64_t> max_age_seconds,
+                             VerifyCertificateChainDelegate *delegate) {
   BSSL_CHECK(target_cert_index < valid_chain.size());
+  BSSL_CHECK(delegate);
 
   if (cert_dp.reasons) {
     // Reason codes are not supported. If the distribution point contains a
@@ -456,12 +465,15 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
   }
 
   // 5.1.1.2  signatureAlgorithm
-  //
-  // TODO(https://crbug.com/749276): Check the signature algorithm against
-  // policy.
   std::optional<SignatureAlgorithm> signature_algorithm =
       ParseSignatureAlgorithm(signature_algorithm_tlv);
   if (!signature_algorithm) {
+    return CRLRevocationStatus::UNKNOWN;
+  }
+  // Check the signature algorithm against policy.
+  CertErrors unused_errors;
+  if (!delegate->IsSignatureAlgorithmAcceptable(*signature_algorithm,
+                                                &unused_errors)) {
     return CRLRevocationStatus::UNKNOWN;
   }
 
@@ -626,7 +638,7 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
   // cases of key rollover without requiring additional CRL issuer cert
   // discovery & path building.
   // TODO(https://crbug.com/749276): should this loop start at
-  // |target_cert_index|? There doesn't seem to be anything in the specs that
+  // `target_cert_index`? There doesn't seem to be anything in the specs that
   // precludes a CRL signed by a self-issued cert from covering itself. On the
   // other hand it seems like a pretty weird thing to allow and causes NIST
   // PKITS 4.5.3 to pass when it seems like it would not be intended to (since
@@ -639,7 +651,7 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
     //           path MUST be the same as the trust anchor used to validate
     //           the target certificate.
     //
-    // As the |issuer_cert| is from the already validated chain, it is already
+    // As the `issuer_cert` is from the already validated chain, it is already
     // known to chain to the same trust anchor as the target certificate.
     if (der::Input(StringAsBytes(normalized_crl_issuer)) !=
         issuer_cert->normalized_subject()) {
@@ -657,7 +669,7 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
     //           key validated in step (f).
     if (!VerifySignedData(*signature_algorithm, tbs_cert_list_tlv,
                           signature_value, issuer_cert->tbs().spki_tlv,
-                          /*cache=*/nullptr)) {
+                          delegate->GetVerifyCache())) {
       continue;
     }
 
@@ -669,7 +681,7 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
     //           in Section 5.3.3, then set the cert_status variable to the
     //           indicated reason as described in step (i).
     //
-    // CRL is valid and covers |target_cert|, check if |target_cert| is present
+    // CRL is valid and covers `target_cert`, check if `target_cert` is present
     // in the revokedCertificates sequence.
     return GetCRLStatusForCert(target_cert->tbs().serial_number,
                                tbs_cert_list.version,
@@ -678,8 +690,26 @@ CRLRevocationStatus CheckCRL(std::string_view raw_crl,
     // 6.3.3 (k,l) skipped. This implementation does not support reason codes.
   }
 
-  // Did not find the issuer & signer of |raw_crl| in |valid_chain|.
+  // Did not find the issuer & signer of `raw_crl` in `valid_chain`.
   return CRLRevocationStatus::UNKNOWN;
+}
+
+CRLRevocationStatus CheckCRL(std::string_view raw_crl,
+                             const ParsedCertificateList &valid_chain,
+                             size_t target_cert_index,
+                             const ParsedDistributionPoint &cert_dp,
+                             int64_t verify_time_epoch_seconds,
+                             std::optional<int64_t> max_age_seconds) {
+  // Use a default delegate that matches the previous behavior of allowing
+  // SHA-1. (This doesn't actually need a PathBuilderDelegate, but there isn't
+  // a SimpleVerifyCertificateChainDelegate.)
+  // TODO(mattm): tighten the default allowed sigalgs?
+  SimplePathBuilderDelegate default_verify_delegate(
+      /*min_rsa_modulus_length_bits=*/1024,
+      SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1);
+  return CheckCRL(raw_crl, valid_chain, target_cert_index, cert_dp,
+                  verify_time_epoch_seconds, max_age_seconds,
+                  &default_verify_delegate);
 }
 
 BSSL_NAMESPACE_END

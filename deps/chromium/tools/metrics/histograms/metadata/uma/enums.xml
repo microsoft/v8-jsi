@@ -74,6 +74,13 @@ chromium-metrics-reviews@google.com.
   <int value="15" label="p3+r3+"/>
 </enum>
 
+<enum name="ClientIdBackupValidation">
+  <int value="0" label="ValidatedLowerCase"/>
+  <int value="1" label="ValidatedWithUpperCaseLetters"/>
+  <int value="2" label="ValidatedEmpty"/>
+  <int value="3" label="Invalid"/>
+</enum>
+
 <enum name="ClientIdSource">
   <int value="0" label="Cached id matches local state"/>
   <int value="1" label="From local state"/>
@@ -298,9 +305,10 @@ chromium-metrics-reviews@google.com.
   <int value="9" label="Independent"/>
   <int value="10" label="Out Of Band"/>
   <int value="11" label="Flush"/>
+  <int value="12" label="Runtime Mutability"/>
 </enum>
 
-<!-- LINT.ThenChange(/components/metrics/metrics_logs_event_manager.h:CreateReason) -->
+<!-- LINT.ThenChange(//components/metrics/metrics_logs_event_manager.h:CreateReason) -->
 
 <enum name="MetricsReportingChange">
   <int value="0" label="Error">
@@ -347,12 +355,13 @@ chromium-metrics-reviews@google.com.
 
 <enum name="PersistentHistogramsInitResult">
   <int value="0" label="Local-Memory Success"/>
-  <int value="1" label="Local-Memory Failure"/>
+  <int value="1" label="(Obsolete) Local-Memory Failure"/>
   <int value="2" label="Mapped-File Success"/>
   <int value="3" label="Mapped-File Failure"/>
   <int value="4" label="Mapped-File Already Exists"/>
   <int value="5" label="No Spare File"/>
   <int value="6" label="Could Not Create Upload Directory"/>
+  <int value="7" label="Persistent Histograms Disabled"/>
 </enum>
 
 <enum name="PerUserDaemonStoreFail">

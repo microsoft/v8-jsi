@@ -20,8 +20,7 @@ import contextlib
 import os
 import subprocess
 import sys
-
-from urllib.request import urlopen
+import requests
 
 GS_HTTP_URL = 'https://storage.googleapis.com'
 
@@ -48,20 +47,19 @@ def WriteLocalProfileName(name, local_profile_name_path):
 
 
 def CheckCallOrExit(cmd):
-  proc = subprocess.Popen(cmd,
-                          stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE,
-                          encoding='utf-8')
+  proc = subprocess.Popen(
+    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding='utf-8'
+  )
   stdout, stderr = proc.communicate()
   exit_code = proc.wait()
   if not exit_code:
     return
 
   complaint_lines = [
-      '## %s failed with exit code %d' % (cmd[0], exit_code),
-      '## Full command: %s' % cmd,
-      '## Stdout:\n' + stdout,
-      '## Stderr:\n' + stderr,
+    '## %s failed with exit code %d' % (cmd[0], exit_code),
+    '## Full command: %s' % cmd,
+    '## Stdout:\n' + stdout,
+    '## Stderr:\n' + stderr,
   ]
   print('\n'.join(complaint_lines), file=sys.stderr)
   sys.exit(1)
@@ -82,15 +80,13 @@ def RetrieveProfile(desired_profile_name, out_path, gs_url_base):
   if not desired_profile_name.startswith(gs_prefix):
     gs_url = '/'.join([GS_HTTP_URL, gs_url_base, desired_profile_name])
   else:
-    gs_url = '/'.join([GS_HTTP_URL, desired_profile_name[len(gs_prefix):]])
+    gs_url = '/'.join([GS_HTTP_URL, desired_profile_name[len(gs_prefix) :]])
 
-  with contextlib.closing(urlopen(gs_url)) as u:
+  with requests.get(gs_url, stream=True, timeout=120) as r:
+    r.raise_for_status()
     with open(out_path, 'wb') as f:
-      while True:
-        buf = u.read(4096)
-        if not buf:
-          break
-        f.write(buf)
+      for chunk in r.iter_content(chunk_size=64 * 1024):
+        f.write(chunk)
 
   if ext == '.bz2':
     # NOTE: we can't use Python's bzip module, since it doesn't support
@@ -106,32 +102,38 @@ def RetrieveProfile(desired_profile_name, out_path, gs_url_base):
 
 def main():
   parser = argparse.ArgumentParser(
-      description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+  )
   parser.add_argument(
-      '--newest_state',
-      required=True,
-      help='Path to the file with name of the newest profile. '
-      'We use this file to track the name of the newest profile '
-      'we should pull.')
+    '--newest_state',
+    required=True,
+    help='Path to the file with name of the newest profile. '
+    'We use this file to track the name of the newest profile '
+    'we should pull.',
+  )
   parser.add_argument(
-      '--local_state',
-      required=True,
-      help='Path of the file storing name of the local profile. '
-      'We use this file to track the most recent profile we\'ve '
-      'successfully pulled.')
+    '--local_state',
+    required=True,
+    help='Path of the file storing name of the local profile. '
+    'We use this file to track the most recent profile we\'ve '
+    'successfully pulled.',
+  )
   parser.add_argument(
-      '--gs_url_base',
-      required=True,
-      help='The base GS URL to search for the profile.')
+    '--gs_url_base',
+    required=True,
+    help='The base GS URL to search for the profile.',
+  )
   parser.add_argument(
-      '--output_name',
-      required=True,
-      help='Output name of the downloaded and uncompressed profile.')
+    '--output_name',
+    required=True,
+    help='Output name of the downloaded and uncompressed profile.',
+  )
   parser.add_argument(
-      '-f',
-      '--force',
-      action='store_true',
-      help='Fetch a profile even if the local one is current.')
+    '-f',
+    '--force',
+    action='store_true',
+    help='Fetch a profile even if the local one is current.',
+  )
   args = parser.parse_args()
 
   up_to_date_profile = ReadUpToDateProfileName(args.newest_state)
@@ -140,8 +142,9 @@ def main():
     # In a perfect world, the local profile should always exist if we
     # successfully read local_profile_name. If it's gone, though, the user
     # probably removed it as a way to get us to download it again.
-    if local_profile_name == up_to_date_profile \
-        and os.path.exists(args.output_name):
+    if local_profile_name == up_to_date_profile and os.path.exists(
+      args.output_name
+    ):
       return 0
 
   new_tmpfile = args.output_name + '.new'

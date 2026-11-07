@@ -11,6 +11,7 @@
 #include "google/protobuf/reflection_ops.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/optimization.h"
@@ -20,6 +21,7 @@
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/descriptor.pb.h"
 #include "google/protobuf/map_field.h"
+#include "google/protobuf/message_lite.h"
 #include "google/protobuf/port.h"
 #include "google/protobuf/unknown_field_set.h"
 
@@ -77,7 +79,7 @@ void ReflectionOps::Merge(const Message& from, Message* to) {
             from_reflection->GetMapData(from, field);
         MapFieldBase* to_field = to_reflection->MutableMapData(to, field);
         if (to_field->IsMapValid() && from_field->IsMapValid()) {
-          to_field->MergeFrom(*from_field);
+          to_field->MergeFrom(to->GetArena(), *from_field);
           continue;
         }
       }
@@ -236,7 +238,8 @@ bool ReflectionOps::IsInitialized(const Message& message, bool check_fields,
     // referenced.
     const Message* extendee =
         MessageFactory::generated_factory()->GetPrototype(descriptor);
-    if (!reflection->GetExtensionSet(message).IsInitialized(extendee)) {
+    if (!reflection->GetExtensionSet(message).IsInitialized(message.GetArena(),
+                                                            extendee)) {
       return false;
     }
   }

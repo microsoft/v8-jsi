@@ -53,6 +53,15 @@ uploading your change for review.  These are checked by presubmit scripts.
   <int value="11" label="Unavailable - IsReadyToPay task returned false"/>
 </enum>
 
+<!-- LINT.IfChange(PaymentHandlerPausedResolutionOutcome) -->
+
+<enum name="PaymentHandlerPausedResolutionOutcome">
+  <int value="0" label="User Interacted"/>
+  <int value="1" label="Window Closed"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/payments/core/payment_request_metrics.h:PaymentHandlerPausedResolutionOutcome) -->
+
 <enum name="PaymentRequestAddressEditorMode">
   <int value="0" label="Add new address"/>
   <int value="1" label="Edit existing address"/>
@@ -65,6 +74,32 @@ uploading your change for review.  These are checked by presubmit scripts.
   <int value="3" label="Payment handler invoked"/>
   <int value="4" label="Completed"/>
 </enum>
+
+<!-- LINT.IfChange(PaymentRequestOutcome) -->
+
+<enum name="PaymentRequestOutcome">
+  <int value="0" label="Success"/>
+  <int value="1" label="Aborted by user"/>
+  <int value="2" label="Aborted by merchant"/>
+  <int value="3" label="Aborted due to invalid data from renderer"/>
+  <int value="4" label="Aborted due to Mojo connection error"/>
+  <int value="5" label="Aborted due to Mojo renderer closing"/>
+  <int value="6" label="Aborted due to instrument details error"/>
+  <int value="7" label="Aborted: No matching payment method (Deprecated)"/>
+  <int value="8" label="Aborted: No supported payment method (Deprecated)"/>
+  <int value="9" label="Aborted due to other reasons"/>
+  <int value="10" label="Aborted due to user navigation"/>
+  <int value="11" label="Aborted due to merchant navigation"/>
+  <int value="12" label="Aborted: User opted out"/>
+  <int value="13" label="Aborted due to internal error"/>
+  <int value="14" label="Could not show: Another UI already showing"/>
+  <int value="15" label="Could not show: User activation required"/>
+  <int value="16" label="Could not show: Background tab"/>
+  <int value="17" label="Could not show: No supported payment method"/>
+  <int value="18" label="Could not show: User cancel"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/payments/core/payment_request_metrics.h:PaymentRequestOutcome) -->
 
 <!-- LINT.IfChange(PaymentRequestTryShowOutcome) -->
 
@@ -98,6 +133,16 @@ uploading your change for review.  These are checked by presubmit scripts.
 
 <!-- LINT.ThenChange(//components/payments/core/secure_payment_confirmation_metrics.h:BrowserBoundKeys) -->
 
+<!-- LINT.IfChange(SecurePaymentConfirmationLocaleOutcome) -->
+
+<enum name="SecurePaymentConfirmationLocaleOutcome">
+  <int value="0" label="LocaleNotProvided"/>
+  <int value="1" label="Match"/>
+  <int value="2" label="NoMatch"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/payments/core/secure_payment_confirmation_metrics.h:SecurePaymentConfirmationLocaleOutcome) -->
+
 <!-- LINT.IfChange(SecurePaymentRequestOutcome) -->
 
 <enum name="SecurePaymentRequestOutcome">
@@ -109,6 +154,27 @@ uploading your change for review.  These are checked by presubmit scripts.
 </enum>
 
 <!-- LINT.ThenChange(//components/payments/content/android/spc/java/src/org/chromium/components/payments/secure_payment_confirmation/SecurePaymentConfirmationController.java:SecurePaymentRequestOutcome, //components/payments/content/secure_payment_confirmation_controller.h:SecurePaymentRequestOutcome) -->
+
+<!-- LINT.IfChange(ThreeDSecureTransactionStatus) -->
+
+<enum name="ThreeDSecureTransactionStatus">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="JSON Encrypted"/>
+  <int value="2" label="Authentication / Account verification successful (Y)"/>
+  <int value="3"
+      label="Not Authenticated / Account Not Verified; Transaction denied (N)"/>
+  <int value="4"
+      label="Authentication / Account Verification Could Not Be Performed (U)"/>
+  <int value="5" label="Attempts Processing Performed (A)"/>
+  <int value="6" label="Challenge Required (C)"/>
+  <int value="7"
+      label="Challenge Required; Decoupled Authentication confirmed (D)"/>
+  <int value="8" label="Authentication / Account Verification Rejected (R)"/>
+  <int value="9" label="Informational Only (I)"/>
+  <int value="10" label="Challenge using SPC (S)"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/payments/core/web_payments_telemetry.h:ThreeDSecureTransactionStatus) -->
 
 </enums>
 

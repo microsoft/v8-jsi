@@ -14,29 +14,32 @@ import version
 
 def _test(args: List[str], f: Callable) -> None:
     with mock.patch('sys.argv', args):
-        # pylint: disable=protected-access
         version._GIT_ARGS = version._load_git_args()
         f()
 
 
 _TRY_ARGS = [
-    'version.py', '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
-    '--gerrit-issue=5009604', '--gerrit-patchset=16',
-    '--buildbucket-id=8756180599882888289'
+    'version.py',
+    '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
+    '--gerrit-issue=5009604',
+    '--gerrit-patchset=16',
+    '--buildbucket-id=8756180599882888289',
 ]
 
 _0_TRY_ARGS = [
-    'version.py', '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
-    '--gerrit-issue=0', '--gerrit-patchset=16',
-    '--buildbucket-id=8756180599882888289'
+    'version.py',
+    '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
+    '--gerrit-issue=0',
+    '--gerrit-patchset=16',
+    '--buildbucket-id=8756180599882888289',
 ]
 
 _CI_ARGS = [
-    'version.py', '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c'
+    'version.py',
+    '--git-revision=e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
 ]
 
 
-# pylint: disable=missing-function-docstring
 class VersionTest(unittest.TestCase):
     """Tests of version.py."""
 
@@ -48,21 +51,30 @@ class VersionTest(unittest.TestCase):
 
     def test_try_git_revision(self) -> None:
         _test(
-            _TRY_ARGS, lambda: self.assertEqual(
+            _TRY_ARGS,
+            lambda: self.assertEqual(
                 version.git_revision(),
-                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c/5009604/16'))
+                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c/5009604/16',
+            ),
+        )
 
     def test_ci_git_revision(self) -> None:
         _test(
-            _CI_ARGS, lambda: self.assertEqual(
+            _CI_ARGS,
+            lambda: self.assertEqual(
                 version.git_revision(),
-                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c'))
+                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c',
+            ),
+        )
 
     def test_is_try_build_0(self) -> None:
         _test(_0_TRY_ARGS, lambda: self.assertTrue(version.is_try_build()))
 
     def test_try_git_revision_0(self) -> None:
         _test(
-            _0_TRY_ARGS, lambda: self.assertEqual(
+            _0_TRY_ARGS,
+            lambda: self.assertEqual(
                 version.git_revision(),
-                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c/0/16'))
+                'e98127af84bf5b33a6e657c90dfd3f3a731eb28c/0/16',
+            ),
+        )

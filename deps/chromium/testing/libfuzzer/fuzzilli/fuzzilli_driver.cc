@@ -2,14 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifdef UNSAFE_BUFFERS_BUILD
-// TODO(crbug.com/351564777): Remove this and convert code to safer constructs.
-#pragma allow_unsafe_buffers
-#endif
-
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <array>
 #include <string_view>
 
 #include "base/containers/span.h"
@@ -17,7 +13,6 @@
 #include "base/logging.h"
 #include "base/strings/string_view_util.h"
 #include "base/threading/thread_restrictions.h"
-#include "v8/src/fuzzilli/cov.h"
 
 #define WEAK_SANCOV_DEF(return_type, name, ...)                           \
   extern "C" __attribute__((visibility("default"))) __attribute__((weak)) \
@@ -54,6 +49,9 @@ WEAK_SANCOV_DEF(void, __sanitizer_cov_load16, void) {}
 constexpr base::PlatformFile kControlReadFd = 100;
 constexpr base::PlatformFile kControlWriteFd = 101;
 constexpr base::PlatformFile kDataReadFd = 102;
+
+// Forward-declare from //v8:fuzzilli_cov.
+void fuzzilli_cov_enable();
 
 int LLVMFuzzerRunDriverImpl(int* argc,
                             char*** argv,
@@ -107,7 +105,7 @@ int LLVMFuzzerRunDriverImpl(int* argc,
   static_assert(kExpectedSize == 4);
 
   ctrl_write_file.WriteAtCurrentPosAndCheck(base::as_bytes(kHelloMessage));
-  char actual_magic[kExpectedSize] = {};
+  std::array<char, kExpectedSize> actual_magic = {};
   ctrl_read_file.ReadAtCurrentPosAndCheck(
       base::as_writable_byte_span(actual_magic));
 
@@ -116,7 +114,7 @@ int LLVMFuzzerRunDriverImpl(int* argc,
   while (true) {
     // Read the action message ("exec") from Fuzzilli.
     constexpr auto kExpectedAction = base::span_from_cstring("exec");
-    uint8_t read_buffer[kExpectedAction.size()];
+    std::array<uint8_t, kExpectedAction.size()> read_buffer;
     std::optional<size_t> bytes_read =
         ctrl_read_file.ReadAtCurrentPos(base::span(read_buffer));
 
@@ -147,7 +145,7 @@ int LLVMFuzzerRunDriverImpl(int* argc,
     // Read the JavaScript script from Fuzzilli.
     std::vector<uint8_t> buffer(script_size + 1);
     data_read_file.ReadAtCurrentPosAndCheck(
-        base::span(buffer.data(), script_size));
+        base::span(buffer).first(script_size));
     buffer[script_size] = 0;
 
     // Run the script:

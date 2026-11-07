@@ -21,7 +21,8 @@
 #endif
 
 #if HAS_STRPTIME
-#if !defined(_XOPEN_SOURCE) && !defined(__FreeBSD__) && !defined(__OpenBSD__)
+#if !defined(_XOPEN_SOURCE) && !defined(__FreeBSD__) && \
+    !defined(__OpenBSD__) && !defined(__APPLE__)
 #define _XOPEN_SOURCE 500  // Exposes definitions for SUSv2 (UNIX 98).
 #endif
 #endif
@@ -33,6 +34,7 @@
 // declare strptime.
 #include <time.h>
 
+#include <cassert>
 #include <cctype>
 #include <chrono>
 #include <cstddef>
@@ -56,6 +58,16 @@ namespace cctz {
 namespace detail {
 
 namespace {
+
+// The ctype functions have undefined behavior for negative char values,
+// so these helpers ensure the argument is always in the unsigned-char domain.
+bool isdigit(char ch) {
+  return std::isdigit(static_cast<unsigned char>(ch)) != 0;
+}
+
+bool isspace(char ch) {
+  return std::isspace(static_cast<unsigned char>(ch)) != 0;
+}
 
 #if !HAS_STRPTIME
 // Build a strptime() using C++11's std::get_time().
@@ -552,7 +564,7 @@ std::string format(const std::string& format, const time_point<seconds>& tp,
       bp = Format64(ep, 4, al.cs.year());
       result.append(bp, ep);
       pending = cur += 2;
-    } else if (std::isdigit(*cur)) {
+    } else if (isdigit(*cur)) {
       // Possibly found %E#S or %E#f.
       int n = 0;
       if (const char* np = ParseInt(cur, 0, 0, 1024, &n)) {
@@ -619,7 +631,7 @@ const char* ParseOffset(const char* dp, const char* mode, int* offset) {
 const char* ParseZone(const char* dp, std::string* zone) {
   zone->clear();
   if (dp != nullptr) {
-    while (*dp != '\0' && !std::isspace(*dp)) zone->push_back(*dp++);
+    while (*dp != '\0' && !isspace(*dp)) zone->push_back(*dp++);
     if (zone->empty()) dp = nullptr;
   }
   return dp;
@@ -697,6 +709,14 @@ bool FromWeek(int week_num, weekday week_start, year_t* year, std::tm* tm) {
 bool parse(const std::string& format, const std::string& input,
            const time_zone& tz, time_point<seconds>* sec,
            detail::femtoseconds* fs, std::string* err) {
+#if __cplusplus < 202002L
+  // Assert that the std::chrono::system_clock epoch is the Unix epoch.
+  // This is required by C++20, but was also ubiquitous before that.
+  // We use this in join_seconds() to simplify overflow detection.
+  assert(std::chrono::system_clock::from_time_t(0).time_since_epoch() ==
+         std::chrono::system_clock::duration::zero());
+#endif
+
   // The unparsed input.  Even though we allow NULs in input, and
   // match them against corresponding NULs in format, we depend on
   // *edata being a NUL so that we can call strptime().  This also
@@ -705,7 +725,7 @@ bool parse(const std::string& format, const std::string& input,
   const char* const edata = data + input.size();
 
   // Skips leading whitespace.
-  while (std::isspace(*data)) ++data;
+  while (isspace(*data)) ++data;
 
   const year_t kyearmax = std::numeric_limits<year_t>::max();
   const year_t kyearmin = std::numeric_limits<year_t>::min();
@@ -743,9 +763,9 @@ bool parse(const std::string& format, const std::string& input,
 
   // Steps through format, one specifier at a time.
   while (data != nullptr && fmt != efmt) {
-    if (std::isspace(*fmt)) {
-      while (std::isspace(*data)) ++data;
-      while (std::isspace(*++fmt)) continue;
+    if (isspace(*fmt)) {
+      while (isspace(*data)) ++data;
+      while (isspace(*++fmt)) continue;
       continue;
     }
 
@@ -897,7 +917,7 @@ bool parse(const std::string& format, const std::string& input,
           continue;
         }
         if (fmt[0] == '*' && fmt[1] == 'f') {
-          if (data != nullptr && std::isdigit(*data)) {
+          if (data != nullptr && isdigit(*data)) {
             data = ParseSubSeconds(data, &subseconds);
           }
           fmt += 2;
@@ -916,7 +936,7 @@ bool parse(const std::string& format, const std::string& input,
           fmt += 2;
           continue;
         }
-        if (std::isdigit(*fmt)) {
+        if (isdigit(*fmt)) {
           int n = 0;  // value ignored
           if (const char* np = ParseInt(fmt, 0, 0, 1024, &n)) {
             if (*np == 'S') {
@@ -928,7 +948,7 @@ bool parse(const std::string& format, const std::string& input,
               continue;
             }
             if (*np == 'f') {
-              if (data != nullptr && std::isdigit(*data)) {
+              if (data != nullptr && isdigit(*data)) {
                 data = ParseSubSeconds(data, &subseconds);
               }
               fmt = ++np;
@@ -976,7 +996,7 @@ bool parse(const std::string& format, const std::string& input,
   }
 
   // Skip any remaining whitespace.
-  while (std::isspace(*data)) ++data;
+  while (isspace(*data)) ++data;
 
   // parse() must consume the entire input string.
   if (data != edata) {

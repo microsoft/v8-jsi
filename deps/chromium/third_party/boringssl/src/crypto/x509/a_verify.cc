@@ -34,14 +34,21 @@ using namespace bssl;
 int bssl::x509_verify_signature(const X509_ALGOR *sigalg,
                                 const ASN1_BIT_STRING *signature,
                                 Span<const uint8_t> in, EVP_PKEY *pkey) {
-  if (!pkey) {
-    OPENSSL_PUT_ERROR(X509, ERR_R_PASSED_NULL_PARAMETER);
-    return 0;
-  }
-
   if (signature->type == V_ASN1_BIT_STRING &&
       ASN1_BIT_STRING_unused_bits(signature) != 0) {
     OPENSSL_PUT_ERROR(X509, X509_R_INVALID_BIT_STRING_BITS_LEFT);
+    return 0;
+  }
+  Span<const uint8_t> signature_bytes(ASN1_STRING_get0_data(signature),
+                                      ASN1_STRING_length(signature));
+  return x509_verify_signature_bytes(sigalg, signature_bytes, in, pkey);
+}
+
+int bssl::x509_verify_signature_bytes(const X509_ALGOR *sigalg,
+                                      Span<const uint8_t> signature,
+                                      Span<const uint8_t> in, EVP_PKEY *pkey) {
+  if (!pkey) {
+    OPENSSL_PUT_ERROR(X509, ERR_R_PASSED_NULL_PARAMETER);
     return 0;
   }
 
@@ -49,8 +56,8 @@ int bssl::x509_verify_signature(const X509_ALGOR *sigalg,
   if (!x509_digest_verify_init(ctx.get(), sigalg, pkey)) {
     return 0;
   }
-  if (!EVP_DigestVerify(ctx.get(), ASN1_STRING_get0_data(signature),
-                        ASN1_STRING_length(signature), in.data(), in.size())) {
+  if (!EVP_DigestVerify(ctx.get(), signature.data(), signature.size(),
+                        in.data(), in.size())) {
     OPENSSL_PUT_ERROR(X509, ERR_R_EVP_LIB);
     return 0;
   }

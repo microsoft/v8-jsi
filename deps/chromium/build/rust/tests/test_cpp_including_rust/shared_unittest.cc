@@ -9,6 +9,8 @@
 
 #include "build/rust/tests/test_rust_shared_library/src/lib.rs.h"
 #include "partition_alloc/buildflags.h"
+#include "partition_alloc/partition_alloc_constants.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if PA_BUILDFLAG(HAS_64_BIT_POINTERS)
@@ -55,7 +57,7 @@ TEST(RustSharedTest, DISABLED_RustLargeAllocationFailure) {
   // PA will crash when an allocation fails rather than return null, but Rust
   // can be trusted to handle failure without introducing null derefs so this
   // should fail gracefully.
-  size_t max_size = partition_alloc::internal::MaxDirectMapped();
+  size_t max_size = partition_alloc::MaxAllocationSize();
   EXPECT_FALSE(allocate_huge_via_rust(max_size + 1u, 4u));
 
   // Same as above but with an alignment larger than PartitionAlloc's default

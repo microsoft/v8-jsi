@@ -9,6 +9,7 @@
 #include "base/logging.h"
 #include "base/no_destructor.h"
 #include "base/power_monitor/power_monitor_source.h"
+#include "base/trace_event/named_trigger.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "power_observer.h"
@@ -178,10 +179,8 @@ void PowerMonitor::NotifyPowerStateChange(
                      : "Off")
              << " battery";
     if (emit_global_event_) {
-      TRACE_EVENT_END("base.power", battery_power_track_);
-      TRACE_EVENT_BEGIN("base.power",
-                        BatteryStatusToString(battery_power_status),
-                        battery_power_track_);
+      TRACE_STATE("base.power", BatteryStatusToString(battery_power_status),
+                  battery_power_track_);
     }
   }
 
@@ -198,15 +197,13 @@ void PowerMonitor::NotifySuspend() {
   DCHECK(IsInitialized());
   DVLOG(1) << "Power Suspending";
   if (emit_global_event_) {
-    TRACE_EVENT_INSTANT("base.power", "PowerMonitor::NotifySuspend",
-                        suspend_track_);
+    base::trace_event::EmitNamedTrigger("power-suspend");
   }
 
   AutoLock auto_lock(is_system_suspended_lock_);
   if (!is_system_suspended_) {
     if (emit_global_event_) {
-      TRACE_EVENT_BEGIN("base.power", "PowerMonitor::Suspended",
-                        suspend_track_);
+      TRACE_STATE("base.power", "PowerMonitor::Suspended", suspend_track_);
     }
     is_system_suspended_ = true;
     last_system_resume_time_ = TimeTicks::Max();
@@ -219,8 +216,7 @@ void PowerMonitor::NotifyResume() {
   DCHECK(IsInitialized());
   DVLOG(1) << "Power Resuming";
   if (emit_global_event_) {
-    TRACE_EVENT_INSTANT("base.power", "PowerMonitor::NotifyResume",
-                        suspend_track_);
+    base::trace_event::EmitNamedTrigger("power-resume");
   }
 
   TimeTicks resume_time = TimeTicks::Now();
@@ -228,7 +224,7 @@ void PowerMonitor::NotifyResume() {
   AutoLock auto_lock(is_system_suspended_lock_);
   if (is_system_suspended_) {
     if (emit_global_event_) {
-      TRACE_EVENT_END("base.power", suspend_track_);
+      TRACE_STATE("base.power", nullptr, suspend_track_);
     }
     is_system_suspended_ = false;
     last_system_resume_time_ = resume_time;
@@ -288,17 +284,13 @@ void PowerMonitor::OnStart(const perfetto::DataSourceBase::StartArgs&) {
   {
     AutoLock auto_lock(is_system_suspended_lock_);
     if (is_system_suspended_) {
-      TRACE_EVENT_END("base.power", suspend_track_);
-      TRACE_EVENT_BEGIN("base.power", "PowerMonitor::Suspended",
-                        suspend_track_);
+      TRACE_STATE("base.power", "PowerMonitor::Suspended", suspend_track_);
     }
   }
   {
     AutoLock auto_lock(battery_power_status_lock_);
-    TRACE_EVENT_END("base.power", battery_power_track_);
-    TRACE_EVENT_BEGIN("base.power",
-                      BatteryStatusToString(battery_power_status_),
-                      battery_power_track_);
+    TRACE_STATE("base.power", BatteryStatusToString(battery_power_status_),
+                battery_power_track_);
   }
 }
 

@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/chromeos/ui_mode.gni")
-
 # This file creates |platform_pak_locales| which is the set of packed locales
 # based on the current platform. Locales in this list are formatted based on
 # what .pak files expect. The |platform_pak_locales| variable *may* contain
@@ -209,18 +207,15 @@ if (is_chromeos) {
   platform_pak_locales -= [
     "af",
     "am",
-    "bn",
     "et",
     "fil",
-    "gu",
-    "kn",
     "lv",
-    "ml",
-    "mr",
-    "sl",
     "sw",
-    "ta",
-    "te",
+  ]
+  platform_pak_locales += [
+    "gl",
+    "or",
+    "pa",
   ]
 }
 
@@ -257,9 +252,31 @@ if (is_android) {
 locales_without_pseudolocales = platform_pak_locales - pseudolocales
 locales_with_pseudolocales = platform_pak_locales
 
+# locales used for typical .xtb files.
+xtb_locales = all_chrome_locales - pseudolocales - [
+                "en-US",
+                "he",
+                "nb",
+              ] +
+              [
+                "iw",
+                "no",
+              ]
+if (is_ios) {
+  xtb_locales -= [
+    "es-MX",
+    "pt",
+  ]
+  xtb_locales += [
+    "es-419",
+    "pt-BR",
+  ]
+}
+
 declare_args() {
-  # We want to give pseudolocales to everyone except end-users (devs & QA).
-  # Note that this only packages the locales in, and doesn't add the ui to enable them.
+  # We want to give pseudolocales to everyone except end-users (devs & QA). Note
+  # that this only packages the locales in, and doesn't add the ui to enable
+  # them.
   enable_pseudolocales = !is_official_build
 }
 

@@ -67,11 +67,17 @@ chromium-metrics-reviews@google.com.
   <int value="46" label="ActionsBlockedByEnterprisePolicy"/>
   <int value="47" label="ActionsBlockedForScheme"/>
   <int value="48" label="ActionsBlockedOnErrorPage"/>
-  <int value="49" label="ActionBlockedByEnterpriseContentScan"/>
+  <int value="49" label="UnrecoverableError"/>
+  <int value="50" label="UserNavigatedAway"/>
+  <int value="51" label="ActionBlockedByEnterpriseContentScan"/>
+  <int value="52" label="ActionTargetCrossProfile"/>
   <int value="100" label="NavigateInvalidUrl"/>
   <int value="101" label="NavigateFailedToStart"/>
   <int value="102" label="NavigateCommittedErrorPage"/>
   <int value="200" label="ClickSuppressed"/>
+  <int value="201" label="ClickMissingTarget"/>
+  <int value="202" label="ClickMissingType"/>
+  <int value="203" label="ClickInvalidCount"/>
   <int value="300" label="DragAndReleaseFromOffscreen"/>
   <int value="301" label="DragAndReleaseToOffscreen"/>
   <int value="302" label="DragAndReleaseFromMoveSuppressed"/>
@@ -82,6 +88,8 @@ chromium-metrics-reviews@google.com.
   <int value="500" label="ScrollNoScrollingElement"/>
   <int value="501" label="ScrollTargetNotUserScrollable"/>
   <int value="502" label="ScrollOffsetDidNotChange"/>
+  <int value="503" label="ScrollMissingDirection"/>
+  <int value="504" label="ScrollMissingDistance"/>
   <int value="600" label="SelectInvalidElement"/>
   <int value="601" label="SelectNoSuchOption"/>
   <int value="602" label="SelectOptionDisabled"/>
@@ -139,9 +147,57 @@ chromium-metrics-reviews@google.com.
   <int value="1208" label="ScriptToolNavigationCommittedErrorPage"/>
   <int value="1209" label="ScriptToolNavigationFailedLoad"/>
   <int value="1300" label="ActorUiError"/>
+  <int value="1400" label="OtpRetrievalTimeout"/>
+  <int value="1401" label="OtpRetrievalError"/>
+  <int value="1402" label="OtpFillFailure"/>
+  <int value="1403" label="OtpRetrievalMismatch"/>
+  <int value="1404" label="OtpGmailConsentRequired"/>
+  <int value="1405" label="OtpGoogleConsentRequired"/>
+  <int value="1406" label="OtpDmaConsentRequired"/>
+  <int value="1407" label="OtpNoCodeFound"/>
+  <int value="1408" label="OtpExpired"/>
+  <int value="1409" label="OtpServiceUnavailable"/>
+  <int value="1410" label="OtpSigninContextMismatch"/>
+  <int value="1411" label="OtpInsecureContext"/>
+  <int value="1412" label="OtpUnableToFill"/>
+  <int value="1413" label="OtpUserDeclinedOptingIntoFilling"/>
+  <int value="1414" label="OtpTargetFrameNotFound"/>
+  <int value="1415" label="OtpNoLastTabObservation"/>
+  <int value="1416" label="OtpFieldNotFound"/>
+  <int value="1500" label="TranslateServiceUnavailable"/>
+  <int value="1501" label="TranslateUnsupportedLanguage"/>
+  <int value="1600" label="BookmarkModelNotLoaded"/>
+  <int value="1700" label="FindAndHighlightTextNotFound"/>
+  <int value="1800" label="FileUploadUnauthorizedFile"/>
+  <int value="1801" label="FileUploadEmptyFileList"/>
+  <int value="1900" label="SearchServiceUnavailable"/>
+  <int value="1901" label="DefaultSearchProviderNotSet"/>
+  <int value="2000" label="PageSearchNoMatch"/>
+  <int value="2001" label="PageSearchAmbiguousMatch"/>
+  <int value="2002" label="PageSearchAlreadyOnMatchingTab"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/actor/public/mojom/actor_types.mojom:ActionResultCode) -->
+
+<!-- LINT.IfChange(ActorBackgroundActuationTrigger) -->
+
+<enum name="ActorBackgroundActuationTrigger">
+  <int value="0" label="TaskInitByChrome"/>
+  <int value="1" label="TaskInitByFcm"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorBackgroundActuationTrigger) -->
+
+<!-- LINT.IfChange(ActorBackgroundTabCreationStatus) -->
+
+<enum name="ActorBackgroundTabCreationStatus">
+  <int value="0" label="TaskInitByChromeSuccess"/>
+  <int value="1" label="TaskInitByChromeFailure"/>
+  <int value="2" label="TaskInitByFcmSuccess"/>
+  <int value="3" label="TaskInitByFcmFailure"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorBackgroundTabCreationStatus) -->
 
 <!-- LINT.IfChange(ActorEngineState) -->
 
@@ -156,6 +212,48 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/actor/execution_engine.h:State) -->
+
+<!-- LINT.IfChange(ActorFetchConversationIdStatus) -->
+
+<enum name="ActorFetchConversationIdStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="NotFound"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorFetchConversationIdStatus) -->
+
+<!-- LINT.IfChange(ActorFetchTabIdStatus) -->
+
+<enum name="ActorFetchTabIdStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="TabNotFound"/>
+  <int value="2" label="TabClosed"/>
+  <int value="3" label="InvalidId"/>
+  <int value="4" label="Timeout"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorFetchTabIdStatus) -->
+
+<!-- LINT.IfChange(ActorForegroundServiceLifecycle) -->
+
+<enum name="ActorForegroundServiceLifecycle">
+  <int value="0" label="Started"/>
+  <int value="1" label="Updated"/>
+  <int value="2" label="Stopped"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/actor/ActorForegroundServiceUmaHelper.java:ForegroundLifecycle) -->
+
+<!-- LINT.IfChange(ActorForegroundServiceStopReason) -->
+
+<enum name="ActorForegroundServiceStopReason">
+  <int value="0" label="Stopped"/>
+  <int value="1" label="Destroyed"/>
+  <int value="2" label="TaskRemoved"/>
+  <int value="3" label="LowMemory"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/actor/ActorForegroundServiceUmaHelper.java:StopReason) -->
 
 <!-- LINT.IfChange(ActorLoginAccountTypes) -->
 
@@ -196,6 +294,16 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//components/password_manager/core/browser/actor_login/internal/actor_login_metrics.h:ActorLoginSelectedAccountType) -->
 
+<!-- LINT.IfChange(ActorNotificationPermissionState) -->
+
+<enum name="ActorNotificationPermissionState">
+  <int value="0" label="Enabled"/>
+  <int value="1" label="ChannelDisabled"/>
+  <int value="2" label="OsDisabled"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorNotificationPermissionState) -->
+
 <!-- LINT.IfChange(ActorObservationOutcome) -->
 
 <enum name="ActorObservationOutcome">
@@ -205,18 +313,36 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="FailedAfterRetry"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/actor/actor_metrics.cc:ActorObservationOutcome) -->
+<!-- LINT.ThenChange(//chrome/browser/actor/actor_metrics.h:ActorObservationOutcome) -->
+
+<!-- LINT.IfChange(ActorPipExitReason) -->
+
+<enum name="ActorPipExitReason">
+  <int value="0" label="Close"/>
+  <int value="1" label="Expand"/>
+  <int value="2" label="Completed"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorPipExitReason) -->
+
+<!-- LINT.IfChange(ActorPipStatus) -->
 
 <enum name="ActorPipStatus">
   <int value="0" label="Entered"/>
   <int value="1" label="Exited"/>
 </enum>
 
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorPipStatus) -->
+
+<!-- LINT.IfChange(ActorPipUserInteraction) -->
+
 <enum name="ActorPipUserInteraction">
   <int value="0" label="Pause"/>
   <int value="1" label="Resume"/>
   <int value="2" label="Expand"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/android/java/src/org/chromium/chrome/browser/actor/ActorMetrics.java:ActorPipUserInteraction) -->
 
 <!-- LINT.IfChange(ActorServerConfirmationResult) -->
 
@@ -244,7 +370,7 @@ chromium-metrics-reviews@google.com.
   <int value="10" label="Both APC and Screenshot not OK"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/actor/actor_metrics.cc:ActorTabObservationResult) -->
+<!-- LINT.ThenChange(//chrome/browser/actor/actor_metrics.h:ActorTabObservationResult) -->
 
 <!-- LINT.IfChange(ActorTaskCreateFailedReason) -->
 
@@ -265,7 +391,23 @@ chromium-metrics-reviews@google.com.
   </int>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/glic/actor/glic_actor_policy_checker.h:CannotActReason) -->
+<!-- LINT.ThenChange(//chrome/browser/glic/glic_enums.h:CannotActReason) -->
+
+<!-- LINT.IfChange(ActorTaskState) -->
+
+<enum name="ActorTaskState">
+  <int value="0" label="Created"/>
+  <int value="1" label="Acting"/>
+  <int value="2" label="Reflecting"/>
+  <int value="3" label="PausedByActor"/>
+  <int value="4" label="PausedByUser"/>
+  <int value="5" label="Cancelled"/>
+  <int value="6" label="Finished"/>
+  <int value="7" label="WaitingOnUser"/>
+  <int value="8" label="Failed"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/actor/actor_task.h:State, histograms.xml:ActorTaskState) -->
 
 <!-- LINT.IfChange(ActorUiTabControllerError) -->
 
@@ -305,6 +447,12 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="kNeedsAsyncCheck"/>
   <int value="4" label="kAllowByContainerConfig"/>
   <int value="5" label="kBlockByContainerConfig"/>
+  <int value="6" label="kBlockByDangerousMimeType"/>
+  <int value="7" label="kLookalikeUrl"/>
+  <int value="8" label="kSafeBrowsing"/>
+  <int value="9" label="kSafetyChecksDisabled"/>
+  <int value="10" label="kTabErrorDocument"/>
+  <int value="11" label="kTabSafeBrowsingObserver"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/actor/execution_engine.h:GatingDecision) -->
@@ -344,7 +492,7 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="kMojoDisconnected"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/common/actor/page_stability_metrics_common.h:PageStabilityOutcome) -->
+<!-- LINT.ThenChange(//components/actor/core/page_stability_metrics_common.h:PageStabilityOutcome) -->
 
 <!-- LINT.IfChange(RendererResolvedTargetResult) -->
 
@@ -367,9 +515,10 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="kInvalidToUrlPattern"/>
   <int value="6" label="kInvalidFromField"/>
   <int value="7" label="kInvalidFromUrlPattern"/>
+  <int value="8" label="kEntryFormatInvalid"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/actor/safety_list_manager.h:SafetyListParseResult) -->
+<!-- LINT.ThenChange(//components/actor/core/safety_list_manager.h:ParseResult) -->
 
 <!-- LINT.IfChange(SplitModeTimeOfUseFrameStatus) -->
 
@@ -392,6 +541,8 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Shutdown"/>
   <int value="6" label="Started new chat"/>
   <int value="7" label="Loaded previous chat"/>
+  <int value="8" label="User navigated away"/>
+  <int value="9" label="Timeout"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/actor/actor_task.h:StoppedReason) -->

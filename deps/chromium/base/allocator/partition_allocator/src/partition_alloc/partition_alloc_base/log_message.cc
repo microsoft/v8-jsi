@@ -4,19 +4,17 @@
 
 #include "partition_alloc/partition_alloc_base/log_message.h"
 
+#include <array>
+
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 
-// TODO(crbug.com/40158212): After finishing copying //base files to PA library,
-// remove defined(BASE_CHECK_H_) from here.
-#if defined(                                                                                 \
-    BASE_ALLOCATOR_PARTITION_ALLOCATOR_SRC_PARTITION_ALLOC_PARTITION_ALLOC_BASE_CHECK_H_) || \
-    defined(BASE_CHECK_H_) ||                                                                \
-    defined(                                                                                 \
-        BASE_ALLOCATOR_PARTITION_ALLOCATOR_SRC_PARTITION_ALLOC_PARTITION_ALLOC_CHECK_H_)
+#if defined(PARTITION_ALLOC_PARTITION_ALLOC_BASE_CHECK_H_) || \
+    defined(PARTITION_ALLOC_PARTITION_ALLOC_CHECK_H_)
 #error "log_message.h should not include check.h"
 #endif
 
 #include "partition_alloc/build_config.h"
+#include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
 #include "partition_alloc/partition_alloc_base/debug/alias.h"
 #include "partition_alloc/partition_alloc_base/debug/stack_trace.h"
@@ -49,7 +47,8 @@ namespace partition_alloc::internal::logging {
 
 namespace {
 
-const char* const log_severity_names[] = {"INFO", "WARNING", "ERROR", "FATAL"};
+constexpr auto log_severity_names =
+    std::to_array<const char*>({"INFO", "WARNING", "ERROR", "FATAL"});
 static_assert(LOGGING_NUM_SEVERITIES == std::size(log_severity_names),
               "Incorrect number of log_severity_names");
 
@@ -113,7 +112,7 @@ LogMessage::~LogMessage() {
   RawLog(severity_, str_newline);
 
   // TODO(crbug.com/40213558): Enable a stack trace on a fatal on fuchsia.
-#if !defined(OFFICIAL_BUILD) &&                         \
+#if !PA_BUILDFLAG(OFFICIAL) &&                          \
     (PA_BUILDFLAG(IS_POSIX) || PA_BUILDFLAG(IS_WIN)) && \
     !defined(__UCLIBC__) && !PA_BUILDFLAG(IS_AIX)
   // TODO(crbug.com/40213558): Show a stack trace on a fatal, unless a debugger
@@ -193,7 +192,7 @@ void SystemErrorCodeToStream(base::strings::CStringBuilder& os,
                              GetLastError(), error_code);
   os << buffer;
 #elif PA_BUILDFLAG(IS_POSIX) || PA_BUILDFLAG(IS_FUCHSIA)
-  base::safe_strerror_r(error_code, buffer, sizeof(buffer));
+  base::safe_strerror_r(error_code, buffer);
   os << buffer << " (" << error_code << ")";
 #endif  // PA_BUILDFLAG(IS_WIN)
 }

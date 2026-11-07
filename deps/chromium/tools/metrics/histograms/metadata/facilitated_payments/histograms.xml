@@ -51,6 +51,7 @@ reviewer.
   <variant name="Dana" summary="Scheme Dana that supports eWallet payflow."/>
   <variant name="DuitNow"
       summary="Scheme DuitNow that supports eWallet payflow."/>
+  <variant name="Invalid" summary="Invalid payment link scheme."/>
   <variant name="Momo" summary="Scheme Momo that supports eWallet payflow."/>
   <variant name="PromptPay"
       summary="Scheme PromptPay that supports payment link payflow."/>
@@ -348,6 +349,36 @@ reviewer.
   <token key="Scheme" variants="PaymentLinkScheme"/>
 </histogram>
 
+<histogram name="FacilitatedPayments.Ewallet.NewAccountLinkingFlowExitedReason"
+    enum="FacilitatedPayments.EwalletNewAccountLinkingFlowExitedReason"
+    expires_after="2027-04-30">
+  <owner>nicluo@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Logs the reason why the eWallet New Account Linking onboarding flow was
+    exited early. [Trigger] The onboarding flow terminates early. [Frequency]
+    Logged at most once per onboarding flow.
+  </summary>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.Ewallet.NewAccountLinkingFlowExitedReason.{Scheme}"
+    enum="FacilitatedPayments.EwalletNewAccountLinkingFlowExitedReason"
+    expires_after="2027-04-30">
+  <owner>nicluo@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Logs the reason why the eWallet New Account Linking onboarding flow was
+    exited early for {Scheme}. [Trigger] The onboarding flow terminates early.
+    [Frequency] Logged at most once per onboarding flow.
+  </summary>
+  <token key="Scheme" variants="PaymentLinkScheme"/>
+</histogram>
+
 <histogram name="FacilitatedPayments.Ewallet.PayflowExitedReason"
     enum="FacilitatedPayments.EwalletFlowExitedReason"
     expires_after="2027-04-30">
@@ -402,48 +433,35 @@ reviewer.
   </summary>
 </histogram>
 
-<histogram name="FacilitatedPayments.Pix.AccountLinking.FlowExitedReason"
-    enum="FacilitatedPayments.Pix.AccountLinking.FlowExitedReason"
-    expires_after="2027-04-30">
-  <owner>longsheng@google.com</owner>
+<histogram
+    name="FacilitatedPayments.PaymentLinkDetected.EligibleForAccountLinking"
+    enum="Boolean" expires_after="2027-04-30">
+  <owner>nicluo@google.com</owner>
   <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
   <owner>payments-autofill-team@google.com</owner>
   <summary>
-    This histogram logs the reasons as to why the Pix account linking flow was
-    exited. The flow is said to be completed if Chrome successfully opens
-    Wallet's Pix account linking page. [Trigger] Pix account linking flow was
-    exited early. [Frequency] Logged at most once per payflow.
+    Logs true when a payment link is detected on a merchant webpage and the user
+    is eligible for the eWallet new account linking onboarding flow (meaning
+    they have no linked eWallet accounts but have unlinked creation options
+    available). [Trigger] A payment link is detected and the user has no
+    standard linked eWallet accounts but has matching eWallet creation options.
+    [Frequency] Logged once per page load.
   </summary>
 </histogram>
 
-<histogram
-    name="FacilitatedPayments.Pix.AccountLinking.GetDetailsForCreatePaymentInstrument.Latency"
-    units="ms" expires_after="2027-04-30">
-  <owner>longsheng@google.com</owner>
-  <owner>siashah@google.com</owner>
+<histogram name="FacilitatedPayments.PaymentLinkDetected.{Scheme}"
+    enum="Boolean" expires_after="2027-04-30">
+  <owner>junhuihe@google.com</owner>
+  <owner>qihuizhao@google.com</owner>
   <owner>payments-autofill-team@google.com</owner>
   <summary>
-    Records the amount of time that it takes to receive a response from the
-    server endpoint that checks the Pix account linking eligibility
-    (GetDetailsForCreatePaymentInstrument). [Frequency] Logged once per Pix
-    account linking flow. [Trigger] The histogram is logged when the server
-    endpoint returns a response.
+    Logs true when a payment link is detected on a merchant webpage. The payment
+    is supported by {Scheme}. [Trigger] A payment link on a merchant page has
+    triggered the payment link push payment flow. [Frequency] Logged once per
+    page load.
   </summary>
-</histogram>
-
-<histogram
-    name="FacilitatedPayments.Pix.AccountLinking.GetDetailsForCreatePaymentInstrument.Result"
-    enum="BooleanEligible" expires_after="2027-04-30">
-  <owner>longsheng@google.com</owner>
-  <owner>siashah@google.com</owner>
-  <owner>payments-autofill-team@google.com</owner>
-  <summary>
-    Records the eligibility response received from the server endpoint that
-    checks the Pix account linking eligibility
-    (GetDetailsForCreatePaymentInstrument). [Frequency] Logged once per Pix
-    account linking flow. [Trigger] The histogram is logged when the server
-    endpoint returns a response.
-  </summary>
+  <token key="Scheme" variants="PaymentLinkScheme"/>
 </histogram>
 
 <histogram name="FacilitatedPayments.Pix.AccountLinking.PromptAccepted"
@@ -470,6 +488,20 @@ reviewer.
     [Frequency] Logged once per Pix account linking flow. [Trigger] The
     histogram is logged when the prompt appears after user completes the payment
     on their bank/payment app and return back to Chrome.
+  </summary>
+</histogram>
+
+<histogram name="FacilitatedPayments.Pix.AccountLinking.VideoLinkClicked"
+    enum="Boolean" expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    The count for the number of times the user clicked the &quot;See how it
+    works&quot; video link on the Pix account linking prompt. Emits true when
+    the link is clicked and never emits false. [Frequency] Logged each time the
+    user clicks the link. [Trigger] User clicks the &quot;See how it works&quot;
+    link on the Pix account linking prompt.
   </summary>
 </histogram>
 
@@ -564,22 +596,9 @@ reviewer.
   </summary>
 </histogram>
 
-<histogram name="FacilitatedPayments.Pix.PaymentCodeValidation.Result"
-    enum="FacilitatedPayments.PixCodeValidationResult"
-    expires_after="2027-04-30">
-  <owner>siashah@google.com</owner>
-  <owner>payments-autofill-team@google.com</owner>
-  <summary>
-    A Pix-specific histogram. Emits the result of validating a Pix payment code.
-    [Trigger] User copies a Pix payment code to their clipboard, either manually
-    for via a merchant's copy button. [Frequency] Logged once per Pix payflow.
-    Pix payflow is triggered at most once per page load.
-  </summary>
-</histogram>
-
 <histogram name="FacilitatedPayments.Pix.PaymentCodeValidation.RustResult"
     enum="FacilitatedPayments.Pix.PaymentCodeValidation.RustResult"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>dcheng@chromium.org</owner>
   <owner>payments-autofill-team@google.com</owner>
   <summary>
@@ -590,54 +609,6 @@ reviewer.
     or via a merchant's copy button. [Frequency] Logged once per Pix payflow.
     Pix payflow is triggered at most once per page load.
   </summary>
-</histogram>
-
-<histogram
-    name="FacilitatedPayments.Pix.PaymentCodeValidation.{PaymentCodeValidationResult}.Latency"
-    units="ms" expires_after="2027-04-30">
-  <owner>siashah@google.com</owner>
-  <owner>payments-autofill-team@google.com</owner>
-  <summary>
-    Latency for the Pix payment code validation with
-    {PaymentCodeValidationResult} as result. The validation is done in a
-    sandboxed utility process to safely process strings from the renderer
-    without compromising the browser process. The string would have already been
-    verified to contain the Pix identifier prefix (0014br.gov.bcb.pix).
-    [Frequency] As the Pix payflow is only allowed to be triggered once per page
-    load, this metric similarly can only be logged at most once per page load.
-    [Trigger] The user copies a Pix payment code to their clipboard, either
-    manually for via a merchant's copy button.
-  </summary>
-  <token key="PaymentCodeValidationResult">
-    <variant name="DynamicCode" summary="valid dynamic code"/>
-    <variant name="InvalidCode" summary="invalid code"/>
-    <variant name="StaticCode" summary="valid static code"/>
-    <variant name="ValidatorFailed" summary="failed validator"/>
-  </token>
-</histogram>
-
-<histogram
-    name="FacilitatedPayments.Pix.PaymentCodeValidation.{PaymentCodeValidationResult}.ResultVsRust"
-    enum="FacilitatedPayments.PixCodeValidationResult"
-    expires_after="2026-12-01">
-  <owner>dcheng@chromium.org</owner>
-  <owner>payments-autofill-team@google.com</owner>
-  <summary>
-    Compares the C++ Pix code validation result against the Rust Pix code
-    validation result. The C++ result is {PaymentCodeValidationResult}. The Rust
-    result is translated into the C++ enumeration space for an apples-to-apples
-    comparison.
-
-    [Trigger] User copies a Pix payment code to their clipboard, either manually
-    or via a merchant's copy button. [Frequency] Logged once per Pix payflow.
-    Pix payflow is triggered at most once per page load.
-  </summary>
-  <token key="PaymentCodeValidationResult">
-    <variant name="DynamicCode" summary="C++: valid dynamic code"/>
-    <variant name="InvalidCode" summary="C++: invalid code"/>
-    <variant name="StaticCode" summary="C++: valid static code"/>
-    <variant name="ValidatorFailed" summary="C++: failed validator"/>
-  </token>
 </histogram>
 
 <histogram name="FacilitatedPayments.Pix.PixCodeCopied" enum="Boolean"
@@ -780,6 +751,159 @@ reviewer.
     otherwise. Does not log if the toggle is not updated. [Trigger] User updates
     the toggle for {FacilitatedPaymentsType} from the facilitated payments
     settings page. [Frequency] Logged once per toggle update.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.FlowExitedReason"
+    enum="FacilitatedPayments.AccountLinking.FlowExitedReason"
+    expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>nicluo@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    This histogram logs the reasons as to why the {FacilitatedPaymentsType}
+    account linking flow was exited. The flow is said to be completed if Chrome
+    successfully opens Wallet's {FacilitatedPaymentsType} account linking page.
+    [Trigger] {FacilitatedPaymentsType} account linking flow was exited early.
+    [Frequency] Logged at most once per payflow.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.GetClientToken.{Result}.Latency"
+    units="ms" expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>nicluo@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Latency for the call to fetch the client token for the
+    {FacilitatedPaymentsType} account linking flow. The client token is fetched
+    from the platform-specific payment library. {Result} is the token fetch
+    result. [Frequency] Logged once per {FacilitatedPaymentsType} account
+    linking flow. [Trigger] The GMSCore API returns the token or fails.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+  <token key="Result" variants="BooleanResult"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.GetDetailsForCreatePaymentInstrument.Latency"
+    units="ms" expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>nicluo@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Records the amount of time that it takes to receive a response from the
+    server endpoint that checks the {FacilitatedPaymentsType} account linking
+    eligibility (GetDetailsForCreatePaymentInstrument). [Frequency] Logged once
+    per {FacilitatedPaymentsType} account linking flow. [Trigger] The histogram
+    is logged when the server endpoint returns a response.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.GetDetailsForCreatePaymentInstrument.Result"
+    enum="BooleanEligible" expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>hfizt@google.com</owner>
+  <owner>nicluo@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Records the eligibility response received from the server endpoint that
+    checks the {FacilitatedPaymentsType} account linking eligibility
+    (GetDetailsForCreatePaymentInstrument). [Frequency] Logged once per
+    {FacilitatedPaymentsType} account linking flow. [Trigger] The histogram is
+    logged when the server endpoint returns a response.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.PromptFailedToShow"
+    enum="Boolean" expires_after="2027-04-30">
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    On a webpage that is eligible for {FacilitatedPaymentsType} transactions on
+    Chrome, this histogram logs when the account linking prompt failed to show
+    to the user. [Frequency] Logged once per payflow. [Trigger] The account
+    linking prompt failed to show.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.PromptInteractionDuration"
+    units="ms" expires_after="2027-04-30">
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    On a webpage that is eligible for {FacilitatedPaymentsType} transactions on
+    Chrome, this histogram logs the duration that the account linking prompt was
+    shown to the user before they interacted with it. [Frequency] Logged once
+    per payflow. [Trigger] The user takes an action on the prompt (accepts or
+    dismisses it).
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.PromptInteractionDuration.{UserAction}"
+    units="ms" expires_after="2027-04-30">
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    On a webpage that is eligible for {FacilitatedPaymentsType} transactions on
+    Chrome, this histogram logs the duration that the account linking prompt was
+    shown to the user before they interacted with it, specifically when the user
+    {UserAction}. [Frequency] Logged once per payflow. [Trigger] The user
+    interacts with the account linking prompt.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+  <token key="UserAction">
+    <variant name="Accepted" summary="accepts the prompt"/>
+    <variant name="Declined" summary="declines the prompt"/>
+    <variant name="Dismissed" summary="dismisses the prompt"/>
+  </token>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.PromptUserAction"
+    enum="FacilitatedPayments.AccountLinking.PromptUserAction"
+    expires_after="2027-04-30">
+  <owner>hfizt@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    On a webpage that is eligible for {FacilitatedPaymentsType} transactions on
+    Chrome, this histogram logs events related to the account linking prompt.
+    [Frequency] Logged once per event. [Trigger] The prompt is shown or the user
+    interacts with the account linking prompt.
+  </summary>
+  <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
+</histogram>
+
+<histogram
+    name="FacilitatedPayments.{FacilitatedPaymentsType}.AccountLinking.Result"
+    enum="BooleanSuccess" expires_after="2027-04-30">
+  <owner>longsheng@google.com</owner>
+  <owner>siashah@google.com</owner>
+  <owner>payments-autofill-team@google.com</owner>
+  <summary>
+    Logs whether the {FacilitatedPaymentsType} account linking process was
+    successful or not. [Frequency] Logged exactly once per account linking flow.
+    [Trigger] Chrome receives the outcome callback after attempting the account
+    linking flow via GMSCore.
   </summary>
   <token key="FacilitatedPaymentsType" variants="FacilitatedPaymentsTypes"/>
 </histogram>

@@ -11,7 +11,10 @@
 #include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
 #include "partition_alloc/partition_alloc_config.h"
-#include "partition_alloc/partition_alloc_constants.h"
+
+#if PA_CONFIG(THREAD_CACHE_ALLOC_STATS)
+#include "partition_alloc/bucket_lookup.h"
+#endif
 
 namespace partition_alloc {
 
@@ -99,6 +102,10 @@ struct PartitionMemoryStats {
   // be reported on all platforms.
   uint64_t syscall_count;
   uint64_t syscall_total_time_ns;
+
+  uint64_t total_intended_leak_bytes;  // Total intended leaked memory.
+  uint64_t
+      total_aligned_alloc_wasted_bytes;  // Wasted bytes from aligned allocs.
 };
 
 // Struct used to retrieve memory statistics about a partition bucket. Used by
@@ -138,6 +145,9 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) PartitionStatsDumper {
   // Called to dump stats about buckets, for each bucket.
   virtual void PartitionsDumpBucketStats(const char* partition_name,
                                          const PartitionBucketMemoryStats*) = 0;
+
+  // Called to dump intended leak size per each type id.
+  virtual void DumpIntendedLeak(uint32_t type_id, size_t size) {}
 };
 
 // Simple version of PartitionStatsDumper, storing the returned stats in stats_.

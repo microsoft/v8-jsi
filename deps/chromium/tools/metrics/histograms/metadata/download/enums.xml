@@ -63,6 +63,7 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Dialog confirmed"/>
   <int value="2" label="Dialog canceled"/>
   <int value="3" label="Dialog dismissed"/>
+  <int value="4" label="Dialog dismissed by native"/>
 </enum>
 
 <enum name="Download.DragInfo">
@@ -134,6 +135,11 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="ADDED_WARNING_FIRST_SHOWN"/>
   <int value="5" label="ADDED_WARNING_ACTION"/>
   <int value="6" label="NOT_ADDED_DOWNLOAD_NOT_DANGEROUS"/>
+</enum>
+
+<enum name="DownloadAndroidResumedFromNotificationEvent">
+  <int value="0" label="Triggered"/>
+  <int value="1" label="Propagated"/>
 </enum>
 
 <enum name="DownloadAppleWalletOrderFileUI">
@@ -376,6 +382,22 @@ chromium-metrics-reviews@google.com.
   <int value="16" label="set_ui_options"/>
 </enum>
 
+<!-- LINT.IfChange(DownloadHistoryLoadTrigger) -->
+
+<enum name="DownloadHistoryLoadTrigger">
+  <int value="0" label="DownloadManager creation"/>
+  <int value="1" label="New or in-progress download"/>
+  <int value="2" label="Downloads WebUI page"/>
+  <int value="3" label="OfflineContentProvider (e.g. Download Home)"/>
+  <int value="4" label="Desktop Download Bubble"/>
+  <int value="5" label="Downloads Extension API"/>
+  <int value="6" label="BrowsingDataRemover"/>
+  <int value="7" label="BrowsingDataCounter"/>
+  <int value="8" label="Test"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/download/download_core_service.h:DownloadHistoryLoadTrigger) -->
+
 <enum name="DownloadImageType">
   <int value="0" label="Unrecognized"/>
   <int value="1" label="GIF"/>
@@ -451,28 +473,6 @@ chromium-metrics-reviews@google.com.
       label="DOWNLOAD_DANGER_TYPE_PROMPT_FOR_LOCAL_PASSWORD_SCANNING"/>
   <int value="22" label="DOWNLOAD_DANGER_TYPE_ASYNC_LOCAL_PASSWORD_SCANNING"/>
   <int value="23" label="DOWNLOAD_DANGER_TYPE_BLOCKED_SCAN_FAILED"/>
-</enum>
-
-<enum name="DownloadLaterDialogChoice">
-  <int value="0" label="Download now"/>
-  <int value="1" label="On WIFI"/>
-  <int value="2" label="Download later"/>
-</enum>
-
-<enum name="DownloadLaterUiEvent">
-  <int value="0" label="DOWNLOAD_LATER_DIALOG_SHOW"/>
-  <int value="1" label="DOWNLOAD_LATER_DIALOG_COMPLETE"/>
-  <int value="2" label="DOWNLOAD_LATER_DIALOG_CANCEL"/>
-  <int value="3" label="DATE_TIME_PICKER_SHOW"/>
-  <int value="4" label="DATE_TIME_PICKER_COMPLETE"/>
-  <int value="5" label="DATE_TIME_PICKER_CANCEL"/>
-  <int value="6" label="DOWNLOAD_HOME_CHANGE_SCHEDULE_CLICKED"/>
-  <int value="7" label="DOWNLOAD_HOME_CHANGE_SCHEDULE_COMPLETE"/>
-  <int value="8" label="DOWNLOAD_HOME_CHANGE_SCHEDULE_CANCEL"/>
-  <int value="9" label="DOWNLOAD_INFOBAR_CHANGE_SCHEDULE_CLICKED"/>
-  <int value="10" label="DOWNLOAD_INFOBAR_CHANGE_SCHEDULE_COMPLETE"/>
-  <int value="11" label="DOWNLOAD_INFOBAR_CHANGE_SCHEDULE_CANCEL"/>
-  <int value="12" label="DOWNLOAD_LATER_DIALOG_EDIT_CLICKED"/>
 </enum>
 
 <enum name="DownloadMobileConfigFileUI">
@@ -658,6 +658,7 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Open file"/>
   <int value="1" label="Download progress message"/>
   <int value="2" label="App menu"/>
+  <int value="3" label="Download home menu"/>
 </enum>
 
 <enum name="PolicyWarningDialogEvent">

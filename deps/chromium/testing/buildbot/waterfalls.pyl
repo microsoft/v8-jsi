@@ -127,14 +127,6 @@
         'cros_board': 'betty',
         'cros_dut_pool': 'vmlab',
       },
-      'chromeos-betty-chrome-tests': {
-        'test_suites': {
-          'skylab_tests': 'chromeos_vmlab_tests',
-        },
-        'os_type': 'chromeos',
-        'cros_board': 'betty',
-        'cros_dut_pool': 'vmlab',
-      },
       'chromeos-brya-chrome': {
         'additional_compile_targets': [
           'chromiumos_preflight',
@@ -275,19 +267,6 @@
           'isolated_scripts': 'linux_chromeos_isolated_scripts',
         },
       },
-      'mac-chrome': {
-        'additional_compile_targets': [
-          'chrome',
-          'chrome/installer/mac',
-        ],
-        'mixins': [
-          'chrome-swarming-pool',
-          'mac_14_x64',
-        ],
-        'test_suites': {
-          'isolated_scripts': 'chrome_isolated_script_tests',
-        },
-      },
       'win-branded-rel': {
         'additional_compile_targets': [
           'chrome',
@@ -333,25 +312,6 @@
       'swarming_containment_auto',
     ],
     'machines': {
-      'ChromeOS FYI Release Skylab (jacuzzi)': {
-        'additional_compile_targets': [
-          'chromiumos_preflight',
-        ],
-        'browser_config': 'cros-chrome',
-        'os_type': 'chromeos',
-        'skip_merge_script': True,
-        'use_swarming': False,
-        'mixins': [
-          'limited_capacity_bot',
-          'long_skylab_timeout',
-        ],
-        'test_suites': {
-          # There should be the same gtests here as on a normal CrOS bot,
-          # but mixing test types on a single bot is not supported in Skylab
-          # yet.
-          'skylab_gpu_telemetry_tests': 'gpu_fyi_chromeos_release_telemetry_tests_jacuzzi_skylab',
-        },
-      },
       'gpu-fyi-chromeos-brya-chrome': {
         'additional_compile_targets': [
           'chromiumos_preflight',
@@ -542,7 +502,6 @@
         ],
         'test_suites': {
           'gtest_tests': 'clang_tot_gtests',
-          'isolated_scripts': 'chrome_sizes_suite',
         },
         'additional_compile_targets': [
           'all',
@@ -552,12 +511,11 @@
       'ToTMacOfficial': {
         'mixins': [
           'chrome-tester-service-account',
-          'mac_default_x64',
+          'mac_15_x64',
           'chrome-swarming-pool',
         ],
         'test_suites': {
           'gtest_tests': 'clang_tot_gtests',
-          'isolated_scripts': 'chrome_sizes_suite',
         },
         'additional_compile_targets': [
           'all',
@@ -571,7 +529,7 @@
         ],
         'test_suites': {
           'gtest_tests': 'clang_tot_gtests',
-          'isolated_scripts': 'win_specific_isolated_scripts_and_sizes',
+          'isolated_scripts': 'win_specific_isolated_scripts',
         },
         'additional_compile_targets': [
           'chrome_official_builder',
@@ -590,7 +548,7 @@
         ],
         'test_suites': {
           'gtest_tests': 'clang_tot_gtests',
-          'isolated_scripts': 'win_specific_isolated_scripts_and_sizes',
+          'isolated_scripts': 'win_specific_isolated_scripts',
         },
         'additional_compile_targets': [
           'chrome_official_builder',
@@ -617,68 +575,40 @@
           'isolated_scripts': 'devtools_web_isolated_scripts',
         },
       },
-      'DevTools Linux Fastbuild': {
-        'mixins': [
-          'linux-jammy',
-        ],
-        'additional_compile_targets': ['blink_tests'],
-        'test_suites': {
-          'gtest_tests': 'devtools_gtests',
-          'isolated_scripts': 'devtools_web_isolated_scripts',
-        },
-      },
     },
   },
   {
     'name': 'client.openscreen.chromium',
     'machines': {
       'chromium_linux_x64': {
+        'use_swarming': False,
         'additional_compile_targets': [
           'chrome/browser/media/router',
-          'chrome/browser/media/router:openscreen_unittests',
           'chrome/browser/media/router:unittests',
-          'components/media_router/common/providers/cast/channel',
-          'components/media_router/common/providers/cast/channel:unit_tests',
-          'components/media_router/common/providers/cast/certificate',
-          'components/media_router/common/providers/cast/certificate:unit_tests',
-          'components/mirroring/browser',
-          'components/mirroring/service:mirroring_service',
-          'components/mirroring:mirroring_tests',
-          'components/mirroring:mirroring_unittests',
-          'components/openscreen_platform',
         ],
+        'test_suites': {
+          'gtest_tests': 'openscreen_chromium_gtests',
+        },
       },
       'chromium_mac_arm64': {
+        'use_swarming': False,
         'additional_compile_targets': [
           'chrome/browser/media/router',
-          'chrome/browser/media/router:openscreen_unittests',
           'chrome/browser/media/router:unittests',
-          'components/media_router/common/providers/cast/channel',
-          'components/media_router/common/providers/cast/channel:unit_tests',
-          'components/media_router/common/providers/cast/certificate',
-          'components/media_router/common/providers/cast/certificate:unit_tests',
-          'components/mirroring/browser',
-          'components/mirroring/service:mirroring_service',
-          'components/mirroring:mirroring_tests',
-          'components/mirroring:mirroring_unittests',
-          'components/openscreen_platform',
         ],
+        'test_suites': {
+          'gtest_tests': 'openscreen_chromium_gtests',
+        },
       },
       'chromium_win_x64': {
+        'use_swarming': False,
         'additional_compile_targets': [
           'chrome/browser/media/router',
-          'chrome/browser/media/router:openscreen_unittests',
           'chrome/browser/media/router:unittests',
-          'components/media_router/common/providers/cast/channel',
-          'components/media_router/common/providers/cast/channel:unit_tests',
-          'components/media_router/common/providers/cast/certificate',
-          'components/media_router/common/providers/cast/certificate:unit_tests',
-          'components/mirroring/browser',
-          'components/mirroring/service:mirroring_service',
-          'components/mirroring:mirroring_tests',
-          'components/mirroring:mirroring_unittests',
-          'components/openscreen_platform',
         ],
+        'test_suites': {
+          'gtest_tests': 'openscreen_chromium_gtests',
+        },
       },
     },
   },
@@ -743,7 +673,7 @@
           'linux_nvidia_gtx_1660_stable',
         ],
         'test_suites': {
-          'gpu_telemetry_tests': 'gpu_fyi_linux_release_vulkan_telemetry_tests',
+          'gpu_telemetry_tests': 'legacy_gpu_all_linux_release_telemetry_tests',
         },
       },
       'Linux V8 FYI Release - pointer compression (NVIDIA)': {
@@ -753,7 +683,7 @@
           'linux_nvidia_gtx_1660_stable',
         ],
         'test_suites': {
-          'gpu_telemetry_tests': 'gpu_fyi_linux_release_vulkan_telemetry_tests',
+          'gpu_telemetry_tests': 'legacy_gpu_all_linux_release_telemetry_tests',
         },
       },
       'Mac V8 FYI Release (Apple M2)': {
@@ -890,7 +820,7 @@
           'win10_nvidia_gtx_1660_stable',
         ],
         'test_suites': {
-          'gpu_telemetry_tests': 'gpu_fyi_win_release_telemetry_tests',
+          'gpu_telemetry_tests': 'gpu_v8_win_release_telemetry_tests',
         },
       },
     },
@@ -1013,26 +943,6 @@
       'chrome-tester-service-account',
     ],
     'machines': {
-      'ai_wpt-mac-arm64': {
-        'mixins': [
-          'chrome-swarming-pool',
-          'mac_default_arm64',
-        ],
-        'test_suites': {
-           'isolated_scripts': 'chrome_ai_wpt_tests_suite',
-        },
-        'os_type': 'mac',
-      },
-      'ai_wpt-mac-x64': {
-        'mixins': [
-          'chrome-swarming-pool',
-          'mac_default_x64',
-        ],
-        'test_suites': {
-           'isolated_scripts': 'chrome_ai_wpt_tests_suite',
-        },
-        'os_type': 'mac',
-      },
       'model_validation-linux': {
         'mixins': [
           'chrome-intelligence-swarming-pool',
@@ -1057,7 +967,7 @@
       'model_validation-mac-x64': {
         'mixins': [
           'chrome-swarming-pool',
-          'mac_default_x64',
+          'mac_15_x64',
         ],
         'test_suites': {
            'isolated_scripts': 'model_validation_matrix_tests',
@@ -1122,7 +1032,7 @@
           'mac_toolchain',
           'out_dir_arg',
           'xctest',
-          'xcode_26_main',
+          'xcode_27_main',
         ],
         'test_suites': {
            'isolated_scripts': 'optimization_guide_ios_device_gtests',
@@ -1136,7 +1046,7 @@
           'mac_toolchain',
           'out_dir_arg',
           'xctest',
-          'xcode_26_main',
+          'xcode_27_main',
         ],
         'test_suites': {
            'isolated_scripts': 'optimization_guide_ios_sim_gtests',
@@ -1149,7 +1059,7 @@
         ],
         'mixins': [
           'chrome-intelligence-swarming-pool',
-          'linux-jammy',
+          'linux-ubuntu',
           'x86-64',
         ],
         'test_suites': {
@@ -1178,7 +1088,7 @@
         ],
         'mixins': [
           'chrome-swarming-pool',
-          'mac_default_x64',
+          'mac_15_x64',
         ],
         'test_suites': {
            'gtest_tests': 'optimization_guide_desktop_gtests',
@@ -1289,7 +1199,7 @@
       'mac-x64-translatekit-builder': {
         'mixins': [
           'chrome-swarming-pool',
-          'mac_default_x64',
+          'mac_15_x64',
         ],
         'test_suites': {
            'isolated_scripts': 'translatekit_script_tests',
@@ -1323,15 +1233,6 @@
     'mixins': ['chromium-tester-service-account'],
     'machines': {
       'devtools_frontend_linux_blink_light_rel': {
-        'mixins': [
-          'linux-jammy',
-        ],
-        'test_suites': {
-          'gtest_tests': 'devtools_browser_tests_suite',
-          'isolated_scripts': 'devtools_web_isolated_scripts',
-        },
-      },
-      'devtools_frontend_linux_blink_light_rel_fastbuild': {
         'mixins': [
           'linux-jammy',
         ],

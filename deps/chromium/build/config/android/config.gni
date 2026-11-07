@@ -4,26 +4,16 @@
 
 # This file contains common system config stuff for the Android build.
 
-# Some arguments that are needed across all builds that import this file, for
-# example by is_robolectric.
-declare_args() {
-  # Build incremental targets whenever possible.
-  # See //build/android/incremental_install/README.md for more details.
-  incremental_install = false
-}
-
 declare_args() {
   # Java debug on Android. Having this on enables multidexing, and turning it
   # off will enable proguard.
-  is_java_debug = is_debug || incremental_install
+  is_java_debug = is_debug
 }
 
-# These two combinations could theoretically be made to work, but they are
+# This combination could theoretically be made to work, but it is
 # not useful and so not worth the effort.
 assert(!(is_java_debug && is_official_build),
        "Cannot have is_official_build && is_java_debug")
-assert(!(incremental_install && !is_java_debug),
-       "Cannot have incremental_install without is_java_debug")
 
 # Toolchain used to create native libraries for robolectric_binary() targets.
 robolectric_toolchain = "//build/toolchain/android:robolectric_$host_cpu"
@@ -73,7 +63,7 @@ if (is_android) {
     if (is_cronet_build) {
       # Cronet's min sdk version support policy is different from the rest of
       # Chromium; Cronet explicitly supports older devices.
-      default_min_sdk_version = 23
+      default_min_sdk_version = 24
     }
 
     # Static analysis can be either "on" or "off" or "build_server". This
@@ -151,6 +141,7 @@ if (is_android) {
     import("//clank/config.gni")
   } else {
     import("//build/config/android/sdk.gni")
+
     declare_args() {
       # Which Android SDK to use.
       android_sdk_release = default_android_sdk_release
@@ -160,9 +151,9 @@ if (is_android) {
   android_ndk_root = "//third_party/android_toolchain/ndk"
 
   public_android_sdk_root = "//third_party/android_sdk/public"
-  public_android_sdk_platform_version = "37.0"
+  public_android_sdk_platform_version = "37.2"
   public_android_sdk_build_tools_version = "37.0.0"
-  if (android_sdk_release == "b") {
+  if (android_sdk_release == "public") {
     default_android_sdk_root = public_android_sdk_root
     default_android_sdk_platform_version = public_android_sdk_platform_version
     default_android_sdk_build_tools_version =
@@ -233,9 +224,9 @@ if (is_android) {
   declare_args() {
     android_ndk_api_level = default_min_sdk_version
 
-    if (current_cpu == "riscv64" && default_min_sdk_version < 36) {
-      # Android did not support RISC-V64 before API 36.
-      android_ndk_api_level = 36
+    if (current_cpu == "riscv64" && default_min_sdk_version < 37) {
+      # The Android NDK sysroot only provides RISC-V 64 libraries for API 37+.
+      android_ndk_api_level = 37
     }
 
     android_sdk_root = default_android_sdk_root
@@ -252,7 +243,13 @@ if (is_android) {
     android_default_version_code = "1"
 
     # Android versionName for android_apk()s that don't explicitly set one.
-    android_default_version_name = "Developer Build"
+    # This must parse as a base::Version, since native code reads the version
+    # from the APK manifest at runtime. It is faked far into the future so that
+    # APKs without a real version (test APKs, sample apps) are never treated as
+    # being older than some minimum supported version. This matches the
+    # sentinel used by //base/version_info/android for non-chromium builds.
+    # The minor component is zero to match Chrome's MAJOR.0.BUILD.PATCH scheme.
+    android_default_version_name = "9999.0.9999.9999"
 
     # Forced Android versionCode
     android_override_version_code = ""
@@ -295,15 +292,9 @@ if (is_android) {
     # configured to use it.
     enable_proguard_obfuscation = true
 
-    # Controls whether |short_resource_paths| and |strip_resource_names| are
-    # respected. Useful when trying to analyze APKs using tools that do not
-    # support mapping these names.
-    enable_arsc_obfuscation = true
-
-    # Controls whether |strip_unused_resources| is respected. Useful when trying
-    # to analyze APKs using tools that do not support missing resources from
-    # resources.arsc.
-    enable_unused_resource_stripping = true
+    # Enables all resource optimizations (shrinking, shortening paths, stripping
+    # names).
+    optimize_android_resources = !is_java_debug
 
     # Controls whether specifying |art_profile_path| automatically adds a binary
     # baseline profile to the APK/AAB.
@@ -341,8 +332,12 @@ if (is_android) {
         (android_channel == "default" || android_channel == "canary")
   }
 
+  assert(!optimize_android_resources || !is_java_debug,
+         "optimize_android_resources = true requires is_java_debug = false")
+
   if (is_asan) {
-    # Disable lint since increasing min_sdk_version can cause ObsoleteSdkInt warnings.
+    # Disable lint since increasing min_sdk_version can cause ObsoleteSdkInt
+    # warnings.
     disable_android_lint = true
   }
 
@@ -359,9 +354,21 @@ if (is_android) {
     # Reduce build time by using d8 incremental build.
     enable_incremental_d8 = true
 
-    # Component build breaks javaless renderers - see
-    # go/javaless-renderers-component-build
-    enable_javaless_renderers = !is_component_build
+    # Assemble dex files in tiers to bypass D8 final merge step.
+    tiered_dex_assembly = is_java_debug
+
+    # Path to the JSON configuration file defining the tiered dex layers.
+    # The JSON file should contain a list of objects, each representing a layer:
+    # {
+    #   "name": "layer_name",
+    #   "patterns": [ "glob_pattern1", "glob_pattern2" ],  # Match target paths
+    #   "labels": [ "label1", "label2" ]                   # Match target labels
+    # }
+    # Targets are matched against layers in the order they are defined.
+    # Unmatched first-party targets fall back to the "other" layer.
+    # Unmatched third-party targets fall back to the "3p" layer.
+    tiered_dex_partitions_file =
+        "//build/config/android/tiered_dex_partitions.json"
 
     # Enables trace event injection on Android views with bytecode rewriting.
     # This adds an additional step on android_app_bundle_module targets that
@@ -370,8 +377,12 @@ if (is_android) {
         !is_java_debug && android_channel != "stable"
   }
 
-  assert(!incremental_install || is_java_debug,
-         "incremental_install=true && is_java_debug=false is not supported.")
+  if (tiered_dex_assembly) {
+    tiered_dex_partitions = read_file(tiered_dex_partitions_file, "json")
+  }
+
+  assert(!tiered_dex_assembly || is_java_debug,
+         "tiered_dex_assembly=true && is_java_debug=false is not supported.")
 
   # We overwrite system_webview_apk_target if it is an alias
   if (android_64bit_target_cpu) {
@@ -492,6 +503,7 @@ if (is_android) {
   kotlinc_paths_for_inputs = [
     "//third_party/kotlinc",
     "//third_party/kotlinc/current/bin/kotlinc",
+    "//third_party/kotlinc/current/bin/kotlinc-graalvm",
     "//third_party/kotlinc/current/lib/jvm-abi-gen.jar",
     "//third_party/kotlinc/current/lib/annotations-13.0.jar",
     "//third_party/kotlinc/current/lib/kotlin-compiler.jar",

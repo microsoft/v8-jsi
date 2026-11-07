@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/v8_target_cpu.gni")
 
 # TODO(thakis): Remove all uses of these, then remove the variables.
@@ -69,6 +68,7 @@ if (current_cpu == "arm" || v8_current_cpu == "arm") {
            current_cpu == "arm64e" || v8_current_cpu == "arm64e") {
   # arm64 supports only "hard".
   arm_float_abi = "hard"
+
   declare_args() {
     # Enables the new Armv8 branch protection features. Valid strings are:
     # - "pac": Enables Pointer Authentication Code (PAC, featured in Armv8.3)

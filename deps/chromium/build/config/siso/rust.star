@@ -12,6 +12,7 @@ load("./ar.star", "ar")
 load("./config.star", "config")
 load("./fuchsia.star", "fuchsia")
 load("./gn_logs.star", "gn_logs")
+load("./platform.star", "platform")
 load("./win_sdk.star", "win_sdk")
 
 def __filegroups(ctx):
@@ -159,8 +160,7 @@ def __step_config(ctx, step_config):
 
     remote = config.get(ctx, "googlechrome")
 
-    # TODO(crbug.com/434857701): fix link for target_arch="x86"
-    remote_link = False
+    remote_link = remote
     clang_inputs = [
         "third_party/llvm-build/Release+Asserts:rustlink",
     ]
@@ -180,6 +180,10 @@ def __step_config(ctx, step_config):
             else:
                 remote = False
         else:
+            if gn_args.get("target_cpu", "x64").strip('"') != "x64":
+                # TODO(crbug.com/434857701): fix link for non-x64 targets.
+                remote_link = False
+
             # TODO(crbug.com/434857701): fix sysroot for target_arch="x86"
             clang_inputs.append(
                 "build/linux/debian_bullseye_amd64-sysroot:rustlink",
@@ -188,6 +192,7 @@ def __step_config(ctx, step_config):
     rust_toolchain = [
         # TODO(b/285225184): use precomputed subtree
         "third_party/rust-toolchain:toolchain",
+        "third_party/cpython3/linux-amd64:cpython3",
     ]
     rust_link_indirect_inputs = {
         "includes": [
@@ -237,6 +242,7 @@ def __step_config(ctx, step_config):
             "handler": "rust_link_handler",
             "deps": "none",  # disable gcc scandeps
             "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "timeout": "2m",
             "platform_ref": platform_ref,
         },
@@ -248,6 +254,7 @@ def __step_config(ctx, step_config):
             "handler": "rust_link_handler",
             "deps": "none",  # disable gcc scandeps
             "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "timeout": "2m",
             "platform_ref": platform_ref,
         },
@@ -259,6 +266,7 @@ def __step_config(ctx, step_config):
             "handler": "rust_link_handler",
             "deps": "none",  # disable gcc scandeps
             "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "timeout": "2m",
             "platform_ref": platform_ref,
         },
@@ -269,6 +277,7 @@ def __step_config(ctx, step_config):
             "indirect_inputs": rust_compile_indirect_inputs,
             "deps": "none",  # disable gcc scandeps
             "remote": remote,
+            "remote_command": platform.remote_python_bin,
             "timeout": "2m",
             "platform_ref": platform_ref,
         },
@@ -279,42 +288,87 @@ def __step_config(ctx, step_config):
             "indirect_inputs": rust_compile_indirect_inputs,
             "deps": "none",  # disable gcc scandeps
             "remote": remote,
+            "remote_command": platform.remote_python_bin,
             "timeout": "2m",
             "platform_ref": platform_ref,
         },
         {
             "name": "rust/run_build_script",
-            "command_prefix": "python3 ../../build/rust/gni_impl/run_build_script.py",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/run_build_script.py",
             "inputs": [
                 "third_party/rust-toolchain:toolchain",
             ],
             "handler": "rust_build_handler",
-            "remote": remote and config.get(ctx, "cog"),
+            "remote": (remote and config.get(ctx, "cog")) or config.get(ctx, "default-remote"),
             "timeout": "2m",
+            "remote_command": platform.remote_python_bin,
         },
         {
             "name": "rust/find_std_rlibs",
-            "command_prefix": "python3 ../../build/rust/std/find_std_rlibs.py",
+            "command_prefix": platform.python_bin + " ../../build/rust/std/find_std_rlibs.py",
             "inputs": [
                 "third_party/rust-toolchain:toolchain",
             ],
-            "remote": remote and config.get(ctx, "cog"),
+            "remote": (remote and config.get(ctx, "cog")) or config.get(ctx, "default-remote"),
             "timeout": "2m",
+            "remote_command": platform.remote_python_bin,
         },
         {
             "name": "rust/clippy",
-            "command_prefix": "python3 ../../build/rust/gni_impl/clippy_wrapper.py",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/clippy_wrapper.py",
             "inputs": rust_toolchain,
             "indirect_inputs": rust_link_indirect_inputs,
             "remote": remote,
             "timeout": "2m",
             "platform_ref": platform_ref,
+            "remote_command": platform.remote_python_bin,
         },
         {
             # rust/bindgen fails remotely when *.d does not exist.
             # TODO(b/356496947): need to run scandeps?
             "name": "rust/bindgen",
-            "command_prefix": "python3 ../../build/rust/gni_impl/run_bindgen.py",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/run_bindgen.py",
+            "inputs": rust_toolchain + clang_inputs,
+            "remote": False,
+            "timeout": "2m",
+        },
+        {
+            "name": "rust/gen_allow_all_warnings_rsp",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/gen_allow_all_warnings_rsp.py",
+            "inputs": [
+                "third_party/rust-toolchain:toolchain",
+            ],
+            "remote": remote,
+            "timeout": "2m",
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            "name": "rust/rustc_print_cfg",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/rustc_print_cfg.py",
+            "inputs": [
+                "third_party/rust-toolchain:toolchain",
+            ],
+            "remote": remote,
+            "timeout": "2m",
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            "name": "rust/cpp_api_from_rust",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/cpp_api_from_rust_wrapper.py",
+            "inputs": rust_toolchain + clang_inputs,
+            "indirect_inputs": rust_compile_indirect_inputs,
+            "remote": remote,
+            "timeout": "2m",
+            "remote_command": platform.remote_python_bin,
+        },
+        {
+            # Like rust/bindgen, `rs_bindings_from_cc` parses C++ headers, but
+            # the action has no depfile, so the transitively included headers
+            # are not known to Siso and remote execution would fail.
+            # TODO(crbug.com/40226863): Enable remote execution once the
+            # action has a depfile and/or runs scandeps.
+            "name": "rust/rust_api_from_cpp",
+            "command_prefix": platform.python_bin + " ../../build/rust/gni_impl/rust_api_from_cpp_wrapper.py",
             "inputs": rust_toolchain + clang_inputs,
             "remote": False,
             "timeout": "2m",

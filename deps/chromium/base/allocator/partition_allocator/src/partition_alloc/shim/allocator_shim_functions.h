@@ -14,6 +14,7 @@
 #include <new>
 
 #include "partition_alloc/build_config.h"
+#include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 #include "partition_alloc/partition_alloc_check.h"
 #include "partition_alloc/shim/allocator_dispatch.h"
@@ -51,7 +52,7 @@ bool CallNewHandler(size_t size) {
 #endif
 }
 
-#if !(PA_BUILDFLAG(IS_WIN) && defined(COMPONENT_BUILD))
+#if !(PA_BUILDFLAG(IS_WIN) && PA_BUILDFLAG(IS_COMPONENT_BUILD))
 PA_ALWAYS_INLINE
 #endif
 const allocator_shim::AllocatorDispatch* GetChainHead() {
@@ -66,20 +67,20 @@ void SetCallNewHandlerOnMallocFailure(bool value) {
 
 void* UncheckedAlloc(size_t size) {
   const AllocatorDispatch* const chain_head = internal::GetChainHead();
-  return chain_head->alloc_unchecked_function(
-      size, AllocToken(kDefaultPartitionIndex), nullptr);
+  return chain_head->alloc_unchecked_function(size, kDefaultAllocToken,
+                                              nullptr);
 }
 
 void* UncheckedCalloc(size_t n, size_t size) {
   const AllocatorDispatch* const chain_head = internal::GetChainHead();
   return chain_head->alloc_zero_initialized_unchecked_function(
-      n, size, AllocToken(kDefaultPartitionIndex), nullptr);
+      n, size, kDefaultAllocToken, nullptr);
 }
 
 void* UncheckedRealloc(void* ptr, size_t size) {
   const AllocatorDispatch* const chain_head = internal::GetChainHead();
-  return chain_head->realloc_unchecked_function(
-      ptr, size, AllocToken(kDefaultPartitionIndex), nullptr);
+  return chain_head->realloc_unchecked_function(ptr, size, kDefaultAllocToken,
+                                                nullptr);
 }
 
 void UncheckedFree(void* ptr) {
@@ -90,13 +91,19 @@ void UncheckedFree(void* ptr) {
 void* UncheckedAlignedAlloc(size_t size, size_t align) {
   const AllocatorDispatch* const chain_head = internal::GetChainHead();
   return chain_head->aligned_malloc_unchecked_function(
-      size, align, AllocToken(kDefaultPartitionIndex), nullptr);
+      size, align, kDefaultAllocToken, nullptr);
+}
+
+void* UncheckedAlignedCalloc(size_t n, size_t size, size_t align) {
+  const AllocatorDispatch* const chain_head = internal::GetChainHead();
+  return chain_head->aligned_calloc_unchecked_function(
+      n, size, align, kDefaultAllocToken, nullptr);
 }
 
 void* UncheckedAlignedRealloc(void* ptr, size_t size, size_t align) {
   const AllocatorDispatch* const chain_head = internal::GetChainHead();
   return chain_head->aligned_realloc_unchecked_function(
-      ptr, size, align, AllocToken(kDefaultPartitionIndex), nullptr);
+      ptr, size, align, kDefaultAllocToken, nullptr);
 }
 
 void UncheckedAlignedFree(void* ptr) {

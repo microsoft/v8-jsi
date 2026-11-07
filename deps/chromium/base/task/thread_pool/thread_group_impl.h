@@ -16,6 +16,7 @@
 #include "base/synchronization/waitable_event.h"
 #include "base/task/thread_pool/task_source.h"
 #include "base/task/thread_pool/thread_group.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/task/thread_pool/tracked_ref.h"
 #include "base/task/thread_pool/worker_thread.h"
 #include "base/task/thread_pool/worker_thread_set.h"
@@ -36,7 +37,8 @@ class TaskTracker;
 // posted at any time but will not run until after Start() is called.
 //
 // This class is thread-safe.
-class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
+class BASE_EXPORT ThreadGroupImpl : public ThreadGroup,
+                                    public ThreadGroupProfiler::Delegate {
  public:
   // Constructs a group without workers.
   //
@@ -47,13 +49,16 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   // thread type; the actual thread type depends on shutdown state and platform
   // capabilities. |thread_group_type| is used for thread group profiler to tag
   // the profiles collected on this group. |task_tracker| keeps track of tasks.
-  ThreadGroupImpl(std::string_view histogram_label,
-                  std::string_view thread_group_label,
-                  ThreadType thread_type_hint,
-                  int64_t thread_group_type,
-                  TrackedRef<TaskTracker> task_tracker,
-                  TrackedRef<Delegate> delegate,
-                  bool monitor_worker_thread_priorities = false);
+  ThreadGroupImpl(
+      std::string_view histogram_label,
+      std::string_view thread_group_label,
+      ThreadType thread_type_hint,
+      int64_t thread_group_type,
+      TrackedRef<TaskTracker> task_tracker,
+      TrackedRef<ThreadGroup::Delegate> delegate,
+      bool monitor_worker_thread_priorities = false,
+      ThreadPoolInstance::RecordLockContention record_lock_contention =
+          ThreadPoolInstance::RecordLockContention::kDisabled);
 
   ThreadGroupImpl(const ThreadGroupImpl&) = delete;
   ThreadGroupImpl& operator=(const ThreadGroupImpl&) = delete;
@@ -85,6 +90,7 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   void JoinForTesting() override;
   void DidUpdateCanRunPolicy() override;
   void OnShutdownStarted() override;
+  void CleanUpFailedWorker(const WorkerThread* worker) override;
   // Returns the number of workers that are idle (i.e. not running tasks).
   size_t NumberOfIdleWorkersLockRequiredForTesting() const
       EXCLUSIVE_LOCKS_REQUIRED(lock_) override;
@@ -98,6 +104,7 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   // may_block_threshold(), both in ThreadGroup.
   friend class ThreadGroupImplBlockingTest;
   friend class ThreadGroupImplMayBlockTest;
+  friend class ThreadGroupImplProfilingTest;
   FRIEND_TEST_ALL_PREFIXES(ThreadGroupImplBlockingTest,
                            ThreadBlockUnblockPremature);
   FRIEND_TEST_ALL_PREFIXES(ThreadGroupImplBlockingTest,
@@ -125,6 +132,11 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   // Returns the number of workers that are awake (i.e. not on the idle set).
   size_t GetNumAwakeWorkersLockRequired() const EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
+  // ThreadGroupProfiler::Delegate:
+  void OnStartProfilingSession(
+      ThreadGroupProfiler::ActiveCollection active_collection) override;
+  void OnEndProfilingSession() override;
+
   bool IsOnIdleSetLockRequired(WorkerThread* worker) const
       EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
@@ -144,9 +156,13 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
 
   // This is set in Start() if profiling is enabled, before any worker thread is
   // created. If profiling is not enabled, this will remain std::nullopt. If
-  // created the ThreadGroupProfiler instance will exist until ThreadGroupImpl
-  // destruction.
+  // created, the ThreadGroupProfiler instance will exist until ThreadGroupImpl
+  // destruction or JoinForTesting().
   std::optional<ThreadGroupProfiler> thread_group_profiler_;
+
+  // Active collection session when profiling is running.
+  std::optional<ThreadGroupProfiler::ActiveCollection> active_collection_
+      GUARDED_BY(lock_);
 
   // Ensures recently cleaned up workers (ref.
   // WorkerDelegate::CleanupLockRequired()) had time to exit as
@@ -160,6 +176,14 @@ class BASE_EXPORT ThreadGroupImpl : public ThreadGroup {
   // This is used by worker threads to decide if they should be reporting thread
   // priorities to UMA.
   const bool monitor_worker_thread_priorities_;
+
+  // This is used by worker threads to decide if they should be reporting lock
+  // contention metrics to UMA.
+  const ThreadPoolInstance::RecordLockContention record_lock_contention_;
+
+  // This is used to label the thread group's histograms with
+  // {ProcessName}.{ThreadGroup} for lock contention monitoring.
+  const std::string histogram_label_;
 };
 
 }  // namespace internal

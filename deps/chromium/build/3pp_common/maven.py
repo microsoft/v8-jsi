@@ -62,8 +62,8 @@ _POM_TEMPLATE = """\
 
 def _detect_latest(maven_url, package):
     metadata_url = '{}/{}/maven-metadata.xml'.format(
-        maven_url,
-        package.replace('.', '/').replace(':', '/'))
+        maven_url, package.replace('.', '/').replace(':', '/')
+    )
     metadata = urllib.request.urlopen(metadata_url).read().decode('utf-8')
     # Do not parse xml with the Python included parser since it is susceptible
     # to maliciously crafted xmls. Only use regular expression parsing to be
@@ -79,35 +79,45 @@ def _detect_latest(maven_url, package):
     return latest
 
 
-def _install(output_prefix,
-             deps_prefix,
-             maven_url,
-             package,
-             version,
-             jar_name=None,
-             post_process_func=None):
+def _install(
+    output_prefix,
+    deps_prefix,
+    maven_url,
+    package,
+    version,
+    jar_name=None,
+    post_process_func=None,
+):
     # Runs in a docker container.
     group_id, artifact_id = package.split(':')
     if not jar_name:
         jar_name = f'{artifact_id}.jar'
 
     pathlib.Path('pom.xml').write_text(
-        _POM_TEMPLATE.format(version=version,
-                             group_id=group_id,
-                             artifact_id=artifact_id,
-                             maven_url=maven_url))
+        _POM_TEMPLATE.format(
+            version=version,
+            group_id=group_id,
+            artifact_id=artifact_id,
+            maven_url=maven_url,
+        )
+    )
 
     # Set up JAVA_HOME for the mvn command to find the JDK.
     env = os.environ.copy()
     env['JAVA_HOME'] = common.path_within_checkout('third_party/jdk/current')
+    # Prevent mvn from sourcing /etc/mavenrc on Goobuntu workstations, which
+    # forces Corp Airlock proxy settings and breaks local-test.
+    env['MAVEN_SKIP_RC'] = '1'
 
     # Ensure that mvn works and the environment is set up correctly.
     subprocess.run(['mvn', '-v'], check=True, env=env)
 
     # Build the jar file, explicitly specify -f to reduce sources of error.
-    subprocess.run(['mvn', 'clean', 'assembly:single', '-f', 'pom.xml'],
-                   check=True,
-                   env=env)
+    subprocess.run(
+        ['mvn', 'clean', 'assembly:single', '-f', 'pom.xml'],
+        check=True,
+        env=env,
+    )
 
     src_jar_path = 'target/artifact-1-jar-with-dependencies.jar'
     dst_jar_path = os.path.join(output_prefix, jar_name)
@@ -117,12 +127,16 @@ def _install(output_prefix,
         shutil.move(src_jar_path, dst_jar_path)
 
 
-def main(*,
-         package,
-         jar_name=None,
-         maven_url='https://dl.google.com/android/maven2',
-         post_process_func=None,
-         version_override=None):
+def main(
+    *,
+    package,
+    jar_name=None,
+    maven_url='https://dl.google.com/android/maven2',
+    post_process_func=None,
+    version_override=None,
+    runtime_deps=(),
+    version_deps=None,
+):
     """3pp entry point for fetch.py.
 
     Args:
@@ -131,15 +145,30 @@ def main(*,
       maven_url: URL of Maven repository.
       post_process_func: Called to finish. Args: src_jar_path, dst_jar_path
       version_override: Use this version instead of the latest one.
+      runtime_deps: Extra paths to copy into the checkout for use by
+          post_process_func. See common.main().
+      version_deps: Extra paths to hash into the version. See common.main().
     """
 
     def do_latest():
         return version_override or _detect_latest(maven_url, package)
 
     def do_install(args):
-        _install(args.output_prefix, args.deps_prefix, maven_url, package,
-                 args.version, jar_name, post_process_func)
+        _install(
+            args.output_prefix,
+            args.deps_prefix,
+            maven_url,
+            package,
+            args.version,
+            jar_name,
+            post_process_func,
+        )
 
-    common.main(do_latest=do_latest,
-                do_install=do_install,
-                runtime_deps=['//third_party/jdk/current'])
+    common.main(
+        do_latest=do_latest,
+        do_install=do_install,
+        runtime_deps=['//third_party/jdk/current'] + list(runtime_deps),
+        # common.main() requires version_deps whenever runtime_deps is set
+        # (the JDK is always a runtime dep here, but is not part of the version).
+        version_deps=list(version_deps or []),
+    )

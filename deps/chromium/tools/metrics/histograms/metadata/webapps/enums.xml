@@ -126,6 +126,7 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="From a sub apps install dialog"/>
   <int value="4" label="From the settings button on a notification"/>
   <int value="5" label="From the page specific site data dialog"/>
+  <int value="6" label="From the navigation capturing IPH bubble"/>
 </enum>
 
 <enum name="DefaultOfflineClosingReason">
@@ -313,6 +314,20 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="Downgrade is not allowed"/>
 </enum>
 
+<!-- LINT.IfChange(IwaComponentBestEffortWaitOutcome) -->
+
+<enum name="IwaComponentBestEffortWaitOutcome">
+  <int value="0" label="Component already ready (No wait needed)"/>
+  <int value="1"
+      label="Fell back to preload (On-demand update timed out/failed)"/>
+  <int value="2"
+      label="Loaded existing cache (Completed waiting for local disk read)"/>
+  <int value="3"
+      label="Downloaded new component (Successfully fetched newer version)"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/web_applications/isolated_web_apps/key_distribution/iwa_key_distribution_histograms.h:IwaComponentBestEffortWaitOutcome) -->
+
 <!-- LINT.IfChange(IwaComponentUpdateError) -->
 
 <enum name="IwaComponentUpdateError">
@@ -342,6 +357,16 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/web_applications/isolated_web_apps/key_distribution/iwa_key_distribution_histograms.h:KeyDistributionComponentSource) -->
+
+<!-- LINT.IfChange(KeyRotationBundleIdentityCheckResult) -->
+
+<enum name="KeyRotationBundleIdentityCheckResult">
+  <int value="0" label="Trusted - rotated key"/>
+  <int value="1" label="Trusted - previous key"/>
+  <int value="2" label="Failed"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/webapps/isolated_web_apps/identity/iwa_identity_validator.cc:KeyRotationBundleIdentityCheckResult) -->
 
 <enum name="LaunchedAppType">
   <int value="0" label="DIY app launched"/>
@@ -515,6 +540,50 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Failed to add link items to jump list"/>
   <int value="5" label="Failed to commit update to jump list"/>
 </enum>
+
+<enum name="SubAppInstallServiceResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="SuccessBypassApproval"/>
+  <int value="2" label="Failure general"/>
+  <int value="3" label="Failure invalid manifest"/>
+  <int value="4" label="Failure already installed"/>
+  <int value="5" label="Failure user declined"/>
+  <int value="6" label="Failure user declined embargo"/>
+  <int value="7" label="Failure number of sub apps exceeds limit"/>
+  <int value="8" label="Failure overlapping scope"/>
+  <int value="9" label="Failure recursive install"/>
+  <int value="10" label="Failure web apps not user installable"/>
+  <int value="11" label="Failure limit per prompt is exceeded"/>
+</enum>
+
+<!-- LINT.IfChange(WebappAddToHomescreenAnyPageDecision) -->
+
+<enum name="WebappAddToHomescreenAnyPageDecision">
+  <int value="0" label="Crafted WebAPK (promotable manifest)"/>
+  <int value="1" label="DIY WebAPK: no manifest"/>
+  <int value="2" label="DIY WebAPK: manifest 404 / unparsable"/>
+  <int value="3" label="DIY WebAPK: manifest not promotable"/>
+  <int value="4"
+      label="Shortcut: ineligible (incognito, insecure origin, empty
+             manifest, non-http(s), manifest URLs not WebAPK compatible)"/>
+  <int value="5"
+      label="Shortcut: reset (navigation, manifest URL change, renderer gone)"/>
+  <int value="6" label="Shortcut: data fetch timed out"/>
+  <int value="7" label="Shortcut: no icon (flag off)"/>
+  <int value="8" label="Shortcut: not installable at root scope (flag off)"/>
+  <int value="9" label="Shortcut: other error (flag on)"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/webapps/browser/android/add_to_homescreen_data_fetcher.h:WebappAddToHomescreenAnyPageDecision) -->
+
+<!-- LINT.IfChange(WebappAddToHomescreenAnyPagePrimaryIconSource) -->
+
+<enum name="WebappAddToHomescreenAnyPagePrimaryIconSource">
+  <int value="0" label="Downloaded (manifest icon or favicon)"/>
+  <int value="1" label="Generated monogram"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/webapps/browser/android/add_to_homescreen_data_fetcher.h:WebappAddToHomescreenAnyPagePrimaryIconSource) -->
 
 <!-- LINT.IfChange(WebAppApplyManifestMigrationResult) -->
 
@@ -738,7 +807,7 @@ chromium-metrics-reviews@google.com.
   <int value="20" label="InvalidFileHandlerNoActionOrLaunchType"/>
   <int value="21" label="InvalidFileHandlerAction"/>
   <int value="22" label="InvalidFileHandlerAcceptEntry"/>
-  <int value="23" label="InvalidIconsInFileHandler"/>
+  <int value="23" label="(Obsolete) InvalidIconsInFileHandler"/>
   <int value="24" label="InvalidShareTarget"/>
   <int value="25" label="InvalidShareTargetAction"/>
   <int value="26" label="InvalidShareTargetFile"/>
@@ -870,6 +939,7 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Failed to read pending update app icons"/>
   <int value="5" label="Command failed due to system shutdown"/>
   <int value="6" label="Command ran successfully"/>
+  <int value="7" label="Update metadata insignificant, silently updated"/>
 </enum>
 
 <!-- LINT.ThenChange(/chrome/browser/web_applications/commands/app_update_data_read_command.h:AppUpdateDataReadResult) -->
@@ -895,6 +965,7 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="Install command failed"/>
   <int value="7" label="No custom id field in manifest"/>
   <int value="8" label="Manifest id mismatch"/>
+  <int value="9" label="Install in progress"/>
 </enum>
 
 <!-- LINT.ThenChange(/chrome/browser/web_applications/web_install_service_impl.h:WebInstallServiceResult) -->
