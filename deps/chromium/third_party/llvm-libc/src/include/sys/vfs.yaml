@@ -1,5 +1,0 @@
-header: sys/vfs.h
-public_includes:
-  - sys/statfs.h
-standards:
-  - linux

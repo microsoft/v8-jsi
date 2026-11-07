@@ -1,5 +1,0 @@
-header: sys/syslog.h
-public_includes:
-  - syslog.h
-standards:
-  - posix
