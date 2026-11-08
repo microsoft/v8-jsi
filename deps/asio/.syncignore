@@ -3,7 +3,8 @@
 # v8-jsi consumes asio as a header-only library via `#include <asio.hpp>` from
 # the inspector code. We keep only headers reachable from <asio.hpp> in the
 # default v8-jsi configuration; anything tied to features we don't enable
-# (SSL, experimental, TS variants, stackful coroutines, Boost.Date_Time timers)
+# (SSL, experimental, TS variants, stackful coroutines, Boost.Date_Time timers,
+# Linux io_uring)
 # is excluded so we don't drag it into the fork.
 
 # Local-only metadata (not present in upstream)
@@ -52,3 +53,7 @@
 # Stackful-coroutine pseudo-keyword macros — pair with asio::spawn, unused here
 /include/asio/yield.hpp
 /include/asio/unyield.hpp
+
+# Linux io_uring backend - the Windows inspector uses IOCP.
+/include/asio/detail/io_uring*
+/include/asio/detail/impl/io_uring*
