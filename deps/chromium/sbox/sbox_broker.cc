@@ -163,8 +163,7 @@ class SyncBrokerDelegate : public sandbox::BrokerServicesDelegate {
     sandbox::CreateTargetResult result = std::move(task).Run();
     std::move(reply).Run(std::move(result));
   }
-  void BeforeTargetProcessCreateOnCreationThread(const void*) override {}
-  void AfterTargetProcessCreateOnCreationThread(const void*, DWORD) override {}
+  void BeforeTargetProcessCreateOnCreationThread() override {}
   void OnCreateThreadActionCreateFailure(DWORD) override {}
   void OnCreateThreadActionDuplicateFailure(DWORD) override {}
 };

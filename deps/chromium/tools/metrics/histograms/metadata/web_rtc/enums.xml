@@ -26,17 +26,6 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
-<enum name="AddIceCandidateResult">
-  <int value="0" label="Success"/>
-  <int value="1" label="Closed"/>
-  <int value="2" label="No remote description"/>
-  <int value="3" label="Null candidate"/>
-  <int value="4" label="Candidate not valid"/>
-  <int value="5" label="PeerConnection not ready"/>
-  <int value="6" label="Failed in addition"/>
-  <int value="7" label="Failed - not usable"/>
-</enum>
-
 <enum name="ClockdriftLevel">
   <int value="0" label="None"/>
   <int value="1" label="Probable"/>
@@ -157,16 +146,6 @@ chromium-metrics-reviews@google.com.
   <int value="23" label="host(public)_host(named)"/>
 </enum>
 
-<enum name="IceConnectionStates">
-  <int value="0" label="IceConnectionNew"/>
-  <int value="1" label="IceConnectionChecking"/>
-  <int value="2" label="IceConnectionConnected"/>
-  <int value="3" label="IceconnectionCompleted"/>
-  <int value="4" label="IceconnectionFailed"/>
-  <int value="5" label="IceconnectionDisconnected"/>
-  <int value="6" label="IceconnectionClosed"/>
-</enum>
-
 <enum name="IpAddressType">
   <int value="0" label="Unknown"/>
   <int value="1" label="Any"/>
@@ -215,6 +194,13 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="PeerConnection enabled with Ipv6."/>
   <int value="2" label="IPv4 BestConnection."/>
   <int value="3" label="IPv6 BestConnection."/>
+</enum>
+
+<enum name="PeerConnectionCryptexUsage">
+  <int value="0" label="Cryptex was disabled"/>
+  <int value="1" label="Cryptex was offered but not negotiated"/>
+  <int value="2" label="Cryptex was offered and negotiated"/>
+  <int value="3" label="Cryptex was required to negotiate"/>
 </enum>
 
 <enum name="PeerConnectionProvisionalAnswer">
@@ -291,9 +277,16 @@ chromium-metrics-reviews@google.com.
   <int value="32" label="IceCandidateCount"/>
   <int value="33" label="Bundle"/>
   <int value="34" label="Bandwidth"/>
+  <int value="35" label="Sframe"/>
+  <int value="36" label="MsidStream"/>
+  <int value="37" label="MsidTrack"/>
+  <int value="38" label="IceOptionsRemoved"/>
+  <int value="39" label="Rejected"/>
   <int value="40" label="RtpHeaderExtensionsRemoved"/>
   <int value="41" label="RtpHeaderExtensionsAdded"/>
   <int value="42" label="RtpHeaderExtensionsModified"/>
+  <int value="43" label="Cryptex"/>
+  <int value="44" label="RtcpXrRcvrRtt"/>
   <int value="60" label="AudioCodecsRemoved"/>
   <int value="61" label="AudioCodecsAdded"/>
   <int value="62" label="AudioCodecsReordered"/>
@@ -370,6 +363,7 @@ chromium-metrics-reviews@google.com.
   <int value="25" label="Error MKI present in packet is invalid"/>
   <int value="26" label="Packet index is too old to consider"/>
   <int value="27" label="Packet index advanced, reset needed"/>
+  <int value="28" label="Cryptex error"/>
 </enum>
 
 <enum name="ThermalState">
@@ -537,6 +531,12 @@ chromium-metrics-reviews@google.com.
   <int value="-100222544" label="Hangouts"/>
   <int value="0" label="Undefined"/>
   <int value="2102772693" label="Duo"/>
+</enum>
+
+<enum name="WebRtcNeuralResidualEchoEstimatorInitResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Model load failed"/>
+  <int value="2" label="Destroyed before resolved"/>
 </enum>
 
 <enum name="WebRtcPeerConnectionUsagePattern">

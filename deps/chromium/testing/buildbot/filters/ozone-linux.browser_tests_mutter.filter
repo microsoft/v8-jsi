@@ -14,7 +14,7 @@
 -All/SearchEnginePreconnectorNoDelaysBrowserTest.PreconnectOnlyInForeground/*
 -All/SoftNavigationTest.LayoutShift/*
 -BackForwardCachePageLoadMetricsObserverBrowserTest.LayoutShiftNormalization_AfterBackForwardCacheRestore
--BorderlessIsolatedWebAppBrowserTest.PopupResize_CanSubceedMinimumWindowSize_And_InnerAndOuterSizesAreCorrect
+-UnframedIsolatedWebAppBrowserTest.PopupResize_CanSubceedMinimumWindowSize_And_InnerAndOuterSizesAreCorrect
 
 # TODO(crbug.com/40688401) This test requires full Picture-in-Picture support.
 -FedCmAccountSelectionViewBrowserTest.DisabledWhenOccluded
@@ -29,9 +29,10 @@
 -ProfilePickerEnterpriseCreationFlowBrowserTest.CreateSignedInProfileWithSuggestedTwoFactorAuthSetup
 -ReadAnythingReadAloudPhraseHighlightingMochaTest.*
 -SessionRestoreTest.RestoredTabsHaveCorrectInitialSize
--WebAppBrowserTest.PWASizeIsCorrectlyRestored
--WebAppBrowserTest.SetBounds
--WebAppBrowserTest.WindowOffsetsClampedToScreen
+-All/WebAppBrowserTest.PWASizeIsCorrectlyRestored/*
+-All/WebAppBrowserTest.SetBounds/*
+-All/WebAppBrowserTest.WindowOffsetsClampedToScreen/*
+
 -WebAppFrameToolbarBrowserTest_WindowControlsOverlay.DownloadIconVisibilityForAppDownload
 
 #################################################
@@ -39,6 +40,11 @@
 #################################################
 
 -All/OmniboxSearchAggregatorHTTPErrorTest.HTTPErrorResponse/*
+
+# TODO(b/569815188): Times out because the test relies on programmatic window
+# re-activation (BrowserWindow::Activate()), which mutter ignores due to
+# focus-stealing prevention. Also fails on weston.
+-PageContextMonitorBrowserTest.SwitchingBrowserWindowsAndClosingAllWindows
 
 # TODO(crbug.com/395595608) Also disabled in weston, but maybe this could work
 # in mutter with some additional steps.
@@ -64,3 +70,6 @@
 # wm::FocusController only on the try bots with OzoneBubblesUsePlatformWidgets
 # enabled.
 -PermissionElementBrowserTest.TabSwitchingClosesPrompt
+
+# TODO(crbug.com/40799125): Flaky.
+-PageLoadMetricsBrowserTest.SoftNavigation

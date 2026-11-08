@@ -86,13 +86,22 @@ PA_COMPONENT_EXPORT(ALLOCATOR_SHIM) void UncheckedFree(void* ptr);
 PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
 void* UncheckedAlignedAlloc(size_t size, size_t align);
 
+// Allocates |n| zeroed elements of size |size| aligned to |align| or returns
+// nullptr. It does NOT call the new_handler, regardless of
+// SetCallNewHandlerOnMallocFailure(). Unlike UncheckedAlignedAlloc() followed
+// by memset(), this lets the allocator skip zeroing memory that is known to be
+// zeroed already, e.g. freshly mapped pages.
+PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
+void* UncheckedAlignedCalloc(size_t n, size_t size, size_t align);
+
 // Reallocates |ptr| to point at |size| bytes with an alignment of |align|,
 // or returns nullptr while leaving the |ptr| unchanged. It does NOT call the
 // new_handler, regardless of SetCallNewHandlerOnMallocFailure().
 PA_COMPONENT_EXPORT(ALLOCATOR_SHIM)
 void* UncheckedAlignedRealloc(void* ptr, size_t size, size_t align);
 
-// Frees memory allocated with UncheckedAlignedAlloc().
+// Frees memory allocated with UncheckedAlignedAlloc() or
+// UncheckedAlignedCalloc().
 PA_COMPONENT_EXPORT(ALLOCATOR_SHIM) void UncheckedAlignedFree(void* ptr);
 
 #endif
@@ -148,11 +157,8 @@ using EnableBrp =
 using EnableMemoryTagging =
     partition_alloc::internal::base::StrongAlias<class EnableMemoryTaggingTag,
                                                  bool>;
-using EnableFreeWithSize =
-    partition_alloc::internal::base::StrongAlias<class EnableFreeWithSizeTag,
-                                                 bool>;
-using EnableStrictFreeSizeCheck = partition_alloc::internal::base::
-    StrongAlias<class EnableStrictFreeSizeCheckTag, bool>;
+using EnableTighterAlignedAllocBound = partition_alloc::internal::base::
+    StrongAlias<class EnableTighterAlignedAllocBoundTag, bool>;
 enum class BucketDistribution : uint8_t { kNeutral, kDenser };
 using EventuallyZeroFreedMemory = partition_alloc::internal::base::
     StrongAlias<class EventuallyZeroFreedMemoryTag, bool>;
@@ -171,10 +177,10 @@ void ConfigurePartitions(
     partition_alloc::internal::SchedulerLoopQuarantineConfig
         scheduler_loop_quarantine_thread_local_config,
     partition_alloc::internal::SchedulerLoopQuarantineConfig
-        scheduler_loop_quarantine_for_advanced_memory_safety_checks_config,
+        scheduler_loop_quarantine_for_sanitized_object_config,
     EventuallyZeroFreedMemory eventually_zero_freed_memory,
-    EnableFreeWithSize enable_free_with_size,
-    EnableStrictFreeSizeCheck enable_strict_free_size_check);
+    EnableTighterAlignedAllocBound enable_tighter_aligned_alloc_bound =
+        EnableTighterAlignedAllocBound(false));
 
 PA_COMPONENT_EXPORT(ALLOCATOR_SHIM) uint32_t GetMainPartitionRootExtrasSize();
 

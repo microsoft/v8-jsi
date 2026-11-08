@@ -104,8 +104,8 @@ class DurationTest(unittest.TestCase):
 
   def test_assign_datetime_to_duration(self):
     message = well_known_types_test_pb2.WKTMessage()
-    with self.assertRaises((TypeError, AttributeError)):
-      message.optional_duration = datetime.datetime.now()
+    with self.assertRaises((TypeError)):
+      message.optional_duration = datetime.datetime.now()  # pyrefly: ignore[bad-assignment]
 
 
 if __name__ == '__main__':

@@ -5,11 +5,16 @@
 #ifndef PARTITION_ALLOC_PARTITION_DCHECK_HELPER_H_
 #define PARTITION_ALLOC_PARTITION_DCHECK_HELPER_H_
 
+#include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 #include "partition_alloc/partition_alloc_base/component_export.h"
 #include "partition_alloc/partition_alloc_forward.h"
 
-namespace partition_alloc::internal {
+namespace partition_alloc {
+
+class PartitionRoot;
+
+namespace internal {
 
 struct PartitionSuperPageExtentEntry;
 
@@ -60,6 +65,8 @@ void DCheckRootLockIsAcquired(PartitionRoot* root)
 PA_COMPONENT_EXPORT(PARTITION_ALLOC)
 bool DeducedRootIsValid(const SlotSpanMetadata* slot_span);
 
-}  // namespace partition_alloc::internal
+}  // namespace internal
+
+}  // namespace partition_alloc
 
 #endif  // PARTITION_ALLOC_PARTITION_DCHECK_HELPER_H_

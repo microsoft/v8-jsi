@@ -75,7 +75,8 @@ PATCHES = [
     'remove-getentropy.patch',
     'xml-attr-extra.patch',
     'widen-extra-field-in-_xmlNode-to-an-int.patch',
-    'fix-xmlEscapeText-integer-overflow.patch',
+    'parser-check-eof-trailing-whitespace.patch',
+    'patser-grow-capacity-check.patch',
 ]
 
 
@@ -214,6 +215,7 @@ FILES_TO_REMOVE = [
     'src/xinclude.c',
     'src/xlink.c',
     'src/xml2-config.in',
+    'src/xml2-config-meson',
     'src/xmlcatalog.c',
     'src/xmllint.c',
     'src/xmlmodule.c',
@@ -230,6 +232,13 @@ FILES_TO_REMOVE = [
     'linux/include/private',
     'linux/python',
     'linux/xstc',
+    'codegen/genCharset.py',
+    'codegen/genEscape.py',
+    'codegen/genHtml5Ent.py',
+    'codegen/genHtml5LibTests.py',
+    'codegen/genRanges.py',
+    'codegen/genTestApi.py',
+    'codegen/genUnicode.py',
 ]
 
 

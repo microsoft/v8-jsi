@@ -10,6 +10,13 @@ import unittest
 from parameterized import parameterized
 import setup_modules  # pylint: disable=unused-import
 
+
+import multiprocessing
+import os
+import pickle
+import tempfile
+import unittest.mock
+
 import chromium_src.tools.metrics.actions.action_utils as action_utils
 import chromium_src.tools.metrics.actions.extract_actions as extract_actions
 
@@ -47,79 +54,80 @@ ACTIONS_XML = """
 
 </actions>"""
 
-NO_OWNER_EXPECTED_XML = ('<actions>\n\n'
-                         '<action name="action1">\n'
-                         '  <owner>Please list the metric\'s owners. '
-                         'Add more owner tags as needed.</owner>\n'
-                         '  <description>Description.</description>\n'
-                         '</action>\n\n'
-                         '</actions>\n')
+NO_OWNER_EXPECTED_XML = (
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  "  <owner>Please list the metric's owners. "
+  'Add more owner tags as needed.</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
-ONE_OWNER_EXPECTED_XML = ('<actions>\n\n'
-                          '<action name="action1">\n'
-                          '  <owner>name1@google.com</owner>\n'
-                          '  <description>Description.</description>\n'
-                          '</action>\n\n'
-                          '</actions>\n')
+ONE_OWNER_EXPECTED_XML = (
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  '  <owner>name1@google.com</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
-TWO_OWNERS_EXPECTED_XML = ('<actions>\n\n'
-                           '<action name="action1">\n'
-                           '  <owner>name1@google.com</owner>\n'
-                           '  <owner>name2@google.com</owner>\n'
-                           '  <description>Description.</description>\n'
-                           '</action>\n\n'
-                           '</actions>\n')
+TWO_OWNERS_EXPECTED_XML = (
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  '  <owner>name1@google.com</owner>\n'
+  '  <owner>name2@google.com</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
 NO_DESCRIPTION_EXPECTED_XML = (
-    '<actions>\n\n'
-    '<action name="action1">\n'
-    '  <owner>name1@google.com</owner>\n'
-    '  <owner>name2@google.com</owner>\n'
-    '  <description>Please enter the description of the metric.</description>\n'
-    '</action>\n\n'
-    '</actions>\n')
-
-OBSOLETE_EXPECTED_XML = (
-    '<actions>\n\n'
-    '<action name="action1">\n'
-    '  <obsolete>Not used anymore. Replaced by action2.</obsolete>\n'
-    '  <owner>name1@google.com</owner>\n'
-    '  <owner>name2@google.com</owner>\n'
-    '  <description>Description.</description>\n'
-    '</action>\n\n'
-    '</actions>\n')
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  '  <owner>name1@google.com</owner>\n'
+  '  <owner>name2@google.com</owner>\n'
+  '  <description>Please enter the description of the metric.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
 ADD_ACTION_EXPECTED_XML = (
-    '<actions>\n\n'
-    '<action name="action1">\n'
-    '  <owner>name1@google.com</owner>\n'
-    '  <owner>name2@google.com</owner>\n'
-    '  <description>Description.</description>\n'
-    '</action>\n\n'
-    '<action name="action2">\n'
-    '  <owner>Please list the metric\'s owners.'
-    ' Add more owner tags as needed.</owner>\n'
-    '  <description>Please enter the description of the metric.</description>\n'
-    '</action>\n\n'
-    '</actions>\n')
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  '  <owner>name1@google.com</owner>\n'
+  '  <owner>name2@google.com</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '<action name="action2">\n'
+  "  <owner>Please list the metric's owners."
+  ' Add more owner tags as needed.</owner>\n'
+  '  <description>Please enter the description of the metric.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
-COMMENT_EXPECTED_XML = ('<!--comment-->\n\n'
-                        '<actions>\n\n'
-                        '<action name="action1">\n'
-                        '  <owner>name1@google.com</owner>\n'
-                        '  <owner>name2@google.com</owner>\n'
-                        '  <description>Description.</description>\n'
-                        '</action>\n\n'
-                        '</actions>\n')
+COMMENT_EXPECTED_XML = (
+  '<!--comment-->\n\n'
+  '<actions>\n\n'
+  '<action name="action1">\n'
+  '  <owner>name1@google.com</owner>\n'
+  '  <owner>name2@google.com</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
 NOT_USER_TRIGGERED_EXPECTED_XML = (
-    '<actions>\n\n'
-    '<action name="action1" not_user_triggered="true">\n'
-    '  <owner>Please list the metric\'s owners. '
-    'Add more owner tags as needed.</owner>\n'
-    '  <description>Description.</description>\n'
-    '</action>\n\n'
-    '</actions>\n')
+  '<actions>\n\n'
+  '<action name="action1" not_user_triggered="true">\n'
+  "  <owner>Please list the metric's owners. "
+  'Add more owner tags as needed.</owner>\n'
+  '  <description>Description.</description>\n'
+  '</action>\n\n'
+  '</actions>\n'
+)
 
 XML_WITH_TOKEN = """<actions>
   <variants name="TestVariants">
@@ -150,26 +158,28 @@ XML_WITH_TOKEN_PRETTY_PRINTED = """<actions>
 
 
 class TestActionXmlValidation(unittest.TestCase):
+  def testObsoleteForbidden(self):
+    current_xml = ACTIONS_XML.format(
+      owners=TWO_OWNERS,
+      obsolete=OBSOLETE,
+      description=DESCRIPTION,
+      comment=NO_VALUE,
+      not_user_triggered=NO_VALUE,
+    )
 
-  def testTwoObsoletes(self):
-    current_xml = ACTIONS_XML.format(owners=TWO_OWNERS,
-                                     obsolete=TWO_OBSOLETE,
-                                     description=DESCRIPTION,
-                                     comment=NO_VALUE,
-                                     not_user_triggered=NO_VALUE)
-
-    # Since there are two obsolete tags, the function ParseActionFile will
-    # raise ValueError.
+    # Obsolete tags are forbidden, so ParseActionFile will raise ValueError.
     with self.assertRaises(ValueError) as error_ctx:
       action_utils.ParseActionFile(current_xml)
     self.assertIn('obsolete', str(error_ctx.exception))
 
   def testTwoDescriptions(self):
-    current_xml = ACTIONS_XML.format(owners=TWO_OWNERS,
-                                     obsolete=NO_VALUE,
-                                     description=TWO_DESCRIPTIONS,
-                                     comment=NO_VALUE,
-                                     not_user_triggered=NO_VALUE)
+    current_xml = ACTIONS_XML.format(
+      owners=TWO_OWNERS,
+      obsolete=NO_VALUE,
+      description=TWO_DESCRIPTIONS,
+      comment=NO_VALUE,
+      not_user_triggered=NO_VALUE,
+    )
     # Since there are two description tags, the function ParseActionFile will
     # raise ValueError.
     with self.assertRaises(ValueError) as error_ctx:
@@ -178,7 +188,6 @@ class TestActionXmlValidation(unittest.TestCase):
 
 
 class TestActionXmlPrettyPrint(unittest.TestCase):
-
   @dataclasses.dataclass(frozen=True)
   class _TestScenario:
     # Input
@@ -194,143 +203,296 @@ class TestActionXmlPrettyPrint(unittest.TestCase):
 
     @classmethod
     def Create(
-        cls,
-        owner: str = NO_VALUE,
-        description: str = NO_VALUE,
-        obsolete: str = NO_VALUE,
-        not_user_triggered=NO_VALUE,
-        generated_actions: List[str] = [],
-        comment: str = NO_VALUE,
-        expected_xml=NO_VALUE) -> 'TestActionXmlPrettyPrint._TestScenario':
-      return cls(owner=owner,
-                 description=description,
-                 obsolete=obsolete,
-                 not_user_triggered=not_user_triggered,
-                 generated_actions=generated_actions,
-                 comment=comment,
-                 expected_xml=expected_xml)
+      cls,
+      owner: str = NO_VALUE,
+      description: str = NO_VALUE,
+      obsolete: str = NO_VALUE,
+      not_user_triggered=NO_VALUE,
+      generated_actions: List[str] = [],
+      comment: str = NO_VALUE,
+      expected_xml=NO_VALUE,
+    ) -> 'TestActionXmlPrettyPrint._TestScenario':
+      return cls(
+        owner=owner,
+        description=description,
+        obsolete=obsolete,
+        not_user_triggered=not_user_triggered,
+        generated_actions=generated_actions,
+        comment=comment,
+        expected_xml=expected_xml,
+      )
 
-  @parameterized.expand([
-      ('testNoOwner',
-       _TestScenario.Create(description=DESCRIPTION,
-                            expected_xml=NO_OWNER_EXPECTED_XML)),
-      ('testOneOwnerOneDescription',
-       _TestScenario.Create(owner=ONE_OWNER,
-                            description=DESCRIPTION,
-                            expected_xml=ONE_OWNER_EXPECTED_XML)),
-      ('testTwoOwners',
-       _TestScenario.Create(owner=TWO_OWNERS,
-                            description=DESCRIPTION,
-                            expected_xml=TWO_OWNERS_EXPECTED_XML)),
-      ('testNoDescription',
-       _TestScenario.Create(owner=TWO_OWNERS,
-                            expected_xml=NO_DESCRIPTION_EXPECTED_XML)),
-      ('testObsolete',
-       _TestScenario.Create(owner=TWO_OWNERS,
-                            description=DESCRIPTION,
-                            obsolete=OBSOLETE,
-                            expected_xml=OBSOLETE_EXPECTED_XML)),
-      ('testGeneratedNewActions',
-       _TestScenario.Create(owner=TWO_OWNERS,
-                            description=DESCRIPTION,
-                            generated_actions=['action2'],
-                            expected_xml=ADD_ACTION_EXPECTED_XML)),
-      ('testComment',
-       _TestScenario.Create(owner=TWO_OWNERS,
-                            description=DESCRIPTION,
-                            comment=COMMENT,
-                            expected_xml=COMMENT_EXPECTED_XML)),
-      ('testNotUserTriggered',
-       _TestScenario.Create(description=DESCRIPTION,
-                            not_user_triggered=NOT_USER_TRIGGERED,
-                            expected_xml=NOT_USER_TRIGGERED_EXPECTED_XML))
-  ])
+  @parameterized.expand(
+    [
+      (
+        'testNoOwner',
+        _TestScenario.Create(
+          description=DESCRIPTION, expected_xml=NO_OWNER_EXPECTED_XML
+        ),
+      ),
+      (
+        'testOneOwnerOneDescription',
+        _TestScenario.Create(
+          owner=ONE_OWNER,
+          description=DESCRIPTION,
+          expected_xml=ONE_OWNER_EXPECTED_XML,
+        ),
+      ),
+      (
+        'testTwoOwners',
+        _TestScenario.Create(
+          owner=TWO_OWNERS,
+          description=DESCRIPTION,
+          expected_xml=TWO_OWNERS_EXPECTED_XML,
+        ),
+      ),
+      (
+        'testNoDescription',
+        _TestScenario.Create(
+          owner=TWO_OWNERS, expected_xml=NO_DESCRIPTION_EXPECTED_XML
+        ),
+      ),
+      (
+        'testGeneratedNewActions',
+        _TestScenario.Create(
+          owner=TWO_OWNERS,
+          description=DESCRIPTION,
+          generated_actions=['action2'],
+          expected_xml=ADD_ACTION_EXPECTED_XML,
+        ),
+      ),
+      (
+        'testComment',
+        _TestScenario.Create(
+          owner=TWO_OWNERS,
+          description=DESCRIPTION,
+          comment=COMMENT,
+          expected_xml=COMMENT_EXPECTED_XML,
+        ),
+      ),
+      (
+        'testNotUserTriggered',
+        _TestScenario.Create(
+          description=DESCRIPTION,
+          not_user_triggered=NOT_USER_TRIGGERED,
+          expected_xml=NOT_USER_TRIGGERED_EXPECTED_XML,
+        ),
+      ),
+    ]
+  )
   def testUpdateXml(self, _, test_scenario: _TestScenario):
     input_xml = ACTIONS_XML.format(
-        owners=test_scenario.owner,
-        description=test_scenario.description,
-        obsolete=test_scenario.obsolete,
-        comment=test_scenario.comment,
-        not_user_triggered=test_scenario.not_user_triggered)
+      owners=test_scenario.owner,
+      description=test_scenario.description,
+      obsolete=test_scenario.obsolete,
+      comment=test_scenario.comment,
+      not_user_triggered=test_scenario.not_user_triggered,
+    )
     updated_xml = extract_actions.UpdateXml(
-        input_xml, generated_actions_names=set(test_scenario.generated_actions))
+      input_xml, generated_actions_names=set(test_scenario.generated_actions)
+    )
     self.assertEqual(updated_xml, test_scenario.expected_xml)
 
   def testVariantPrettyPrint(self):
     """Tests that tokens and variants are preserved when pretty-printing."""
-    xml_result = extract_actions.UpdateXml(XML_WITH_TOKEN,
-                                           generated_actions_names=set([]))
+    xml_result = extract_actions.UpdateXml(
+      XML_WITH_TOKEN, generated_actions_names=set([])
+    )
     self.assertMultiLineEqual(XML_WITH_TOKEN_PRETTY_PRINTED, xml_result)
 
 
 class ExtractActionsTest(unittest.TestCase):
-
-  @parameterized.expand([
-      ('testUserMetricsActionSpanningTwoLines',
-       'base::UserMetricsAction(\n"Foo.Bar"));', ['Foo.Bar']),
-      ('testUserMetricsActionAsAParam',
-       'base::UserMetricsAction("Test.Foo"), "Test.Bar");', ['Test.Foo']),
+  @parameterized.expand(
+    [
+      (
+        'testUserMetricsActionSpanningTwoLines',
+        'base::UserMetricsAction(\n"Foo.Bar"));',
+        ['Foo.Bar'],
+      ),
+      (
+        'testUserMetricsActionAsAParam',
+        'base::UserMetricsAction("Test.Foo"), "Test.Bar");',
+        ['Test.Foo'],
+      ),
       ('testNonLiteralUserMetricsAction', 'base::UserMetricsAction(FOO)', []),
-      ('testTernaryUserMetricsAction',
-       'base::UserMetricsAction(foo ? "Foo.Bar" : "Bar.Foo"));', []),
-      ('testTernaryUserMetricsActionWithNewLines', """base::UserMetricsAction(
+      (
+        'testTernaryUserMetricsAction',
+        'base::UserMetricsAction(foo ? "Foo.Bar" : "Bar.Foo"));',
+        [],
+      ),
+      (
+        'testTernaryUserMetricsActionWithNewLines',
+        """base::UserMetricsAction(
       foo_bar ? "Bar.Foo" :
-      "Foo.Car")""", []),
-      ('testUserMetricsActionWithExtraWhitespace',
-       'base::UserMetricsAction("Foo.Bar" )', ['Foo.Bar']),
-      ('testUserMetricsActionWithStringConcatenation',
-       'base::UserMetricsAction("Foo.Bar" "Baz.Qux")', ['Foo.BarBaz.Qux']),
-      ('testUserMetricsActionWithStringConcatenationWithPlus',
-       'base::UserMetricsAction("Foo.Bar" + "Baz.Qux")', []),
-      ('testUserMetricsActionWithEscapedQuotes',
-       'base::UserMetricsAction("Foo.Bar\\"Baz")', ['Foo.Bar"Baz']),
-      ('testUserMetricsActionWithMixedQuotes',
-       """base::UserMetricsAction('Foo."Bar"' )""", ['Foo."Bar"'])
-  ])
+      "Foo.Car")""",
+        [],
+      ),
+      (
+        'testUserMetricsActionWithExtraWhitespace',
+        'base::UserMetricsAction("Foo.Bar" )',
+        ['Foo.Bar'],
+      ),
+      (
+        'testUserMetricsActionWithStringConcatenation',
+        'base::UserMetricsAction("Foo.Bar" "Baz.Qux")',
+        ['Foo.BarBaz.Qux'],
+      ),
+      (
+        'testUserMetricsActionWithStringConcatenationWithPlus',
+        'base::UserMetricsAction("Foo.Bar" + "Baz.Qux")',
+        [],
+      ),
+      (
+        'testUserMetricsActionWithEscapedQuotes',
+        'base::UserMetricsAction("Foo.Bar\\"Baz")',
+        ['Foo.Bar"Baz'],
+      ),
+      (
+        'testUserMetricsActionWithMixedQuotes',
+        """base::UserMetricsAction('Foo."Bar"' )""",
+        ['Foo."Bar"'],
+      ),
+    ]
+  )
   def testActionNameFinder(
-      self,
-      _,
-      code: str,
-      expected_actions: List[Any],
+    self,
+    _,
+    code: str,
+    expected_actions: List[Any],
   ):
     finder = extract_actions.ActionNameFinder(
-        'dummy', code, extract_actions.USER_METRICS_ACTION_RE)
+      'dummy', code, extract_actions.USER_METRICS_ACTION_RE
+    )
     for expected_action in expected_actions:
       self.assertEqual(finder.FindNextAction(), expected_action)
     self.assertIsNone(finder.FindNextAction())
 
-  @parameterized.expand([
-      ('testUserMetricsActionSpanningTwoLinesJs',
-       "chrome.send('coreOptionsUserMetricsAction',\n['Foo.Bar']);",
-       ['Foo.Bar']),
-      ('testNonLiteralUserMetricsActionJs',
-       "chrome.send('coreOptionsUserMetricsAction',\n[FOO]);", []),
-      ('testTernaryUserMetricsActionJs',
-       ("chrome.send('coreOptionsUserMetricsAction', "
-        "[foo ? 'Foo.Bar' : 'Bar.Foo']);"), []),
-      ('testTernaryUserMetricsActionWithNewLinesJs',
-       """chrome.send('coreOptionsUserMetricsAction',
+  @parameterized.expand(
+    [
+      (
+        'testUserMetricsActionSpanningTwoLinesJs',
+        "chrome.send('coreOptionsUserMetricsAction',\n['Foo.Bar']);",
+        ['Foo.Bar'],
+      ),
+      (
+        'testNonLiteralUserMetricsActionJs',
+        "chrome.send('coreOptionsUserMetricsAction',\n[FOO]);",
+        [],
+      ),
+      (
+        'testTernaryUserMetricsActionJs',
+        (
+          "chrome.send('coreOptionsUserMetricsAction', "
+          "[foo ? 'Foo.Bar' : 'Bar.Foo']);"
+        ),
+        [],
+      ),
+      (
+        'testTernaryUserMetricsActionWithNewLinesJs',
+        """chrome.send('coreOptionsUserMetricsAction',
       [foo ? 'Foo.Bar' :
-      'Bar.Foo']);""", []),
-      ('testUserMetricsActionWithExtraCharactersJs',
-       """chrome.send('coreOptionsUserMetricsAction',
-      ['Foo.Bar' + 1]);""", []),
-      ('testComputedUserMetricsActionJs',
-       """chrome.send('coreOptionsUserMetricsAction',
-      ['Foo.' + foo_bar ? 'Bar' : 'Foo']);""", []),
-      ('testUserMetricsActionWithMismatchedQuotes',
-       "chrome.send('coreOptionsUserMetricsAction', [\"Foo.Bar']);", []),
-      ('testUserMetricsActionFromPropertyJs',
-       "chrome.send('coreOptionsUserMetricsAction', [objOrArray[key]]);", []),
-      ('testUserMetricsActionFromFunctionJs',
-       "chrome.send('coreOptionsUserMetricsAction', [getAction(param)]);", [])
-  ])
+      'Bar.Foo']);""",
+        [],
+      ),
+      (
+        'testUserMetricsActionWithExtraCharactersJs',
+        """chrome.send('coreOptionsUserMetricsAction',
+      ['Foo.Bar' + 1]);""",
+        [],
+      ),
+      (
+        'testComputedUserMetricsActionJs',
+        """chrome.send('coreOptionsUserMetricsAction',
+      ['Foo.' + foo_bar ? 'Bar' : 'Foo']);""",
+        [],
+      ),
+      (
+        'testUserMetricsActionWithMismatchedQuotes',
+        "chrome.send('coreOptionsUserMetricsAction', [\"Foo.Bar']);",
+        [],
+      ),
+      (
+        'testUserMetricsActionFromPropertyJs',
+        "chrome.send('coreOptionsUserMetricsAction', [objOrArray[key]]);",
+        [],
+      ),
+      (
+        'testUserMetricsActionFromFunctionJs',
+        "chrome.send('coreOptionsUserMetricsAction', [getAction(param)]);",
+        [],
+      ),
+    ]
+  )
   def testActionNameFinderJs(self, _, code: str, expected_actions: List[Any]):
     finder = extract_actions.ActionNameFinder(
-        'dummy', code, extract_actions.USER_METRICS_ACTION_RE_JS)
+      'dummy', code, extract_actions.USER_METRICS_ACTION_RE_JS
+    )
     for expected_action in expected_actions:
       self.assertEqual(finder.FindNextAction(), expected_action)
     self.assertIsNone(finder.FindNextAction())
+
+
+def _CollectWordsAndPid(file_path: str) -> set[str]:
+  with open(file_path, encoding='utf-8') as f:
+    return set(f.read().split()) | {f'pid:{os.getpid()}'}
+
+
+class WalkDirectoryTest(unittest.TestCase):
+  def setUp(self) -> None:
+    self._tmp_dir = tempfile.TemporaryDirectory()
+    self._root = self._tmp_dir.name
+    self.addCleanup(self._tmp_dir.cleanup)
+
+    self._saved_threshold = extract_actions._PARALLEL_SCAN_THRESHOLD
+    self._saved_max_workers = extract_actions._MAX_SCAN_WORKERS
+    extract_actions._MAX_SCAN_WORKERS = 2
+    self.addCleanup(self._RestoreGlobals)
+
+    self._WriteFile('top.cc', 'ActionTop')
+    self._WriteFile('sub/nested.cc', 'ActionNested')
+    self._WriteFile('sub/deeper/deep.cc', 'ActionDeep')
+    self._WriteFile('.hidden.cc', 'ActionHidden')
+    # Ignored: non-matching extension, test suffix, dot-only name, dot-dir,
+    # and third_party.
+    self._WriteFile('header.h', 'ActionHeader')
+    self._WriteFile('foo_test.cc', 'ActionTest')
+    self._WriteFile('.cc', 'ActionDotOnly')
+    self._WriteFile('.git/inside_git.cc', 'ActionGit')
+    self._WriteFile('third_party/dep.cc', 'ActionThirdParty')
+
+  _EXPECTED = {'ActionTop', 'ActionNested', 'ActionDeep', 'ActionHidden'}
+
+  def _RestoreGlobals(self) -> None:
+    extract_actions._PARALLEL_SCAN_THRESHOLD = self._saved_threshold
+    extract_actions._MAX_SCAN_WORKERS = self._saved_max_workers
+
+  def _WriteFile(self, relative_path: str, contents: str) -> None:
+    path = os.path.join(self._root, relative_path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
+      f.write(contents)
+
+  def _Walk(self) -> tuple[set[str], set[int]]:
+    raw: set[str] = set()
+    extract_actions.WalkDirectory(self._root, raw, '.cc', _CollectWordsAndPid)
+    actions = {item for item in raw if not item.startswith('pid:')}
+    pids = {
+      int(item.removeprefix('pid:')) for item in raw if item.startswith('pid:')
+    }
+    return actions, pids
+
+  def testParallelScanMatchesSerialScan(self) -> None:
+    extract_actions._PARALLEL_SCAN_THRESHOLD = 1000
+    serial_actions, serial_pids = self._Walk()
+    self.assertEqual(serial_actions, self._EXPECTED)
+    self.assertEqual(serial_pids, {os.getpid()})
+
+    extract_actions._PARALLEL_SCAN_THRESHOLD = 1
+    parallel_actions, parallel_pids = self._Walk()
+    self.assertEqual(parallel_actions, self._EXPECTED)
+    self.assertTrue(parallel_pids)
+    self.assertNotIn(os.getpid(), parallel_pids)
+
 
 if __name__ == '__main__':
   unittest.main()

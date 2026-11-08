@@ -24,10 +24,12 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "base/base_export.h"
 #include "base/check.h"
 #include "base/compiler_specific.h"
+#include "partition_alloc/buildflags.h"
 
 #if PA_BUILDFLAG(USE_PARTITION_ALLOC)
 #include "partition_alloc/partition_alloc_constants.h"  // nogncheck
@@ -105,6 +107,7 @@ using OnThreadTerminationFunction = void (*)(void*);
 class BASE_EXPORT PThreadTLSSystem {
  public:
   PThreadTLSSystem();
+  ~PThreadTLSSystem();
 
   PThreadTLSSystem(const PThreadTLSSystem&) = delete;
   PThreadTLSSystem(PThreadTLSSystem&&);
@@ -128,6 +131,7 @@ class BASE_EXPORT PThreadTLSSystem {
   bool SetThreadSpecificData(void* data);
 
  private:
+  std::unique_ptr<std::string> crash_key_name_;
   base::debug::CrashKeyString* crash_key_ = nullptr;
   pthread_key_t data_access_key_ = 0;
 #if DCHECK_IS_ON()

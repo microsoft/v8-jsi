@@ -22,11 +22,11 @@
 #include "partition_alloc/shim/allocator_shim_override_ucrt_symbols_win.h"
 
 // Cross-checks.
-#if defined(COMPONENT_BUILD) || !PA_BUILDFLAG(IS_WIN)
+#if PA_BUILDFLAG(IS_COMPONENT_BUILD) || !PA_BUILDFLAG(IS_WIN)
 #error This code is only for Windows static build.
 #endif
 
-#if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
+#if PA_BUILDFLAG(MEMORY_TOOL_REPLACES_ALLOCATOR)
 #error The allocator shim should not be compiled when building for memory tools.
 #endif
 

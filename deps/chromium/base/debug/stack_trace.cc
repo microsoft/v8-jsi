@@ -13,6 +13,7 @@
 
 #include "base/byte_size.h"
 #include "base/check_op.h"
+#include "base/containers/span.h"
 #include "base/debug/debugging_buildflags.h"
 #include "base/features.h"
 #include "base/numerics/clamped_math.h"
@@ -287,6 +288,15 @@ StackTrace::StackTrace(span<const void* const> trace)
   }
 }
 
+StackTrace::StackTrace(span<const uintptr_t> trace)
+    : count_(std::min(trace.size(), std::size(trace_))) {
+  if (count_) {
+    std::ranges::transform(
+        trace.first(count_), trace_.begin(),
+        [](uintptr_t addr) { return reinterpret_cast<const void*>(addr); });
+  }
+}
+
 // static
 bool StackTrace::WillSymbolizeToStreamForTesting() {
 #if BUILDFLAG(HAS_SYMBOLS) == 0
@@ -326,12 +336,16 @@ void StackTrace::InitializeFeatures() {
   if (FeatureList::IsEnabled(
           features::kStackScanMaxFramePointerToStackEndGap)) {
     g_stack_scan_max_fp_to_stack_end_gap_bytes =
-        MiBU(checked_cast<unsigned>(
-                 features::kStackScanMaxFramePointerToStackEndGapThresholdMB
-                     .Get()))
+        MiB(checked_cast<unsigned>(
+                features::kStackScanMaxFramePointerToStackEndGapThresholdMB
+                    .Get()))
             .InBytes();
   }
 #endif  // BUILDFLAG(CAN_UNWIND_WITH_FRAME_POINTERS)
+}
+
+span<const void* const> StackTrace::addresses() const {
+  return span(trace_).first(count_);
 }
 
 void StackTrace::Print() const {

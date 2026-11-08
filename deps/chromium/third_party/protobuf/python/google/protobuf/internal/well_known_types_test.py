@@ -530,7 +530,7 @@ class TimeUtilTest(TimeUtilTestBase):
     )
     self.assertRaisesRegex(
         ValueError,
-        'year (0 )?is out of range',
+        'year ',
         message.FromJsonString,
         '0000-01-01T00:00:00Z',
     )
@@ -540,10 +540,10 @@ class TimeUtilTest(TimeUtilTestBase):
     self.assertRaisesRegex(ValueError, 'Timestamp is not valid',
                            message.FromSeconds, -62135596801)
     msg = well_known_types_test_pb2.WKTMessage()
-    with self.assertRaises((TypeError, AttributeError)):
+    with self.assertRaises((TypeError)):
       msg.optional_timestamp = 1
 
-    with self.assertRaises((TypeError, AttributeError)):
+    with self.assertRaises((TypeError)):
       msg2 = well_known_types_test_pb2.WKTMessage(optional_timestamp=1)
 
     with self.assertRaises(TypeError):
@@ -838,6 +838,14 @@ class StructTest(unittest.TestCase):
     self.assertEqual(
         [6, True, False, None, inner_struct], list(struct['key5'].items())
     )
+
+  def testSerializeDeeplyNestedStruct(self):
+    s = struct_pb2.Struct()
+    current = s
+    for _ in range(45):
+      current = current.fields['x'].struct_value
+    current.fields['v'].number_value = 1
+    self.assertGreater(len(s.SerializeToString()), 0)
 
   def testInOperator(self):
     # in operator for Struct

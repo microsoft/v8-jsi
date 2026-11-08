@@ -7,6 +7,7 @@ import("//build/config/chromeos/args.gni")
 import("//build/config/dcheck_always_on.gni")
 import("//build/config/gclient_args.gni")
 import("//build/config/python.gni")
+import("//build/config/vpython.gni")
 import("//build/util/generate_wrapper.gni")
 
 assert(is_chromeos)
@@ -49,7 +50,8 @@ if (cros_sdk_version != "") {
       # Tast harness & test data.
       rebase_path("${_cache_path_prefix}+autotest_server_package.tar.bz2"),
 
-      # Binutils (and other toolchain tools) used to deploy Chrome to the device.
+      # Binutils (and other toolchain tools) used to deploy Chrome to the
+      # device.
       rebase_path(
           "${_cache_path_prefix}+environment_chromeos-base_chromeos-chrome.tar.xz"),
       rebase_path("${_cache_path_prefix}+target_toolchain"),
@@ -139,6 +141,7 @@ template("generate_chromeos_sdk_deps") {
       }
     }
   }
+
   group(target_name) {
     data = _sdk_data
     data += [
@@ -219,6 +222,7 @@ template("generate_skylab_tast_filter") {
       ]
     }
   }
+
   action(target_name) {
     testonly = true
     script = "//build/chromeos/generate_skylab_tast_filter.py"
@@ -448,17 +452,15 @@ template("generate_runner_script") {
       deps += invoker.deps
     }
     data = [
-      "//.vpython3",
-
-      # We use android test-runner's results libs to construct gtest output
-      # json.
-      "//build/android/pylib/__init__.py",
-      "//build/android/pylib/base/",
-      "//build/android/pylib/results/",
-      "//build/chromeos/",
-      "//build/util/",
-      "//third_party/chromite/",
-    ]
+             # We use android test-runner's results libs to construct gtest
+             # output json.
+             "//build/android/pylib/__init__.py",
+             "//build/android/pylib/base/",
+             "//build/android/pylib/results/",
+             "//build/chromeos/",
+             "//build/util/",
+             "//third_party/chromite/",
+           ] + vpython_spec_files
 
     if (defined(invoker.data)) {
       data += invoker.data
@@ -540,6 +542,7 @@ template("tast_test") {
     "//components/crash/content/tools/generate_breakpad_symbols.py",
     "//chromeos/tast_control_disabled_tests_public_builders.txt",
     "//chromeos/tast_control_disabled_tests.txt",
+    "//chromeos/tast_control_flaky_tests.txt",
   ]
 
   if (is_skylab) {
@@ -564,6 +567,7 @@ template("tast_test") {
     if (defined(tast_attr_expr)) {
       tast_attr_expr = "( " + tast_attr_expr + " )"
     }
+
     generate_runner_script(target_name) {
       testonly = true
       generated_script = "$root_build_dir/bin/run_${target_name}"

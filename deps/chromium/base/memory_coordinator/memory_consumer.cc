@@ -4,8 +4,10 @@
 
 #include "base/memory_coordinator/memory_consumer.h"
 
+#include "base/check_is_test.h"
 #include "base/check_op.h"
 #include "base/memory_coordinator/memory_consumer_registry.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -15,16 +17,28 @@ MemoryConsumer::MemoryConsumer() {
   DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
+bool MemoryConsumer::IsPassive() const {
+  return false;
+}
+
+bool PassiveMemoryConsumer::IsPassive() const {
+  return true;
+}
+
 void MemoryConsumer::ReleaseMemory() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (is_registering_) {
+    return;
+  }
   OnReleaseMemory();
 }
 
-void MemoryConsumer::UpdateMemoryLimit(int percentage) {
+void MemoryConsumer::UpdateMemoryLimit(MemoryLimit memory_limit) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  // The percentage can never be negative (but it can be higher than 100).
-  CHECK_GE(percentage, 0);
-  memory_limit_ = percentage;
+  memory_limit_ = memory_limit;
+  if (is_registering_) {
+    return;
+  }
   OnUpdateMemoryLimit();
 }
 
@@ -32,19 +46,22 @@ void MemoryConsumer::UpdateMemoryLimit(int percentage) {
 
 MemoryConsumerRegistration::MemoryConsumerRegistration(
     std::string_view consumer_name,
-    std::optional<MemoryConsumerTraits> traits,
+    MemoryConsumerTraits traits,
     MemoryConsumer* consumer,
-    CheckUnregister check_unregister,
-    CheckRegistryExists check_registry_exists)
+    CheckUnregister check_unregister)
     : consumer_name_(consumer_name),
       consumer_(consumer),
       check_unregister_(check_unregister),
       registry_(MemoryConsumerRegistry::MaybeGet()) {
   if (!registry_) {
-    CHECK_EQ(check_registry_exists, CheckRegistryExists::kDisabled)
+#if !BUILDFLAG(IS_IOS)
+    // Enforce that the registry exists outside of tests to prevent components
+    // from silently failing to respond to memory pressure.
+    CHECK_IS_TEST()
         << ". The MemoryConsumerRegistry did not exist at the time the "
            "MemoryConsumerRegistration for "
         << consumer_name << " was created.";
+#endif
     return;
   }
 

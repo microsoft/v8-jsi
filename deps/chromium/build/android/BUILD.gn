@@ -21,6 +21,7 @@ if (enable_java_templates) {
 
   generate_build_config_srcjar("build_config_for_robolectric_srcjar") {
     testonly = true
+    is_robolectric = true
   }
 
   write_native_libraries_java("native_libraries_gen") {
@@ -33,7 +34,8 @@ if (enable_java_templates) {
     # Caused odd errors: https://crbug.com/404877460
     jacoco_never_instrument = true
 
-    # Required to prevent circular dependency from //tools/android/errorprone_plugin.
+    # Required to prevent circular dependency from
+    # //tools/android/errorprone_plugin.
     enable_errorprone = false
 
     srcjar_deps = [
@@ -74,7 +76,8 @@ if (enable_java_templates) {
     proguard_configs = [ "chromium_annotations.flags" ]
   }
 
-  # Not all //build embedders pull in junit_binary deps that live in //third_party.
+  # Not all //build embedders pull in junit_binary deps that live in
+  # //third_party.
   if (build_with_chromium) {
     android_assets("junit_test_assets") {
       testonly = true
@@ -82,11 +85,13 @@ if (enable_java_templates) {
       # We just need any file here, so use the test itself.
       sources = [ "junit/src/org/chromium/build/AndroidAssetsTest.java" ]
     }
+
     android_resources("junit_test_resources") {
       testonly = true
       sources = [ "junit/res/values/strings.xml" ]
       mergeable_android_manifests = [ "junit/AndroidManifest_mergetest.xml" ]
     }
+
     robolectric_binary("build_junit_tests") {
       # Test has no JNI, so skip JNI Generator step.
       resources_package = "org.chromium.build"
@@ -185,6 +190,7 @@ python_library("test_runner_core_py") {
   data = [
     "pylib/gtest/filter/",
     "pylib/instrumentation/render_test.html.jinja",
+    "pylib/local/emulator/package.xml.template",
     "pylib/local/machine/local_machine_hostside_tradefed_config.xml",
     "test_wrapper/logdog_wrapper.py",
     "//third_party/requests/",
@@ -229,6 +235,9 @@ group("test_runner_device_support") {
     }
     if (use_full_mte) {
       data_deps += [ "//tools/android/mte:mte_device_setup" ]
+    }
+    if (checkout_fuchsia) {
+      data_deps += [ "//build/fuchsia/starview:run_cuttlefish" ]
     }
   }
 

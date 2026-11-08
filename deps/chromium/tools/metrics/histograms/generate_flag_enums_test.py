@@ -7,6 +7,7 @@ import unittest
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.histograms.generate_flag_enums as generate_flag_enums
 
 ENUMS_XML_CONTAINING_XY = """
@@ -46,12 +47,12 @@ ENUMS_XML_CONTAINING_XYZ = """
 """.strip()
 
 ENTRIES_Z = [
-    '<int value="-2137768499" label="z:disabled"/>',
-    '<int value="1073077752" label="z:enabled"/>',
+  '<int value="-2137768499" label="z:disabled"/>',
+  '<int value="1073077752" label="z:enabled"/>',
 ]
 ENTRIES_X = [
-    '<int value="-894241176" label="x:disabled"/>',
-    '<int value="-1441640912" label="x:enabled"/>',
+  '<int value="-894241176" label="x:disabled"/>',
+  '<int value="-1441640912" label="x:enabled"/>',
 ]
 
 
@@ -62,13 +63,15 @@ class GenerateFlagEnumsTest(unittest.TestCase):
 
   def test_add_entries_to_xml(self):
     # Should not add entries already in the enums xml.
-    output_xml = generate_flag_enums.add_entries_to_xml(ENUMS_XML_CONTAINING_XY,
-                                                        ENTRIES_X)
+    output_xml = generate_flag_enums.add_entries_to_xml(
+      ENUMS_XML_CONTAINING_XY, ENTRIES_X
+    )
     self.assertMultiLineEqual(output_xml.strip(), ENUMS_XML_CONTAINING_XY)
 
     # Should add entries not in the enums xml and order them.
-    output_xml = generate_flag_enums.add_entries_to_xml(ENUMS_XML_CONTAINING_XY,
-                                                        ENTRIES_Z)
+    output_xml = generate_flag_enums.add_entries_to_xml(
+      ENUMS_XML_CONTAINING_XY, ENTRIES_Z
+    )
     self.assertMultiLineEqual(output_xml.strip(), ENUMS_XML_CONTAINING_XYZ)
 
 

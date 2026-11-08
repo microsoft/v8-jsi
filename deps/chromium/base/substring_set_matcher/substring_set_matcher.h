@@ -8,9 +8,10 @@
 
 #include <stdint.h>
 
+#include <array>
 #include <limits>
 #include <set>
-#include <string>
+#include <string_view>
 #include <vector>
 
 #include "base/base_export.h"
@@ -31,8 +32,11 @@ class BASE_EXPORT SubstringSetMatcher {
   ~SubstringSetMatcher();
 
   // Registers all |patterns|. Each pattern needs to have a unique ID and all
-  // pattern strings must be unique. Build() should be called exactly once
-  // (before it is called, the tree is empty).
+  // pattern strings must be unique. If duplicate pattern strings are passed,
+  // it will trigger a CHECK failure in DCHECK-enabled builds. In release
+  // builds, duplicate patterns are silently ignored (only the first one is
+  // registered) to prevent memory corruption. Build() should be called
+  // exactly once (before it is called, the tree is empty).
   //
   // Complexity:
   //    Let n = number of patterns.
@@ -54,14 +58,14 @@ class BASE_EXPORT SubstringSetMatcher {
   //    Let k = range of char. Generally 256.
   //    Let z = number of matches returned.
   // Complexity = O(t * logk + zlogz)
-  bool Match(const std::string& text,
+  bool Match(std::string_view text,
              std::set<MatcherStringPattern::ID>* matches) const;
 
   // As Match(), except it returns immediately on the first match.
   // This allows true/false matching to be done without any dynamic
   // memory allocation.
   // Complexity = O(t * logk)
-  bool AnyMatch(const std::string& text) const;
+  bool AnyMatch(std::string_view text) const;
 
   // Returns true if this object retains no allocated data.
   bool IsEmpty() const { return is_empty_; }
@@ -183,9 +187,9 @@ class BASE_EXPORT SubstringSetMatcher {
     const AhoCorasickEdge* edges() const {
       // NOTE: Returning edges_.inline_edges here is fine, because it's
       // the first thing in the struct (see the comment on edges_).
-      DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(edges_.inline_edges) %
+      DCHECK_EQ(0u, reinterpret_cast<uintptr_t>(edges_.inline_edges.data()) %
                         alignof(AhoCorasickEdge));
-      return edges_capacity_ == 0 ? edges_.inline_edges : edges_.edges;
+      return edges_capacity_ == 0 ? edges_.inline_edges.data() : edges_.edges;
     }
 
     NodeID failure() const {
@@ -202,7 +206,11 @@ class BASE_EXPORT SubstringSetMatcher {
     void SetFailure(NodeID failure);
 
     void SetMatchID(MatcherStringPattern::ID id) {
-      DCHECK(!IsEndOfPattern());
+      // A node ends at most one pattern; a duplicate would add a second
+      // kMatchIDLabel edge that can overflow the node's storage in SetEdge().
+      if (IsEndOfPattern()) {
+        return;
+      }
       DCHECK(id < kInvalidNodeID);  // This is enforced by Build().
       SetEdge(kMatchIDLabel, static_cast<NodeID>(id));
       has_outputs_ = true;
@@ -282,7 +290,7 @@ class BASE_EXPORT SubstringSetMatcher {
       RAW_PTR_EXCLUSION AhoCorasickEdge* edges;
 
       // Inline edge storage, used if edges_capacity_ == 0.
-      AhoCorasickEdge inline_edges[kNumInlineEdges];
+      std::array<AhoCorasickEdge, kNumInlineEdges> inline_edges;
     } edges_;
 
     // Whether we have an edge for kMatchIDLabel or kOutputLinkLabel,

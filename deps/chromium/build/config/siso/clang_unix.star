@@ -10,12 +10,18 @@ load("./android.star", "android")
 load("./clang_all.star", "clang_all")
 load("./config.star", "config")
 load("./gn_logs.star", "gn_logs")
+load("./mac_sdk.star", "mac_sdk")
+load("./platform.star", "platform")
 load("./win_sdk.star", "win_sdk")
 
 def __clang_link(ctx, cmd):
-    if not config.get(ctx, "remote-link"):
+    if not (config.get(ctx, "remote-link") or config.get(ctx, "default-remote")):
         return
     inputs = []
+    outputs = []
+    reconcile_outputdirs = []
+    split_dwarf = False
+    use_lto = False
     sysroot = ""
     target = ""
     args = cmd.args
@@ -55,6 +61,10 @@ def __clang_link(ctx, cmd):
                 crl = ctx.fs.canonpath(crls[1])
                 if ctx.fs.exists(crl):
                     inputs.append(crl + ":link")
+        elif arg == "-gsplit-dwarf":
+            split_dwarf = True
+        elif arg.startswith("-flto"):
+            use_lto = True
         elif arg == "--":
             clang_base = ctx.fs.canonpath(path.dir(path.dir(cmd.args[i + 1])))
             inputs.append(clang_base + ":link")
@@ -67,7 +77,18 @@ def __clang_link(ctx, cmd):
             ])
             break
 
-    ctx.actions.fix(inputs = cmd.inputs + inputs)
+    outputs = cmd.outputs
+    reconcile_outputdirs = []
+    if split_dwarf and use_lto:
+        dwo_dir = cmd.outputs[0] + "-dwo/"
+        outputs = cmd.outputs + [dwo_dir]
+        reconcile_outputdirs = [dwo_dir]
+
+    ctx.actions.fix(
+        inputs = cmd.inputs + inputs,
+        outputs = outputs,
+        reconcile_outputdirs = reconcile_outputdirs,
+    )
 
 __handlers = {}
 __handlers.update(clang_all.handlers)
@@ -83,6 +104,12 @@ def __rules(ctx):
     # it takes even more.
     use_thin_lto = gn_logs_data.get("use_thin_lto") == "true"
     remote_link_timeout = "80m" if use_thin_lto else "10m"
+
+    remote_link = config.get(ctx, "remote-link") or config.get(ctx, "default-remote")
+
+    # Remote linking is not supported for Mac/iOS targets.
+    if mac_sdk.enabled(ctx):
+        remote_link = False
 
     rules = []
     if win_sdk.enabled(ctx):
@@ -137,7 +164,7 @@ def __rules(ctx):
                     "*.pak",
                     "*.py",
                 ],
-                "remote": config.get(ctx, "remote-link"),
+                "remote": remote_link,
                 "platform_ref": "large",
                 "input_root_absolute_path": input_root_absolute_path,
                 "timeout": remote_link_timeout,
@@ -158,7 +185,7 @@ def __rules(ctx):
                     "*.pak",
                     "*.py",
                 ],
-                "remote": config.get(ctx, "remote-link"),
+                "remote": remote_link,
                 "platform_ref": "large",
                 "input_root_absolute_path": input_root_absolute_path,
                 "timeout": remote_link_timeout,
@@ -179,7 +206,7 @@ def __rules(ctx):
                     "*.pak",
                     "*.py",
                 ],
-                "remote": config.get(ctx, "remote-link"),
+                "remote": remote_link,
                 "platform_ref": "large",
                 "input_root_absolute_path": input_root_absolute_path,
                 "timeout": remote_link_timeout,
@@ -260,14 +287,17 @@ def __rules(ctx):
             "inputs": [
                 "third_party/llvm-build/Release+Asserts/bin/clang",
             ],
-            "remote": config.get(ctx, "cog"),
+            # Remote assembly is typically much slower than local assembly.
+            # However, on Cog, local actions incur the overhead of fetching the
+            # toolchain and all inputs, making remote execution preferable.
+            "remote": config.get(ctx, "cog") or config.get(ctx, "default-remote"),
             "input_root_absolute_path": input_root_absolute_path,
             "timeout": "2m",
         },
         {
             "name": "clang-coverage/cxx",
             "action": "(.*_)?cxx",
-            "command_prefix": "\"python3\" ../../build/toolchain/clang_code_coverage_wrapper.py",
+            "command_prefix": platform.python_bin + " ../../build/toolchain/clang_code_coverage_wrapper.py",
             "inputs": [
                 "third_party/llvm-build/Release+Asserts/bin/clang++",
             ],
@@ -280,7 +310,7 @@ def __rules(ctx):
         {
             "name": "clang-coverage/cc",
             "action": "(.*_)?cc",
-            "command_prefix": "\"python3\" ../../build/toolchain/clang_code_coverage_wrapper.py",
+            "command_prefix": platform.python_bin + " ../../build/toolchain/clang_code_coverage_wrapper.py",
             "inputs": [
                 "third_party/llvm-build/Release+Asserts/bin/clang",
             ],
@@ -293,7 +323,7 @@ def __rules(ctx):
         {
             "name": "clang-coverage/objcxx",
             "action": "(.*_)?objcxx",
-            "command_prefix": "\"python3\" ../../build/toolchain/clang_code_coverage_wrapper.py",
+            "command_prefix": platform.python_bin + " ../../build/toolchain/clang_code_coverage_wrapper.py",
             "inputs": [
                 "third_party/llvm-build/Release+Asserts/bin/clang++",
             ],
@@ -306,7 +336,7 @@ def __rules(ctx):
         {
             "name": "clang-coverage/objc",
             "action": "(.*_)?objc",
-            "command_prefix": "\"python3\" ../../build/toolchain/clang_code_coverage_wrapper.py",
+            "command_prefix": platform.python_bin + " ../../build/toolchain/clang_code_coverage_wrapper.py",
             "inputs": [
                 "third_party/llvm-build/Release+Asserts/bin/clang",
             ],
@@ -319,10 +349,6 @@ def __rules(ctx):
         {
             "name": "clang/alink/llvm-ar",
             "action": "(.*_)?alink",
-            "inputs": [
-                # TODO: crbug.com/316267242 - Add inputs to GN config.
-                "third_party/llvm-build/Release+Asserts/bin/llvm-ar",
-            ],
             "exclude_input_patterns": [
                 "*.cc",
                 "*.h",
@@ -332,7 +358,7 @@ def __rules(ctx):
                 "*.stamp",
             ],
             "handler": "lld_thin_archive",
-            "remote": config.get(ctx, "remote-link"),
+            "remote": remote_link,
             "timeout": "2m",
             "platform_ref": "large",
             "accumulate": True,
@@ -341,15 +367,18 @@ def __rules(ctx):
             "name": "clang/solink",
             "action": "(.*_)?solink",
             "handler": "clang_link",
+            "inputs": [
+                "third_party/cpython3/linux-amd64:cpython3",
+            ],
             "exclude_input_patterns": [
                 "*.cc",
                 "*.h",
                 "*.js",
                 "*.pak",
-                "*.py",
                 "*.stamp",
             ],
-            "remote": config.get(ctx, "remote-link"),
+            "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "restat_content": True,
             "platform_ref": "large",
             "timeout": remote_link_timeout,
@@ -363,10 +392,10 @@ def __rules(ctx):
                 "*.h",
                 "*.js",
                 "*.pak",
-                "*.py",
                 "*.stamp",
             ],
-            "remote": config.get(ctx, "remote-link"),
+            "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "platform_ref": "large",
             "timeout": remote_link_timeout,
         },
@@ -374,16 +403,19 @@ def __rules(ctx):
             "name": "clang/link",
             "action": "(.*_)?link",
             "handler": "clang_link",
+            "inputs": [
+                "third_party/cpython3/linux-amd64:cpython3",
+            ],
             "exclude_input_patterns": [
                 "*.cc",
                 "*.h",
                 "*.info",
                 "*.js",
                 "*.pak",
-                "*.py",
                 "*.stamp",
             ],
-            "remote": config.get(ctx, "remote-link"),
+            "remote": remote_link,
+            "remote_command": platform.remote_python_bin,
             "platform_ref": "large",
             "timeout": remote_link_timeout,
         },

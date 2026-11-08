@@ -10,7 +10,9 @@
 
 #include <cstdint>
 
-#include "base/compiler_specific.h"
+#include "base/feature_list.h"
+#include "base/features.h"
+#include "base/synchronization/lock_metrics_recorder_tags.h"
 
 #if DCHECK_IS_ON()
 #include <array>
@@ -18,11 +20,15 @@
 #include "base/check_op.h"
 #include "base/synchronization/lock_subtle.h"
 #include "base/threading/platform_thread.h"
+#endif  // DCHECK_IS_ON()
 
 namespace base {
-
 namespace {
 
+constexpr LockMetricTag g_base_lock_tag("BaseLock");
+constexpr LockMetricTagList g_base_lock_tag_list{g_base_lock_tag};
+
+#if DCHECK_IS_ON()
 // List of locks held by a thread.
 //
 // As of May 2024, no more than 5 locks were held simultaneously by a thread in
@@ -38,15 +44,44 @@ thread_local std::array<uintptr_t, kHeldLocksCapacity>
 
 // Number of non-nullptr elements in `g_tracked_locks_held_by_thread`.
 thread_local size_t g_num_tracked_locks_held_by_thread = 0;
+#endif  // DCHECK_IS_ON()
+
+#if BUILDFLAG(IS_POSIX)
+int GetBaseLockSpinCount() {
+#if defined(ARCH_CPU_X86_FAMILY)
+  return base::features::kSpinCountX86.Get();
+#elif defined(ARCH_CPU_ARM_FAMILY)
+  return base::features::kSpinCountArm.Get();
+#else
+  return 0;
+#endif  // defined(ARCH_CPU_X86_FAMILY)
+}
+#endif  // BUILDFLAG(IS_POSIX)
 
 }  // namespace
 
+// static
+const LockMetricTag& Lock::GetBaseLockMetricTag() {
+  return g_base_lock_tag;
+}
+
+// static
+const LockMetricTagList& Lock::GetBaseLockMetricTagList() {
+  return g_base_lock_tag_list;
+}
+
+#if DCHECK_IS_ON()
 Lock::~Lock() {
   DCHECK(owning_thread_ref_.is_null());
 }
 
 void Lock::Acquire(subtle::LockTracking tracking) {
-  lock_.Lock();
+  Acquire(GetBaseLockMetricTagList(), tracking);
+}
+
+void Lock::Acquire(const LockMetricTagList& tags,
+                   subtle::LockTracking tracking) {
+  lock_.Lock(tags);
   if (tracking == subtle::LockTracking::kEnabled) {
     AddToLocksHeldOnCurrentThread();
   }
@@ -129,13 +164,20 @@ void Lock::RemoveFromLocksHeldOnCurrentThread() {
 namespace subtle {
 
 span<const uintptr_t> GetTrackedLocksHeldByCurrentThread() {
-  return UNSAFE_TODO(
-      span<const uintptr_t>(g_tracked_locks_held_by_thread.begin(),
-                            g_num_tracked_locks_held_by_thread));
+  return span(g_tracked_locks_held_by_thread)
+      .first(g_num_tracked_locks_held_by_thread);
 }
 
 }  // namespace subtle
+#endif  // DCHECK_IS_ON()
+
+#if BUILDFLAG(IS_POSIX)
+// static
+void Lock::InitializeFeatures() {
+  if (FeatureList::IsEnabled(base::features::kBaseLockTrySpin)) {
+    base::internal::LockImpl::SetTrySpinCount(GetBaseLockSpinCount());
+  }
+}
+#endif  // BUILDFLAG(IS_POSIX)
 
 }  // namespace base
-
-#endif  // DCHECK_IS_ON()

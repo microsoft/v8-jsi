@@ -7,7 +7,6 @@
 # ==============================================================================
 
 import("//build/config/chromeos/args.gni")
-import("//build/config/chromeos/ui_mode.gni")
 import("//build/config/devtools.gni")
 import("//build/config/gclient_args.gni")
 import("//build/config/rts.gni")
@@ -157,59 +156,45 @@ template("mixed_test") {
       defined(invoker.fuzztests) && use_fuzzing_engine &&
       (is_linux || is_mac || is_win)
 
-  # Fuzz tests are small fuzzers that do not require particularly-powerful
-  # machines to run, so we do not build them when `high_end_fuzzer_targets`
-  # is true and we are building fuzztests in fuzzing mode.
-  if (_building_fuzztest_fuzzer && high_end_fuzzer_targets) {
-    not_needed(invoker, "*")
-    not_needed("*")
-
-    # We still want a reachable target, so make it a no-op empty group. This
-    # will let the fuzzer builders crawl the build graph and invoke ninja in
-    # the same way regardless of GN args.
-    group(target_name) {
+  target(invoker.target_type, target_name) {
+    forward_variables_from(invoker,
+                           "*",
+                           TESTONLY_AND_VISIBILITY + _rs_vars + [
+                                 "fuzztests",
+                                 "fuzztest_additional_args",
+                                 "libfuzzer_options",
+                                 "centipede_options",
+                                 "asan_options",
+                                 "msan_options",
+                                 "ubsan_options",
+                                 "environment_variables",
+                                 "grammar_options",
+                               ])
+    forward_variables_from(invoker, TESTONLY_AND_VISIBILITY)
+    sources = _cc_sources
+    if (!defined(deps)) {
+      deps = []
     }
-  } else {
-    target(invoker.target_type, target_name) {
-      forward_variables_from(invoker,
-                             "*",
-                             TESTONLY_AND_VISIBILITY + _rs_vars + [
-                                   "fuzztests",
-                                   "fuzztest_additional_args",
-                                   "libfuzzer_options",
-                                   "centipede_options",
-                                   "asan_options",
-                                   "msan_options",
-                                   "ubsan_options",
-                                   "environment_variables",
-                                   "grammar_options",
-                                 ])
-      forward_variables_from(invoker, TESTONLY_AND_VISIBILITY)
-      sources = _cc_sources
-      if (!defined(deps)) {
-        deps = []
-      }
-      if (!defined(ldflags)) {
-        ldflags = []
-      }
+    if (!defined(ldflags)) {
+      ldflags = []
+    }
 
-      if (_rs_sources != []) {
-        deps += [ ":${_rust_target_name}" ]
-      }
-      if (defined(invoker.fuzztests)) {
-        deps += [
-          "//third_party/fuzztest",
+    if (_rs_sources != []) {
+      deps += [ ":${_rust_target_name}" ]
+    }
+    if (defined(invoker.fuzztests)) {
+      deps += [
+        "//third_party/fuzztest",
 
-          # The following target contains a static initializer which
-          # will ensure that the code in base/test:test_support
-          # ends up calling through to fuzztest::InitFuzzTest.
-          "//testing/libfuzzer:confirm_fuzztest_init",
-        ]
-      }
+        # The following target contains a static initializer which
+        # will ensure that the code in base/test:test_support
+        # ends up calling through to fuzztest::InitFuzzTest.
+        "//testing/libfuzzer:confirm_fuzztest_init",
+      ]
     }
   }
 
-  if (_building_fuzztest_fuzzer && !high_end_fuzzer_targets) {
+  if (_building_fuzztest_fuzzer) {
     # This test contains fuzztests. We want to package them up in a way
     # which ClusterFuzz knows how to extract. We need to:
     # 1) make an executable for each individual fuzz test;
@@ -260,6 +245,7 @@ template("mixed_test") {
       # may be unknown problems running the fuzztest binary on other
       # platforms.
       _fuzztest_check_action = target_name + "__fuzztest_check"
+
       action(_fuzztest_check_action) {
         deps = [ ":" + _fuzztest_target_name ]
         testonly = true
@@ -367,6 +353,7 @@ template("mixed_test") {
         }
 
         _fuzzer_target_name = target_name
+
         executable(_fuzztest_generate_fuzzer) {
           testonly = true
           data_deps = [
@@ -589,11 +576,13 @@ template("test") {
       # apk, if |add_unwind_tables_in_apk| is specified by the test.
       if (_add_unwind_tables_in_apk) {
         _unwind_table_v2_name = "${_library_target_name}_unwind_v2"
+
         unwind_table_v2(_unwind_table_v2_name) {
           library_target = ":$_library_target_name"
         }
 
         _unwind_table_asset_name = "${target_name}__unwind_assets"
+
         android_assets(_unwind_table_asset_name) {
           disable_compression = true
           sources = [ "$target_out_dir/$_unwind_table_v2_name/$unwind_table_asset_v2_filename" ]
@@ -603,6 +592,7 @@ template("test") {
 
       _generate_final_jni =
           !defined(invoker.generate_final_jni) || invoker.generate_final_jni
+
       mixed_test(_library_target_name) {
         if (_generate_final_jni) {
           target_type = "shared_library_with_jni"
@@ -692,7 +682,6 @@ template("test") {
         data_deps = [ ":$_exec_target" ]
       } else {
         apk_target = ":$_apk_target_name"
-        incremental_apk = incremental_install
 
         # Dep needed for the test runner .runtime_deps file to pick up data
         # deps from the forward_variables_from(invoker, "*") on the library.
@@ -722,12 +711,7 @@ template("test") {
       if (_use_raw_android_executable) {
         deps += [ ":$_dist_target" ]
       } else {
-        # Dep needed for the swarming .isolate file to pick up data
-        # deps from the forward_variables_from(invoker, "*") on the library.
-        deps += [
-          ":$_apk_target_name",
-          ":$_library_target_name",
-        ]
+        deps += [ ":$_apk_target_name" ]
       }
 
       if (defined(invoker.data_deps)) {
@@ -757,6 +741,7 @@ template("test") {
     # Generate a CML fragment that provides the program name.
     _test_program_fragment_target = "${target_name}_program-fragment"
     _test_program_fragment = "${target_out_dir}/${target_name}_program.test-cml"
+
     generated_file(_test_program_fragment_target) {
       contents = {
         program = {
@@ -816,6 +801,7 @@ template("test") {
 
     # Generate the test component manifest from the specified elements.
     _test_component_manifest_target = "${target_name}_component-manifest"
+
     cmc_merge(_test_component_manifest_target) {
       sources = _manifest_fragments
       output_name = "${_merged_manifest_name}"
@@ -825,6 +811,7 @@ template("test") {
     # Define the test component, dependent on the generated manifest, and the
     # test executable target.
     _test_component_target = "${target_name}_component"
+
     fuchsia_component(_test_component_target) {
       deps = [ ":$_test_component_manifest_target" ]
       data_deps = [ ":$_exec_target" ]
@@ -842,6 +829,7 @@ template("test") {
         _additional_component_target =
             target_name + "_" + get_path_info(filename, "name")
         _test_component_targets += [ ":${_additional_component_target}" ]
+
         fuchsia_component(_additional_component_target) {
           forward_variables_from(invoker, [ "testonly" ])
           data_deps = [ ":$_exec_target" ]
@@ -950,6 +938,7 @@ template("test") {
     _test_target = target_name
 
     _wrapper_output_name = "run_${target_name}"
+
     ios_test_runner_wrapper(_wrapper_output_name) {
       forward_variables_from(invoker,
                              [
@@ -1011,7 +1000,9 @@ template("test") {
         info_plist = "//testing/gtest_ios/unittest-Info.plist"
       }
 
-      bundle_identifier = shared_bundle_id_for_test_apps
+      if (!defined(bundle_identifier)) {
+        bundle_identifier = shared_bundle_id_for_test_apps
+      }
 
       if (!defined(bundle_deps)) {
         bundle_deps = []

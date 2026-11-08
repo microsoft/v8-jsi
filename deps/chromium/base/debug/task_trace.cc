@@ -50,7 +50,7 @@ TaskTrace::TaskTrace() {
   if (!current_task) {
     return;
   }
-  std::array<const void*, PendingTask::kTaskBacktraceLength + 1> task_trace;
+  std::array<uintptr_t, PendingTask::kTaskBacktraceLength + 1> task_trace;
   task_trace[0] = current_task->posted_from.program_counter();
   std::ranges::copy(current_task->task_backtrace, task_trace.begin() + 1);
   size_t length = 0;
@@ -98,10 +98,8 @@ size_t TaskTrace::GetAddresses(span<const void*> addresses) const {
     return count;
   }
   span<const void* const> current_addresses = stack_trace_->addresses();
-  std::ranges::copy_n(current_addresses.begin(),
-                      static_cast<ptrdiff_t>(
-                          std::min(current_addresses.size(), addresses.size())),
-                      addresses.begin());
+  const size_t copy_size = std::min(current_addresses.size(), addresses.size());
+  addresses.first(copy_size).copy_from(current_addresses.first(copy_size));
   return current_addresses.size();
 }
 

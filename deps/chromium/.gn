@@ -17,3 +17,9 @@ script_executable = "python.exe"
 # Define only root aggregate targets and their transitive dependencies.
 # Chromium test and fuzzer targets with non-vendored dependencies are not resolved.
 root_patterns = [ "//:*" ]
+
+# VS Clang 22 treats C++23 PCH creation with -fmodule-name as a module
+# interface. PCHs are optional build acceleration, not a runtime requirement.
+default_args = {
+  enable_precompiled_headers = false
+}

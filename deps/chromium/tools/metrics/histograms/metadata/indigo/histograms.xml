@@ -22,6 +22,206 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
+<histogram name="Indigo.Api.{Endpoint}.HttpResponseCode"
+    enum="HttpResponseCode" expires_after="2027-08-31">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    The HTTP response code received when calling the {Endpoint} endpoint of the
+    Indigo API. This is only recorded if an HTTP response was actually received
+    (success or an HTTP-level error).
+  </summary>
+  <token key="Endpoint">
+    <variant name="Delete"/>
+    <variant name="Generate"/>
+    <variant name="GetStatus"/>
+  </token>
+</histogram>
+
+<histogram name="Indigo.Api.{Endpoint}.Latency.{Result}" units="ms"
+    expires_after="2027-08-31">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Time taken for the {Endpoint} API request to complete with {Result}. This is
+    only recorded for requests that are actually dispatched over the network. It
+    is not recorded for immediate local validation failures (e.g., missing user,
+    invalid URL, or payload too large) to avoid skewing network latency data.
+  </summary>
+  <token key="Endpoint">
+    <variant name="Delete"/>
+    <variant name="Generate"/>
+    <variant name="GetStatus"/>
+  </token>
+  <token key="Result">
+    <variant name="Failure"/>
+    <variant name="Success"/>
+  </token>
+</histogram>
+
+<histogram name="Indigo.Api.{Endpoint}.Status" enum="IndigoApiStatus"
+    expires_after="2027-08-31">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Detailed breakdown of the result of the {Endpoint} call. Helps diagnose
+    reliability issues and identify if failures are due to server errors, bad
+    responses, API-level errors, or client-side limits.
+  </summary>
+  <token key="Endpoint">
+    <variant name="Delete"/>
+    <variant name="Generate"/>
+    <variant name="GetStatus"/>
+  </token>
+</histogram>
+
+<histogram name="Indigo.Discovery.EligibilityCheck.Latency" units="ms"
+    expires_after="2027-05-13">
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Time taken from triggering the action to receiving the combined eligibility
+    result (local + remote). Monitors performance of the eligibility check flow,
+    which involves network calls for remote status.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Discovery.EligibilityCheck.RequestLatency" units="ms"
+    expires_after="2027-05-13">
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Measures how long the network request takes for the remote eligibility
+    check. Monitors the performance of the network call.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Discovery.MetadataKeywordHeuristic" enum="Boolean"
+    expires_after="2027-05-13">
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Records the decision returned by keyword heuristics. Helps track how often
+    pages are identified as eligible for Indigo by the heuristics.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Discovery.OptimizationGuideDecision"
+    enum="OptimizationGuideOptimizationGuideDecision"
+    expires_after="2027-05-13">
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Records the decision returned by the Optimization Guide for the current
+    page. Helps track how often pages are identified as eligible for Indigo by
+    the server-side hints.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Glic.MaybeInvokeResult"
+    enum="IndigoMaybeInvokeGlicResult" expires_after="2027-05-13">
+  <owner>rodneyding@google.com</owner>
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Records the outcome of attempting to invoke Glic when the Indigo page action
+    is invoked. Recorded on each invocation attempt in
+    IndigoPageActionController::MaybeInvokeGlic().
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Glic.PanelActuallyShowingOnCallback" enum="Boolean"
+    expires_after="2027-05-13">
+  <owner>rodneyding@google.com</owner>
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Records whether the Glic side panel is actually visible/showing when Glic
+    fires the on_panel_opened callback to trigger Indigo's image replacement.
+    Recorded in IndigoPageActionController::TriggerIndigoAgentWithDelay().
+  </summary>
+</histogram>
+
+<histogram name="Indigo.ImageReplacement.TotalDuration" units="ms"
+    expires_after="2027-05-13">
+  <owner>baranerf@google.com</owner>
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <summary>
+    Records the total duration in milliseconds from starting the image
+    transformation process until the image is ready to be displayed to the user.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.PageAction.ClickedEntryPoint"
+    enum="IndigoPageActionEntryPoint" expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records the entry point or presentation style of the Indigo page action when
+    it is clicked by the user.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.PageAction.IsGlicOptedOutOnIndigoInvocation"
+    enum="Boolean" expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records whether all configurable Gemini in Chrome entry points were turned
+    off at the moment Indigo is invoked. Helps determine how often users who
+    have specifically opted out of Gemini in Chrome are cued to open the side
+    panel.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.PageAction.ShownEntryPoint"
+    enum="IndigoPageActionEntryPoint" expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records the entry point or presentation style of the Indigo page action when
+    it is shown to the user. For the context menu entry point, this is recorded
+    at most once per page load when a context menu containing the item is shown.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.PageAction.TriggerSource" enum="IndigoTriggerSource"
+    expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records the trigger source for the Indigo page action when it is shown. This
+    helps determine if Indigo was forced, or which logic was used to decide to
+    show it (e.g., optimization guide hint).
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Transformation.IsCacheHit" enum="BooleanCacheHit"
+    expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records whether an Indigo transformation was served from the in-memory
+    page-scoped image cache (hit) or required a new generation RPC (miss).
+    Recorded on successful image replacement.
+  </summary>
+</histogram>
+
 <histogram name="Indigo.Transformation.Result"
     enum="IndigoTransformationResult" expires_after="2027-05-13">
   <owner>jbroman@chromium.org</owner>
@@ -36,6 +236,17 @@ chromium-metrics-reviews@google.com.
     entry point is typically hidden for users who are known to be ineligible;
     therefore, low counts in failure buckets should not be misinterpreted as
     indicating that most users are eligible.
+  </summary>
+</histogram>
+
+<histogram name="Indigo.Transformation.TriggerSource"
+    enum="IndigoTransformationTriggerSource" expires_after="2027-05-13">
+  <owner>jbroman@chromium.org</owner>
+  <owner>adithyas@chromium.org</owner>
+  <owner>baranerf@google.com</owner>
+  <summary>
+    Records the trigger source of a transformation event. This tracks which UI
+    surface or action initiated the transformation request.
   </summary>
 </histogram>
 

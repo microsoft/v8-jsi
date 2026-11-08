@@ -15,6 +15,7 @@ class _FirstTagFoundError(Exception):
   This isn't actually an error. Raising this exception is how we end parsing XML
   documents early.
   """
+
   pass
 
 
@@ -56,7 +57,8 @@ class _CommentedXMLParser(ET.XMLParser):
     super(_CommentedXMLParser, self).__init__(*args, **kwargs)
     self._parser.CommentHandler = self.comment
 
-  def comment(self, data):  # pylint: disable=invalid-name
+  def comment(self, data):
+
     self._target.start(ET.Comment, {})
     self._target.data(data)
     self._target.end(ET.Comment)
@@ -83,7 +85,7 @@ def GetTopLevelContent(file_content):
   char += first_tag_column - 1
 
   # |char| is now pointing at the final character before the opening tag '<'.
-  top_content = file_content[:char + 1].strip()
+  top_content = file_content[: char + 1].strip()
   if not top_content:
     return ''
 

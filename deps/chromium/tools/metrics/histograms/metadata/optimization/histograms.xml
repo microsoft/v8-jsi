@@ -38,16 +38,28 @@ chromium-metrics-reviews@google.com.
 <!-- LINT.IfChange(OnDeviceBaseModelName) -->
 
 <variants name="BaseModel">
-  <variant name="TinyModelSummarizer"
-      summary="Tinymodel component for Summarizer"/>
+  <variant name="Classifier" summary="Classifier base model"/>
+  <variant name="Gemma4" summary="Gemma4 base model"/>
+  <variant name="LanguageDetection" summary="Language Detection base model"/>
+  <variant name="ProofreaderSmallExpert"
+      summary="Proofreader Small Expert base model"/>
+  <variant name="SpeechRecognitionSmallExpert"
+      summary="Speech Recognition Small Expert base model"/>
+  <variant name="SummarizerSmallExpert"
+      summary="Summarizer Small Expert base model"/>
   <variant name="Unknown" summary="Unknown base model"/>
   <variant name="V3Nano"
       summary="General nano V3 served by the single model component"/>
-  <variant name="V3NanoCpu" summary="Nano V3 with GPU backend"/>
-  <variant name="V3NanoGpu" summary="Nano V3 with CPU backend"/>
+  <variant name="V3NanoCpu" summary="Nano V3 with CPU backend"/>
+  <variant name="V3NanoGpu" summary="Nano V3 with GPU backend"/>
 </variants>
 
-<!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/manifest_broker/manifest_asset_manager.cc:OnDeviceBaseModelName) -->
+<!-- LINT.ThenChange(//components/optimization_guide/core/model_execution/on_device_model_names.cc:OnDeviceBaseModelName) -->
+
+<variants name="CriticalPath">
+  <variant name="CriticalPath" summary="on the critical path"/>
+  <variant name="NotCriticalPath" summary="not on the critical path"/>
+</variants>
 
 <variants name="FrameType">
   <variant name="MainFrame" summary="Outermost primary main frame"/>
@@ -55,6 +67,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <variants name="LogAiDataRequestFeature">
+  <variant name="AtMemory" summary="At Memory"/>
   <variant name="BlingPrototyping" summary="Bling Prototyping"/>
   <variant name="Compose" summary="Compose"/>
   <variant name="ContextualTasksContext" summary="Contextual Tasks Context"/>
@@ -76,6 +89,8 @@ chromium-metrics-reviews@google.com.
       summary="Password Change Submission"/>
   <variant name="PermissionsAi" summary="Permissions AI"/>
   <variant name="ProductSpecifications" summary="Product Specifications"/>
+  <variant name="ReadAloudGenerateText" summary="Read Aloud Generate Text"/>
+  <variant name="ReadAloudSynthesize" summary="Read Aloud Synthesize"/>
   <variant name="ScamDetection" summary="Scam Detection"/>
   <variant name="TabOrganization" summary="Tab Organization"/>
   <variant name="WalletablePassExtraction" summary="Extract walletable pass"/>
@@ -89,8 +104,10 @@ chromium-metrics-reviews@google.com.
   <variant name="AnnotationReducerQueryClassifier"
       summary="User Query Classification"/>
   <variant name="BlingPrototyping" summary="Bling Prototyping"/>
+  <variant name="CardRecommendations" summary="Card Recommendations"/>
   <variant name="Compose" summary="Compose"/>
   <variant name="ContentAnnotation" summary="Content Annotation"/>
+  <variant name="ContextHub" summary="Context Hub"/>
   <variant name="ContextualCueing" summary="Contextual Cueing"/>
   <variant name="EnhancedCalendar" summary="Enhanced Calendar"/>
   <variant name="Finds" summary="Chrome finds"/>
@@ -106,13 +123,21 @@ chromium-metrics-reviews@google.com.
   <variant name="PermissionsAi" summary="Permissions AI"/>
   <variant name="PromptApi" summary="Prompt API"/>
   <variant name="ProofreaderApi" summary="Proofreader API"/>
+  <variant name="QuickAnswers" summary="Quick Answers"/>
+  <variant name="ReadAloudGenerateText" summary="Read Aloud Generate Text"/>
+  <variant name="ReadAloudSynthesize" summary="Read Aloud Synthesize"/>
   <variant name="ScamDetection" summary="Scam Detection"/>
   <variant name="Skills" summary="Skills"/>
+  <variant name="SmartSelectionSuggestions"
+      summary="Smart Selection Suggestions"/>
+  <variant name="SpeechRecognitionSmallExpertModel"
+      summary="Speech Recognition Small Expert Model (TinyGemma)"/>
   <variant name="Summarize" summary="Summarize"/>
   <variant name="TabOrganization" summary="Tab Organization"/>
   <variant name="Test" summary="Test"/>
   <variant name="TextSafety" summary="Text Safety"/>
   <variant name="Unknown" summary="Unknown"/>
+  <variant name="UpdaterChat" summary="Updater Chat"/>
   <variant name="WallpaperSearch" summary="Wallpaper search"/>
   <variant name="WebRTCNeuralResidualEchoEstimator"
       summary="WebRTC Neural Residual Echo Estimator"/>
@@ -131,6 +156,8 @@ chromium-metrics-reviews@google.com.
   <variant name="Compose" summary="Weights for On-Device Compose"/>
   <variant name="ContextualPageActionPriceTracking"
       summary="Contextual Page Action: Show price tracking"/>
+  <variant name="ContextualTasksMultiTurnTabRelevance"
+      summary="Contextual Tasks Multi-Turn Tab Relevance"/>
   <variant name="ContextualTasksTabRelevance"
       summary="Contextual Tasks Tab Relevance"/>
   <variant name="EduClassifier" summary="Education classifier"/>
@@ -145,6 +172,8 @@ chromium-metrics-reviews@google.com.
       summary="Permissions: Use snapshot to decide on relevance for a
                Geolocation permission request"/>
   <variant name="LanguageDetection" summary="Language detection"/>
+  <variant name="ModelExecutionFeatureAiEmbeddings"
+      summary="Model Execution Feature: AI Embeddings"/>
   <variant name="ModelExecutionFeatureHistoryQueryIntent"
       summary="Model Execution Feature: History Query Intent"/>
   <variant name="ModelExecutionFeatureHistorySearch"
@@ -235,6 +264,8 @@ chromium-metrics-reviews@google.com.
       summary="Segmentation: Tablet Productivity user"/>
   <variant name="SegmentationVoice" summary="Segmentation: Voice user"/>
   <variant name="ShoppingClassifier" summary="Shopping classifier"/>
+  <variant name="SpeechRecognitionSmallExpertModel"
+      summary="Speech Recognition Small Expert Model (TinyGemma)"/>
   <variant name="TextClassifier" summary="Smart text selection"/>
   <variant name="TextEmbedder" summary="Generic Text Embedding"/>
   <variant name="TextSafety" summary="Classifies safety of the text"/>
@@ -246,6 +277,8 @@ chromium-metrics-reviews@google.com.
       summary="PWA: Show web app installation promotion"/>
   <variant name="WebRTCNeuralResidualEchoEstimator"
       summary="WebRTC Neural Residual Echo Estimator"/>
+  <variant name="WebRTCVoiceIsolationDenoiser"
+      summary="WebRTC Voice Isolation Denoiser"/>
 </variants>
 
 <variants name="OptimizationType">
@@ -289,6 +322,9 @@ chromium-metrics-reviews@google.com.
       summary="This optimization provides information about whether
                triggering autofill on an iframe with a given origin is
                allowed."/>
+  <variant name="AutofillAtMemoryBlocked"
+      summary="This optimization provides information about whether a page is
+               blocked for the Autofill AtMemory feature."/>
   <variant name="AutofillSamplingRate"
       summary="This optimization provides information about a sampling rate
                of Autofill UKM metrics per origin based on origin popularity."/>
@@ -423,6 +459,21 @@ chromium-metrics-reviews@google.com.
   <variant name="Compose"
       summary="Returns suitability of this page for compose."/>
   <variant name="CompressPublicImages" summary="Compresses public images"/>
+  <variant name="CurinosCreditCardCarRentalBenefits"
+      summary="This optimization provides information about whether a
+               merchant url is eligible for credit card car rental benefits.
+               Applies to only credit cards that are supported by Curinos
+               sourced benefits on Chrome."/>
+  <variant name="CurinosCreditCardFlightBenefits"
+      summary="This optimization provides information about whether a
+               merchant url is eligible for credit card flight benefits.
+               Applies to only credit cards that are supported by Curinos
+               sourced benefits on Chrome."/>
+  <variant name="CurinosCreditCardHotelBenefits"
+      summary="This optimization provides information about whether a
+               merchant url is eligible for credit card hotel benefits.
+               Applies to only credit cards that are supported by Curinos
+               sourced benefits on Chrome."/>
   <variant name="DeferAllScript" summary="Defers execution of script"/>
   <variant name="DigitalCredentialsLowFriction"
       summary="This optimization provides information about whether a URL is
@@ -438,6 +489,15 @@ chromium-metrics-reviews@google.com.
   <variant name="FedCmClickthroughRate"
       summary="Provides information about FedCM API clickthrough rate
                aggregated across all users on the page."/>
+  <variant name="FilterExecutionStrategy"
+      summary="This optimization provides execution strategies for Magic
+               Filter candidate suggestions."/>
+  <variant name="FilterExtractAttributes"
+      summary="This optimization provides task attributes extracted from a
+               URL for Magic Filters."/>
+  <variant name="FilterTasksSupported"
+      summary="This optimization provides the supported tasks for a URL in
+               Magic Filters."/>
   <variant name="FindsPageTheme"
       summary="Provides information about the page theme for Finds."/>
   <variant name="FormsAnnotations"
@@ -502,6 +562,9 @@ chromium-metrics-reviews@google.com.
   <variant name="PageInsights"
       summary="This optimization provides helpful context and insights about
                a page."/>
+  <variant name="PaymentQrCodeMerchantUrlRegexAllowlist"
+      summary="This optimization provides information about merchant URLs on
+               which payment QR code detection should run."/>
   <variant name="PerformanceHints"
       summary="Provides aggregated performance information about the page"/>
   <variant name="PixMerchantOriginsAllowlist"
@@ -612,6 +675,26 @@ chromium-metrics-reviews@google.com.
   <variant name="Unknown" summary="Unknown"/>
 </variants>
 
+<!-- LINT.IfChange(PageEmbeddingsPriority) -->
+
+<variants name="PageEmbeddingsPriority">
+  <variant name="Background" summary="Background priority"/>
+  <variant name="Default" summary="Default priority"/>
+  <variant name="Urgent" summary="Urgent priority"/>
+  <variant name="UserBlocking" summary="User Blocking priority"/>
+</variants>
+
+<!-- LINT.ThenChange(//depot/chromium/components/page_content_annotations/content/page_embeddings_service.cc:PageEmbeddingsPriority) -->
+
+<!-- LINT.IfChange(PageEmbeddingsUsageMode) -->
+
+<variants name="PageEmbeddingsUsageMode">
+  <variant name="Continuous" summary="Continuous usage mode"/>
+  <variant name="OnDemand" summary="On-demand usage mode"/>
+</variants>
+
+<!-- LINT.ThenChange(//depot/chromium/components/page_content_annotations/content/page_embeddings_service.cc:PageEmbeddingsUsageMode) -->
+
 <variants name="PageTextDumpEvent">
   <variant name="FinishedLoad" summary="finished load"/>
   <variant name="FirstLayout" summary="first layout"/>
@@ -624,6 +707,8 @@ chromium-metrics-reviews@google.com.
       summary="Batch update of hints for result links off the Google SRP"/>
   <variant name="BatchUpdateModels" summary="Batch update of models"/>
   <variant name="Bookmarks" summary="Batch update of hints for bookmarks"/>
+  <variant name="ContextHub" summary="Context Hub surface"/>
+  <variant name="FilterExecution" summary="Requests for filter execution"/>
   <variant name="GlicZeroStateSuggestions"
       summary="Requests glic zero state suggestions"/>
   <variant name="Journeys" summary="Journeys surface"/>
@@ -647,8 +732,104 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="OptimizationGuide.AIPageContent.ActiveRequestCount"
+    units="requests" expires_after="2027-03-21">
+  <owner>alexmt@chromium.org</owner>
+  <owner>khushalsagar@chromium.org</owner>
+  <summary>
+    Records the number of active concurrent page content extractions on a given
+    Page, excluding the current request. Recorded at the start of each page
+    content extraction request.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.ExtractionConcurrency"
+    enum="AIPageContentExtractionConcurrency" expires_after="2027-02-28">
+  <owner>alexmt@chromium.org</owner>
+  <owner>khushalsagar@chromium.org</owner>
+  <summary>
+    Records the concurrency status when a page content extraction request is
+    started on a Page. If other extractions are already in progress, the metric
+    categorizes whether any of the active extractions had matching options, or
+    whether they all had options different from the new request.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.ExtractionsBetweenNavigations"
+    units="extractions" expires_after="2027-02-28">
+  <owner>alexmt@chromium.org</owner>
+  <owner>khushalsagar@chromium.org</owner>
+  <summary>
+    Records the count of page content extractions that occurred on a Page in the
+    segment between navigations. Recorded upon same-document navigations and
+    when the Page is destroyed.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.ExtractionsPerPage"
+    units="extractions" expires_after="2027-02-28">
+  <owner>alexmt@chromium.org</owner>
+  <owner>khushalsagar@chromium.org</owner>
+  <summary>
+    Records the total cumulative count of page content extractions performed on
+    a Page over its entire lifetime. Recorded when the Page is destroyed (e.g.,
+    upon cross-document navigation).
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.ExtractionStatus"
+    enum="AIPageContentExtractionStatus" expires_after="2027-04-09">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the status (success or failure reason) of an Annotated Page Content
+    (APC) extraction request via GetAIPageContent(). Recorded once per request
+    when the extraction completes or fails.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.GetImageBytes.Latency"
+    units="ms" expires_after="2027-06-08">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the end-to-end latency of a GetImageBytes request. Recorded on the
+    browser side only when the request successfully retrieves image bytes.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.GetImageBytes.Size"
+    units="bytes" expires_after="2027-06-08">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the size of successfully extracted image bytes. Recorded on the
+    browser side only when the request successfully retrieves image bytes.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.GetImageBytes.Status"
+    enum="AIPageContentGetImageBytesStatus" expires_after="2027-06-08">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the outcome/status of a GetImageBytes request. Recorded on the
+    renderer side once per AIPageContentAgent::GetImageBytes call.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.AIPageContent.GetImageBytes.Timeout"
+    enum="Boolean" expires_after="2027-06-08">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether a GetImageBytes request timed out on the browser side.
+    Recorded for every image extraction request.
+  </summary>
+</histogram>
+
 <histogram name="OptimizationGuide.AIPageContent.RendererLatency.{FrameType}"
-    units="ms" expires_after="2026-10-25">
+    units="ms" expires_after="2027-03-07">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <summary>
@@ -690,8 +871,19 @@ chromium-metrics-reviews@google.com.
   <token key="FrameType" variants="FrameType"/>
 </histogram>
 
+<histogram name="OptimizationGuide.AIPageContent.TimeSinceLastExtraction"
+    units="ms" expires_after="2027-02-28">
+  <owner>alexmt@chromium.org</owner>
+  <owner>khushalsagar@chromium.org</owner>
+  <summary>
+    Records the duration since the last successful page content extraction
+    completed successfully on the current Page. Recorded when a new page content
+    extraction request is started.
+  </summary>
+</histogram>
+
 <histogram name="OptimizationGuide.AIPageContent.TotalLatency" units="ms"
-    expires_after="2026-08-30">
+    expires_after="2027-03-07">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <summary>
@@ -702,8 +894,22 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram
+    name="OptimizationGuide.AIPageContent.TotalLatency.{AIPageContentMode}.{CriticalPath}"
+    units="ms" expires_after="2027-03-07">
+  <owner>khushalsagar@chromium.org</owner>
+  <owner>abigailbklein@google.com</owner>
+  <owner>gklassen@chromium.org</owner>
+  <summary>
+    The total end-to-end latency for extracting AIPageContent in
+    {AIPageContentMode} when the request is {CriticalPath}.
+  </summary>
+  <token key="AIPageContentMode" variants="AIPageContentMode"/>
+  <token key="CriticalPath" variants="CriticalPath"/>
+</histogram>
+
 <histogram name="OptimizationGuide.AnnotatedPageContent.ComputeMetricsLatency"
-    units="microseconds" expires_after="2026-08-30">
+    units="microseconds" expires_after="2027-03-07">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <summary>
@@ -714,9 +920,11 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<!-- LINT.IfChange(APCTotalNodeCount) -->
+
 <histogram
     name="OptimizationGuide.AnnotatedPageContent.TotalNodeCount.{AIPageContentMode}"
-    units="nodes" expires_after="2026-09-13">
+    units="nodes" expires_after="2027-02-07">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <owner>gklassen@chromium.org</owner>
@@ -728,9 +936,11 @@ chromium-metrics-reviews@google.com.
   <token key="AIPageContentMode" variants="AIPageContentMode"/>
 </histogram>
 
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_util.h:PageContentMaxNodeLimitForMetrics) -->
+
 <histogram
     name="OptimizationGuide.AnnotatedPageContent.TotalSize2.{AIPageContentMode}"
-    units="KB" expires_after="2026-09-13">
+    units="KB" expires_after="2027-04-04">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <owner>gklassen@chromium.org</owner>
@@ -742,8 +952,10 @@ chromium-metrics-reviews@google.com.
   <token key="AIPageContentMode" variants="AIPageContentMode"/>
 </histogram>
 
+<!-- LINT.IfChange(APCTotalWordCount) -->
+
 <histogram name="OptimizationGuide.AnnotatedPageContent.TotalWordCount"
-    units="words" expires_after="2026-08-30">
+    units="words" expires_after="2027-03-07">
   <owner>khushalsagar@chromium.org</owner>
   <owner>abigailbklein@google.com</owner>
   <summary>
@@ -751,6 +963,8 @@ chromium-metrics-reviews@google.com.
     WebContents instance. Recorded once per extraction. Max of 100k words.
   </summary>
 </histogram>
+
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_util.h:PageContentMaxWordLimitForMetrics) -->
 
 <histogram name="OptimizationGuide.ApplyDecision.{OptimizationType}"
     enum="OptimizationGuideOptimizationTypeDecision" expires_after="2027-04-14">
@@ -764,44 +978,13 @@ chromium-metrics-reviews@google.com.
   <token key="OptimizationType" variants="OptimizationType"/>
 </histogram>
 
-<histogram name="OptimizationGuide.ClearFetchedHints.StoreAvailable"
-    enum="BooleanAvailable" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records whether the optimization guide store was available when fetched
-    hints are cleared from the store after browser history is cleared.
-  </summary>
-</histogram>
-
 <histogram name="OptimizationGuide.GeneralizedSafetyChecker.ExecutionTime"
-    units="ms" expires_after="2026-09-03">
+    units="ms" expires_after="2027-09-26">
   <owner>zekunjiang@google.com</owner>
   <owner>robertogden@chromium.org</owner>
   <summary>
     The duration of successful executions of the generalized safety model.
     Recorded once for each text safety inference request.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.HintCache.HintType.Loaded"
-    enum="HintCacheStoreEntryType" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records the store entry type of a hint when it is loaded from the hint cache
-    store.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.HintCacheLevelDBStore.LoadMetadataResult"
-    enum="OptimizationGuideHintCacheLevelDBStoreLoadMetadataResult"
-    expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records the result of loading the metadata while initializing the
-    HintCacheLevelDBStore.
   </summary>
 </histogram>
 
@@ -814,32 +997,6 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records each status change within the HintCacheLevelDBStore.
   </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.HintsFetcher.GetHintsRequest.DroppedHosts.{RequestContext}"
-    units="counts" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records the number of hosts that were dropped for a request made with
-    {RequestContext}, if the number of hosts dropped is non-zero. Will record at
-    most once per fetch.
-  </summary>
-  <token key="RequestContext" variants="RequestContext"/>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.HintsFetcher.GetHintsRequest.DroppedUrls.{RequestContext}"
-    units="counts" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records the number of URLs that were dropped for a request made with
-    {RequestContext}, if the number of URLs dropped is non-zero. Will record at
-    most once per fetch.
-  </summary>
-  <token key="RequestContext" variants="RequestContext"/>
 </histogram>
 
 <histogram
@@ -894,7 +1051,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.HintsFetcher.GetHintsRequest.RequestStatus.{RequestContext}"
-    enum="OptimizationGuideFetcherRequestStatus" expires_after="2026-12-14">
+    enum="OptimizationGuideFetcherRequestStatus" expires_after="2027-02-14">
   <owner>holte@chromium.org</owner>
   <owner>wittman@chromium.org</owner>
   <owner>catliu@chromium.org</owner>
@@ -945,7 +1102,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.HintsManager.ConcurrentBatchUpdateFetches"
-    units="counts" expires_after="M145">
+    units="counts" expires_after="2027-04-14">
   <owner>rajendrant@chromium.org</owner>
   <owner>catliu@chromium.org</owner>
   <summary>
@@ -965,18 +1122,6 @@ chromium-metrics-reviews@google.com.
     The number of active hints fetches initiated by the hints manager. Recorded
     when a fetch is initiated to the remote Optimization Guide Service at
     navigation start.
-  </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.HintsManager.PageNavigationHintsReturnedBeforeDataFlushed"
-    enum="BooleanStored" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records whether a page navigation hints fetch returned before navigation
-    data used to record additional page load metrics is flushed. Recorded only
-    for navigations that have a hints fetch initiated for it.
   </summary>
 </histogram>
 
@@ -1027,16 +1172,6 @@ chromium-metrics-reviews@google.com.
     loaded into memory by the prediction manager.
   </summary>
   <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram name="OptimizationGuide.MetadataFetchValidation.Result"
-    enum="Boolean" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records whether the metadata fetch validation received the hints correctly.
-    Recorded on iOS when the mainframe navigation commits.
-  </summary>
 </histogram>
 
 <histogram
@@ -1091,7 +1226,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.ModelExecution.FetchLatency2.{ModelExecutionFeature}"
-    units="ms" expires_after="2026-12-01">
+    units="ms" expires_after="2027-02-07">
   <owner>arabm@google.com</owner>
   <owner>dullweber@chromium.org</owner>
   <owner>lamzin@google.com</owner>
@@ -1141,26 +1276,6 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records whether a model disconnect was from the model idle timeout. Recorded
     each time the base model disconnects.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.ModelExecution.OnDeviceBaseModelLoadResult"
-    enum="LoadPlatformModelStatus" expires_after="2027-04-14">
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the result of loading the base model, whether it succeeded or failed
-    with various reasons.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.ModelExecution.OnDeviceBaseModelLoadVersion"
-    enum="OnDeviceBaseModelVersion" expires_after="2027-04-14">
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the hash code of base model version that is loaded. Recorded on
-    every load of the base model.
   </summary>
 </histogram>
 
@@ -1242,6 +1357,18 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="OptimizationGuide.ModelExecution.OnDeviceModelEvictableAssetsCount"
+    units="counts" expires_after="2027-04-14">
+  <owner>holte@chromium.org</owner>
+  <owner>wittman@chromium.org</owner>
+  <summary>
+    Records the number of installed on-device model assets that are marked as
+    evictable (have not been required by any recently used use case within the
+    retention period). Recorded whenever asset registrations are updated.
+  </summary>
+</histogram>
+
+<histogram
     name="OptimizationGuide.ModelExecution.OnDeviceModelInstallCriteria.AtRegistration.DiskSpaceWhenNotEnoughAvailable"
     units="GB" expires_after="2027-04-14">
   <owner>holte@chromium.org</owner>
@@ -1296,7 +1423,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="OptimizationGuide.ModelExecution.OnDeviceModelInstalledAtRegistrationTime"
+    name="OptimizationGuide.ModelExecution.OnDeviceModelInstalledAtRegistrationTime.{BaseModel}"
     enum="Boolean" expires_after="2027-04-14">
   <owner>holte@chromium.org</owner>
   <owner>wittman@chromium.org</owner>
@@ -1305,6 +1432,7 @@ chromium-metrics-reviews@google.com.
     on-device model installer is registered. This happens at most once per
     restart, when the device becomes eligible for on-device execution.
   </summary>
+  <token key="BaseModel" variants="BaseModel"/>
 </histogram>
 
 <histogram
@@ -1319,34 +1447,9 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="OptimizationGuide.ModelExecution.OnDeviceModelStatusAtUseTime"
-    enum="OptimizationGuideOnDeviceModelStatus" expires_after="2027-04-14">
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the on-device model status. Recorded when a feature is used that
-    could benefit from an on-device model.
-  </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.ModelExecution.OnDeviceModelToBeInstalledReason.{ModelExecutionFeature}"
-    enum="OptimizationGuideOnDeviceModelStatus" expires_after="2027-04-14">
-  <owner>holte@chromium.org</owner>
-  <owner>andysjlim@chromium.org</owner>
-  <summary>
-    Records the OptimizationGuideOnDeviceModelStatus when it is determined that
-    the device is eligible but the model has not been installed yet. This is
-    logged when it is checked if an on-device session can be created for a given
-    feature usually when a session is created or when an eligibility check is
-    conducted.
-  </summary>
-  <token key="ModelExecutionFeature" variants="ModelExecutionFeature"/>
-</histogram>
-
 <histogram
     name="OptimizationGuide.ModelExecution.OnDeviceModelUninstallReason.{BaseModel}"
-    enum="OnDeviceModelUninstallReason" expires_after="2026-10-15">
+    enum="OnDeviceModelUninstallReason" expires_after="2027-02-14">
   <owner>zekunjiang@google.com</owner>
   <owner>wittman@chromium.org</owner>
   <summary>
@@ -1354,18 +1457,6 @@ chromium-metrics-reviews@google.com.
     on-device base model is uninstalled.
   </summary>
   <token key="BaseModel" variants="BaseModel"/>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.ModelExecution.OnDeviceModelValidationResult"
-    enum="OnDeviceModelValidationResult" expires_after="2027-04-14">
-  <owner>cduvall@chromium.org</owner>
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the result of running the on-device model validation prompts.
-    Recorded each time validation is run.
-  </summary>
 </histogram>
 
 <histogram
@@ -1435,18 +1526,6 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="OptimizationGuide.ModelExecution.OnDeviceTextSafetyModelMetadataValidity"
-    enum="OnDeviceTextSafetyModelMetadataValidity" expires_after="2025-01-26">
-  <owner>holte@chromium.org</owner>
-  <owner>robertogden@chromium.org</owner>
-  <summary>
-    Records whether the received text safety model is valid. Recorded each time
-    an update to the text safety model has been pushed to the on device service
-    controller.
-  </summary>
-</histogram>
-
-<histogram
     name="OptimizationGuide.ModelExecution.Result.{ModelExecutionFeature}"
     enum="Boolean" expires_after="2027-04-14">
   <owner>holte@chromium.org</owner>
@@ -1481,20 +1560,6 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records visibility of different features. Recorded everytime the feature's
     settings visibility status is queried.
-  </summary>
-  <token key="ModelExecutionFeature" variants="ModelExecutionFeature"/>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.ModelExecution.TimeToProcessRedactions.{ModelExecutionFeature}"
-    units="microseconds" expires_after="M145">
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records amount of time it takes to process redactions. This is called every
-    time text is received from the model.
-
-    Note: This metric is dropped for clients without high-precision clocks.
   </summary>
   <token key="ModelExecutionFeature" variants="ModelExecutionFeature"/>
 </histogram>
@@ -1672,33 +1737,6 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="OptimizationGuide.ModelExecutor.TimeSincePreviousRun.{OptimizationTarget}"
-    units="ms" expires_after="M145">
-  <owner>wittman@chromium.org</owner>
-  <owner>rajendrant@chromium.org</owner>
-  <summary>
-    Records the time duration between runs of the model for
-    {OptimizationTarget}. Recorded once for every model run after the first. In
-    M115+ if batch execution is used, this is recorded once per batch.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram name="OptimizationGuide.ModelFilesVerified.{OptimizationTarget}"
-    enum="BooleanValid" expires_after="M145">
-  <owner>wittman@chromium.org</owner>
-  <owner>rajendrant@chromium.org</owner>
-  <summary>
-    Records whether all model files existed on disk when the model was requested
-    to be loaded for {OptimizationTarget}. The model file itself and any
-    additional files must be present on disk for this check to report success.
-    Recorded once per attempted model load, which happens when a feature is
-    registered with the Optimization Guide.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram
     name="OptimizationGuide.ModelHandler.HandlerCreated.{OptimizationTarget}"
     enum="BooleanCreated" expires_after="2027-04-14">
   <owner>holte@chromium.org</owner>
@@ -1739,22 +1777,12 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.ModelQualityLogsUploaderService.NetErrorCode"
-    enum="NetErrorCodes" expires_after="2025-08-15">
+    enum="NetErrorCodes" expires_after="2027-09-15">
   <owner>sreejakshetty@chromium.org</owner>
-  <owner>rajendrant@chromium.org</owner>
+  <owner>ryansturm@chromium.org</owner>
   <summary>
     Net error codes for each model quality logs upload, recorded on success and
     failure.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.ModelQualityLogsUploaderService.Status"
-    enum="HttpResponseCode" expires_after="2025-08-10">
-  <owner>sreejakshetty@chromium.org</owner>
-  <owner>rajendrant@chromium.org</owner>
-  <summary>
-    The HTTP response code for each model quality logs upload, recorded on
-    success and failure.
   </summary>
 </histogram>
 
@@ -1806,28 +1834,27 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="OptimizationGuide.OnDeviceModel.ManifestBrokerInstantiated"
+    enum="Boolean" expires_after="2027-04-14">
+  <owner>zekunjiang@google.com</owner>
+  <owner>holte@chromium.org</owner>
+  <owner>wittman@chromium.org</owner>
+  <summary>
+    Only records `true`. Recorded once when `ManifestBrokerState` is
+    instantiated. This histogram helps compute the number of clients without an
+    installed model, by subtracting from it the clients that have logged to
+    `OptimizationGuide.OnDeviceModel.InstalledModel`.
+  </summary>
+</histogram>
+
 <histogram name="OptimizationGuide.OnDeviceModel.NewModelInstalled"
-    enum="InstalledModel" expires_after="2026-10-15">
+    enum="InstalledModel" expires_after="2027-02-14">
   <owner>zekunjiang@google.com</owner>
   <owner>wittman@chromium.org</owner>
   <summary>
     Records the on-device model when it is newly installed. Recorded once when
     the model becomes ready from a new base model download, i.e. does not log on
     browser restart if the model was installed prior to the restart.
-  </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.OnDeviceModel.OnDeviceModelComponentInstantiated"
-    enum="Boolean" expires_after="2027-04-14">
-  <owner>zekunjiang@google.com</owner>
-  <owner>holte@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Only records `true`. Recorded once when OnDeviceModelComponent is
-    instantiated. This histogram helps compute the number of clients without an
-    installed model, by subtracting from it the clients that have logged to
-    `OptimizationGuide.OnDeviceModel.InstalledModel`.
   </summary>
 </histogram>
 
@@ -1858,7 +1885,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.AnnotateVisitResultCached"
-    enum="BooleanCacheHit" expires_after="M155">
+    enum="BooleanCacheHit" expires_after="2027-02-07">
   <owner>mcrouse@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1870,7 +1897,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.BatchRequestedSize.{AnnotationType}"
-    units="counts" expires_after="2026-08-24">
+    units="counts" expires_after="2027-02-07">
   <owner>robertogden@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1882,7 +1909,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.BatchSuccess.{AnnotationType}"
-    enum="BooleanSuccess" expires_after="2026-10-25">
+    enum="BooleanSuccess" expires_after="2027-03-07">
   <owner>robertogden@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1895,7 +1922,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.CategoryClassifier.EducationScore"
-    units="%" expires_after="2026-09-10">
+    units="%" expires_after="2027-03-21">
   <owner>zekunjiang@google.com</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1906,7 +1933,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.CategoryClassifier.ShoppingScore"
-    units="%" expires_after="2026-09-10">
+    units="%" expires_after="2027-03-21">
   <owner>zekunjiang@google.com</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1928,7 +1955,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.JobExecutionTime.{AnnotationType}"
-    units="ms" expires_after="2026-10-25">
+    units="ms" expires_after="2027-03-07">
   <owner>robertogden@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1940,7 +1967,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotations.JobScheduleTime.{AnnotationType}"
-    units="ms" expires_after="M155">
+    units="ms" expires_after="2027-02-07">
   <owner>robertogden@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -1953,7 +1980,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentAnnotationsService.ContentAnnotated"
-    enum="BooleanAnnotated" expires_after="M155">
+    enum="BooleanAnnotated" expires_after="2027-02-07">
   <owner>sophiechang@chromium.org</owner>
   <owner>mcrouse@chromium.org</owner>
   <summary>
@@ -2026,7 +2053,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.AddPageContentResult"
-    enum="BooleanSuccess" expires_after="2026-09-13">
+    enum="BooleanSuccess" expires_after="2027-03-21">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2036,7 +2063,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.AvgPageSize" units="KB"
-    expires_after="2026-09-13">
+    expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2046,7 +2073,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.CachedTabsCount"
-    units="tabs" expires_after="2026-09-13">
+    units="tabs" expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2055,9 +2082,65 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="OptimizationGuide.PageContentCache.CachePageContentLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for caching
+    the page context of a specific tab, including background task sequence hops.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.DeletePageContentForTabsLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for
+    batch-deleting the page contexts of multiple stale tabs from the database,
+    including the background task sequence hops.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.DeletePageContentForTabsResult"
+    enum="BooleanSuccess" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether the database operation to batch-delete multiple stale tabs'
+    page contexts was successful. Recorded each time the operation is performed.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.DeletePageContentOlderThanLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for executing
+    the age-based purge query in the database, including the background task
+    sequence hops.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.DeletePageContentOlderThanResult"
+    enum="BooleanSuccess" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether the database operation to purge old/expired page contexts
+    was successful. Recorded each time the operation is performed.
+  </summary>
+</histogram>
+
 <histogram
     name="OptimizationGuide.PageContentCache.EligibleTabsCachedPercentage"
-    units="%" expires_after="2026-09-13">
+    units="%" expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2068,7 +2151,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.ExtractionAndCachingStatus"
-    enum="PageContentExtractionAndCachingStatus" expires_after="2026-09-13">
+    enum="PageContentExtractionAndCachingStatus" expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2077,8 +2160,53 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="OptimizationGuide.PageContentCache.GetAllTabIdsLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for querying
+    the list of all cached tab IDs from the database, including the background
+    task sequence hops.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.GetPageContentForTabCacheHit"
+    enum="BooleanCacheHit" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether the PageContentCache read query successfully resulted in a
+    cache hit (page context found) or cache miss.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentCache.GetPageContentForTabLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for querying
+    the page context of a specific tab from the cache, including the background
+    task sequence hops.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentCache.InitTime" units="ms"
+    expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the total time taken to initialize the PageContentCache. Measured on
+    the main thread, from PageContentCache instantiation until the OS Crypt
+    async encryptor is ready and the store is initialized.
+  </summary>
+</histogram>
+
 <histogram name="OptimizationGuide.PageContentCache.NotCachedTabsCount"
-    units="tabs" expires_after="2026-09-13">
+    units="tabs" expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2088,8 +2216,20 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
+    name="OptimizationGuide.PageContentCache.RemovePageContentForTabLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the steady-state round-trip latency on the main thread for removing
+    the page context of a single tab from the database, including the background
+    task sequence hops.
+  </summary>
+</histogram>
+
+<histogram
     name="OptimizationGuide.PageContentCache.RemovePageContentForTabResult"
-    enum="BooleanSuccess" expires_after="2026-09-13">
+    enum="BooleanSuccess" expires_after="2027-03-21">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2099,7 +2239,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.StaleCacheEntriesCount"
-    units="entries" expires_after="2026-09-13">
+    units="entries" expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2109,7 +2249,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentCache.TotalCacheSize" units="KB"
-    expires_after="2026-09-13">
+    expires_after="2027-01-17">
   <owner>ssid@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2117,6 +2257,48 @@ chromium-metrics-reviews@google.com.
     delay post-startup.
   </summary>
 </histogram>
+
+<!-- LINT.IfChange(PageContentExtractionAPCNodeCount) -->
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.AnnotatedPageContent.NodeCount"
+    units="nodes" expires_after="2027-03-28">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the total number of ContentNodes in the fetched AnnotatedPageContent
+    proto. Recorded once per successful page content extraction.
+  </summary>
+</histogram>
+
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_util.h:PageContentMaxNodeLimitForMetrics) -->
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.AnnotatedPageContent.ProtoSize"
+    units="KB" expires_after="2027-03-28">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the size (in KB) of the fetched AnnotatedPageContent proto. Recorded
+    once per successful page content extraction.
+  </summary>
+</histogram>
+
+<!-- LINT.IfChange(PageContentExtractionAPCWordCount) -->
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.AnnotatedPageContent.WordCount"
+    units="words" expires_after="2027-03-28">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the total estimated word count of text nodes in the fetched
+    AnnotatedPageContent proto. Recorded once per successful page content
+    extraction.
+  </summary>
+</histogram>
+
+<!-- LINT.ThenChange(//components/optimization_guide/content/browser/page_content_proto_util.h:PageContentMaxWordLimitForMetrics) -->
 
 <histogram
     name="OptimizationGuide.PageContentExtraction.Async.PendingContentCallbacksBatched"
@@ -2146,7 +2328,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentExtraction.AutomaticOnLoad.ExtractionLatency"
-    units="ms" expires_after="2026-09-16">
+    units="ms" expires_after="2027-03-21">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2158,7 +2340,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentExtraction.AutomaticOnLoad.OverallLatency"
-    units="ms" expires_after="2026-09-16">
+    units="ms" expires_after="2027-03-28">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2170,7 +2352,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="OptimizationGuide.PageContentExtraction.AutomaticOnLoad.StabilityLatency"
-    units="ms" expires_after="2026-09-16">
+    units="ms" expires_after="2027-02-07">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2178,6 +2360,31 @@ chromium-metrics-reviews@google.com.
     considered stable and extraction is triggered. Recorded once per automatic
     on-load extraction attempt. This metric is only recorded for cross-document
     navigations.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.EnablementSourcePerNavigation"
+    enum="PageContentExtractionEnablementSource" expires_after="2027-03-14">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the reason (if any) that page content extraction was enabled.
+    Recorded once per cross-document navigation.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.HadSettledMonitorAtDidFinishNavigation"
+    enum="Boolean" expires_after="2026-11-07">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether a PageSettledMonitor was already present when
+    DidFinishNavigation was reached for a primary main frame navigation. If
+    false, it indicates that DidStartNavigation was missed and a fallback
+    monitor was created. Recorded once per committed primary main frame
+    navigation.
   </summary>
 </histogram>
 
@@ -2191,6 +2398,47 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram
+    name="OptimizationGuide.PageContentExtraction.NavigationToReadyLatency.{NavigationType}"
+    units="ms" expires_after="2027-03-14">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the duration from when a main frame {NavigationType} navigation
+    commits until the page is considered stable and ready for extraction.
+    Recorded once per committed primary main frame navigation when the page
+    first becomes stable.
+  </summary>
+  <token key="NavigationType">
+    <variant name="CrossDocument" summary="cross-document navigation"/>
+    <variant name="SameDocument" summary="same-document navigation"/>
+  </token>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.ObserverCountPerNavigation"
+    units="count" expires_after="2027-03-14">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the number of active observers for page content extraction during a
+    cross-document navigation. Recorded once per cross-document navigation.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.OnDemand.EnabledReason"
+    enum="PageContentExtractionEnablementReason" expires_after="2026-09-16">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether the on-demand page content extraction request was allowed,
+    and the reason if it was. Recorded once per on-demand page content
+    extraction request, including calls using `trigger_if_not_cached` when an
+    initial extraction has not yet been scheduled.
+  </summary>
+</histogram>
+
 <histogram name="OptimizationGuide.PageContentExtraction.OnDemand.IsPDF"
     enum="Boolean" expires_after="2026-09-16">
   <owner>alexmt@chromium.org</owner>
@@ -2198,7 +2446,8 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records whether an on-demand page content extraction request was requested
     on a PDF page. Content extraction is not performed for PDFs. Recorded once
-    per on-demand request.
+    per on-demand request, including calls using `trigger_if_not_cached` when an
+    initial extraction has not yet been scheduled.
   </summary>
 </histogram>
 
@@ -2209,7 +2458,8 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records the duration from when an on-demand page content extraction is
     requested until the callback is executed with the result. Recorded once per
-    on-demand request.
+    on-demand request, including calls using `trigger_if_not_cached` when an
+    initial extraction has not yet been scheduled.
   </summary>
 </histogram>
 
@@ -2234,7 +2484,8 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records the state of the AnnotatedPageContentRequest at the moment an
     on-demand extraction is requested. Recorded once per on-demand page content
-    extraction request, excluding PDFs.
+    extraction request (including calls using `trigger_if_not_cached` when an
+    initial extraction has not yet been scheduled), excluding PDFs.
   </summary>
 </histogram>
 
@@ -2245,13 +2496,58 @@ chromium-metrics-reviews@google.com.
   <summary>
     Records whether an on-demand page content extraction request successfully
     returned a valid ExtractedPageContentResult. Recorded once per on-demand
-    request, excluding PDFs.
+    request (including calls using `trigger_if_not_cached` when an initial
+    extraction has not yet been scheduled), excluding PDFs.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentExtraction.PageSettledMonitor.ShouldWaitForPdfLoadAtPdfLoadCompletion"
+    enum="Boolean" expires_after="2027-03-28">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether the page is still a PDF (and should wait for PDF load
+    completion) when the PageSettledMonitor enters the kWaitForPdfLoadCompletion
+    state. Recorded every time this state is entered.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentExtraction.PDF.DocumentStatus"
+    enum="PageContentExtractionPDFDocumentStatus" expires_after="2027-05-05">
+  <owner>xiaochenzh@chromium.org</owner>
+  <owner>sophiechang@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the status of the PDF document when a content extraction request is
+    made. Recorded once per extraction request for a PDF document.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentExtraction.PopupValidationStatus"
+    enum="PageContentPopupValidationStatus" expires_after="2026-11-20">
+  <owner>linnan@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the browser-side verification results for extracted popup windows.
+    Recorded once per attempted popup window extraction.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentExtraction.RequestType"
+    enum="PageContentExtractionRequestType" expires_after="2027-05-05">
+  <owner>xiaochenzh@chromium.org</owner>
+  <owner>sophiechang@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records whether page content extraction requests the AnnotatedPageContent,
+    the PDF text, or the PDF page count. Recorded once per extraction request.
   </summary>
 </histogram>
 
 <histogram name="OptimizationGuide.PageContentExtraction.TriggerSource"
     enum="OptimizationGuidePageContentExtractionTriggerSource"
-    expires_after="2026-09-16">
+    expires_after="2027-03-28">
   <owner>alexmt@chromium.org</owner>
   <owner>chrome-intelligence-core@google.com</owner>
   <summary>
@@ -2271,27 +2567,133 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="OptimizationGuide.PageContentStore.AddPageContentLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to encrypt and write the page
+    context to the SQLite database on the background thread.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentStore.DbInitTime" units="ms"
+    expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the SQL/file execution time taken to initialize the underlying
+    SQLite database in PageContentStore. Measured on the background sequence.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentStore.DecryptionLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the cryptographic decryption latency (using OS Crypt async)
+    occurring during page context retrieval. Measured on the background thread.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentStore.DeleteAllEntriesLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to execute the database query
+    to wipe all cache entries on the background thread.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentStore.DeletePageContentForTabLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to execute the database query
+    to delete the page context of a single tab on the background thread.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentStore.DeletePageContentForTabsLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to execute the database query
+    to delete the page contexts of multiple stale tabs on the background thread.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentStore.DeletePageContentOlderThanLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to execute the database query
+    to delete old/expired page contexts on the background thread.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentStore.EncryptionLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the cryptographic encryption latency (using OS Crypt async)
+    occurring during page context storage. Measured on the background thread.
+  </summary>
+</histogram>
+
+<histogram name="OptimizationGuide.PageContentStore.GetAllTabIdsLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to query all cached tab IDs
+    from the database on the background thread.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageContentStore.GetPageContentForTabLatency"
+    units="ms" expires_after="2027-06-01">
+  <owner>alexmt@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the time taken inside PageContentStore to fetch and decrypt the page
+    context for a tab on the background thread.
+  </summary>
+</histogram>
+
+<histogram
+    name="OptimizationGuide.PageEmbeddings.Job.TotalDuration.{PageEmbeddingsUsageMode}.{PageEmbeddingsPriority}"
+    units="ms" expires_after="2027-06-01">
+  <owner>sophiechang@chromium.org</owner>
+  <owner>chrome-intelligence-core@google.com</owner>
+  <summary>
+    Records the total time from when page content is extracted (the job is
+    queued up) until the page embeddings computation is completed. Recorded once
+    for every successfully completed page embeddings computation job.
+  </summary>
+  <token key="PageEmbeddingsPriority" variants="PageEmbeddingsPriority"/>
+  <token key="PageEmbeddingsUsageMode" variants="PageEmbeddingsUsageMode"/>
+</histogram>
+
 <histogram
     name="OptimizationGuide.PredictionManager.DownloadServiceAvailabilityBlockedFetch"
-    enum="BooleanBlocked" expires_after="2026-11-09">
+    enum="BooleanBlocked" expires_after="2027-09-30">
   <owner>holte@chromium.org</owner>
   <owner>wittman@chromium.org</owner>
   <summary>
     Records whether the Download Service was unavailable and blocked a fetch
     that would have happened otherwise. Only recorded if model downloads are
     enabled for the session.
-  </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.PredictionManager.FirstModelFetchSinceServiceInit"
-    units="ms" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the time duration it took for the first model fetch to start from
-    the time the optimization guide service was initialized. Recorded once at
-    startup when the first model fetch happens.
   </summary>
 </histogram>
 
@@ -2361,20 +2763,6 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="OptimizationGuide.PredictionModelDownloadManager.ReplaceFileError.{OptimizationTarget}"
-    enum="PlatformFileError" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the exact error whenever writing a model file fails at the step
-    where the model is moved from the scratch directory to its final location.
-    Recorded every time a {OptimizationTarget} model file is downloaded and
-    being processed for storage.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram
     name="OptimizationGuide.PredictionModelDownloadManager.State.{OptimizationTarget}"
     enum="OptimizationGuidePredictionModelDownloadState"
     expires_after="2027-04-14">
@@ -2387,36 +2775,9 @@ chromium-metrics-reviews@google.com.
   <token key="OptimizationTarget" variants="OptimizationTarget"/>
 </histogram>
 
-<histogram name="OptimizationGuide.PredictionModelExpired.{OptimizationTarget}"
-    enum="BooleanExpired" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records whether a prediction model for an OptimizationTarget expired if it
-    was not updated or used within the configured expiration time, but can
-    change subject to Finch or server configuration. Recorded once per browser
-    startup.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.PredictionModelExpiredVersion.{OptimizationTarget}"
-    units="version number" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Records the version of a prediction model for an OptimizationTarget that
-    expired if it was not updated or used within the configured expiration time,
-    but can change subject to Finch or server configuration. Recorded once per
-    browser startup.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
 <histogram
     name="OptimizationGuide.PredictionModelFetcher.GetModelsResponse.NetErrorCode"
-    enum="NetErrorCodes" expires_after="2026-11-09">
+    enum="NetErrorCodes" expires_after="2027-09-30">
   <owner>holte@chromium.org</owner>
   <owner>wittman@chromium.org</owner>
   <summary>
@@ -2459,22 +2820,6 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram
-    name="OptimizationGuide.PredictionModelFetcher.GetModelsResponse.Status.{OptimizationTarget}"
-    enum="HttpResponseCode" expires_after="2025-12-14">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    For each GetModelsRequest to the Optimization Guide Service for
-    {OptimizationTarget}, log the HTTP response code on success and failure.
-    Recorded once per GetModelsRequest where the model for {OptimizationTarget}
-    was fetched for. It is not advisable to sum up the counts across
-    OptimizationTargets as the GetModelsRequests bundle requests for various
-    OptimizationTargets into single request to the server.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram
     name="OptimizationGuide.PredictionModelLoadedVersion.{OptimizationTarget}"
     units="version number" expires_after="2027-04-14">
   <owner>holte@google.com</owner>
@@ -2483,17 +2828,6 @@ chromium-metrics-reviews@google.com.
     Records the version of the prediction model that was loaded from the store
     and used until updated by a fetch. Recorded only if the loaded model was
     valid.
-  </summary>
-  <token key="OptimizationTarget" variants="OptimizationTarget"/>
-</histogram>
-
-<histogram name="OptimizationGuide.PredictionModelRemoved.{OptimizationTarget}"
-    enum="Boolean" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    Recorded whenever the prediction model for {OptimizationTarget} was removed
-    from the model store.
   </summary>
   <token key="OptimizationTarget" variants="OptimizationTarget"/>
 </histogram>
@@ -2512,7 +2846,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="OptimizationGuide.PredictionModelStore.ModelRemovalReason"
     enum="OptimizationGuidePredictionModelStoreModelRemovalReason"
-    expires_after="M145">
+    expires_after="2027-04-14">
   <owner>rajendrant@chromium.org</owner>
   <owner>wittman@chromium.org</owner>
   <summary>
@@ -2570,59 +2904,6 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="OptimizationGuide.ProcessingComponentAtShutdown"
-    enum="BooleanYesNo" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Whether the Optimization Hints component was being processed when the hints
-    manager is told to shutdown.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.PushNotifications.CachedNotificationCount"
-    units="count" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    The number of cached push notifications that were pulled from the Android
-    cache after the native persistent store became fully initialized. Recorded
-    once per native startup in cases where the cache did not overflow.
-  </summary>
-</histogram>
-
-<histogram
-    name="OptimizationGuide.PushNotifications.CachedNotificationsHandledSuccessfully"
-    enum="BooleanSuccess" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Whether the push notification cache was handled successfully and was able to
-    be cleared out. Recorded once per each attempt at handling one cache shard.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.PushNotifications.DidOverflow"
-    enum="Boolean" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records whether the Android push notification cache overflowed and caused
-    the whole store to be purged. Recorded once per native startup.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.PushNotifications.ReadCacheResult"
-    enum="OptimizationGuideReadCacheResult" expires_after="M145">
-  <owner>rajendrant@chromium.org</owner>
-  <owner>catliu@chromium.org</owner>
-  <summary>
-    Records the result of reading the cache of push notifications and parsing
-    the encoded cache into protobufs. This is recorded once for every encoded
-    protobuf that is read from cache.
-  </summary>
-</histogram>
-
 <histogram name="OptimizationGuide.PushNotifications.ReceivedNotificationType"
     enum="OptimizationType" expires_after="2027-04-14">
   <owner>holte@google.com</owner>
@@ -2645,57 +2926,6 @@ chromium-metrics-reviews@google.com.
     Optimization Guide Service. Recorded when the profile is initialized for the
     session if Optimization Hints are enabled and the profile is a non-incognito
     profile.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.TextSafetyChecker.InferenceResult"
-    enum="OptimizationGuideTextSafetyInferenceResult"
-    expires_after="2026-09-06">
-  <owner>holte@google.com</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    The result of a text safety inference request. Recorded once for each such
-    request.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.TextSafetyChecker.InitTime" units="ms"
-    expires_after="2026-09-06">
-  <owner>holte@google.com</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    The duration of the text safety checker's initialization time. Recorded once
-    for each new model execution session.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.TextSafetyChecker.ModelCreationTime"
-    units="ms" expires_after="2026-09-06">
-  <owner>holte@google.com</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    The duration elapsed during text safety model creation. Recorded once for
-    each text safety inference request.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.TextSafetyChecker.ModelExecutionTime"
-    units="ms" expires_after="2026-05-03">
-  <owner>holte@google.com</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    The duration of text safety model execution. Recorded once for each text
-    safety inference request.
-  </summary>
-</histogram>
-
-<histogram name="OptimizationGuide.TextSafetyChecker.TokensPerSecond"
-    units="counts" expires_after="2026-09-06">
-  <owner>holte@google.com</owner>
-  <owner>wittman@chromium.org</owner>
-  <summary>
-    An estimate of the text safety model's inference throughput in tokens per
-    second. Recorded once for each text safety inference request.
   </summary>
 </histogram>
 

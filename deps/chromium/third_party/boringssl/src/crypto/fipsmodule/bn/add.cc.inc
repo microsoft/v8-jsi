@@ -25,6 +25,14 @@
 
 using namespace bssl;
 
+BN_ULONG bssl::bn_add_carry_words(BN_ULONG *rp, const BN_ULONG *ap,
+                                  BN_ULONG carry, size_t num) {
+  for (size_t i = 0; i < num; i++) {
+    rp[i] = CRYPTO_addc_w(ap[i], 0, carry, &carry);
+  }
+  return carry;
+}
+
 int BN_add(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
   const BIGNUM *tmp;
   int a_neg = a->neg, ret;
@@ -62,7 +70,7 @@ int BN_add(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
 }
 
 int bssl::bn_uadd_consttime(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
-  // Widths are public, so we normalize to make |a| the larger one.
+  // Widths are public, so we normalize to make `a` the larger one.
   if (a->width < b->width) {
     const BIGNUM *tmp = a;
     a = b;
@@ -77,10 +85,7 @@ int bssl::bn_uadd_consttime(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
   r->width = max + 1;
 
   BN_ULONG carry = bn_add_words(r->d, a->d, b->d, min);
-  for (int i = min; i < max; i++) {
-    r->d[i] = CRYPTO_addc_w(a->d[i], 0, carry, &carry);
-  }
-
+  carry = bn_add_carry_words(r->d + min, a->d + min, carry, max - min);
   r->d[max] = carry;
   return 1;
 }
@@ -182,8 +187,8 @@ int BN_sub(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
 }
 
 int bssl::bn_usub_consttime(BIGNUM *r, const BIGNUM *a, const BIGNUM *b) {
-  // |b| may have more words than |a| given non-minimal inputs, but all words
-  // beyond |a->width| must then be zero.
+  // `b` may have more words than `a` given non-minimal inputs, but all words
+  // beyond `a->width` must then be zero.
   int b_width = b->width;
   if (b_width > a->width) {
     if (!bn_fits_in_words(b, a->width)) {

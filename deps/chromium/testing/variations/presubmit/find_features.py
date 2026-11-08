@@ -15,65 +15,87 @@ import re
 
 from typing import List, Set
 
-BASE_FEATURE_PATTERN = br'BASE_FEATURE\((.*?)\);'
-BASE_FEATURE_RE = re.compile(BASE_FEATURE_PATTERN,
-                             flags=re.MULTILINE + re.DOTALL)
+BASE_FEATURE_PATTERN = rb'BASE_(?:RUNTIME_MUTABLE_)?FEATURE\((.*?)\);'
+BASE_FEATURE_RE = re.compile(
+  BASE_FEATURE_PATTERN, flags=re.MULTILINE + re.DOTALL
+)
+
+# Example: base_feature!(FooFeature, FeatureState::Disabled);
+RUST_BASE_FEATURE_PATTERN = rb'base_feature!\((.*?)\);'
+RUST_BASE_FEATURE_RE = re.compile(
+  RUST_BASE_FEATURE_PATTERN, flags=re.MULTILINE + re.DOTALL
+)
 
 # Only search these directories for flags. If your flag is outside these root
 # directories, then add the directory here.
 DIRECTORIES_TO_SEARCH = [
-    'android_webview',
-    'apps',
-    'ash',
-    'base',
-    'cc',
-    'chrome',
-    'chromecast',
-    'chromeos',
-    'clank',
-    'components',
-    'content',
-    'courgette',
-    'crypto',
-    'dbus',
-    'device',
-    'extensions',
-    'fuchsia_web',
-    'gin',
-    'google_apis',
-    'gpu',
-    'headless',
-    'infra',
-    'internal',
-    'ios',
-    'ipc',
-    'media',
-    'mojo',
-    'net',
-    'pdf',
-    'ppapi',
-    'printing',
-    'remoting',
-    'rlz',
-    'sandbox',
-    'services',
-    'skia',
-    'sql',
-    'storage',
-    # third_party/blink handled separately in FindDeclaredFeatures
-    'ui',
-    'url',
-    'v8',
-    'webkit',
-    'weblayer',
+  'android_webview',
+  'apps',
+  'ash',
+  'base',
+  'cc',
+  'chrome',
+  'chromecast',
+  'chromeos',
+  'clank',
+  'components',
+  'content',
+  'courgette',
+  'crypto',
+  'dbus',
+  'device',
+  'extensions',
+  'fuchsia_web',
+  'gin',
+  'google_apis',
+  'gpu',
+  'headless',
+  'infra',
+  'internal',
+  'ios',
+  'ipc',
+  'media',
+  'mojo',
+  'net',
+  'pdf',
+  'ppapi',
+  'printing',
+  'remoting',
+  'rlz',
+  'sandbox',
+  'services',
+  'skia',
+  'sql',
+  'storage',
+  # third_party/blink handled separately in FindDeclaredFeatures
+  'ui',
+  'url',
+  'v8',
+  'webkit',
+  'weblayer',
 ]
 
 
 def _FindFeaturesInFile(filepath: str) -> List[str]:
   # Work on bytes to avoid utf-8 decode errors outside feature declarations
   file_contents = pathlib.Path(filepath).read_bytes()
-  matches = BASE_FEATURE_RE.finditer(file_contents)
   feature_names = []
+
+  if filepath.endswith('.rs'):
+    matches = RUST_BASE_FEATURE_RE.finditer(file_contents)
+    for m in matches:
+      # The Rust `base_feature!` macro takes the identifier as the first
+      # argument and its FeatureState as its second argument, e.g.:
+      #     chromium::import! {"//base:feature";}
+      #     base_feature!(FooFeature, FeatureState::Disabled)
+      #     base_feature!(BarFeature, FeatureState::Enabled)
+      args = [arg.strip() for arg in m.group(1).split(b',')]
+      if len(args) >= 1:
+        feature_name = args[0]
+        feature_names.append(feature_name.decode('utf-8'))
+    return feature_names
+
+  matches = BASE_FEATURE_RE.finditer(file_contents)
   for m in matches:
     # Split the arguments to handle both 2- and 3-argument versions of
     # BASE_FEATURE.
@@ -95,17 +117,23 @@ def _FindFeaturesInFile(filepath: str) -> List[str]:
 
 
 def _FindDeclaredFeaturesImpl(repository_root: pathlib.Path) -> Set[str]:
-  # Features are supposed to be defined in .cc files.
+  # Features are supposed to be defined in .cc or .rs files.
   # Iterate over the search folders in the root.
   root = pathlib.Path(repository_root)
-  glob_patterns = [
-      str(p / pathlib.Path('**/*.cc')) for p in root.iterdir()
-      if p.is_dir() and p.name in DIRECTORIES_TO_SEARCH
-  ]
+  glob_patterns = []
+  for extension in ['cc', 'rs']:
+    glob_patterns.extend(
+      [
+        str(p / pathlib.Path(f'**/*.{extension}'))
+        for p in root.iterdir()
+        if p.is_dir() and p.name in DIRECTORIES_TO_SEARCH
+      ]
+    )
 
   # blink is the only directory in third_party that should be searched.
-  blink_glob = str(root / pathlib.Path('third_party/blink/**/*.cc'))
-  glob_patterns.append(blink_glob)
+  for extension in ['cc', 'rs']:
+    blink_glob = str(root / pathlib.Path(f'third_party/blink/**/*.{extension}'))
+    glob_patterns.append(blink_glob)
 
   # Additional features for iOS can be found in mm files in the ios directory.
   mm_glob = str(root / pathlib.Path('ios/**/*.mm'))
@@ -113,7 +141,7 @@ def _FindDeclaredFeaturesImpl(repository_root: pathlib.Path) -> Set[str]:
 
   # Create glob iterators that lazily go over the files to search
   glob_iterators = [
-      glob.iglob(pattern, recursive=True) for pattern in glob_patterns
+    glob.iglob(pattern, recursive=True) for pattern in glob_patterns
   ]
 
   # Limit to 4 processes - the disk accesses becomes a bottleneck with just a
@@ -121,8 +149,9 @@ def _FindDeclaredFeaturesImpl(repository_root: pathlib.Path) -> Set[str]:
   # a benefit of a few seconds.
   # The exact batch size does not seem to matter much, as long as it is >> 1.
   pool = multiprocessing.Pool(4)
-  found_features = pool.imap_unordered(_FindFeaturesInFile,
-                                       itertools.chain(*glob_iterators), 1000)
+  found_features = pool.imap_unordered(
+    _FindFeaturesInFile, itertools.chain(*glob_iterators), 1000
+  )
   pool.close()
   pool.join()
 
@@ -135,8 +164,9 @@ def _FindDeclaredFeaturesImpl(repository_root: pathlib.Path) -> Set[str]:
 def FindDeclaredFeatures(input_api) -> Set[str]:
   """Finds all declared feature names in the source code.
 
-  This function will scan all *.cc and *.mm files and look for features
-  defined with the BASE_FEATURE macro. It will extract the feature names.
+  This function will scan all *.cc, *.mm and *.rs files and look for features
+  defined with the BASE_FEATURE macro (C++) or base_feature! macro (Rust). It
+  will extract the feature names.
 
   Args:
     input_api: InputApi instance for opening files

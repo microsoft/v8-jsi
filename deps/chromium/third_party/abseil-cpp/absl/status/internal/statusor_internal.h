@@ -19,7 +19,9 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/config.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/meta/type_traits.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
@@ -53,9 +55,9 @@ struct IsEqualityComparable : std::false_type {};
 
 template <typename T>
 struct IsEqualityComparable<
-    T, std::enable_if_t<std::is_convertible<
-           decltype(std::declval<T>() == std::declval<T>()),
-           bool>::value>> : std::true_type {};
+    T, std::enable_if_t<std::is_convertible_v<
+           decltype(std::declval<T>() == std::declval<T>()), bool>>>
+    : std::true_type {};
 
 // Detects whether `T` is constructible or convertible from `StatusOr<U>`.
 template <typename T, typename U>
@@ -84,7 +86,7 @@ using IsConstructibleOrConvertibleOrAssignableFromStatusOr =
 template <typename T, typename U>
 struct IsDirectInitializationAmbiguous
     : public std::conditional_t<
-          std::is_same<absl::remove_cvref_t<U>, U>::value, std::false_type,
+          std::is_same_v<absl::remove_cvref_t<U>, U>, std::false_type,
           IsDirectInitializationAmbiguous<T, absl::remove_cvref_t<U>>> {};
 
 template <typename T, typename V>
@@ -117,7 +119,7 @@ using IsDirectInitializationValid = std::disjunction<
         std::negation<std::disjunction<
             std::is_same<absl::StatusOr<T>, absl::remove_cvref_t<U>>,
             std::is_same<absl::Status, absl::remove_cvref_t<U>>,
-            std::is_same<absl::in_place_t, absl::remove_cvref_t<U>>,
+            std::is_same<std::in_place_t, absl::remove_cvref_t<U>>,
             IsDirectInitializationAmbiguous<T, U>>>>>;
 
 // This trait detects whether `StatusOr<T>::operator=(U&&)` is ambiguous, which
@@ -133,7 +135,7 @@ using IsDirectInitializationValid = std::disjunction<
 template <typename T, typename U>
 struct IsForwardingAssignmentAmbiguous
     : public std::conditional_t<
-          std::is_same<absl::remove_cvref_t<U>, U>::value, std::false_type,
+          std::is_same_v<absl::remove_cvref_t<U>, U>, std::false_type,
           IsForwardingAssignmentAmbiguous<T, absl::remove_cvref_t<U>>> {};
 
 template <typename T, typename U>
@@ -149,7 +151,7 @@ using IsForwardingAssignmentValid = std::disjunction<
     std::negation<std::disjunction<
         std::is_same<absl::StatusOr<T>, absl::remove_cvref_t<U>>,
         std::is_same<absl::Status, absl::remove_cvref_t<U>>,
-        std::is_same<absl::in_place_t, absl::remove_cvref_t<U>>,
+        std::is_same<std::in_place_t, absl::remove_cvref_t<U>>,
         IsForwardingAssignmentAmbiguous<T, U>>>>;
 
 template <bool Value, typename T>
@@ -194,7 +196,7 @@ template <bool Explicit, typename T, typename U>
 using IsConstructionFromStatusValid = std::conjunction<
     std::negation<std::is_same<absl::StatusOr<T>, absl::remove_cvref_t<U>>>,
     std::negation<std::is_same<T, absl::remove_cvref_t<U>>>,
-    std::negation<std::is_same<absl::in_place_t, absl::remove_cvref_t<U>>>,
+    std::negation<std::is_same<std::in_place_t, absl::remove_cvref_t<U>>>,
     Equality<!Explicit, std::is_convertible<U, absl::Status>>,
     std::is_constructible<absl::Status, U>,
     std::negation<HasConversionOperatorToStatusOr<T, U>>>;
@@ -325,14 +327,14 @@ class StatusOrData {
   }
 
   template <typename... Args>
-  explicit StatusOrData(absl::in_place_t, Args&&... args)
+  explicit StatusOrData(std::in_place_t, Args&&... args)
       : data_(std::forward<Args>(args)...) {
     MakeStatus();
   }
 
-  template <typename U,
-            std::enable_if_t<std::is_constructible<absl::Status, U&&>::value,
-                              int> = 0>
+  template <
+      typename U,
+      std::enable_if_t<std::is_constructible_v<absl::Status, U&&>, int> = 0>
   explicit StatusOrData(U&& v) : status_(std::forward<U>(v)) {
     EnsureNotOk();
   }
@@ -527,7 +529,7 @@ struct OperatorBase<T&> {
 // operators in `StatusOr`. For example, `CopyCtorBase` will explicitly delete
 // the copy constructor when T is not copy constructible and `StatusOr` will
 // inherit that behavior implicitly.
-template <typename T, bool = std::is_copy_constructible<T>::value>
+template <typename T, bool = std::is_copy_constructible_v<T>>
 struct CopyCtorBase {
   CopyCtorBase() = default;
   CopyCtorBase(const CopyCtorBase&) = default;
@@ -545,7 +547,7 @@ struct CopyCtorBase<T, false> {
   CopyCtorBase& operator=(CopyCtorBase&&) = default;
 };
 
-template <typename T, bool = std::is_move_constructible<T>::value>
+template <typename T, bool = std::is_move_constructible_v<T>>
 struct MoveCtorBase {
   MoveCtorBase() = default;
   MoveCtorBase(const MoveCtorBase&) = default;
@@ -563,8 +565,8 @@ struct MoveCtorBase<T, false> {
   MoveCtorBase& operator=(MoveCtorBase&&) = default;
 };
 
-template <typename T, bool = (std::is_copy_constructible<T>::value &&
-                              std::is_copy_assignable<T>::value) ||
+template <typename T, bool = (std::is_copy_constructible_v<T> &&
+                              std::is_copy_assignable_v<T>) ||
                              std::is_reference_v<T>>
 struct CopyAssignBase {
   CopyAssignBase() = default;
@@ -583,8 +585,8 @@ struct CopyAssignBase<T, false> {
   CopyAssignBase& operator=(CopyAssignBase&&) = default;
 };
 
-template <typename T, bool = (std::is_move_constructible<T>::value &&
-                              std::is_move_assignable<T>::value) ||
+template <typename T, bool = (std::is_move_constructible_v<T> &&
+                              std::is_move_assignable_v<T>) ||
                              std::is_reference_v<T>>
 struct MoveAssignBase {
   MoveAssignBase() = default;
@@ -621,7 +623,7 @@ class StringifyRandom {
   }
 
  public:
-  static inline absl::string_view OpenBrackets() {
+  static absl::string_view OpenBrackets() {
     switch (RandomBraces()) {
       case kBareParens:
         return "(";
@@ -635,7 +637,7 @@ class StringifyRandom {
     return "(";
   }
 
-  static inline absl::string_view CloseBrackets() {
+  static absl::string_view CloseBrackets() {
     switch (RandomBraces()) {
       case kBareParens:
         return ")";

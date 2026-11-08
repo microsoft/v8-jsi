@@ -12,9 +12,8 @@ import("//build/config/android/internal_rules.gni")
 # Variables:
 #   apk_name: The name of the apk, without the extension.
 #   file_path: The path to the apk or .minimal.apks.
-#   trichrome_chrome_path: The path to chrome apk or .minimal.apks.
-#   trichrome_webview_path: The path to webview apk or .minimal.apks.
-#   trichrome_library_path: The path to library apk or .minimal.apks.
+#   chrome_path: The path to chrome apk or .minimal.apks.
+#   webview_path: The path to webview apk or .minimal.apks.
 template("android_resource_sizes_test") {
   generate_android_wrapper(target_name) {
     forward_variables_from(invoker, [ "data_deps" ])
@@ -33,33 +32,25 @@ template("android_resource_sizes_test") {
     ]
 
     data = []
-    if (defined(invoker.trichrome_chrome_path)) {
+    if (defined(invoker.chrome_path)) {
       data += [
-        invoker.trichrome_chrome_path,
-        invoker.trichrome_webview_path,
-        invoker.trichrome_library_path,
+        invoker.chrome_path,
+        invoker.webview_path,
       ]
-      _rebased_chrome =
-          rebase_path(invoker.trichrome_chrome_path, root_build_dir)
-      _rebased_webview =
-          rebase_path(invoker.trichrome_webview_path, root_build_dir)
-      _rebased_library =
-          rebase_path(invoker.trichrome_library_path, root_build_dir)
+      _rebased_chrome = rebase_path(invoker.chrome_path, root_build_dir)
+      _rebased_webview = rebase_path(invoker.webview_path, root_build_dir)
 
       # apk_name used only as test suite name. Not a path in this case.
       executable_args += [
-        "--trichrome-chrome",
+        "--chrome",
         "@WrappedPath(${_rebased_chrome})",
-        "--trichrome-webview",
+        "--webview",
         "@WrappedPath(${_rebased_webview})",
-        "--trichrome-library",
-        "@WrappedPath(${_rebased_library})",
         "${invoker.apk_name}",
       ]
     } else {
       if (defined(invoker.apk_name)) {
         _file_path = "$root_out_dir/apks/${invoker.apk_name}.apk"
-        data += [ "$root_out_dir/arsc/apks/${invoker.apk_name}.ap_" ]
       } else if (defined(invoker.file_path)) {
         _file_path = invoker.file_path
       }

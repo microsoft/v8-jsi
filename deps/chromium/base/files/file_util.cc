@@ -5,8 +5,12 @@
 #include "base/files/file_util.h"
 
 #include <algorithm>
+#include <array>
 #include <string_view>
 
+#include "base/containers/fixed_flat_set.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_split.h"
 #include "base/task/sequenced_task_runner.h"
 #include "build/build_config.h"
 
@@ -31,6 +35,7 @@
 #include "base/notreached.h"
 #include "base/numerics/checked_math.h"
 #include "base/posix/eintr_wrapper.h"
+#include "base/strings/strcat.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -423,9 +428,7 @@ OnceCallback<std::optional<int64_t>()> GetFileSizeCallback(
   return BindOnce([](const FilePath& path) { return GetFileSize(path); }, path);
 }
 
-bool TouchFile(const FilePath& path,
-               const Time& last_accessed,
-               const Time& last_modified) {
+bool TouchFile(const FilePath& path, Time last_accessed, Time last_modified) {
   uint32_t flags = File::FLAG_OPEN | File::FLAG_WRITE_ATTRIBUTES;
 
 #if BUILDFLAG(IS_WIN)
@@ -529,6 +532,103 @@ FilePath GetUniquePathWithSuffixFormat(const FilePath& path,
     }
   }
   return FilePath();
+}
+
+bool IsReservedNameOnWindows(const base::FilePath::StringType& filename) {
+  // This list is taken from the MSDN article "Naming a file"
+  // http://msdn2.microsoft.com/en-us/library/aa365247(VS.85).aspx
+  // `clock$` is also included because GetSaveFileName seems to consider it as a
+  // reserved name too.
+  static constexpr auto kKnownDevices = std::to_array(
+      {"con",  "prn",  "aux",  "nul",  "com1", "com2", "com3",  "com4",
+       "com5", "com6", "com7", "com8", "com9", "lpt1", "lpt2",  "lpt3",
+       "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "clock$"});
+  static constexpr auto kMagicNames = base::MakeFixedFlatSet<std::string_view>({
+      // These file names are used by the "Customize folder" feature of the
+      // shell.
+      "desktop.ini",
+      "thumbs.db",
+      // Windows console input/output devices. Unlike legacy DOS devices (e.g.
+      // CON), Windows does not strip extensions for CONIN$/CONOUT$.
+      "conin$",
+      "conout$",
+  });
+
+#if BUILDFLAG(IS_WIN)
+  std::string filename_lower = base::ToLowerASCII(base::WideToUTF8(filename));
+#else
+  std::string filename_lower = base::ToLowerASCII(filename);
+#endif
+
+  // On Windows, trailing spaces and dots are stripped by Win32 API path
+  // canonicalization (e.g., "con " or "con. " resolves to device "\\.\CON").
+  std::string_view trimmed_filename =
+      base::TrimString(filename_lower, " .", base::TRIM_TRAILING);
+
+  // Extract the part of the filename before the first dot to check against
+  // DOS device names (e.g. "CON.zip" -> "CON" and "CON.tar.gz" -> "CON").
+  // Doing this once here avoids redundant string splitting inside the loop.
+  std::string_view prefix = trimmed_filename;
+  if (auto parts = SplitStringOnce(trimmed_filename, '.')) {
+    prefix = parts->first;
+  }
+
+  return std::ranges::any_of(
+             kKnownDevices,
+             [prefix, trimmed_filename](std::string_view device) {
+               return trimmed_filename == device || prefix == device;
+             }) ||
+         kMagicNames.contains(trimmed_filename);
+}
+
+std::optional<FilePath> GetLatestTemporaryFileWithNamePrefix(
+    const FilePath& dir,
+    FilePath::StringViewType name_prefix) {
+  CHECK(!dir.empty());
+  CHECK(!name_prefix.empty());
+
+  // Build a wildcard that matches the fixed-length random suffix appended by
+  // CreateAndOpenTemporaryFileInDir, so the enumeration itself only returns
+  // temp files whose name prefix exactly matches `name_prefix`. This avoids
+  // matching common-prefix siblings (e.g. "Local State Backup" when searching
+  // for "Local State"). The loop below still validates each candidate with
+  // GetNamePrefixForTemporaryFile() to reject files whose random portion is
+  // not a well-formed GUID / mkstemp suffix.
+  // `name_prefix` and `kRandomSuffixPattern` are concatenated and passed to
+  // `FormatTemporaryFileName()` to construct a platform-specific temporary file
+  // name.
+#if BUILDFLAG(IS_WIN)
+  // Windows temp files are "<name_prefix><36-char GUID>.tmp".
+  constexpr FilePath::StringViewType kRandomSuffixPattern =
+      FILE_PATH_LITERAL("????????-????-????-????-????????????");
+#else
+  // POSIX temp files are ".<platform_prefix>.<name_prefix>.XXXXXX" where
+  // `platform_prefix` varies by platforms.
+  constexpr FilePath::StringViewType kRandomSuffixPattern =
+      FILE_PATH_LITERAL(".??????");
+#endif
+  FileEnumerator file_enum(
+      dir, /*recursive=*/false, FileEnumerator::FILES,
+      FormatTemporaryFileName(StrCat({name_prefix, kRandomSuffixPattern}),
+                              /*hidden=*/true)
+          .value());
+
+  std::optional<FilePath> latest_path;
+  Time latest_time;
+  for (FilePath path = file_enum.Next(); !path.empty();
+       path = file_enum.Next()) {
+    std::optional<FilePath::StringType> prefix =
+        GetNamePrefixForTemporaryFile(path);
+    if (!prefix.has_value() || *prefix != name_prefix) {
+      continue;
+    }
+    const Time modified_time = file_enum.GetInfo().GetLastModifiedTime();
+    if (!latest_path.has_value() || modified_time > latest_time) {
+      latest_path = std::move(path);
+      latest_time = modified_time;
+    }
+  }
+  return latest_path;
 }
 
 }  // namespace base

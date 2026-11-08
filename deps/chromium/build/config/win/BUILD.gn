@@ -102,13 +102,13 @@ config("compiler") {
       if (host_cpu == "x86" || host_cpu == "x64") {
         cflags += [ "-m32" ]
       } else {
-        cflags += [ "--target=i386-windows" ]
+        cflags += [ "--target=i386-pc-windows" ]
       }
     } else if (current_cpu == "x64") {
       if (host_cpu == "x86" || host_cpu == "x64") {
         cflags += [ "-m64" ]
       } else {
-        cflags += [ "--target=x86_64-windows" ]
+        cflags += [ "--target=x86_64-pc-windows" ]
       }
     } else if (current_cpu == "arm64") {
       cflags += [ "--target=aarch64-pc-windows" ]
@@ -149,6 +149,20 @@ config("compiler") {
 
   ldflags = []
 
+  if (use_clang_modules) {
+    # Work around LLVM builtin math lowerings under Clang modules emitting
+    # calls to `hypotf` on Windows, whereas UCRT only provides `_hypotf`.
+    # See http://b/525295309 and https://github.com/llvm/llvm-project/issues/209989.
+    if (current_cpu == "x86") {
+      # On x86 (32-bit cdecl), C symbols have a leading underscore:
+      # `hypotf` becomes `_hypotf`, and `_hypotf` becomes `__hypotf`.
+      ldflags += [ "/alternatename:_hypotf=__hypotf" ]
+    } else {
+      # On x64 and arm64, symbols are undecorated.
+      ldflags += [ "/alternatename:hypotf=_hypotf" ]
+    }
+  }
+
   if (use_lld) {
     # lld defaults to writing the current time in the pe/coff header.
     # For build reproducibility, pass an explicit timestamp. See
@@ -164,8 +178,8 @@ config("compiler") {
     ldflags += [ "/prefetch-inputs" ]
   }
 
-  # Some binaries create PDBs larger than 4 GiB. Increasing the PDB page size
-  # to 8 KiB allows 8 GiB PDBs. The larger page size also allows larger block maps
+  # Some binaries create PDBs larger than 4 GiB. Increasing the PDB page size to
+  # 8 KiB allows 8 GiB PDBs. The larger page size also allows larger block maps
   # which is a PDB limit that was hit in https://crbug.com/1406510. The page size
   # can easily be increased in the future to allow even larger PDBs or larger
   # block maps.
@@ -291,7 +305,7 @@ config("runtime_library") {
 # manually override this config for their compiles.
 config("winver") {
   defines = [
-    "NTDDI_VERSION=NTDDI_WIN11_GE",
+    "NTDDI_VERSION=NTDDI_WIN11_BR",
 
     # We can't say `=_WIN32_WINNT_WIN10` here because some files do
     # `#if WINVER < 0x0600` without including windows.h before,
@@ -408,6 +422,7 @@ config("delayloads_except_dbghelp") {
     "/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll",
     "/DELAYLOAD:api-ms-win-core-winrt-string-l1-1-0.dll",
     "/DELAYLOAD:advapi32.dll",
+    "/DELAYLOAD:bcrypt.dll",
     "/DELAYLOAD:bcryptprimitives.dll",
     "/DELAYLOAD:comctl32.dll",
     "/DELAYLOAD:comdlg32.dll",
@@ -488,7 +503,8 @@ config("delayloads_not_for_child_dll") {
 # ACLs are placed on the filesystem in order to allow chrome to launch
 # sandboxed processes in an app container when run from the out directory.
 group("maybe_set_appcontainer_acls") {
-  # Exclude setting ACLs when build is not happening on chromium, or with a different toolchain.
+  # Exclude setting ACLs when build is not happening on chromium, or with a
+  # different toolchain.
   if (build_with_chromium && current_cpu == target_cpu && host_os == "win") {
     deps = [ ":set_appcontainer_acls" ]
   }
@@ -643,6 +659,7 @@ subsystem_version_suffix = ",10.0"
 config("console") {
   ldflags = [ "/SUBSYSTEM:CONSOLE$subsystem_version_suffix" ]
 }
+
 config("windowed") {
   ldflags = [ "/SUBSYSTEM:WINDOWS$subsystem_version_suffix" ]
 }

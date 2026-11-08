@@ -6,6 +6,7 @@
 #define PARTITION_ALLOC_IN_SLOT_METADATA_H_
 
 #include <atomic>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -19,10 +20,15 @@
 #include "partition_alloc/partition_alloc_base/immediate_crash.h"
 #include "partition_alloc/partition_alloc_check.h"
 #include "partition_alloc/partition_alloc_config.h"
-#include "partition_alloc/partition_alloc_constants.h"
 #include "partition_alloc/partition_alloc_forward.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
+#include "partition_alloc/slot_address_and_size.h"
 #include "partition_alloc/slot_start.h"
 #include "partition_alloc/tagging.h"
+
+#if PA_BUILDFLAG(IS_APPLE)
+#include "partition_alloc/partition_alloc_base/bits.h"
+#endif
 
 namespace partition_alloc::internal {
 
@@ -82,9 +88,18 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
   //                                 `ReleaseFromAllocator()`, and if not we
   //                                 have a double-free.
   //
-  // 1-30   ptr_count              Number of raw_ptr<T>.
+  // 1-29   ptr_count              Number of raw_ptr<T>.
   //                               - Increased in Acquire()
   //                               - Decreased in Release()
+  //
+  // 30     has_smuggled_size      Whether or not the allocation size originally
+  //                               requested by caller is available at the end
+  //                               of the slot's usable size. This is "smuggled"
+  //                               in on allocation. Used by Checked Span: see
+  //                               https://crbug.com/484171909.
+  //                               N.b. this is distinct from the
+  //                               `requested_size_` member, used in a different
+  //                               build config.
   //
   // 31     request_quarantine     When set, PA will quarantine the memory in
   //                               Scheduler-Loop quarantine.
@@ -97,8 +112,9 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
   // bits   name                   description
   // -----  ---------------------  ----------------------------------------
   // 0      is_allocated
-  // 1-31   ptr_count
+  // 1-30   ptr_count
   //
+  // 31     has_smuggled_size
   // 32     dangling_detected      A dangling raw_ptr<> has been detected.
   // 33     request_quarantine
   //
@@ -121,10 +137,11 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
   using CountType = uint32_t;
   static constexpr CountType kMemoryHeldByAllocatorBit =
       BitField<CountType>::Bit(0);
-  static constexpr CountType kPtrCountMask = BitField<CountType>::Mask(1, 30);
+  static constexpr CountType kPtrCountMask = BitField<CountType>::Mask(1, 29);
   // The most significant bit of the refcount is reserved to prevent races with
   // overflow detection.
-  static constexpr CountType kMaxPtrCount = BitField<CountType>::Mask(1, 29);
+  static constexpr CountType kMaxPtrCount = BitField<CountType>::Mask(1, 28);
+  static constexpr CountType kHasSmuggledSizeBit = BitField<CountType>::Bit(30);
   static constexpr CountType kRequestQuarantineBit =
       BitField<CountType>::Bit(31);
   static constexpr CountType kDanglingRawPtrDetectedBit =
@@ -134,10 +151,11 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
 #else   // !PA_BUILDFLAG(ENABLE_DANGLING_RAW_PTR_CHECKS)
   using CountType = uint64_t;
   static constexpr auto kMemoryHeldByAllocatorBit = BitField<CountType>::Bit(0);
-  static constexpr auto kPtrCountMask = BitField<CountType>::Mask(1, 31);
+  static constexpr auto kPtrCountMask = BitField<CountType>::Mask(1, 30);
   // The most significant bit of the refcount is reserved to prevent races with
   // overflow detection.
-  static constexpr auto kMaxPtrCount = BitField<CountType>::Mask(1, 30);
+  static constexpr auto kMaxPtrCount = BitField<CountType>::Mask(1, 29);
+  static constexpr CountType kHasSmuggledSizeBit = BitField<CountType>::Bit(31);
   static constexpr auto kDanglingRawPtrDetectedBit =
       BitField<CountType>::Bit(32);
   static constexpr CountType kRequestQuarantineBit =
@@ -152,14 +170,17 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
 
   // Quick check to assert these masks do not overlap.
   static_assert((kMemoryHeldByAllocatorBit + kPtrCountMask +
-                 kUnprotectedPtrCountMask + kDanglingRawPtrDetectedBit +
-                 kRequestQuarantineBit) ==
+                 kUnprotectedPtrCountMask + kHasSmuggledSizeBit +
+                 kDanglingRawPtrDetectedBit + kRequestQuarantineBit) ==
                 std::numeric_limits<CountType>::max());
 
   static constexpr auto kPtrInc =
-      SafeShift<CountType>(1, base::bits::CountrZero(kPtrCountMask));
+      SafeShift<CountType>(1, std::countr_zero(kPtrCountMask));
   static constexpr auto kUnprotectedPtrInc =
-      SafeShift<CountType>(1, base::bits::CountrZero(kUnprotectedPtrCountMask));
+      SafeShift<CountType>(1, std::countr_zero(kUnprotectedPtrCountMask));
+
+  PA_ALWAYS_INLINE static InSlotMetadata* From(
+      SlotAddressAndSize slot_and_size);
 
   PA_ALWAYS_INLINE InSlotMetadata();
 
@@ -180,6 +201,10 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
     CountType old_count = count_.fetch_add(kPtrInc, std::memory_order_relaxed);
     // Check overflow.
     PA_CHECK((old_count & kPtrCountMask) != kMaxPtrCount);
+    // Should not allow refcount++ once refcount == 0 and
+    // !kMemoryHeldByAllocator.
+    PA_CHECK((old_count & (kMemoryHeldByAllocatorBit | kPtrCountMask |
+                           kUnprotectedPtrCountMask)) != 0);
   }
 
   // Similar to |Acquire()|, but for raw_ptr<T, DisableDanglingPtrDetection>
@@ -191,6 +216,10 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
         count_.fetch_add(kUnprotectedPtrInc, std::memory_order_relaxed);
     // Check overflow.
     PA_CHECK((old_count & kUnprotectedPtrCountMask) != kMaxUnprotectedPtrCount);
+    // Should not allow refcount++ once refcount == 0 and
+    // !kMemoryHeldByAllocator.
+    PA_CHECK((old_count & (kMemoryHeldByAllocatorBit | kPtrCountMask |
+                           kUnprotectedPtrCountMask)) != 0);
 #else
     Acquire();
 #endif
@@ -202,7 +231,7 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
 
     CountType old_count = count_.fetch_sub(kPtrInc, std::memory_order_release);
     // Check underflow.
-    PA_DCHECK(old_count & kPtrCountMask);
+    PA_CHECK(old_count & kPtrCountMask);
 
 #if PA_BUILDFLAG(ENABLE_DANGLING_RAW_PTR_CHECKS)
     // If a dangling raw_ptr<> was detected, report it.
@@ -225,7 +254,7 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
     CountType old_count =
         count_.fetch_sub(kUnprotectedPtrInc, std::memory_order_release);
     // Check underflow.
-    PA_DCHECK(old_count & kUnprotectedPtrCountMask);
+    PA_CHECK(old_count & kUnprotectedPtrCountMask);
 
     return ReleaseCommon(old_count - kUnprotectedPtrInc);
 #else
@@ -295,6 +324,11 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
     return alive;
   }
 
+  PA_ALWAYS_INLINE bool HasNonZeroRefs() {
+    static constexpr CountType mask = kPtrCountMask | kUnprotectedPtrCountMask;
+    return (count_.load(std::memory_order_acquire) & mask) != 0;
+  }
+
   // Assertion to allocation which ought to be alive.
   PA_ALWAYS_INLINE void EnsureAlive(UntaggedSlotStart slot_start,
                                     SlotSpanMetadata* slot_span) {
@@ -353,6 +387,26 @@ class PA_COMPONENT_EXPORT(PARTITION_ALLOC) InSlotMetadata {
   }
   PA_ALWAYS_INLINE uint32_t requested_size() const { return requested_size_; }
 #endif  // PA_CONFIG(IN_SLOT_METADATA_STORE_REQUESTED_SIZE)
+
+#if PA_BUILDFLAG(CHECKED_SPAN_HAS_METADATA_SUPPORT)
+  // All of these methods can be `memory_order_relaxed`:
+  // `Set...()` and `Clear...()` are only called on (re)allocation,
+  // which is understood to be thread-unsafe.
+  //
+  // `IsSmuggledSizeAvailable()` racing with the other methods would
+  // imply that the caller is minting a Checked Span _while reallocating
+  // the underlying data_. We don't attempt to defend against such
+  // undefined behavior.
+  PA_ALWAYS_INLINE void SetHasSmuggledSizeBit() {
+    count_.fetch_or(kHasSmuggledSizeBit, std::memory_order_relaxed);
+  }
+  PA_ALWAYS_INLINE void ClearHasSmuggledSizeBit() {
+    count_.fetch_and(~kHasSmuggledSizeBit, std::memory_order_relaxed);
+  }
+  PA_ALWAYS_INLINE bool IsSmuggledSizeAvailable() const {
+    return count_.load(std::memory_order_relaxed) & kHasSmuggledSizeBit;
+  }
+#endif  // PA_BUILDFLAG(CHECKED_SPAN_HAS_METADATA_SUPPORT)
 
   // The function here is called right before crashing with
   // `DoubleFreeOrCorruptionDetected()`. We provide an address for the slot
@@ -521,8 +575,8 @@ GetInSlotMetadataIndexMultiplierShift() {
   return SystemPageShift() * 2 - kSuperPageShift - kInSlotMetadataSizeShift;
 }
 
-PA_ALWAYS_INLINE InSlotMetadata* InSlotMetadataPointer(uintptr_t slot_start,
-                                                       size_t slot_size) {
+PA_ALWAYS_INLINE InSlotMetadata* InSlotMetadata::From(
+    SlotAddressAndSize slot_and_size) {
   // In-slot metadata is typically put at the end of the slot. However, there
   // are a handful of issues that need to be considered:
   // 1. GWP-ASan uses 2-page slots and wants the 2nd page to be inaccissable, so
@@ -538,6 +592,8 @@ PA_ALWAYS_INLINE InSlotMetadata* InSlotMetadataPointer(uintptr_t slot_start,
   // the InSlotMetadata object out-of-line in this case, specifically in a
   // special table after the super page metadata (see InSlotMetadataTable in
   // partition_alloc_constants.h).
+  uintptr_t slot_start = slot_and_size.slot_start.value();
+  size_t slot_size = slot_and_size.size;
   if (slot_start & SystemPageOffsetMask()) [[likely]] {
     uintptr_t refcount_address =
         slot_start + slot_size - sizeof(InSlotMetadata);

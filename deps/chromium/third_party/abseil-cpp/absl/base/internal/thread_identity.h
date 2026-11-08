@@ -20,19 +20,21 @@
 #ifndef ABSL_BASE_INTERNAL_THREAD_IDENTITY_H_
 #define ABSL_BASE_INTERNAL_THREAD_IDENTITY_H_
 
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+
+#include "absl/base/attributes.h"
+#include "absl/base/config.h"
+#include "absl/base/internal/per_thread_tls.h"
+#include "absl/base/optimization.h"
+
 #ifndef _WIN32
 #include <pthread.h>
 // Defines __GOOGLE_GRTE_VERSION__ (via glibc-specific features.h) when
 // supported.
 #include <unistd.h>
 #endif
-
-#include <atomic>
-#include <cstdint>
-
-#include "absl/base/config.h"
-#include "absl/base/internal/per_thread_tls.h"
-#include "absl/base/optimization.h"
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
@@ -273,10 +275,11 @@ void ClearCurrentThreadIdentity();
 #define ABSL_THREAD_IDENTITY_MODE ABSL_THREAD_IDENTITY_MODE_USE_CPP11
 #elif defined(__APPLE__) && defined(ABSL_HAVE_THREAD_LOCAL)
 #define ABSL_THREAD_IDENTITY_MODE ABSL_THREAD_IDENTITY_MODE_USE_CPP11
-#elif ABSL_PER_THREAD_TLS && defined(__GOOGLE_GRTE_VERSION__) && \
-    (__GOOGLE_GRTE_VERSION__ >= 20140228L)
-// Support for async-safe TLS was specifically added in GRTEv4.  It's not
-// present in the upstream eglibc.
+#elif ABSL_PER_THREAD_TLS && \
+    (!defined(__GLIBC__) || defined(__GOOGLE_GRTE_VERSION__))
+// Check that the libc implementation provides async-signal-safe TLS. Upstream
+// glibc (without GRTE patches) may call malloc() in __tls_get_addr() for
+// dlopen()'d modules and must use pthread_getspecific() instead.
 // Note:  Current default for production systems.
 #define ABSL_THREAD_IDENTITY_MODE ABSL_THREAD_IDENTITY_MODE_USE_TLS
 #else

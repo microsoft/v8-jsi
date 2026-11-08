@@ -259,7 +259,7 @@ chromium-metrics-reviews@google.com.
   <int value="14" label="Autofill Address"/>
   <int value="15" label="Save Card"/>
   <int value="16" label="(Deprecated) Send Tab to Self"/>
-  <int value="17" label="Sharing Hub"/>
+  <int value="17" label="(Deprecated) Sharing Hub"/>
   <int value="18" label="(Deprecated) Side Search"/>
   <int value="19" label="(Deprecated) SMS Remote Fetcher"/>
   <int value="20" label="Translate"/>
@@ -286,7 +286,12 @@ chromium-metrics-reviews@google.com.
   <int value="41" label="Federation"/>
   <int value="42" label="Glic"/>
   <int value="43" label="Anchored Contextual Cue"/>
-  <int value="44" label="Web Authentication Ambient"/>
+  <int value="44" label="(Deprecated) Web Authentication Ambient"/>
+  <int value="45" label="Autofill Payment"/>
+  <int value="46" label="Multistep Filter"/>
+  <int value="47" label="Payments Churned Users"/>
+  <int value="48" label="Fake Page Action For Debug"/>
+  <int value="49" label="Wallet Reminder Notice"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/ui/page_action/page_action_icon_type.h:PageActionIconType) -->
@@ -356,26 +361,51 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//components/page_load_metrics/browser/observers/paid_content_page_load_metrics_observer.cc:PaidContentState) -->
 
-<!-- LINT.IfChange(PrerenderPrewarmNavigationStatus) -->
+<!-- LINT.IfChange(SearchPrewarmPrerenderCoverageStatus) -->
 
-<enum name="PrerenderPrewarmNavigationStatus">
-  <int value="0" label="Not prewarmed, prerender host not reused"/>
-  <int value="1" label="Not prewarmed, prerender host reused"/>
-  <int value="2" label="Prewarmed, prerender host not reused"/>
-  <int value="3" label="Prewarmed, prerender host reused"/>
+<enum name="SearchPrewarmPrerenderCoverageStatus">
+  <int value="0" label="Prerender activated"/>
+  <int value="1" label="Preload process reused (prewarm)"/>
+  <int value="2"
+      label="Current process reused (in-tab / in-process, e.g. SRP to SRP)"/>
+  <int value="3"
+      label="Current process reused with prewarm (in-tab, in process
+             originally prewarmed)"/>
+  <int value="4" label="Other process reused (from process pool or other tab)"/>
+  <int value="5" label="Cold process allocated"/>
+  <int value="6"
+      label="Blank process reused (empty process of about:blank, NTP, etc.)"/>
 </enum>
 
-<!-- LINT.ThenChange(//components/page_load_metrics/google/browser/prerender_prewarm_navigation_data.h:PrerenderPrewarmNavigationStatus) -->
+<!-- LINT.ThenChange(//components/page_load_metrics/google/browser/search_prewarm_coverage_status.h:SearchPrewarmPrerenderCoverageStatus) -->
 
-<!-- LINT.IfChange(PriorPrewarmCommitStatus) -->
+<!-- LINT.IfChange(SoftNavigationPageLoadMetricsObserverState) -->
 
-<enum name="PriorPrewarmCommitStatus">
-  <int value="0" label="No prewarm triggered"/>
-  <int value="1" label="Prewarm triggered, not committed"/>
-  <int value="2" label="Prewarm triggered, committed"/>
+<enum name="SoftNavigationPageLoadMetricsObserverState">
+  <int value="0" label="initial (softnav unexpected)">
+    softnav unexpected - no navigation recognized
+  </int>
+  <int value="1" label="started (softnav expected)">
+    softnav expected - a (hard) navigation was started
+  </int>
+  <int value="2" label="prerenderStarted (softnav unexpected)">
+    softnav unexpected - a prerender was started
+  </int>
+  <int value="3" label="prerenderActivated (softnav expected)">
+    softnav expected - a prerender was activated
+  </int>
+  <int value="4" label="inBackForwardCache (softnav unexpected)">
+    softnav unexpected - the page entered the bfcache
+  </int>
+  <int value="5" label="restoredFromBackForwardCache (softnav expected)">
+    softnav expected - the page was restored from bfcache
+  </int>
+  <int value="6" label="complete (softnav unexpected)">
+    softnav unexpected - the navigation completed
+  </int>
 </enum>
 
-<!-- LINT.ThenChange(//components/page_load_metrics/google/browser/prerender_prewarm_navigation_data.h:PriorPrewarmCommitStatus) -->
+<!-- LINT.ThenChange(//components/page_load_metrics/browser/observers/soft_navigation_page_load_metrics_observer.h:SoftNavigationPageLoadMetricsObserverState) -->
 
 <!-- LINT.IfChange(WebViewPageAttemptResult) -->
 

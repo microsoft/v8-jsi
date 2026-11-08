@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import glob
+import fnmatch
 import os
 import posixpath
 import re
@@ -11,169 +11,226 @@ from pylib import constants
 
 _EXCLUSIONS = [
     # Misc files that exist to document directories
-    re.compile(r'.*METADATA'),
-    re.compile(r'.*OWNERS'),
-    re.compile(r'.*\.md'),
-    re.compile(r'.*\.crx'),  # Chrome extension zip files.
-    re.compile(r'.*/\.git.*'),  # Any '.git*' directories/files.
-    re.compile(r'.*\.so'),  # Libraries packed into .apk.
-    re.compile(r'.*Mojo.*manifest\.json'),  # Some source_set()s pull these in.
-    re.compile(r'.*\.py'),  # Some test_support targets include python deps.
-    re.compile(r'.*\.apk'),  # Should be installed separately.
-    re.compile(r'.*\.jar'),  # Never need java intermediates.
-    re.compile(r'.*\.crx'),  # Used by download_from_google_storage.
-    re.compile(r'.*\.wpr'),  # Web-page-relay files needed only on host.
-    re.compile(r'.*lib.java/.*'),  # Never need java intermediates.
-
+    r'.*METADATA',
+    r'.*OWNERS',
+    r'.*\.md',
+    r'.*\.crx',  # Chrome extension zip files.
+    r'.*/\.git.*',  # Any '.git*' directories/files.
+    r'.*\.so',  # Libraries packed into .apk.
+    r'.*Mojo.*manifest\.json',  # Some source_set()s pull these in.
+    r'.*\.py',  # Some test_support targets include python deps.
+    r'.*\.apk',  # Should be installed separately.
+    r'.*\.jar',  # Never need java intermediates.
+    r'.*\.crx',  # Used by download_from_google_storage.
+    r'.*\.wpr',  # Web-page-relay files needed only on host.
+    r'.*lib.java/.*',  # Never need java intermediates.
     # Test filter files:
-    re.compile(r'.*/clank/build/bot/filters/.*'),
-    re.compile(r'.*/testing/buildbot/filters/.*'),
-
+    r'.*/clank/build/bot/filters/.*',
+    r'.*/testing/buildbot/filters/.*',
     # Chrome external extensions config file.
-    re.compile(r'.*external_extensions\.json'),
-
+    r'.*external_extensions\.json',
     # v8's blobs and icu data get packaged into APKs.
-    re.compile(r'.*snapshot_blob.*\.bin'),
-    re.compile(r'.*icudtl\.bin'),
-
+    r'.*snapshot_blob.*\.bin',
+    r'.*icudtl\.bin',
     # Scripts that are needed by swarming, but not on devices:
-    re.compile(r'.*goldctl'),
-    re.compile(r'.*llvm-readelf'),
-    re.compile(r'.*llvm-readobj'),
-    re.compile(r'.*llvm-symbolizer'),
-    re.compile(r'.*devil_util_(?:bin|dist|host)'),
-    re.compile(r'.*md5sum_(?:bin|dist|host)'),
-    re.compile(r'.*/development/scripts/stack'),
-    re.compile(r'.*/build/android/pylib/symbols'),
-    re.compile(r'.*/build/android/stacktrace'),
-
+    r'.*goldctl',
+    r'.*llvm-readelf',
+    r'.*llvm-readobj',
+    r'.*llvm-symbolizer',
+    r'.*devil_util_(?:bin|dist|host)',
+    r'.*md5sum_(?:bin|dist|host)',
+    r'.*/development/scripts/stack',
+    r'.*/build/android/pylib/symbols',
+    r'.*/build/android/stacktrace',
     # Required for java deobfuscation on the host:
-    re.compile(r'.*build/android/stacktrace/.*'),
-    re.compile(r'.*third_party/jdk/.*'),
-    re.compile(r'.*third_party/proguard/.*'),
-
+    r'.*build/android/stacktrace/.*',
+    r'.*third_party/jdk/.*',
+    r'.*third_party/proguard/.*',
     # Our tests don't need these.
-    re.compile(r'.*/devtools-frontend/.*front_end/.*'),
-    re.compile(r'.*/devtools-frontend/.*inspector_overlay/.*'),
-
+    r'.*/devtools-frontend/.*front_end/.*',
+    r'.*/devtools-frontend/.*inspector_overlay/.*',
     # Build artifacts:
-    re.compile(r'.*\.stamp'),
-    re.compile(r'.*\.pak\.info'),
-    re.compile(r'.*\.build_config.json'),
-    re.compile(r'.*\.incremental\.json'),
+    r'.*\.stamp',
+    r'.*\.pak\.info',
+    r'.*\.build_config.json',
 ]
 
 
+def _GetExclusionsRE():
+    exclusions = _EXCLUSIONS + [
+        re.escape(os.path.join(constants.GetOutDirectory(), 'bin'))
+    ]
+    return re.compile('|'.join(exclusions))
+
+
 def _FilterDataDeps(abs_host_files):
-  exclusions = _EXCLUSIONS + [
-      re.compile(re.escape(os.path.join(constants.GetOutDirectory(), 'bin')))
-  ]
-  return [p for p in abs_host_files if not any(r.match(p) for r in exclusions)]
+    exclusions_re = _GetExclusionsRE()
+    return [p for p in abs_host_files if not exclusions_re.search(p)]
 
 
-def DevicePathComponentsFor(host_path, output_directory=None):
-  """Returns the device path components for a given host path.
+def DevicePathFor(host_path, output_directory=None):
+    """Returns the device path for a given host path.
 
-  This returns the device path as a list of joinable path components,
-  with None as the first element to indicate that the path should be
-  rooted at $EXTERNAL_STORAGE.
+    This returns the device path as a relative posix path string,
+    which should be rooted at the device's external storage.
 
-  e.g., given
+    Args:
+      host_path: The absolute path to the host file.
+      output_directory: The absolute path to the build output directory.
+    Returns:
+      A relative device path string.
+    """
+    output_directory = output_directory or constants.GetOutDirectory()
+    if (
+        host_path.startswith(output_directory)
+        and os.path.splitext(host_path)[1] == '.pak'
+    ):
+        return posixpath.join('paks', os.path.basename(host_path))
 
-    '$RUNTIME_DEPS_ROOT_DIR/foo/bar/baz.txt'
+    rel_host_path = os.path.relpath(host_path, output_directory)
 
-  this would return
-
-    [None, 'foo', 'bar', 'baz.txt']
-
-  This handles a couple classes of paths differently than it otherwise would:
-    - All .pak files get mapped to top-level paks/
-    - All other dependencies get mapped to the top level directory
-        - If a file is not in the output directory then it's relative path to
-          the output directory will start with .. strings, so we remove those
-          and then the path gets mapped to the top-level directory
-        - If a file is in the output directory then the relative path to the
-          output directory gets mapped to the top-level directory
-
-  e.g. given
-
-    '$RUNTIME_DEPS_ROOT_DIR/out/Release/icu_fake_dir/icudtl.dat'
-
-  this would return
-
-    [None, 'icu_fake_dir', 'icudtl.dat']
-
-  Args:
-    host_path: The absolute path to the host file.
-  Returns:
-    A list of device path components.
-  """
-  output_directory = output_directory or constants.GetOutDirectory()
-  if (host_path.startswith(output_directory) and
-      os.path.splitext(host_path)[1] == '.pak'):
-    return [None, 'paks', os.path.basename(host_path)]
-
-  rel_host_path = os.path.relpath(host_path, output_directory)
-
-  device_path_components = [None]
-  p = rel_host_path
-  while p:
-    p, d = os.path.split(p)
-    # The relative path from the output directory to a file under the runtime
-    # deps root directory may start with multiple .. strings, so they need to
-    # be skipped.
-    if d and d != os.pardir:
-      device_path_components.insert(1, d)
-  return device_path_components
+    # Split the path and filter out '..' components to keep it relative.
+    parts = rel_host_path.split(os.sep)
+    clean_parts = [p for p in parts if p and p != os.pardir]
+    return posixpath.join(*clean_parts)
 
 
-def GetDataDependencies(runtime_deps_path):
-  """Returns a list of device data dependencies.
+def GetDataDependencies(runtime_deps_path, device_data_filters=None):
+    """Returns a list of device data dependencies.
 
-  Args:
-    runtime_deps_path: A str path to the .runtime_deps file.
-  Returns:
-    A list of (host_path, device_path) tuples.
-  """
-  if not runtime_deps_path:
-    return []
+    Args:
+      runtime_deps_path: A str path to the .runtime_deps file.
+      device_data_filters: A list of glob patterns to filter the dependencies.
+    Returns:
+      A list of (host_path, device_path) tuples.
+    """
+    if not runtime_deps_path:
+        return []
 
-  with open(runtime_deps_path, 'r') as runtime_deps_file:
-    # .runtime_deps can contain duplicates.
-    rel_host_files = sorted({l.strip() for l in runtime_deps_file if l})
+    with open(runtime_deps_path, 'r') as runtime_deps_file:
+        # .runtime_deps can contain duplicates.
+        rel_host_files = sorted({l.strip() for l in runtime_deps_file if l})  # noqa: E741
 
-  output_directory = constants.GetOutDirectory()
-  abs_host_files = [
-      os.path.abspath(os.path.join(output_directory, r))
-      for r in rel_host_files]
-  filtered_abs_host_files = _FilterDataDeps(abs_host_files)
-  # TODO(crbug.com/40533647): Filter out host executables, and investigate
-  # whether other files could be filtered as well.
-  return [(f, DevicePathComponentsFor(f, output_directory))
-          for f in filtered_abs_host_files]
+    output_directory = constants.GetOutDirectory()
+    abs_host_files = [
+        os.path.abspath(os.path.join(output_directory, r))
+        for r in rel_host_files
+    ]
+
+    # TODO(crbug.com/525859933): Apply filter after ExpandDataDependencies().
+    filtered_abs_host_files = _FilterDataDeps(abs_host_files)
+    host_device_tuples = [
+        (f, DevicePathFor(f, output_directory)) for f in filtered_abs_host_files
+    ]
+
+    if device_data_filters:
+        host_device_tuples = ExpandDataDependencies(host_device_tuples)
+        host_device_tuples = FilterDataDependencies(
+            host_device_tuples, device_data_filters
+        )
+    return host_device_tuples
 
 
 def SubstituteDeviceRootSingle(device_path, device_root):
-  if not device_path:
-    return device_root
-  if isinstance(device_path, list):
-    return posixpath.join(*(p if p else device_root for p in device_path))
-  return device_path
+    if not device_path:
+        return device_root
+    return posixpath.join(device_root, device_path)
 
 
 def SubstituteDeviceRoot(host_device_tuples, device_root):
-  return [(h, SubstituteDeviceRootSingle(d, device_root))
-          for h, d in host_device_tuples]
+    return [
+        (h, SubstituteDeviceRootSingle(d, device_root))
+        for h, d in host_device_tuples
+    ]
 
 
 def ExpandDataDependencies(host_device_tuples):
-  ret = []
-  for h, d in host_device_tuples:
-    if os.path.isdir(h):
-      for subpath in glob.glob(f'{h}/**', recursive=True):
-        if not os.path.isdir(subpath):
-          new_part = subpath[len(h):]
-          ret.append((subpath, d + new_part))
-    else:
-      ret.append((h, d))
-  return ret
+    """Expands directory dependencies into file dependencies.
+
+    Args:
+      host_device_tuples: A list of (host_path, device_path) tuples,
+        where:
+          - host_path (str): Absolute path to a host file or directory.
+          - device_path (str): Device path for the dependency.
+    Returns:
+      A list of (host_path, device_path) tuples where all host_paths
+      are files (directories are expanded recursively).
+    """
+    ret = []
+    for h, d in host_device_tuples:
+        assert isinstance(d, str), (
+            f"Expected str for device path, got {type(d)}"
+        )
+        if os.path.isdir(h):
+            for root, _, filenames in os.walk(h):
+                for filename in filenames:
+                    subpath = os.path.join(root, filename)
+                    rel_to_dir = os.path.relpath(subpath, h)
+                    # Convert rel_to_dir to posix path (device uses forward slashes)
+                    rel_to_dir_posix = rel_to_dir.replace(os.sep, '/')
+                    ret.append((subpath, posixpath.join(d, rel_to_dir_posix)))
+        else:
+            ret.append((h, d))
+    return ret
+
+
+def FilterDataDependencies(host_device_tuples, filters):
+    if not filters:
+        return host_device_tuples
+
+    for f in filters:
+        if not f or f[0] not in ('+', '-'):
+            raise ValueError(
+                f"Invalid filter: '{f}'. Must start with '+' or '-'."
+            )
+
+    try:
+        output_dir = constants.GetOutDirectory()
+    except EnvironmentError:
+        output_dir = None
+
+    filtered_tuples = []
+    for host_path, device_path in host_device_tuples:
+        # Make host_path relative to source root for matching
+        rel_path = os.path.relpath(host_path, constants.DIR_SOURCE_ROOT)
+        # Generated files on Android start with gen/, so match against
+        # rel_output_path and rel_gen_path.
+        if output_dir:
+            rel_output_path = os.path.relpath(host_path, output_dir)
+            rel_gen_path = (
+                rel_output_path[4:]
+                if rel_output_path.startswith('gen/')
+                else None
+            )
+        else:
+            rel_output_path = None
+            rel_gen_path = None
+
+        # Default to KEEP (blocklist approach)
+        keep = True
+
+        for f in filters:
+            op = f[0]
+            pattern = f[1:]
+            # Strip '//' from pattern if present
+            if pattern.startswith('//'):
+                pattern = pattern[2:]
+
+            if (
+                fnmatch.fnmatch(rel_path, pattern)
+                or (
+                    rel_output_path
+                    and fnmatch.fnmatch(rel_output_path, pattern)
+                )
+                or (rel_gen_path and fnmatch.fnmatch(rel_gen_path, pattern))
+            ):
+                if op == '+':
+                    keep = True
+                elif op == '-':
+                    keep = False
+                break
+
+        if keep:
+            filtered_tuples.append((host_path, device_path))
+
+    return filtered_tuples

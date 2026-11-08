@@ -11,7 +11,6 @@
 #   targets using an out-of-process runner.
 # - fuzztest, a way of building new fuzzing targets using simpler macros.
 
-import("//build/config/android/config.gni")
 import("//build/config/sanitizers/sanitizers.gni")
 import("//build_overrides/build.gni")
 
@@ -29,7 +28,7 @@ config("fuzztest_internal_config") {
   cflags = [
     "-Wno-unused-result",  #crbug.com/500385597
     "-Wno-unused-private-field",
-    "-Wno-unreachable-code-return",
+    "-Wno-unreachable-code-aggressive",
     "-Wno-unused-but-set-variable",
     "-Wno-shadow",
     "-Wno-unused-const-variable",
@@ -425,6 +424,23 @@ source_set("fuzztest") {
   public_deps = [ ":fuzztest_internal" ]
   configs -= fuzztest_remove_configs
   configs += fuzztest_add_configs
+  public_configs = [ ":fuzztest_public_config" ]
+  testonly = true
+}
+
+# Depend on this if you are a LLVM-style fuzz target but want to be
+# wrapped in a FUZZ_TEST.
+source_set("llvm_wrapper") {
+  deps = [
+    ":init_fuzztest",
+    "//testing/gtest",
+    "//third_party/abseil-cpp:absl_full",
+  ]
+  sources = [
+    "src/fuzztest/llvm_fuzzer_main.cc",
+    "src/fuzztest/llvm_fuzzer_wrapper.cc",
+  ]
+  public_deps = [ ":fuzztest_internal" ]
   public_configs = [ ":fuzztest_public_config" ]
   testonly = true
 }

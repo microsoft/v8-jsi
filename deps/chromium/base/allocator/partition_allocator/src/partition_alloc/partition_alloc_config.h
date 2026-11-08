@@ -61,7 +61,7 @@ static_assert(sizeof(void*) != 8, "");
 // Too expensive for official builds, as it adds cache misses to all
 // allocations. On the other hand, we want wide metrics coverage to get
 // realistic profiles.
-#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && !defined(OFFICIAL_BUILD)
+#if PA_BUILDFLAG(USE_PARTITION_ALLOC_AS_MALLOC) && !PA_BUILDFLAG(OFFICIAL)
 #define PA_CONFIG_THREAD_CACHE_ALLOC_STATS() 1
 #else
 #define PA_CONFIG_THREAD_CACHE_ALLOC_STATS() 0
@@ -120,8 +120,8 @@ static_assert(sizeof(void*) == 8);
 //
 // Regardless, the "normal" TLS access is fast on x86_64 (see partition_tls.h),
 // so don't bother with thread_local anywhere.
-#if !(PA_BUILDFLAG(IS_WIN) && defined(COMPONENT_BUILD)) && \
-    !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_LINUX) &&  \
+#if !(PA_BUILDFLAG(IS_WIN) && PA_BUILDFLAG(IS_COMPONENT_BUILD)) && \
+    !PA_BUILDFLAG(IS_APPLE) && !PA_BUILDFLAG(IS_LINUX) &&          \
     !PA_BUILDFLAG(IS_CHROMEOS)
 #define PA_CONFIG_THREAD_LOCAL_TLS() 1
 #else

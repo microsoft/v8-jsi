@@ -159,7 +159,8 @@ class BASE_EXPORT ThreadController {
   // Sets the SingleThreadTaskRunner that will be returned by
   // SingleThreadTaskRunner::GetCurrentDefault on the thread controlled by this
   // ThreadController.
-  virtual void SetDefaultTaskRunner(scoped_refptr<SingleThreadTaskRunner>) = 0;
+  virtual void SetDefaultTaskRunner(scoped_refptr<SingleThreadTaskRunner>,
+                                    ThreadType thread_type) = 0;
 
   // TODO(altimin): Get rid of the methods below.
   // These methods exist due to current integration of SequenceManager
@@ -419,7 +420,6 @@ class BASE_EXPORT ThreadController {
       base::TimeDelta accumulated_active_time_;
       base::TimeDelta accumulated_active_on_cpu_time_;
       base::TimeDelta accumulated_active_off_cpu_time_;
-      MetricsSubSampler metrics_sub_sampler_;
 
       State state_ = kIdle;
       bool is_nested_;

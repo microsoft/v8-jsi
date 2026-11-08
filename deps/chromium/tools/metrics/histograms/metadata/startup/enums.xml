@@ -26,21 +26,6 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
-<!-- LINT.IfChange(AndroidColdStartMismatchLocation) -->
-
-<enum name="AndroidColdStartMismatchLocation">
-  <int value="0"
-      label="Tracker Cold / System Not Cold (Start Component Activity)"/>
-  <int value="1"
-      label="Tracker Cold / System Not Cold (Start Component Other)"/>
-  <int value="2"
-      label="Tracker Not Cold / System Cold (Start Component Activity)"/>
-  <int value="3"
-      label="Tracker Not Cold / System Cold (Start Component Other)"/>
-</enum>
-
-<!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/metrics/StartupMetricsTracker.java:AndroidColdStartMismatchLocation) -->
-
 <!-- LINT.IfChange(AndroidStartupTemperature) -->
 
 <enum name="AndroidStartupTemperature">
@@ -57,12 +42,18 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Notification click (within last 5 seconds)"/>
 </enum>
 
+<!-- LINT.IfChange(IncognitoForcedStart) -->
+
 <enum name="IncognitoForcedStart">
-  <int value="0" label="No Incognito switch and not forced"/>
-  <int value="1" label="Incognito switch but not forced"/>
-  <int value="2" label="No Incognito switch but forced"/>
-  <int value="3" label="Incognito switch and forced"/>
+  <int value="0" label="No Incognito switch and Incognito not launched"/>
+  <int value="1" label="Incognito switch but Incognito not launched"/>
+  <int value="2" label="No Incognito switch but Incognito launched"/>
+  <int value="3" label="Incognito switch and Incognito launched"/>
+  <int value="4" label="Incognito switch and Isolated Mode launched"/>
+  <int value="5" label="No Incognito switch but Isolated Mode launched"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/startup/startup_browser_creator.cc:IncognitoForcedStart) -->
 
 <enum name="IOSColdStartType">
   <int value="0" label="Cold start"/>
@@ -74,6 +65,30 @@ chromium-metrics-reviews@google.com.
   <int value="6"
       label="Cold start with unknown device restore and Chrome upgrade"/>
 </enum>
+
+<!-- LINT.IfChange(IOSLaunchReason) -->
+
+<enum name="IOSLaunchReason">
+  <int value="0" label="Pre-warming">
+    The application process was pre-warmed by iOS and subsequently foregrounded
+    without having performed an intervening background task. If a pre-warmed
+    launch is used to perform a background task, the reported launch reason is
+    the background launch reason instead.
+  </int>
+  <int value="1" label="Foreground"/>
+  <int value="2" label="Background Refresh"/>
+  <int value="3" label="Background URL Session"/>
+  <int value="4" label="Background Silent Notification"/>
+  <int value="5" label="Suspicious">
+    The launch reason could not be determined within the expected timeout delay.
+    A large number of counts in this bucket is a sign of either unusually slow
+    launches or a background launch use case that is not being properly detected
+    by our startup metrics.
+  </int>
+  <int value="6" label="Foreground with system suspension"/>
+</enum>
+
+<!-- LINT.ThenChange(//ios/chrome/app/application_delegate/startup_information.h:IOSLaunchReason) -->
 
 <enum name="MobileSessionCallerApp">
   <int value="0" label="Google Search"/>
@@ -153,6 +168,24 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Broadcast Receiver"/>
   <int value="4" label="Other"/>
 </enum>
+
+<!-- LINT.IfChange(StartupIsCompleteReason) -->
+
+<enum name="StartupIsCompleteReason">
+  <int value="0" label="FailsafeTimeout"/>
+  <int value="1" label="StartupRegistrationDone"/>
+  <int value="2" label="FirstWebContentsProfiler"/>
+  <int value="3" label="SessionRestore"/>
+  <int value="4" label="FirstIdle"/>
+  <int value="5" label="ChromeOSLoginScreen"/>
+  <int value="6" label="AndroidStartup"/>
+  <int value="7" label="VisiblePageLoaded"/>
+  <int value="8" label="VisiblePageLoadingTimedOut"/>
+  <int value="9" label="NoVisiblePageFound"/>
+  <int value="10" label="VisiblePagesHidden"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/after_startup_task_utils.h:StartupIsCompleteReason) -->
 
 <!-- LINT.IfChange(StartupLaunchInfoBarInteraction) -->
 

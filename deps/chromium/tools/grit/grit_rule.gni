@@ -77,6 +77,9 @@
 #       List of additional configs to be applied to the generated target.
 #
 #   deps  (optional)
+#       Dependencies for the action that runs grit.
+#   public_deps (optional)
+#       Dependencies for the linkable target that compiles generated code.
 #   testonly (optional)
 #   visibility  (optional)
 #       Normal meaning.
@@ -165,6 +168,7 @@ template("grit") {
   if (defined(invoker.gritdeps)) {
     # This action is used to warn about outdated gritdeps files.
     _check_gritdeps_target = "${target_name}_check_gritdeps"
+
     action_with_pydeps(_check_gritdeps_target) {
       script = grit_info_script
       inputs = [
@@ -189,6 +193,7 @@ template("grit") {
   if (defined(invoker.grit_action_name_override)) {
     _grit_custom_target = invoker.grit_action_name_override
   }
+
   action_with_pydeps(_grit_custom_target) {
     script = "//tools/grit/grit.py"
     inputs = [ invoker.source ]
@@ -296,14 +301,14 @@ template("grit") {
     # writing. We write the list to a file (some of the output lists are long
     # enough to not fit on a Windows command line) and ask Grit to verify those
     # are the actual outputs at runtime.
-    _asserted_list_file =
+    _asserted_output_list_file =
         "$target_out_dir/${_grit_output_name}_expected_outputs.txt"
-    write_file(_asserted_list_file,
+    write_file(_asserted_output_list_file,
                rebase_path(_grit_outputs, root_build_dir, _output_dir))
-    inputs += [ _asserted_list_file ]
+    inputs += [ _asserted_output_list_file ]
     args += [
-      "--assert-file-list",
-      rebase_path(_asserted_list_file, root_build_dir),
+      "--assert-output-file-list",
+      rebase_path(_asserted_output_list_file, root_build_dir),
     ]
 
     if (enable_resource_allowlist_generation) {
@@ -389,9 +394,12 @@ template("grit") {
     # action publicly so other scripts can take the outputs from the grit
     # script as inputs.
     public_deps = [ ":$_grit_custom_target" ]
+    if (defined(invoker.public_deps)) {
+      public_deps += invoker.public_deps
+    }
 
     if (defined(invoker.public_configs)) {
-      public_configs += invoker.public_configs
+      public_configs = invoker.public_configs
     }
 
     configs += [ "//build/config/compiler:wexit_time_destructors" ]
@@ -406,7 +414,8 @@ template("grit") {
   }
 }
 
-# This wraps grit(), generating outputs from locales, prefix, and translate_genders.
+# This wraps grit(), generating outputs from locales, prefix, and
+# translate_genders.
 #
 # The "grit_flags" optional parameter will be passed into "grit" after appending
 # "--translate-genders" (if applicable), and the "outputs" optional parameter
@@ -531,11 +540,13 @@ if (is_android) {
   template("java_strings_grd") {
     _grit_target_name = "${target_name}__grit"
     _resources_zip = "$target_out_dir/$target_name.resources.zip"
+
     grit(_grit_target_name) {
       forward_variables_from(invoker,
                              TESTONLY_AND_VISIBILITY + [
                                    "deps",
                                    "defines",
+                                   "inputs",
                                  ])
 
       # TODO(agrieve): Remove outputs from callers.

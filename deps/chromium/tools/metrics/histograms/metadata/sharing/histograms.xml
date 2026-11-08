@@ -75,7 +75,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SharedHighlights.LinkGenerated.Error"
-    enum="LinkGenerationError" expires_after="2026-08-30">
+    enum="LinkGenerationError" expires_after="2027-03-07">
   <owner>jeffreycohen@chromium.org</owner>
   <owner>chrome-shared-highlighting@google.com</owner>
   <summary>
@@ -86,7 +86,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="SharedHighlights.LinkGenerated.Error.Requested"
-    enum="LinkGenerationError" expires_after="2026-10-25">
+    enum="LinkGenerationError" expires_after="2027-02-28">
   <owner>jeffreycohen@chromium.org</owner>
   <owner>chrome-shared-highlighting@google.com</owner>
   <summary>
@@ -165,7 +165,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.Android.Origin" enum="ShareOrigin"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>jinsukkim@chromium.org</owner>
   <owner>clank-app-team@google.com</owner>
   <summary>
@@ -224,7 +224,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.DefaultSharesheetAndroid.Opened" enum="ShareOrigin"
-    expires_after="2026-08-30">
+    expires_after="2027-03-21">
   <owner>wenyufu@chromium.org</owner>
   <owner>sophey@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
@@ -234,8 +234,19 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Sharing.LongScreenshots.MemoryLimitOnCapture" units="%"
+    expires_after="2027-02-07">
+  <owner>jhimawan@google.com</owner>
+  <owner>src/components/paint_preview/OWNERS</owner>
+  <summary>
+    Records the memory limit percentage when a long screenshot capture is
+    initiated. Recorded for both the system (scroll capture) and share sheet
+    (compositor) paths. Android only.
+  </summary>
+</histogram>
+
 <histogram name="Sharing.MessageReceivedType" enum="SharingMessageType"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>mvanouwerkerk@chromium.org</owner>
   <owner>peter@chromium.org</owner>
   <summary>
@@ -279,7 +290,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="Sharing.ScrollCapture.BitmapGeneratorStatus"
     enum="SharingScrollCaptureBitmapGenerationStatus"
-    expires_after="2026-10-01">
+    expires_after="2027-02-07">
   <owner>ckitagawa@chromium.org</owner>
   <owner>src/components/paint_preview/OWNERS</owner>
   <summary>
@@ -290,8 +301,33 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Sharing.ScrollCapture.CapturedHeightPercentageOfViewport"
+    units="%" expires_after="2027-02-07">
+  <owner>jhimawan@google.com</owner>
+  <owner>ckitagawa@google.com</owner>
+  <owner>clank-app-team@google.com</owner>
+  <owner>src/components/paint_preview/OWNERS</owner>
+  <summary>
+    Records the total vertical span of tiles requested by the Android system
+    during a scroll capture session, expressed as a percentage of a single
+    viewport height (e.g. 100% = 1 viewport, 300% = 3 viewports). Recorded when
+    the scroll capture session ends if at least one tile was successfully
+    captured. Android S+ only.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.ScrollCapture.MemoryPressureOnSearch"
+    enum="MemoryPressureLevel" expires_after="2027-02-07">
+  <owner>jhimawan@google.com</owner>
+  <owner>src/components/paint_preview/OWNERS</owner>
+  <summary>
+    Records the memory pressure level when a scroll capture search is initiated.
+    Recorded when the system requests scroll capture support. Android only.
+  </summary>
+</histogram>
+
 <histogram name="Sharing.ScrollCapture.SuccessfulCaptureDuration" units="ms"
-    expires_after="2026-10-01">
+    expires_after="2027-04-01">
   <owner>ckitagawa@chromium.org</owner>
   <owner>src/components/paint_preview/OWNERS</owner>
   <summary>
@@ -348,17 +384,21 @@ chromium-metrics-reviews@google.com.
   </token>
 </histogram>
 
-<histogram name="Sharing.SendMessageUsingSync" enum="Boolean"
-    expires_after="2026-09-06">
-  <owner>rushans@google.com</owner>
-  <owner>src/chrome/browser/share/OWNERS</owner>
+<histogram name="Sharing.SendTabToSelf.ActivatedEntryPoint"
+    enum="SendTabToSelfShareActivatedEntryPoint" expires_after="2027-06-01">
+  <owner>mtatarski@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
   <summary>
-    Records whether a SharingMessage is being sent over sync. Recorded for all
-    messages before sending them. Recorded for all platforms.
+    Records the entry point from which a received Send Tab to Self tab was
+    activated by the user or automatically activated by the system.
+
+    If a tab is opened in the background but is closed or the browser is shut
+    down before the user activates it, this is recorded as &quot;Tab or Browser
+    Closed Without Activation&quot;.
   </summary>
 </histogram>
 
-<histogram name="Sharing.SendTabToSelf.AutoOpenOutcome"
+<histogram name="Sharing.SendTabToSelf.AutoOpenOutcome2"
     enum="SendTabToSelfAutoOpenOutcome" expires_after="2027-03-30">
   <owner>ankushkush@google.com</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
@@ -366,6 +406,51 @@ chromium-metrics-reviews@google.com.
     Outcome of an attempt to automatically open a received Send Tab To Self
     entry in the foreground. Recorded whenever a new entry is received and
     evaluated for auto-opening.
+
+    Prior to M157, on iOS, entries shared while the app was backgrounded or
+    closed and auto-opened upon returning to the foreground (or while in the
+    background) were recorded as &quot;Tabs Opened Immediately in
+    Background&quot; instead of &quot;Unopened Immediately&quot; followed by
+    &quot;Tabs Opened in Background Upon Activation&quot;, and push notification
+    taps before Sync downloaded the entry did not record &quot;Unopened
+    Immediately&quot;.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.DeviceFormFactorCombination"
+    enum="SendTabToSelfFormFactorCombination" expires_after="2027-06-15">
+  <owner>treib@chromium.org</owner>
+  <owner>ankushkush@chromium.org</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records the form factor combination of the sending (local) device and the
+    target (destination) device when a tab is sent. Recorded on the sending
+    device at the moment the tab is sent.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.InvokedEntryPoint"
+    enum="SendTabToSelfShareEntryPoint" expires_after="2027-06-01">
+  <owner>treib@chromium.org</owner>
+  <owner>src/chrome/browser/share/OWNERS</owner>
+  <summary>
+    Records the entry point (UI surface) from which Send Tab To Self was invoked
+    by the user on the sending device. Logged when the share bubble/sheet/dialog
+    is first shown to the user.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.IsLocalDeviceNameAvailableOnSend"
+    enum="BooleanAvailable" expires_after="2027-07-01">
+  <owner>mtatarski@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records whether the local device name is available when sending a Send Tab
+    To Self entry. The device name can be unavailable during early startup
+    before DeviceInfoTracker initialization. This metric helps determine whether
+    receiver-side toast and snackbar UIs require a fallback display string. Note
+    that this metric is recorded once per share attempt rather than once per
+    user or device, so users who share frequently will contribute more samples.
   </summary>
 </histogram>
 
@@ -381,7 +466,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SendTabToSelf.NotificationStatus"
-    enum="SendTabToSelfNotificationStatus" expires_after="2026-09-06">
+    enum="SendTabToSelfNotificationStatus" expires_after="2027-03-21">
   <owner>jeffreycohen@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
   <summary>
@@ -390,16 +475,32 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Sharing.SendTabToSelf.PageContextSize" units="bytes"
+<histogram name="Sharing.SendTabToSelf.PageContextSize2" units="bytes"
     expires_after="2027-03-04">
   <owner>mtatarski@google.com</owner>
   <owner>src/components/sync/OWNERS</owner>
   <summary>
-    Records the serialized size in bytes of the PageContext proto when a user
-    sends a tab to themselves. Recorded when the entry is successfully added to
-    the SendTabToSelf model on the sending device. This size represents the
-    pre-truncation size, before it potentially gets dropped if it exceeds the
-    limit.
+    Records the serialized size in bytes of a non-empty PageContext proto when a
+    user sends a tab to themselves. Recorded when the entry is successfully
+    added to the SendTabToSelf model on the sending device, only if the
+    PageContext is non-empty. This size represents the pre-truncation size,
+    before it potentially gets dropped if it exceeds the limit.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.ReceivedTabFormFieldMatchOutcome"
+    enum="SendTabToSelfFormFieldMatchOutcome" expires_after="2027-05-08">
+  <owner>mtatarski@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records the outcome of matching a received form field to a field on the page
+    (Strict match, Signature match, Exact Type Set match, or No match). Recorded
+    on the receiving device when the filler instance is destroyed (either upon
+    timeout or navigation/destruction), which avoids timing skew between matches
+    and non-matches. Note: if the browser is closed before the filler is
+    destroyed, some samples might be lost. Fields that match in signature or
+    type but have a different origin are ignored for security reasons and
+    recorded as kNoMatch.
   </summary>
 </histogram>
 
@@ -424,7 +525,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram name="Sharing.SendTabToSelf.ScrollPosition.GenerationOutcome"
     enum="SendTabToSelfScrollPositionGenerationOutcome"
-    expires_after="2026-10-01">
+    expires_after="2027-02-14">
   <owner>mtatarski@google.com</owner>
   <owner>src/components/sync/OWNERS</owner>
   <summary>
@@ -435,7 +536,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SendTabToSelf.ScrollPosition.GenerationTime"
-    units="ms" expires_after="2026-10-01">
+    units="ms" expires_after="2027-03-14">
   <owner>mtatarski@google.com</owner>
   <owner>src/components/sync/OWNERS</owner>
   <summary>
@@ -456,6 +557,80 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Sharing.SendTabToSelf.SendResult" enum="SendTabToSelfResult"
+    expires_after="2027-06-22">
+  <owner>mtatarski@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records the result of attempting to send a tab to another device. Recorded
+    when the send attempt completes.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.SentEntryPoint"
+    enum="SendTabToSelfShareEntryPoint" expires_after="2027-06-01">
+  <owner>treib@chromium.org</owner>
+  <owner>src/chrome/browser/share/OWNERS</owner>
+  <summary>
+    Records the entry point (UI surface) from which Send Tab To Self was invoked
+    by the user on the sending device. Logged when the user selects a target
+    device and the sending is triggered.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.TargetDeviceCount{ShareEntryPoint}"
+    enum="SendTabToSelfDeviceCount" expires_after="2027-06-17">
+  <owner>mtatarski@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    The number of target devices when the Send Tab to Self UI is invoked from
+    {ShareEntryPoint}. Recorded when the UI is shown (or signed-out promo or no
+    target devices promo is shown).
+  </summary>
+  <token key="ShareEntryPoint">
+    <variant name="" summary="any entry point"/>
+    <variant name=".ContentMenu" summary="the context menu on a WebContents"/>
+    <variant name=".Gesture" summary="a physical gesture"/>
+    <variant name=".LinkMenu" summary="the context menu on a link"/>
+    <variant name=".OmniboxMenu" summary="the context menu on the Omnibox"/>
+    <variant name=".ShareMenu" summary="the Share menu in the 3-dot menu"/>
+    <variant name=".ShareSheet" summary="the OS-level Share Sheet"/>
+    <variant name=".ShareSheetDirectShare"
+        summary="a DirectShare target on the OS-level Share Sheet"/>
+    <variant name=".TabMenu"
+        summary="the context menu on a tab (in the tab strip or tab switcher)"/>
+    <variant name=".ToolbarIcon"
+        summary="the icon in the toolbar next to the Omnibox"/>
+  </token>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.TimeOpenedToActivated" units="ms"
+    expires_after="2027-06-01">
+  <owner>ankushkush@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records the time from when a tab was opened on the target device to the
+    first time it was activated on the target device. An entry is considered
+    activated if the corresponding tab became visible to the user on the target
+    device, either by the tab being opened in the foreground, or by the user
+    manually switching to the tab. Recorded when the entry is activated.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.SendTabToSelf.TimeSentToActivated" units="ms"
+    expires_after="2027-06-01">
+  <owner>ankushkush@google.com</owner>
+  <owner>src/components/sync/OWNERS</owner>
+  <summary>
+    Records the time from when a tab was shared on the sending device to the
+    first time it was activated on the target device. An entry is considered
+    activated if the corresponding tab became visible to the user on the target
+    device, either by the tab being opened in the foreground, or by the user
+    manually switching to the tab. This involves clocks on two different devices
+    so the value may be skewed. Recorded when the entry is activated.
+  </summary>
+</histogram>
+
 <histogram name="Sharing.SendTabToSelf.TimeSentToOpened" units="ms"
     expires_after="2027-04-01">
   <owner>mtatarski@google.com</owner>
@@ -468,7 +643,7 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="Sharing.SendTabToSelf.TimeSentToReceived" units="ms"
+<histogram name="Sharing.SendTabToSelf.TimeSentToReceived2" units="ms"
     expires_after="2027-04-01">
   <owner>mtatarski@google.com</owner>
   <owner>src/components/sync/OWNERS</owner>
@@ -476,12 +651,42 @@ chromium-metrics-reviews@google.com.
     Records the time from when a tab was shared on the sending device to when it
     was first received by the target device's sync bridge. This involves clocks
     on two different devices so the value may be skewed. Recorded when the entry
-    is received.
+    is received, provided it was not already opened before Sync downloaded the
+    entry (e.g., via an iOS push notification). Not recorded for entries
+    downloaded during initial sync.
+  </summary>
+</histogram>
+
+<histogram name="Sharing.ShareSheetLongScreenshots.BitmapGeneratorStatus"
+    enum="SharingShareSheetLongScreenshotsBitmapGenerationStatus"
+    expires_after="2027-02-07">
+  <owner>jhimawan@google.com</owner>
+  <owner>src/components/paint_preview/OWNERS</owner>
+  <summary>
+    Records the status of the Bitmap Generator when capturing long screenshot
+    from the share sheet (3-dot menu path). Recorded when the capture completes
+    or fails due to insufficient memory or other errors. Android only.
+  </summary>
+</histogram>
+
+<histogram
+    name="Sharing.ShareSheetLongScreenshots.CapturedHeightPercentageOfViewport"
+    units="%" expires_after="2027-02-07">
+  <owner>jhimawan@google.com</owner>
+  <owner>ckitagawa@google.com</owner>
+  <owner>clank-app-team@google.com</owner>
+  <owner>src/components/paint_preview/OWNERS</owner>
+  <summary>
+    Records the height of the cropped long screenshot selected by the user in
+    the share sheet area selection dialog, expressed as a percentage of a single
+    viewport height (e.g. 100% = 1 viewport, 300% = 3 viewports). Recorded when
+    the user confirms the area selection and the cropped screenshot bitmap is
+    created. Android only.
   </summary>
 </histogram>
 
 <histogram name="Sharing.SharingHubAndroid.CustomAction"
-    enum="ShareCustomAction" expires_after="2026-10-25">
+    enum="ShareCustomAction" expires_after="2027-03-21">
   <owner>wenyufu@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
   <summary>
@@ -491,7 +696,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SharingHubAndroid.Opened" enum="ShareOrigin"
-    expires_after="2026-08-30">
+    expires_after="2027-03-21">
   <owner>wenyufu@chromium.org</owner>
   <owner>sophey@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
@@ -513,7 +718,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SharingHubAndroid.TimeToCustomAction" units="ms"
-    expires_after="2026-07-19">
+    expires_after="2027-03-21">
   <owner>wenyufu@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
   <summary>
@@ -561,7 +766,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SmsFetcherAvailableDeviceCount" units="devices"
-    expires_after="2026-09-06">
+    expires_after="2027-03-06">
   <owner>yigu@chromium.org</owner>
   <owner>src/content/browser/sms/OWNERS</owner>
   <summary>
@@ -572,25 +777,13 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.SmsFetcherScreenOnAndUnlocked" enum="Boolean"
-    expires_after="2026-10-18">
+    expires_after="2026-12-20">
   <owner>yigu@chromium.org</owner>
   <owner>src/content/browser/sms/OWNERS</owner>
   <summary>
     Records whether the phone is on and unlocked when we show the notification
     to users. False if either the phone is locked or the phone does not have a
     screen lock but the screen is off. This is logged once per notification.
-  </summary>
-</histogram>
-
-<histogram name="Sharing.SmsFetcherTapWithChromeDestroyed" enum="Boolean"
-    expires_after="2026-06-21">
-  <owner>yigu@chromium.org</owner>
-  <owner>src/content/browser/sms/OWNERS</owner>
-  <summary>
-    Records whether a user taps/dismisses the notification after Chrome is
-    destroyed. This could happen if the user manually swipes away Chrome from
-    the task switcher or the OS decides to destroy Chrome due to lack of memory
-    etc. This is logged once per user action on the notification.
   </summary>
 </histogram>
 
@@ -605,7 +798,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Sharing.{ShareSurface}.ShareContentType"
-    enum="SharingContentTypeAndroid" expires_after="2026-09-06">
+    enum="SharingContentTypeAndroid" expires_after="2027-03-21">
   <owner>wenyufu@chromium.org</owner>
   <owner>src/chrome/browser/share/OWNERS</owner>
   <summary>

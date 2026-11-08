@@ -250,13 +250,18 @@ def CheckNoCpp23Features(input_api, output_api):
         r'find_last|find_last_if|find_last_if_not|iota|shift_left|'
         r'shift_right|fold_left|fold_left_first|fold_right|fold_right_last|'
         r'fold_left_with_iter|fold_left_first_with_iter)',
+        # C++23 range constructor for std::string_view (and u16/w variants)
+        # constructed from a single identifier (excludes literals, function
+        # calls, and multiple arguments).
+        r'\bstd::(?:u16|w)?string_view\s*'
+        r'(?:\(\s*([a-zA-Z_]\w*)\s*\)|\{\s*([a-zA-Z_]\w*)\s*\})',
     )
 
     sources = lambda affected_file: input_api.FilterSourceFile(
         affected_file,
         # compiler_specific.h may use these headers in guarded ways.
         files_to_skip=[
-            r'.*partition_alloc_base/augmentations/compiler_specific\.h'
+            r'.*partition_alloc_base/compiler_specific\.h'
         ],
         files_to_check=[_SOURCE_FILE_PATTERN])
 
@@ -289,4 +294,129 @@ def CheckNoNDebug(input_api, output_api):
                 errors.append(output_api.PresubmitError('%s:%d\nPartitionAlloc'
                   % (f.LocalPath(), line_number + 1)
                   + 'disallows NDEBUG, use PA_BUILDFLAG(IS_DEBUG) instead'))
+    return errors
+
+
+def CheckUnexpectedPreprocessorDefines(input_api, output_api):
+    """
+    Checks partition_alloc doesn't depend on chrome's specific definitions.
+    """
+
+    # Macros that are allowed to be used with defined(...)
+    ALLOWED_DEFINITIONS = {
+        # Compiler built-ins
+        'ADDRESS_SANITIZER',
+        'MEMORY_SANITIZER',
+        'THREAD_SANITIZER',
+        '_CPPUNWIND',
+        '_MSC_VER',
+        '_WIN32',
+        '_WIN64',
+        '__AIX',
+        '__APPLE__',
+        '__ARMEL__',
+        '__ARM_FEATURE_BTI_DEFAULT',
+        '__ARM_FEATURE_MEMORY_TAGGING',
+        '__EXCEPTIONS',
+        '__GNUC__',
+        '__LP64__',
+        '__OBJC__',
+        '__arm__',
+        '__clang__',
+        '__clang_analyzer__',
+        '__cpp_constexpr',
+        '__cpp_lib_atomic_value_initialization',
+        '__cpp_lib_three_way_comparison',
+        '__has_attribute',
+        '__has_builtin',
+        '__has_cpp_attribute',
+        '__has_extension',
+        '__has_feature',
+        '__has_warning',
+        '__i386__',
+        '__pic__',
+
+        # System/Library macros
+        'RTLD_DEEPBIND',
+        '_GNU_SOURCE',
+        '_POSIX_MONOTONIC_CLOCK',
+        '_POSIX_THREAD_CPUTIME',
+        '_SC_PAGESIZE',
+        'PR_SET_VMA',
+        'PR_SET_VMA_ANON_NAME',
+        '__BIONIC__',
+        '__GLIBC_PREREQ',
+        '__GLIBC__',
+        '__MALLOC_HOOK_VOLATILE',
+        '__NR_mseal',
+        '__UCLIBC__',
+        '_MIPS_ARCH_LOONGSON',
+
+        # Gtest
+        'GTEST_HAS_DEATH_TEST',
+
+        # TODO - The following macros are defined outside of partition_alloc and
+        # should be removed/replaced with PA_BUILDFLAG or PA_CONFIG at some
+        # point.
+        'HAS_HW_CAPS',
+        'HAVE_BACKTRACE',
+        'LINUX_NAME_REGION',
+        'NDEBUG',
+        'NEEDS_HANDLING_OF_HW_CAPABILITIES',
+    }
+    target_path_prefix = (
+        'base/allocator/partition_allocator/src/partition_alloc/')
+
+    def is_relevant_file(f):
+        path = f.LocalPath().replace('\\', '/')
+        if path.endswith('/build_config.h'):
+            return False
+        # Exclude tests
+        if any(x in path for x in
+               ('unittest', 'perftest', '/test/', '_unittest')):
+            return False
+        return (path.startswith(target_path_prefix) and
+                path.endswith(('.h', '.cc', '.S', '.mm')))
+
+    defined_regex = input_api.re.compile(r'defined\(\s*(\w+)\s*\)')
+
+    errors = []
+
+    for f in input_api.AffectedSourceFiles(is_relevant_file):
+        for line_number, line in f.ChangedContents():
+            matches = defined_regex.findall(line)
+            for macro in matches:
+                # Automatically allow any PartitionAlloc internal macros
+                if macro.startswith((
+                        'PA_',
+                        'PARTITION_ALLOC_',
+                        'PARTITION_ALLOCATOR_',
+                        'PAGE_ALLOCATOR_',
+                )):
+                    continue
+
+                # Ignore header guards
+                file_name = input_api.os_path.basename(f.LocalPath())
+                file_guard_part = file_name.upper().replace('.', '_') + '_'
+                if macro.endswith('_H_') and (
+                        file_guard_part in macro or
+                        macro.startswith('PARTITION_ALLOC_')):
+                    continue
+
+                if macro in ALLOWED_DEFINITIONS:
+                    continue
+
+                errors.append(
+                    output_api.PresubmitError(
+                        f'Unexpected macro `{macro}` in `defined()` in '
+                        f'{f.LocalPath()}:{line_number}.\n'
+                        f'If this is a new macro, please add it to the '
+                        f'allowed list in PRESUBMIT.py if it is a '
+                        f'compiler/system built-in.\n'
+                        f'Otherwise, use PA_BUILDFLAG or PA_CONFIG '
+                        f'instead.',
+                        items=[f'{f.LocalPath()}:{line_number}: {line}']
+                    )
+                )
+
     return errors

@@ -4,15 +4,18 @@
 # found in the LICENSE file.
 
 import argparse
-import os
+import pathlib
 import sys
-import xml.dom.minidom
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.histograms.extract_histograms as extract_histograms
 
-_SCRIPT_NAME = "generate_allowlist_from_histograms_file.py"
+
+_SCRIPT_NAME = 'generate_allowlist_from_histograms_file.py'
 _FILE = """// Generated from {script_name}. Do not edit!
 
 #ifndef {include_guard}
@@ -56,37 +59,43 @@ def _GenerateStaticFile(file_path, namespace, values, allow_list_name):
     String with the generated header file content.
   """
   values = sorted(values, key=lambda d: str(d))
-  include_guard = file_path.replace("\\", "_").replace("/", "_").replace(
-      ".", "_").upper() + "_"
+  include_guard = (
+    file_path.replace('\\', '_').replace('/', '_').replace('.', '_').upper()
+    + '_'
+  )
 
-  values_string = "\n".join(
-      ["  \"{name}\",".format(name=value) for value in values])
-  return _FILE.format(script_name=_SCRIPT_NAME,
-                      include_guard=include_guard,
-                      namespace=namespace,
-                      values=values_string,
-                      allow_list_name=allow_list_name)
+  values_string = '\n'.join(
+    ['  "{name}",'.format(name=value) for value in values]
+  )
+  return _FILE.format(
+    script_name=_SCRIPT_NAME,
+    include_guard=include_guard,
+    namespace=namespace,
+    values=values_string,
+    allow_list_name=allow_list_name,
+  )
 
 
 def _GenerateValueList(histograms, tag, allow_list_name):
-  if tag == "variant":
+  if tag == 'variant':
     values, had_errors = extract_histograms.ExtractVariantsFromXmlTree(
-        histograms)
-  elif tag == "enum":
+      histograms
+    )
+  elif tag == 'enum':
     values, had_errors = extract_histograms.ExtractEnumsFromXmlTree(histograms)
   else:
     raise Error("'tag' must be either 'variant' or 'enum'")
 
   if had_errors:
-    raise Error("Error parsing inputs.")
+    raise Error('Error parsing inputs.')
 
-  if (allow_list_name not in values):
-    raise Error("AllowListName is missing in variants list")
+  if allow_list_name not in values:
+    raise Error('AllowListName is missing in variants list')
 
-  if tag == "variant":
-    return [value.get("name") for value in values[allow_list_name]]
+  if tag == 'variant':
+    return [value.get('name') for value in values[allow_list_name]]
 
-  return [b.get("key") for b in values[allow_list_name].get("buckets", [{}])]
+  return [b.get('key') for b in values[allow_list_name].get('buckets', [{}])]
 
 
 def _GenerateFile(arguments):
@@ -102,39 +111,44 @@ def _GenerateFile(arguments):
       arguments.output_dir: A directory to put the generated file.
       arguments.allow_list_name: A name of the variant or enum list.
   """
-  histograms = xml.dom.minidom.parse(arguments.input)
-  values = _GenerateValueList(histograms, arguments.tag,
-                              arguments.allow_list_name)
+  histograms = ET.parse(arguments.input).getroot()
+  values = _GenerateValueList(
+    histograms, arguments.tag, arguments.allow_list_name
+  )
 
   static_check_header_file_content = _GenerateStaticFile(
-      arguments.file, arguments.namespace, values, arguments.allow_list_name)
-  with open(os.path.join(arguments.output_dir, arguments.file),
-            "w") as generated_file:
+    arguments.file, arguments.namespace, values, arguments.allow_list_name
+  )
+  output_path = pathlib.Path(arguments.output_dir) / arguments.file
+  with open(output_path, 'w') as generated_file:
     generated_file.write(static_check_header_file_content)
 
 
 def _ParseArguments():
   """Defines and parses arguments from the command line."""
   arg_parser = argparse.ArgumentParser(
-      description="Generate an array of allowlist from a histograms.xml file.")
-  arg_parser.add_argument("--output_dir",
-                          required=True,
-                          help="Base directory to for generated files.")
-  arg_parser.add_argument("--file",
-                          required=True,
-                          help="File name of the generated file.")
+    description='Generate an array of allowlist from a histograms.xml file.'
+  )
   arg_parser.add_argument(
-      "--allow_list_name",
-      required=True,
-      help="Name of the variant / enum list in the histograms.xml file.")
-  arg_parser.add_argument("--namespace",
-                          required=True,
-                          help="Namespace of the allow list array.")
-  arg_parser.add_argument("--tag",
-                          required=True,
-                          help="XML tag name of either 'enum' or 'variant'.")
-  arg_parser.add_argument("--input",
-                          help="Path to .xml file with histogram descriptions.")
+    '--output_dir', required=True, help='Base directory to for generated files.'
+  )
+  arg_parser.add_argument(
+    '--file', required=True, help='File name of the generated file.'
+  )
+  arg_parser.add_argument(
+    '--allow_list_name',
+    required=True,
+    help='Name of the variant / enum list in the histograms.xml file.',
+  )
+  arg_parser.add_argument(
+    '--namespace', required=True, help='Namespace of the allow list array.'
+  )
+  arg_parser.add_argument(
+    '--tag', required=True, help="XML tag name of either 'enum' or 'variant'."
+  )
+  arg_parser.add_argument(
+    '--input', help='Path to .xml file with histogram descriptions.'
+  )
   return arg_parser.parse_args()
 
 
@@ -143,5 +157,5 @@ def main():
   _GenerateFile(arguments)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   sys.exit(main())

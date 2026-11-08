@@ -60,7 +60,8 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="Non-milestone Update"/>
   <int value="6" label="Added to comparison table"/>
   <int value="7" label="Clear Browsing Data"/>
-  <int value="8" label="Automatic plus address replacement during Autofill"/>
+  <int value="8"
+      label="(Deprecated) Automatic plus address replacement during Autofill"/>
   <int value="9"
       label="ESB value was synced to 'turned on' - for non security settings
              page"/>
@@ -82,20 +83,45 @@ chromium-metrics-reviews@google.com.
   <int value="23" label="User migrated into enhanced security settings bundle"/>
   <int value="24" label="Saved Skill"/>
   <int value="25" label="Deleted Skill"/>
-  <int value="26" label="Showed Autofill AI Wallet error message on fetch"/>
+  <int value="26" label="Showed Autofill AI error message on fetch"/>
   <int value="27" label="Translate"/>
   <int value="28"
       label="Showed Autofill AI Wallet error message (update or migrate
              failed)"/>
   <int value="29" label="Showed Record / Replay progress"/>
   <int value="30" label="Auto Sign-in Toast"/>
-  <int value="31" label="Filter Suggestion"/>
-  <int value="32" label="Filter Suggestion Recent"/>
+  <int value="31" label="(Deprecated) Filter Suggestion"/>
+  <int value="32" label="(Deprecated) Filter Suggestion Recent"/>
   <int value="33" label="Saved Skill without Invoke Button"/>
   <int value="34" label="Send Tab To Self tab opened immediately"/>
   <int value="35" label="Send Tab To Self tabs opened in background"/>
   <int value="36" label="Send Tab To Self successfully sent"/>
   <int value="37" label="Unsafe site report successfully sent"/>
+  <int value="38" label="Send Tab To Self failed to send"/>
+  <int value="39" label="Send Tab To Self successfully sent but throttled"/>
+  <int value="40" label="Default browser update success"/>
+  <int value="41" label="Send Tab To Self no internet connection"/>
+  <int value="42" label="Indigo invocation error"/>
+  <int value="43" label="Tab strip switch to horizontal delayed toast"/>
+  <int value="44" label="Tab strip switch to vertical delayed toast"/>
+  <int value="45" label="Showed Autofill AI prefetch error message"/>
+  <int value="46" label="Enterprise copy audit monitored toast"/>
+  <int value="47" label="Enterprise copy kept in managed chrome toast"/>
+  <int value="48" label="Dictation error"/>
+  <int value="49" label="Dictation stopped"/>
+  <int value="50" label="Glic selection affordance hidden for site"/>
+  <int value="51" label="Enterprise copy warning toast"/>
+  <int value="52" label="Enterprise copy blocked toast"/>
+  <int value="53" label="Indigo delete uploaded photo error"/>
+  <int value="54" label="Indigo delete uploaded photo success"/>
+  <int value="55" label="Showed AtMemory SPII fetch error message"/>
+  <int value="56" label="Dictation no microphone detected error"/>
+  <int value="57" label="Email verification loading"/>
+  <int value="58" label="Scheduled restart on idle toast"/>
+  <int value="59" label="Email verification error"/>
+  <int value="60" label="Autofill AI suggestion removed"/>
+  <int value="61" label="TTC generic error"/>
+  <int value="62" label="TTC no microphone error"/>
 </enum>
 
 <!-- LINT.ThenChange(/chrome/browser/ui/toasts/api/toast_id.h:ToastId) -->

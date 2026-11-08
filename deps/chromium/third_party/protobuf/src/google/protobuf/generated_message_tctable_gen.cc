@@ -12,19 +12,19 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <optional>
 #include <vector>
 
 #include "absl/container/fixed_array.h"
 #include "absl/log/absl_check.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/descriptor.pb.h"
 #include "google/protobuf/generated_message_tctable_decl.h"
 #include "google/protobuf/generated_message_tctable_impl.h"
-#include "google/protobuf/port.h"
+#include "google/protobuf/port.h"  // IWYU pragma: keep
 #include "google/protobuf/wire_format.h"
 #include "google/protobuf/wire_format_lite.h"
 
@@ -153,21 +153,13 @@ TailCallTableInfo::FastFieldInfo::Field MakeFastFieldEntry(
   (field->cpp_string_type() == FieldDescriptor::CppStringType::kCord      \
        ? PROTOBUF_PICK_REPEATABLE_FUNCTION(fn##c)                         \
    : field->cpp_string_type() == FieldDescriptor::CppStringType::kView && \
-           options.use_micro_string                                       \
+           options.is_micro_string()                                      \
        ? PROTOBUF_PICK_FUNCTION(fn##mS)                                   \
-   : options.is_string_inlined ? PROTOBUF_PICK_FUNCTION(fn##iS)           \
-                               : PROTOBUF_PICK_REPEATABLE_FUNCTION(fn))
+   : options.is_string_inlined() ? PROTOBUF_PICK_FUNCTION(fn##iS)         \
+                                 : PROTOBUF_PICK_REPEATABLE_FUNCTION(fn))
 
   const FieldDescriptor* field = entry.field;
   info.aux_idx = static_cast<uint8_t>(entry.aux_idx);
-  if (field->type() == FieldDescriptor::TYPE_BYTES ||
-      field->type() == FieldDescriptor::TYPE_STRING) {
-    if (options.is_string_inlined) {
-      ABSL_CHECK(!field->is_repeated());
-      info.aux_idx = static_cast<uint8_t>(entry.inlined_string_idx);
-    }
-  }
-
   TcParseFunction picked = TcParseFunction::kNone;
   switch (field->type()) {
     case FieldDescriptor::TYPE_BOOL:
@@ -277,34 +269,12 @@ bool IsFieldEligibleForFastParsing(
     return false;
   }
 
-  // We will check for a valid auxiliary index range later. However, we might
-  // want to change the value we check for inlined string fields.
-  int aux_idx = entry.aux_idx;
-
-  switch (field->type()) {
-      // Some bytes fields can be handled on fast path.
-    case FieldDescriptor::TYPE_STRING:
-    case FieldDescriptor::TYPE_BYTES: {
-      if (options.is_string_inlined) {
-        ABSL_CHECK(!field->is_repeated());
-        // For inlined strings, the donation state index is stored in the
-        // `aux_idx` field of the fast parsing info. We need to check the range
-        // of that value instead of the auxiliary index.
-        aux_idx = entry.inlined_string_idx;
-      }
-      break;
-    }
-
-    default:
-      break;
-  }
-
   if (entry.hasbit_idx > TailCallTableInfo::kMaxFastFieldHasbitIndex)
     return false;
 
   // If the field needs auxiliary data, then the aux index is needed. This
   // must fit in a uint8_t.
-  if (aux_idx > std::numeric_limits<uint8_t>::max()) {
+  if (entry.aux_idx > std::numeric_limits<uint8_t>::max()) {
     return false;
   }
 
@@ -312,7 +282,7 @@ bool IsFieldEligibleForFastParsing(
 }
 
 void PopulateFastFields(
-    std::optional<uint32_t> end_group_tag,
+    absl::optional<uint32_t> end_group_tag,
     const std::vector<TailCallTableInfo::FieldEntryInfo>& field_entries,
     const TailCallTableInfo::MessageOptions& message_options,
     absl::Span<const TailCallTableInfo::FieldOptions> fields,
@@ -336,43 +306,50 @@ void PopulateFastFields(
 
   for (size_t i = 0; i < field_entries.size(); ++i) {
     const auto& entry = field_entries[i];
-    const auto& options = fields[i];
-    if (!IsFieldEligibleForFastParsing(entry, options, message_options)) {
+    const auto* field = entry.field;
+
+    if (field->number() >= 1 << 11) {
+      // We only do fast parsers for 1 and 2 byte tags.
       continue;
     }
 
-    const auto* field = entry.field;
+    const auto& options = fields[i];
     const uint32_t tag = GetRecodedTagForFastParsing(field);
     const uint32_t fast_idx = TcParseTableBase::TagToIdx(tag, result.size());
-
     TailCallTableInfo::FastFieldInfo& info = result[fast_idx];
-    if (info.AsNonField() != nullptr) {
-      // Right now non-field means END_GROUP which is guaranteed to be present.
-      continue;
-    }
-    if (auto* as_field = info.AsField()) {
-      // This field entry is already filled. Skip if previous entry is more
-      // likely present.
-      if (as_field->presence_probability >= options.presence_probability) {
+
+    if (IsFieldEligibleForFastParsing(entry, options, message_options)) {
+      if (!info.IsBetterFast(options.presence_probability)) {
         continue;
       }
+      auto& fast_field =
+          info.data.emplace<TailCallTableInfo::FastFieldInfo::Field>(
+              MakeFastFieldEntry(entry, options, message_options));
+      fast_field.field = field;
+      fast_field.coded_tag = tag;
+      // If this field does not have presence, then it can set an out-of-bounds
+      // bit (tailcall parsing uses a uint64_t for hasbits, but only stores 32).
+      fast_field.hasbit_idx = entry.hasbit_idx >= 0 ? entry.hasbit_idx : 63;
+      // 0.05 was selected based on load tests where 0.1 and 0.01 were also
+      // evaluated and worse.
+      constexpr float kMinPresence = 0.05f;
+      important_fields |= uint32_t{options.presence_probability >= kMinPresence}
+                          << fast_idx;
+    } else {
+      if (!info.IsBetterMpFast(options.presence_probability)) {
+        continue;
+      }
+      auto& fast_field =
+          info.data.emplace<TailCallTableInfo::FastFieldInfo::MpField>();
+      fast_field.func = field->number() < 16 ? TcParseFunction::kFastMiniParse1
+                                             : TcParseFunction::kFastMiniParse2;
+      fast_field.field = field;
+      fast_field.coded_tag = tag;
+      fast_field.function_index =
+          entry.type_card & TcParser::kMiniParseTableTypeCardMask;
+      fast_field.field_index = i;
+      fast_field.presence_probability = options.presence_probability;
     }
-
-    // We reset the entry even if it had a field already.
-    // Fill in this field's entry:
-    auto& fast_field =
-        info.data.emplace<TailCallTableInfo::FastFieldInfo::Field>(
-            MakeFastFieldEntry(entry, options, message_options));
-    fast_field.field = field;
-    fast_field.coded_tag = tag;
-    // If this field does not have presence, then it can set an out-of-bounds
-    // bit (tailcall parsing uses a uint64_t for hasbits, but only stores 32).
-    fast_field.hasbit_idx = entry.hasbit_idx >= 0 ? entry.hasbit_idx : 63;
-    // 0.05 was selected based on load tests where 0.1 and 0.01 were also
-    // evaluated and worse.
-    constexpr float kMinPresence = 0.05f;
-    important_fields |= uint32_t{options.presence_probability >= kMinPresence}
-                        << fast_idx;
   }
 }
 
@@ -515,10 +492,9 @@ TailCallTableInfo::NumToEntryTable MakeNumToEntryTable(
   return num_to_entry_table;
 }
 
-uint16_t MakeTypeCardForField(
-    const FieldDescriptor* field, bool has_hasbit,
-    const TailCallTableInfo::FieldOptions& options,
-    cpp::Utf8CheckMode utf8_check_mode) {
+uint16_t MakeTypeCardForField(const FieldDescriptor* field, bool has_hasbit,
+                              const TailCallTableInfo::FieldOptions& options,
+                              cpp::Utf8CheckMode utf8_check_mode) {
   uint16_t type_card;
   namespace fl = internal::field_layout;
   if (field->is_repeated()) {
@@ -681,7 +657,7 @@ uint16_t MakeTypeCardForField(
         } else {
           // Otherwise, non-repeated string fields use ArenaStringPtr.
           type_card |=
-              options.use_micro_string ? fl::kRepMString : fl::kRepAString;
+              options.is_micro_string() ? fl::kRepMString : fl::kRepAString;
         }
         break;
     }
@@ -696,7 +672,9 @@ uint16_t MakeTypeCardForField(
 
 bool HasWeakFields(const Descriptor* descriptor) {
   for (int i = 0; i < descriptor->field_count(); i++) {
+    PROTOBUF_IGNORE_DEPRECATION_START
     if (descriptor->field(i)->options().weak()) {
+      PROTOBUF_IGNORE_DEPRECATION_STOP
       return true;
     }
   }
@@ -710,9 +688,9 @@ uint32_t GetRecodedTagForFastParsing(const FieldDescriptor* field) {
       internal::WireFormat::MakeTag(field));
 }
 
-std::optional<uint32_t> GetEndGroupTag(const Descriptor* descriptor) {
+absl::optional<uint32_t> GetEndGroupTag(const Descriptor* descriptor) {
   auto* parent = descriptor->containing_type();
-  if (parent == nullptr) return std::nullopt;
+  if (parent == nullptr) return absl::nullopt;
   for (int i = 0; i < parent->field_count(); ++i) {
     auto* field = parent->field(i);
     if (field->type() == field->TYPE_GROUP &&
@@ -721,11 +699,11 @@ std::optional<uint32_t> GetEndGroupTag(const Descriptor* descriptor) {
                                      WireFormatLite::WIRETYPE_END_GROUP);
     }
   }
-  return std::nullopt;
+  return absl::nullopt;
 }
 
 uint32_t FastParseTableSize(size_t num_fields,
-                            std::optional<uint32_t> end_group_tag) {
+                            absl::optional<uint32_t> end_group_tag) {
   return end_group_tag.has_value()
              ? TcParseTableBase::kMaxFastFields
              : std::max(size_t{1}, std::min(TcParseTableBase::kMaxFastFields,
@@ -733,9 +711,11 @@ uint32_t FastParseTableSize(size_t num_fields,
 }
 
 bool IsFieldTypeEligibleForFastParsing(const FieldDescriptor* field) {
+  PROTOBUF_IGNORE_DEPRECATION_START
+  const bool field_is_weak = field->options().weak();
+  PROTOBUF_IGNORE_DEPRECATION_STOP
   // Map, oneof, weak, and split fields are not handled on the fast path.
-  if (field->is_map() || field->real_containing_oneof() ||
-      field->options().weak()) {
+  if (field->is_map() || field->real_containing_oneof() || field_is_weak) {
     return false;
   }
 
@@ -768,11 +748,14 @@ TailCallTableInfo::BuildFieldEntries(
     auto* field = options.field;
     // In the following code where we assign kSubTable to aux entries, only
     // the following typed fields are supported.
+    PROTOBUF_IGNORE_DEPRECATION_START
+    const bool field_is_weak = field->options().weak();
+    PROTOBUF_IGNORE_DEPRECATION_STOP
     return (field->type() == FieldDescriptor::TYPE_MESSAGE ||
             field->type() == FieldDescriptor::TYPE_GROUP) &&
-           !field->is_map() && !field->options().weak() &&
-           !HasLazyRep(field, options) && !options.is_implicitly_weak &&
-           options.use_direct_tcparser_table && is_non_cold(options);
+           !field->is_map() && !field_is_weak && !HasLazyRep(field, options) &&
+           !options.is_implicitly_weak && options.use_direct_tcparser_table &&
+           is_non_cold(options);
   };
   for (const FieldOptions& options : ordered_fields) {
     if (is_non_cold_subtable(options)) {
@@ -810,13 +793,15 @@ TailCallTableInfo::BuildFieldEntries(
             aux_entries.push_back({kEnumValidator, {map_value}});
           }
         }
+        PROTOBUF_IGNORE_DEPRECATION_START
       } else if (field->options().weak()) {
+        PROTOBUF_IGNORE_DEPRECATION_STOP
         // Disable the type card for this entry to force the fallback.
         entry.type_card = 0;
       } else if (HasLazyRep(field, options)) {
         if (message_options.uses_codegen) {
           entry.aux_idx = aux_entries.size();
-          aux_entries.push_back({kSubMessage, {field}});
+          aux_entries.push_back({kSubMessageGlobals, {field}});
           if (options.lazy_opt == field_layout::kTvEager) {
             aux_entries.push_back({kMessageVerifyFunc, {field}});
           } else {
@@ -826,9 +811,9 @@ TailCallTableInfo::BuildFieldEntries(
           entry.aux_idx = TcParseTableBase::FieldEntry::kNoAuxIdx;
         }
       } else {
-        AuxType type = options.is_implicitly_weak          ? kSubMessageWeak
+        AuxType type = options.is_implicitly_weak ? kSubMessageGlobalsWeak
                        : options.use_direct_tcparser_table ? kSubTable
-                                                           : kSubMessage;
+                                                           : kSubMessageGlobals;
         if (type == kSubTable && is_non_cold(options)) {
           aux_entries[subtable_aux_idx] = {type, {field}};
           entry.aux_idx = subtable_aux_idx;
@@ -862,21 +847,9 @@ TailCallTableInfo::BuildFieldEntries(
         aux_entry.type = kEnumValidator;
         aux_entry.field = field;
       }
-
-    } else if ((field->type() == FieldDescriptor::TYPE_STRING ||
-                field->type() == FieldDescriptor::TYPE_BYTES) &&
-               options.is_string_inlined) {
-      ABSL_CHECK(!field->is_repeated());
-      // Inlined strings have an extra marker to represent their donation state.
-      int idx = options.inlined_string_index;
-      // For mini parsing, the donation state index is stored as an `offset`
-      // auxiliary entry.
-      entry.aux_idx = aux_entries.size();
-      aux_entries.push_back({kNumericOffset});
-      aux_entries.back().offset = idx;
-      // For fast table parsing, the donation state index is stored instead of
-      // the aux_idx (this will limit the range to 8 bits).
-      entry.inlined_string_idx = idx;
+    } else if (options.is_micro_string()) {
+      // We use the aux idx to pass the MicroString SSO size.
+      entry.aux_idx = options.micro_string_sso();
     }
   }
   ABSL_CHECK_EQ(subtable_aux_idx - subtable_aux_idx_begin,
@@ -895,7 +868,10 @@ TailCallTableInfo::TailCallTableInfo(
       // Reflection and weak messages have the reflection fallback
       : !message_options.uses_codegen || HasWeakFields(descriptor)
           ? TcParseFunction::kReflectionFallback
-      // Codegen messages have lite and non-lite version
+      // Messages without extensions fallback directly to MpUnknownFields
+      : descriptor->extension_range_count() == 0
+          ? TcParseFunction::kMpUnknownFields
+      // Codegen messages with extensions have lite and non-lite version
       : message_options.is_lite ? TcParseFunction::kGenericFallbackLite
                                 : TcParseFunction::kGenericFallback;
 
@@ -930,13 +906,6 @@ TailCallTableInfo::TailCallTableInfo(
                              [](const auto& lhs, const auto& rhs) {
                                return lhs.field->number() < rhs.field->number();
                              }));
-  // If this message has any inlined string fields, store the donation state
-  // offset in the first auxiliary entry, which is kInlinedStringAuxIdx.
-  if (std::any_of(ordered_fields.begin(), ordered_fields.end(),
-                  [](auto& f) { return f.is_string_inlined; })) {
-    aux_entries.resize(kInlinedStringAuxIdx + 1);  // Allocate our slot
-    aux_entries[kInlinedStringAuxIdx] = {kInlinedStringDonatedOffset};
-  }
 
   // If this message is split, store the split pointer offset in the second
   // and third auxiliary entries, which are kSplitOffsetAuxIdx and
@@ -990,7 +959,7 @@ TailCallTableInfo::TailCallTableInfo(
       // important field (meaning the surviving entry is not) or the surviving
       // entry is empty.
       if (((important_fields >> merge_i) & 1) != 0 ||
-          fast_fields[i].is_empty()) {
+          fast_fields[i] < fast_fields[merge_i]) {
         fast_fields[i] = fast_fields[merge_i];
       }
     }

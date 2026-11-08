@@ -155,12 +155,15 @@ chromium-metrics-reviews@google.com.
     as &quot;working as intended&quot; by InvalidateActiveExpectations().
     Recording is skipped if the hang watcher detects an irregular heartbeat
     (e.g. when the machine sleeps).
+
+    Warning: Starting at 150.0.7865.0, background renderer threads are no longer
+    considered critical.
   </summary>
   <token key="ThreadSetType" variants="ThreadSetType"/>
 </histogram>
 
 <histogram name="HangWatcher.{ProcessType}.UncoveredStartupTime" units="ms"
-    expires_after="2026-09-20">
+    expires_after="2027-02-07">
   <owner>olivierli@chromium.org</owner>
   <owner>catan-team@chromium.org</owner>
   <summary>

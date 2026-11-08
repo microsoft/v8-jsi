@@ -53,7 +53,7 @@ source_set("main") {
     ":pb_to_txt",
     ":txt_to_pb",
     "../../gn:default_deps",
-    "../../include/perfetto/ext/base:base",
+    "../../include/perfetto/ext/base",
   ]
   sources = [ "main.cc" ]
 }
@@ -79,12 +79,15 @@ executable("proto_utils") {
 if (enable_perfetto_ui) {
   wasm_lib("proto_utils_wasm") {
     name = "proto_utils"
+
+    # Loaded from the main UI thread.
+    enable_web_environment = true
     sources = [ "wasm.cc" ]
     deps = [
       ":pb_to_txt",
       ":txt_to_pb",
       "../../gn:default_deps",
-      "../../include/perfetto/ext/base:base",
+      "../../include/perfetto/ext/base",
     ]
   }
 }

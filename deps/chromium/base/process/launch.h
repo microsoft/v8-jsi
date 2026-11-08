@@ -21,6 +21,7 @@
 #include "base/files/file_path.h"
 #include "base/functional/function_ref.h"
 #include "base/memory/raw_ptr.h"
+#include "base/memory/raw_ptr_exclusion.h"
 #include "base/process/process.h"
 #include "base/process/process_handle.h"
 #include "base/threading/thread_restrictions.h"
@@ -168,7 +169,9 @@ struct BASE_EXPORT LaunchOptions {
     kAll
   };
   Inherit inherit_mode = Inherit::kSpecific;
-  HandlesToInheritVector handles_to_inherit;
+  // Exclusion: Needs to be passed to a Windows API that expects a raw array of
+  // HANDLEs.
+  RAW_PTR_EXCLUSION HandlesToInheritVector handles_to_inherit;
 
   // If non-null, runs as if the user represented by the token had launched it.
   // Whether the application is visible on the interactive desktop depends on
@@ -178,6 +181,12 @@ struct BASE_EXPORT LaunchOptions {
   // environment variables associated with the user and if this operation fails
   // the entire call fails as well.
   UserTokenHandle as_user = nullptr;
+
+  // If non-null, runs the application using this token.
+  // The token must have the same user SID as the current process.
+  // The child process will inherit the environment from the current process,
+  // unlike `as_user` which takes the default environment of the user.
+  UserTokenHandle using_token = nullptr;
 
   // If true, use an empty string for the desktop name.
   bool empty_desktop_name = false;

@@ -36,6 +36,16 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Using system notifications"/>
 </enum>
 
+<!-- LINT.IfChange(ChannelMigrationResult) -->
+
+<enum name="ChannelMigrationResult">
+  <int value="0" label="Migrated to high priority channel"/>
+  <int value="1" label="Migrated to default priority channel"/>
+  <int value="2" label="No migration was needed"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/notifications/android/java/src/org/chromium/chrome/browser/notifications/channels/SiteChannelsManager.java:ChannelMigrationResult) -->
+
 <enum name="ChimeEvent">
   <int value="0" label="Register"/>
   <int value="1" label="UnRegister"/>
@@ -75,6 +85,7 @@ chromium-metrics-reviews@google.com.
 <enum name="FindsOptInTriggerReason">
   <int value="0" label="Theme URL Visit Count"/>
   <int value="1" label="SRP Back Navigation Count"/>
+  <int value="2" label="Omnibox Recent Search Suggestion Count"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/finds/core/finds_metrics.h:FindsOptInTriggerReason) -->
@@ -164,6 +175,11 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="PENDING_JOB_REASON_JOB_SCHEDULER_OPTIMIZATION"/>
   <int value="14" label="PENDING_JOB_REASON_QUOTA"/>
   <int value="15" label="PENDING_JOB_REASON_USER"/>
+</enum>
+
+<enum name="NotificationsAndroidTrampolineActivityEvent">
+  <int value="0" label="Created"/>
+  <int value="1" label="Destroyed"/>
 </enum>
 
 <enum name="NotificationSchedulerNotificationLifeCycleEvent">
@@ -272,7 +288,7 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="Detail page back button"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/notifications/tips/TipsPromoCoordinator.java:FeatureTipPromoEventType) -->
+<!-- LINT.ThenChange(//chrome/browser/tips/android/java/src/org/chromium/chrome/browser/tips/TipsPromoCoordinator.java:FeatureTipPromoEventType) -->
 
 <enum name="TipsNotificationsFeatureType">
   <int value="0" label="Enhanced Safe Browsing"/>
@@ -292,14 +308,46 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Shown"/>
   <int value="1" label="Accepted"/>
   <int value="2" label="Ignored"/>
+  <int value="3" label="Declined"/>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/android/java/src/org/chromium/chrome/browser/notifications/tips/TipsOptInCoordinator.java:OptInPromoEventType) -->
+<!-- LINT.ThenChange(//chrome/browser/tips/android/java/src/org/chromium/chrome/browser/tips/TipsOptInCoordinator.java:OptInPromoEventType) -->
+
+<!-- NSError codes returned by -[UNUserNotificationCenter
+     addNotificationRequest:withCompletionHandler:]. Codes are only meaningful
+     in combination with the NSError domain, which is not recorded, so labels
+     are prefixed with the domain they are expected to come from. Codes in the
+     UNErrorDomain range come from UNError.h, codes in the 4096-4224 range come
+     from NSCocoaErrorDomain (FoundationErrors.h) and are reported when the
+     connection to the macOS notification daemon fails. -->
+
+<enum name="UNNotificationDeliveryResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="UNError: NotificationsNotAllowed"/>
+  <int value="100" label="UNError: AttachmentInvalidURL"/>
+  <int value="101" label="UNError: AttachmentUnrecognizedType"/>
+  <int value="102" label="UNError: AttachmentInvalidFileSize"/>
+  <int value="103" label="UNError: AttachmentNotInDataStore"/>
+  <int value="104" label="UNError: AttachmentMoveIntoDataStoreFailed"/>
+  <int value="105" label="UNError: AttachmentCorrupt"/>
+  <int value="1400" label="UNError: NotificationInvalidNoDate"/>
+  <int value="1401" label="UNError: NotificationInvalidNoContent"/>
+  <int value="1500" label="UNError: ContentProvidingObjectNotAllowed"/>
+  <int value="1501" label="UNError: ContentProvidingInvalid"/>
+  <int value="1600" label="UNError: BadgeInputInvalid"/>
+  <int value="4097" label="NSCocoaError: XPCConnectionInterrupted"/>
+  <int value="4099" label="NSCocoaError: XPCConnectionInvalid"/>
+  <int value="4101" label="NSCocoaError: XPCConnectionReplyInvalid"/>
+  <int value="4102"
+      label="NSCocoaError: XPCConnectionCodeSigningRequirementFailure"/>
+</enum>
 
 <enum name="UNNotificationPermissionRequestResult">
   <int value="0" label="Permission request failed"/>
   <int value="1" label="Permission denied"/>
   <int value="2" label="Permission granted"/>
+  <int value="3" label="Permission previously denied"/>
+  <int value="4" label="Permission previously granted"/>
 </enum>
 
 <enum name="UNNotificationPermissionStatus">

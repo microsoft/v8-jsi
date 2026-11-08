@@ -19,27 +19,71 @@ SOURCE_SET_DEPS = [
   "../perfetto_sdk_for_jni:perfetto_sdk_for_jni",
 ]
 
-# JNI_OnLoad and the Java_* native methods are looked up by the JVM via
-# dlsym(), so they have no in-binary references. When this source_set is
-# absorbed into a final link as a static archive (Bazel cc_library /
-# Soong cc_library_static), the linker dead-strips those .o files. The
-# `perfetto_force_alwayslink` metadata tells generators to mark the
-# library so its objects survive the link.
-SOURCE_SET_METADATA = {
-  perfetto_force_alwayslink = [ true ]
+SOURCE_SET_INCLUDE_DIRS = []
+SOURCE_SET_HOST_CFLAGS = []
+if (jdk_include_path != "") {
+  SOURCE_SET_INCLUDE_DIRS += [
+    jdk_include_path,
+
+    # Stub <android/log.h> mapping ANDROID_LOG_* + __android_log_print to
+    # stderr so the JNI sources compile cleanly without liblog on host.
+    "host_stubs",
+  ]
+  if (is_linux) {
+    SOURCE_SET_INCLUDE_DIRS += [ "$jdk_include_path/linux" ]
+  }
+  if (is_mac) {
+    SOURCE_SET_INCLUDE_DIRS += [ "$jdk_include_path/darwin" ]
+  }
+
+  # The JNI sources are written against AOSP's warning profile; standalone
+  # host (-Weverything) trips a handful of pedantic warnings that AOSP
+  # doesn't. Scoped to this source set only; AOSP/device path is untouched.
+  # TODO: clean up the SDK sources and drop these suppressions.
+  SOURCE_SET_HOST_CFLAGS += [
+    "-Wno-old-style-cast",
+    "-Wno-writable-strings",
+    "-Wno-format-nonliteral",
+    "-Wno-extra-semi-stmt",
+    "-Wno-exit-time-destructors",
+    "-Wno-global-constructors",
+    "-Wno-sign-conversion",
+    "-Wno-shorten-64-to-32",
+    "-Wno-implicit-int-conversion",
+    "-Wno-cast-align",
+    "-Wno-missing-prototypes",
+    "-Wno-unused-parameter",
+    "-Wno-unused-but-set-variable",
+    "-Wno-zero-as-null-pointer-constant",
+    "-Wno-comma",
+    "-Wno-suggest-override",
+    "-Wno-suggest-destructor-override",
+  ]
 }
 
 source_set("libperfetto_jni_src") {
   sources = SOURCE_SET_SOURCES
   deps = SOURCE_SET_DEPS
-  metadata = SOURCE_SET_METADATA
+  include_dirs = SOURCE_SET_INCLUDE_DIRS
+  cflags = SOURCE_SET_HOST_CFLAGS
 }
 
 source_set("libperfetto_framework_jni_src") {
   sources = SOURCE_SET_SOURCES
   deps = SOURCE_SET_DEPS
-  cflags = [ "-DPERFETTO_JNI_JARJAR_PREFIX=com/android/internal/" ]
-  metadata = SOURCE_SET_METADATA
+  include_dirs = SOURCE_SET_INCLUDE_DIRS
+  cflags = SOURCE_SET_HOST_CFLAGS +
+           [ "-DPERFETTO_JNI_JARJAR_PREFIX=com/android/internal/" ]
+}
+
+source_set("libperfetto_libcore_jni_src") {
+  sources = SOURCE_SET_SOURCES
+  deps = SOURCE_SET_DEPS
+  include_dirs = SOURCE_SET_INCLUDE_DIRS
+  cflags = SOURCE_SET_HOST_CFLAGS + [
+             "-DPERFETTO_JNI_ART_STATIC_INTEGRATION",
+             "-DPERFETTO_JNI_JARJAR_PREFIX=dalvik/system/",
+           ]
 }
 
 perfetto_android_jni_library("libperfetto_jni") {
@@ -59,4 +103,12 @@ perfetto_android_jni_library("libperfetto_framework_jni") {
     "../../shared_lib:libperfetto_c",
   ]
   binary_name = "libperfetto_framework_jni.so"
+}
+
+static_library("libperfetto_libcore_jni") {
+  deps = [
+    ":libperfetto_libcore_jni_src",
+    "../../../gn:default_deps",
+    "../../shared_lib:libperfetto_c",
+  ]
 }

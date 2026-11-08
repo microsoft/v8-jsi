@@ -96,31 +96,17 @@ chromium-metrics-reviews@google.com.
   <int value="2" label="Other MainFrame Redirects"/>
 </enum>
 
+<enum name="DefaultPinnedExtensionState">
+  <int value="0" label="Pinned"/>
+  <int value="1" label="Unpinned"/>
+</enum>
+
 <enum name="ExtensionActionInvocationSource">
   <int value="0" label="Keyboard Shortcut"/>
   <int value="1" label="Toolbar Button"/>
   <int value="2" label="Extensions Menu Entry"/>
   <int value="3" label="Legacy Overflow Menu Entry"/>
   <int value="4" label="Programmatic API Call"/>
-</enum>
-
-<enum name="ExtensionAlarmsNameLength">
-  <int value="0" label="Up to 10"/>
-  <int value="1" label="From 11 to 25"/>
-  <int value="2" label="From 26 to 50"/>
-  <int value="3" label="From 51 to 75"/>
-  <int value="4" label="From 76 to 100"/>
-  <int value="5" label="From 101 to 125"/>
-  <int value="6" label="From 126 to 250"/>
-  <int value="7" label="From 251 to 500"/>
-  <int value="8" label="From 501 to 1000"/>
-  <int value="9" label="From 1001 to 2000"/>
-  <int value="10" label="From 2001 to 5000"/>
-  <int value="11" label="From 5001 to 10K"/>
-  <int value="12" label="From 10K+1 to 100K"/>
-  <int value="13" label="From 100K+1 to 1M"/>
-  <int value="14" label="From 1M+1 to 100M"/>
-  <int value="15" label="Over 100M"/>
 </enum>
 
 <enum name="ExtensionAllowlistOmahaAttributeValue">
@@ -153,7 +139,17 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="kViewWebPermissions"/>
   <int value="14" label="kPolicyInstalled"/>
   <int value="15" label="kToggleSidePanelVisibility"/>
+  <int value="16" label="kRateExtension"/>
 </enum>
+
+<!-- LINT.IfChange(ExtensionContextMenuRateExtensionOutcome) -->
+
+<enum name="ExtensionContextMenuRateExtensionOutcome">
+  <int value="0" label="Not clicked"/>
+  <int value="1" label="Clicked"/>
+</enum>
+
+<!-- LINT.ThenChange(/chrome/browser/extensions/extension_context_menu_model.h:ExtensionContextMenuRateExtensionOutcome) -->
 
 <enum name="ExtensionDisableReason">
   <int value="0" label="UNKNOWN"/>
@@ -183,6 +179,7 @@ chromium-metrics-reviews@google.com.
   <int value="8388608" label="DISABLE_UNSUPPORTED_MANIFEST_VERSION"/>
   <int value="16777216" label="DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION"/>
   <int value="33554432" label="DISABLE_UNKNOWN"/>
+  <int value="134217728" label="DISABLE_BY_ANOTHER_EXTENSION"/>
 </enum>
 
 <!-- LINT.IfChange(ExtensionEvents) -->
@@ -806,7 +803,7 @@ Called by update_extension_histograms.py.-->
   <int value="566"
       label="ENTERPRISE_REPORTING_PRIVATE_ON_DATA_MASKING_RULES_TRIGGERED"/>
   <int value="567"
-      label="PASSWORDS_PRIVATE_ON_SHOULD_SHOW_ACCOUNT_STORAGE_SETTING_TOGGLE_CHANGED"/>
+      label="DELETED_PASSWORDS_PRIVATE_ON_SHOULD_SHOW_ACCOUNT_STORAGE_SETTING_TOGGLE_CHANGED"/>
   <int value="568" label="PDF_VIEWER_PRIVATE_ON_SAVE_TO_DRIVE_PROGRESS"/>
   <int value="569" label="SIDE_PANEL_ON_OPENED"/>
   <int value="570" label="SIDE_PANEL_ON_CLOSED"/>
@@ -814,6 +811,16 @@ Called by update_extension_histograms.py.-->
   <int value="572" label="ACCESSIBILITY_PRIVATE_ON_KEY_UP"/>
   <int value="573"
       label="PASSWORDS_PRIVATE_ON_PASSWORD_MANAGER_ACTIONABLE_ERROR_CHANGED"/>
+  <int value="574" label="INDIGO_PRIVATE_ON_REGENERATE_STARTED"/>
+  <int value="575" label="DICTATION_PRIVATE_ON_START_STREAM"/>
+  <int value="576" label="DICTATION_PRIVATE_ON_END_STREAM"/>
+  <int value="577" label="DICTATION_PRIVATE_ON_CONTEXT_UPDATE"/>
+  <int value="578" label="DICTATION_PRIVATE_ON_BROWSER_LOG_EVENT"/>
+  <int value="579" label="RUNTIME_ON_ENABLED"/>
+  <int value="580" label="ENTERPRISE_WEBRTC_ON_CAPTURE_STOPPED"/>
+  <int value="581" label="ENTERPRISE_WEBRTC_ON_PEER_CONNECTION_ADDED"/>
+  <int value="582" label="ENTERPRISE_WEBRTC_ON_PEER_CONNECTION_REMOVED"/>
+  <int value="583" label="RUNTIME_ON_EXTENSION_LOADED"/>
 </enum>
 
 <!-- LINT.ThenChange(//extensions/browser/extension_event_histogram_value.h:HistogramValue) -->
@@ -897,7 +904,7 @@ Called by update_extension_histograms.py.-->
   <int value="55" label="FILEMANAGERPRIVATEINTERNAL_GETFILETASKS"/>
   <int value="56" label="WEBSTOREPRIVATE_GETSTORELOGIN"/>
   <int value="57" label="SYSTEMPRIVATE_GETINCOGNITOMODEAVAILABILITY"/>
-  <int value="58" label="IDLTEST_SENDARRAYBUFFERVIEW"/>
+  <int value="58" label="DELETED_IDLTEST_SENDARRAYBUFFERVIEW"/>
   <int value="59" label="SOCKET_SETNODELAY"/>
   <int value="60" label="APP_CURRENTWINDOWINTERNAL_SHOW"/>
   <int value="61" label="WEBSTOREPRIVATE_GETBROWSERLOGIN"/>
@@ -1061,7 +1068,7 @@ Called by update_extension_histograms.py.-->
   <int value="218" label="USB_INTERRUPTTRANSFER"/>
   <int value="219" label="TYPES_CHROMESETTING_CLEAR"/>
   <int value="220" label="INPUT_IME_COMMITTEXT"/>
-  <int value="221" label="IDLTEST_SENDARRAYBUFFER"/>
+  <int value="221" label="DELETED_IDLTEST_SENDARRAYBUFFER"/>
   <int value="222" label="DELETED_WALLPAPERPRIVATE_SETWALLPAPERIFEXISTS"/>
   <int value="223" label="SOCKET_ACCEPT"/>
   <int value="224" label="WEBNAVIGATION_GETFRAME"/>
@@ -1091,7 +1098,7 @@ Called by update_extension_histograms.py.-->
   <int value="248" label="INPUT_IME_SETCANDIDATES"/>
   <int value="249" label="TERMINALPRIVATE_CLOSETERMINALPROCESS"/>
   <int value="250" label="HISTORY_DELETERANGE"/>
-  <int value="251" label="IDLTEST_GETARRAYBUFFER"/>
+  <int value="251" label="DELETED_IDLTEST_GETARRAYBUFFER"/>
   <int value="252" label="TERMINALPRIVATE_SENDINPUT"/>
   <int value="253" label="TABS_HIGHLIGHT"/>
   <int value="254" label="BLUETOOTH_STARTDISCOVERY"/>
@@ -1905,7 +1912,7 @@ Called by update_extension_histograms.py.-->
   <int value="1036"
       label="DELETED_PASSWORDSPRIVATE_CANPASSWORDACCOUNTBEMANAGED"/>
   <int value="1037" label="PASSWORDSPRIVATE_REMOVECREDENTIAL"/>
-  <int value="1038" label="PASSWORDSPRIVATE_REMOVEPASSWORDEXCEPTION"/>
+  <int value="1038" label="DELETED_PASSWORDSPRIVATE_REMOVEPASSWORDEXCEPTION"/>
   <int value="1039" label="PASSWORDSPRIVATE_REQUESTPLAINTEXTPASSWORD"/>
   <int value="1040" label="DELETED_LAUNCHERPAGE_HIDE"/>
   <int value="1041" label="PLATFORMKEYS_VERIFYTLSSERVERCERTIFICATE"/>
@@ -2071,9 +2078,9 @@ Called by update_extension_histograms.py.-->
   <int value="1192" label="DELETED_METRICSPRIVATE_RECORDSPARSEHASHABLE"/>
   <int value="1193" label="NETWORKINGPRIVATE_SELECTCELLULARMOBILENETWORK"/>
   <int value="1194" label="PASSWORDSPRIVATE_IMPORTPASSWORDS"/>
-  <int value="1195" label="PASSWORDSPRIVATE_EXPORTPASSWORDS"/>
+  <int value="1195" label="DELETED_PASSWORDSPRIVATE_EXPORTPASSWORDS"/>
   <int value="1196"
-      label="PASSWORDSPRIVATE_UNDOREMOVESAVEDPASSWORDOREXCEPTION"/>
+      label="DELETED_PASSWORDSPRIVATE_UNDOREMOVESAVEDPASSWORDOREXCEPTION"/>
   <int value="1197"
       label="ACCESSIBILITY_PRIVATE_SETNATIVECHROMEVOXARCSUPPORTFORCURRENTAPP"/>
   <int value="1198"
@@ -2093,7 +2100,8 @@ Called by update_extension_histograms.py.-->
   <int value="1210" label="DELETED_CRYPTOTOKENPRIVATE_CANAPPIDGETATTESTATION"/>
   <int value="1211" label="SYSTEM_DISPLAY_SETMIRRORMODE"/>
   <int value="1212" label="TTSENGINE_UPDATEVOICES"/>
-  <int value="1213" label="PASSWORDSPRIVATE_REQUESTEXPORTPROGRESSSTATUS"/>
+  <int value="1213"
+      label="DELETED_PASSWORDSPRIVATE_REQUESTEXPORTPROGRESSSTATUS"/>
   <int value="1214" label="DELETED_WALLPAPERPRIVATE_GETCOLLECTIONSINFO"/>
   <int value="1215" label="DELETED_WALLPAPERPRIVATE_GETIMAGESINFO"/>
   <int value="1216" label="ACCESSIBILITY_PRIVATE_SENDSYNTHETICKEYEVENT"/>
@@ -2309,7 +2317,7 @@ Called by update_extension_histograms.py.-->
   <int value="1415" label="TERMINALPRIVATE_GETSETTINGS"/>
   <int value="1416" label="TERMINALPRIVATE_SETSETTINGS"/>
   <int value="1417" label="DELETED_WEBSTOREPRIVATE_REQUESTEXTENSION"/>
-  <int value="1418" label="AUTOTESTPRIVATE_INSTALLPLUGINVM"/>
+  <int value="1418" label="DELETED_AUTOTESTPRIVATE_INSTALLPLUGINVM"/>
   <int value="1419" label="CRASHREPORTPRIVATE_REPORTERROR"/>
   <int value="1420" label="AUTOTESTPRIVATE_SETMETRICSENABLED"/>
   <int value="1421" label="ENTERPRISEREPORTINGPRIVATE_GETPERSISTENTSECRET"/>
@@ -2349,7 +2357,7 @@ Called by update_extension_histograms.py.-->
   <int value="1455" label="PASSWORDSPRIVATE_REMOVEINSECURECREDENTIAL"/>
   <int value="1456" label="TERMINALPRIVATE_GETA11YSTATUS"/>
   <int value="1457" label="AUTOTESTPRIVATE_GETSHELFUIINFOFORSTATE"/>
-  <int value="1458" label="PASSWORDSPRIVATE_STARTPASSWORDCHECK"/>
+  <int value="1458" label="DELETED_PASSWORDSPRIVATE_STARTPASSWORDCHECK"/>
   <int value="1459" label="DELETED_PASSWORDSPRIVATE_STOPPASSWORDCHECK"/>
   <int value="1460" label="PASSWORDSPRIVATE_GETPASSWORDCHECKSTATUS"/>
   <int value="1461" label="TERMINALPRIVATE_OPENVMSHELLPROCESS"/>
@@ -2365,13 +2373,13 @@ Called by update_extension_histograms.py.-->
   <int value="1471" label="DECLARATIVENETREQUEST_UPDATEENABLEDRULESETS"/>
   <int value="1472" label="DECLARATIVENETREQUEST_GETENABLEDRULESETS"/>
   <int value="1473" label="TERMINALPRIVATE_OPENWINDOW"/>
-  <int value="1474" label="AUTOTESTPRIVATE_SETPLUGINVMPOLICY"/>
-  <int value="1475" label="AUTOTESTPRIVATE_SHOWPLUGINVMINSTALLER"/>
+  <int value="1474" label="DELETED_AUTOTESTPRIVATE_SETPLUGINVMPOLICY"/>
+  <int value="1475" label="DELETED_AUTOTESTPRIVATE_SHOWPLUGINVMINSTALLER"/>
   <int value="1476" label="DELETED_PASSWORDSPRIVATE_REMOVESAVEDPASSWORDS"/>
   <int value="1477" label="DELETED_PASSWORDSPRIVATE_REMOVEPASSWORDEXCEPTIONS"/>
   <int value="1478" label="AUTOTESTPRIVATE_WAITFORAMBIENTPHOTOANIMATION"/>
   <int value="1479" label="INPUT_IME_SETASSISTIVEWINDOWPROPERTIES"/>
-  <int value="1480" label="PASSWORDSPRIVATE_MOVEPASSWORDSTOACCOUNT"/>
+  <int value="1480" label="DELETED_PASSWORDSPRIVATE_MOVEPASSWORDSTOACCOUNT"/>
   <int value="1481" label="AUTOTESTPRIVATE_DISABLESWITCHACCESSDIALOG"/>
   <int value="1482" label="ENTERPRISE_NETWORKINGATTRIBUTES_GETNETWORKDETAILS"/>
   <int value="1483" label="DELETED_INPUTMETHODPRIVATE_SETAUTOCORRECTRANGE"/>
@@ -2555,7 +2563,7 @@ Called by update_extension_histograms.py.-->
   <int value="1649" label="LOGIN_NOTIFYEXTERNALLOGOUTDONE"/>
   <int value="1650"
       label="DELETED_PASSWORDSPRIVATE_RECORDCHANGEPASSWORDFLOWSTARTED"/>
-  <int value="1651" label="ENTERPRISEREPORTINGPRIVATE_ENQUEUERECORD"/>
+  <int value="1651" label="DELETED_ENTERPRISEREPORTINGPRIVATE_ENQUEUERECORD"/>
   <int value="1652" label="FILEMANAGERPRIVATE_SENDFEEDBACK"/>
   <int value="1653" label="DECLARATIVENETREQUEST_TESTMATCHOUTCOME"/>
   <int value="1654" label="FILEMANAGERPRIVATE_CANCELMOUNTING"/>
@@ -2676,7 +2684,7 @@ Called by update_extension_histograms.py.-->
   <int value="1763" label="FILEMANAGERPRIVATE_PROGRESSPAUSEDTASKS"/>
   <int value="1764" label="BOOKMARKMANAGERPRIVATE_IMPORT"/>
   <int value="1765" label="BOOKMARKMANAGERPRIVATE_EXPORT"/>
-  <int value="1766" label="PASSWORDSPRIVATE_SHOWEXPORTEDFILEINSHELL"/>
+  <int value="1766" label="DELETED_PASSWORDSPRIVATE_SHOWEXPORTEDFILEINSHELL"/>
   <int value="1767" label="FILEMANAGERPRIVATE_TOGGLEBULKPINNING"/>
   <int value="1768" label="SMARTCARDPROVIDERPRIVATE_REPORTCONNECTRESULT"/>
   <int value="1769"
@@ -2686,7 +2694,7 @@ Called by update_extension_histograms.py.-->
   <int value="1772" label="DELETED_ACCESSIBILITY_PRIVATE_ISLACROSPRIMARY"/>
   <int value="1773" label="POWER_REPORTACTIVITY"/>
   <int value="1774" label="PASSWORDSPRIVATE_CONTINUEIMPORT"/>
-  <int value="1775" label="PASSWORDSPRIVATE_RESETIMPORTER"/>
+  <int value="1775" label="DELETED_PASSWORDSPRIVATE_RESETIMPORTER"/>
   <int value="1776" label="SMARTCARDPROVIDERPRIVATE_REPORTPLAINRESULT"/>
   <int value="1777" label="RUNTIME_GETCONTEXTS"/>
   <int value="1778" label="OS_EVENTS_ISEVENTSUPPORTED"/>
@@ -2786,7 +2794,8 @@ Called by update_extension_histograms.py.-->
   <int value="1867" label="ACCESSIBILITY_PRIVATE_INSTALLFACEGAZEASSETS"/>
   <int value="1868" label="OS_MANAGEMENT_SETAUDIOVOLUME"/>
   <int value="1869" label="AUTOTESTPRIVATE_SETDEVICELANGUAGE"/>
-  <int value="1870" label="AUTOFILLPRIVATE_SETAUTOFILLSYNCTOGGLEENABLED"/>
+  <int value="1870"
+      label="DELETED_AUTOFILLPRIVATE_SETAUTOFILLSYNCTOGGLEENABLED"/>
   <int value="1871"
       label="ODFSCONFIGPRIVATE_ISFILESYSTEMPROVIDERCLOUDFILESYSTEMENABLED"/>
   <int value="1872" label="PDFVIEWERPRIVATE_SETPDFDOCUMENTTITLE"/>
@@ -2807,8 +2816,10 @@ Called by update_extension_histograms.py.-->
   <int value="1885" label="WEBSTOREPRIVATE_GETFULLCHROMEVERSION"/>
   <int value="1886"
       label="ODFSCONFIGPRIVATE_ISFILESYSTEMPROVIDERCONTENTCACHEENABLED"/>
-  <int value="1887" label="PASSWORDSPRIVATE_DISCONNECTCLOUDAUTHENTICATOR"/>
-  <int value="1888" label="PASSWORDSPRIVATE_ISCONNECTEDTOCLOUDAUTHENTICATOR"/>
+  <int value="1887"
+      label="DELETED_PASSWORDSPRIVATE_DISCONNECTCLOUDAUTHENTICATOR"/>
+  <int value="1888"
+      label="DELETED_PASSWORDSPRIVATE_ISCONNECTEDTOCLOUDAUTHENTICATOR"/>
   <int value="1889" label="WEBSTOREPRIVATE_GETMV2DEPRECATIONSTATUS"/>
   <int value="1890" label="PERMISSIONS_ADDHOSTACCESSREQUEST"/>
   <int value="1891" label="PERMISSIONS_REMOVEHOSTACCESSREQUEST"/>
@@ -2816,7 +2827,7 @@ Called by update_extension_histograms.py.-->
   <int value="1893"
       label="DELETED_PASSWORDSPRIVATE_DELETEALLPASSWORDMANAGERDATA"/>
   <int value="1894"
-      label="DEVELOPERPRIVATE_DISMISSMV2DEPRECATIONNOTICEFOREXTENSION"/>
+      label="DELETED_DEVELOPERPRIVATE_DISMISSMV2DEPRECATIONNOTICEFOREXTENSION"/>
   <int value="1895" label="AUTOTESTPRIVATE_STARTOVERDRAWTRACKING"/>
   <int value="1896" label="AUTOTESTPRIVATE_STOPOVERDRAWTRACKING"/>
   <int value="1897" label="ACCESSIBILITY_PRIVATE_SCROLLATPOINT"/>
@@ -2903,6 +2914,32 @@ Called by update_extension_histograms.py.-->
   <int value="1965" label="MIMEHANDLER_GETSTREAMINFO"/>
   <int value="1966" label="INDIGOPRIVATE_GETORIGINALIMAGE"/>
   <int value="1967" label="INDIGOPRIVATE_GETREPLACEMENTIMAGE"/>
+  <int value="1968" label="OFFSCREEN_HASDOCUMENT"/>
+  <int value="1969" label="MIMEHANDLER_ABORTANDFALLBACKTONATIVEHANDLER"/>
+  <int value="1970" label="MIMEHANDLER_SETMIMEHANDLEROPTIONS"/>
+  <int value="1971" label="MIMEHANDLER_GETMIMEHANDLEROPTIONS"/>
+  <int value="1972" label="GLICPRIVATE_HASCONVERSATION"/>
+  <int value="1973" label="GLICPRIVATE_ACTIVATETABWITHCONVERSATION"/>
+  <int value="1974" label="CONTEXTUALTASKSPRIVATE_GETSTATE"/>
+  <int value="1975" label="CONTEXTUALTASKSPRIVATE_LAUNCHPANELINNEWTAB"/>
+  <int value="1976" label="DICTATIONPRIVATE_UPDATETRANSCRIPTION"/>
+  <int value="1977" label="DICTATIONPRIVATE_SETSTREAMSTATE"/>
+  <int value="1978" label="DELETED_WEBREQUESTINTERNAL_EVENTHANDLINGDONE"/>
+  <int value="1979" label="DICTATIONPRIVATE_UPDATEAUDIOLEVEL"/>
+  <int value="1980"
+      label="ENTERPRISEREPORTINGPRIVATE_REPORTFORCESAVETOCLOUDEVENTHANDLED"/>
+  <int value="1981" label="AUTOFILLPRIVATE_FETCHUSERDATAPROCESSINGCONSENT"/>
+  <int value="1982" label="DEVELOPERPRIVATE_OPENREVIEWPAGE"/>
+  <int value="1983" label="TABS_CREATESPLIT"/>
+  <int value="1984" label="RUNTIME_MARKLISTENERREGISTRATIONCOMPLETE"/>
+  <int value="1985" label="TABS_UNSPLIT"/>
+  <int value="1986" label="ENTERPRISE_WEBRTC_STARTCAPTURE"/>
+  <int value="1987" label="ENTERPRISE_WEBRTC_GETCAPTURESTATUS"/>
+  <int value="1988" label="ENTERPRISE_WEBRTC_STOPCAPTURE"/>
+  <int value="1989" label="ENTERPRISE_WEBRTC_GETSNAPSHOT"/>
+  <int value="1990" label="AUTOFILLPRIVATE_GETDETAILSFORUPSERTPASS"/>
+  <int value="1991" label="AUTOFILLPRIVATE_PRELOADDETAILSFORUPSERTPASS"/>
+  <int value="1992" label="EXPERIMENTALAIDATA_GETAPCSNAPSHOT"/>
 </enum>
 
 <!-- LINT.ThenChange(//extensions/browser/extension_function_histogram_value.h:HistogramValue) -->
@@ -3001,11 +3038,6 @@ Called by update_extension_histograms.py.-->
   <int value="8" label="COMMAND_LINE"/>
   <int value="9" label="EXTERNAL_POLICY"/>
   <int value="10" label="EXTERNAL_COMPONENT"/>
-</enum>
-
-<enum name="ExtensionMV2DeprecationAction">
-  <int value="0" label="Extension Removed"/>
-  <int value="1" label="Extension ReEnabled"/>
 </enum>
 
 <enum name="ExtensionNavigationScheme">
@@ -3116,7 +3148,7 @@ Called by update_extension_permission.py.-->
   <int value="85" label="kIdentity"/>
   <int value="86" label="kIdentityEmail"/>
   <int value="87" label="kDeleted_IdentityPrivate"/>
-  <int value="88" label="kIdltest"/>
+  <int value="88" label="kDeleted_Idltest"/>
   <int value="89" label="kIdle"/>
   <int value="90" label="kImeWindowEnabled"/>
   <int value="91" label="kDeleted_InlineInstallPrivate"/>
@@ -3296,6 +3328,46 @@ Called by update_extension_permission.py.-->
   <int value="265" label="kGlicPrivate"/>
   <int value="266" label="kGlicPrivateInvoke"/>
   <int value="267" label="kIndigoPrivate"/>
+  <int value="268" label="kContextualTasksPrivate"/>
+  <int value="269" label="kDictationPrivate"/>
+  <int value="270" label="kBluetoothSocket"/>
+  <int value="271" label="kBluetoothLowEnergy"/>
+  <int value="272" label="kBluetoothPeripheral"/>
+  <int value="273" label="kPublicSuffix"/>
+  <int value="274" label="kEnterpriseWebrtc"/>
+  <int value="275" label="kMimeTypesHandlerPdf"/>
+</enum>
+
+<enum name="ExtensionPinReason">
+  <int value="0" label="Pinned by default">
+    The extension was successfully pinned to the toolbar because the
+    kExtensionsPinnedByDefault feature flag is enabled, the user's &quot;Pin new
+    extensions&quot; toggle is ON, and no policy prevents it.
+  </int>
+  <int value="1" label="Not pinned (Toggle OFF)">
+    The extension was not pinned because the user disabled the &quot;Pin new
+    extensions&quot; toggle in chrome://extensions.
+  </int>
+  <int value="2" label="Not pinned (Feature Disabled)">
+    The extension was not pinned because the kExtensionsPinnedByDefault feature
+    is disabled.
+  </int>
+  <int value="3" label="Overridden by policy">
+    The pinning behavior was dictated by an enterprise policy. Because
+    enterprise policy takes precedence, it overrides both the feature flag and
+    user preference.
+  </int>
+  <int value="4" label="Not pinned (No action)">
+    The extension does not have a toolbar action, so pinning is not applicable.
+  </int>
+  <int value="5" label="Not pinned (Enterprise extension)">
+    The extension was not pinned by default because it is an
+    enterprise-installed extension.
+  </int>
+  <int value="6" label="Not pinned (Installed from sync)">
+    The extension was not pinned by default because it was installed via Chrome
+    Sync.
+  </int>
 </enum>
 
 <enum name="ExtensionPolicyReinstallReason">
@@ -3303,6 +3375,12 @@ Called by update_extension_permission.py.-->
   <int value="1" label="Corrupted Chrome Web Store extension"/>
   <int value="2" label="Corrupted non-webstore extension"/>
   <int value="4" label="Non-webstore extension without hashes skipped"/>
+</enum>
+
+<enum name="ExtensionRuntimeUninstallURLHost">
+  <int value="0" label="HTTPS"/>
+  <int value="1" label="Local HTTP"/>
+  <int value="2" label="Remote HTTP"/>
 </enum>
 
 <enum name="ExtensionsDatabaseOperation">
@@ -3486,7 +3564,21 @@ Called by update_extension_permission.py.-->
   <int value="3" label="Load failed - Checksum mismatch"/>
   <int value="4" label="Load failed - Version mismatch"/>
   <int value="5" label="Load failed - Checksum not found in prefs"/>
+  <int value="6" label="Load failed - Ruleset file size limit exceeded"/>
 </enum>
+
+<!-- LINT.IfChange(LowTrustPolicyBlockAction) -->
+
+<enum name="LowTrustPolicyBlockAction">
+  <int value="0" label="BlockedOnInstall"/>
+  <int value="1" label="SkippedDownload"/>
+  <int value="2" label="BlockedPolicyTakeoverOfUserInstall"/>
+  <int value="3" label="UninstalledOnTrustLoss"/>
+  <int value="4" label="CacheClearedOnPolicyRemoval"/>
+  <int value="5" label="CacheClearedOnTtlExpiration"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/extensions/policy_dse_ntp_override_metrics_reporter.h:LowTrustPolicyBlockAction) -->
 
 <enum name="ManifestInvalidAppStatusError">
   <int value="0" label="Unknown"/>
@@ -3523,13 +3615,6 @@ Called by update_extension_permission.py.-->
 
 <!-- LINT.ThenChange(/chrome/browser/extensions/chrome_extensions_browser_client.h:ManifestSettingsOverrideType) -->
 
-<enum name="ManifestVersionPopulationSplit">
-  <int value="0" label="No extensions"/>
-  <int value="1" label="Manifest Version 2 extensions only"/>
-  <int value="2" label="Manifest Version 2 and Manifest Version 3 extensions"/>
-  <int value="3" label="Manifest Version 3 extensions only"/>
-</enum>
-
 <!-- LINT.IfChange(MissingParams) -->
 
 <enum name="MissingParams">
@@ -3546,6 +3631,14 @@ Called by update_extension_permission.py.-->
   <int value="2" label="Re-enabled by user"/>
   <int value="3" label="Other (e.g. disabled for another reason)"/>
   <int value="4" label="Hard-disabled by Chrome"/>
+</enum>
+
+<enum name="NativeMessagingAndroidDisconnectionReason">
+  <int value="0" label="CleanUnbind"/>
+  <int value="1" label="ServiceDisconnected"/>
+  <int value="2" label="BindingDied"/>
+  <int value="3" label="NullBinding"/>
+  <int value="4" label="ServiceConnectionTimedOut"/>
 </enum>
 
 <enum name="OpenChannelMessagePipelineResult">
@@ -3583,6 +3676,18 @@ Called by update_extension_permission.py.-->
              serialization format)"/>
 </enum>
 
+<!-- LINT.IfChange(PolicyExtensionStatus) -->
+
+<enum name="PolicyExtensionStatus">
+  <int value="0" label="Disabled"/>
+  <int value="1" label="Enabled"/>
+  <int value="2" label="Blocked"/>
+  <int value="3" label="UserInstalledEnabled"/>
+  <int value="4" label="UserInstalledDisabled"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/extensions/policy_dse_ntp_override_metrics_reporter.h:PolicyExtensionStatus) -->
+
 <enum name="ReadDynamicRulesJSONStatus">
   <int value="0" label="kSuccess"/>
   <int value="1" label="kFileDoesNotExist"/>
@@ -3590,6 +3695,7 @@ Called by update_extension_permission.py.-->
   <int value="3" label="kJSONParseError"/>
   <int value="4" label="kJSONIsNotList"/>
   <int value="5" label="kRuleCountLimitExceeded"/>
+  <int value="6" label="kRulesetFileSizeLimitExceeded"/>
 </enum>
 
 <enum name="RegexRuleStatus">
@@ -3604,6 +3710,21 @@ Called by update_extension_permission.py.-->
   <int value="3" label="MODIFY_RESPONSE_HEADERS"/>
   <int value="4" label="SET_AUTH_CREDENTIALS"/>
 </enum>
+
+<!-- LINT.IfChange(SearchOverrideStackState) -->
+
+<enum name="SearchOverrideStackState">
+  <int value="0"
+      label="Single override (previous choice is the non-extension default)"/>
+  <int value="1" label="Acknowledged extension is next"/>
+  <int value="2" label="Unacknowledged chain over an acknowledged extension"/>
+  <int value="3" label="Unacknowledged chain over the non-extension default"/>
+  <int value="4" label="Extension that cannot be disabled is next"/>
+  <int value="5"
+      label="Unacknowledged chain over an extension that cannot be disabled"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/extensions/search_override_stack.h:SearchOverrideStackState) -->
 
 <enum name="ServiceWorkerExternalRequestResult">
   <int value="0" label="Ok"/>
@@ -3679,6 +3800,8 @@ Called by update_extension_permission.py.-->
   <int value="16" label="kErrorSerializeToJson"/>
   <int value="17" label="kErrorWriteJson"/>
   <int value="18" label="kErrorWriteFlatbuffer"/>
+  <int value="19" label="kErrorUnsafeRuleCountExceeded"/>
+  <int value="20" label="kErrorCreateMatcher_RulesetFileSizeLimitExceeded"/>
 </enum>
 
 <enum name="ValueStoreStatusCode">

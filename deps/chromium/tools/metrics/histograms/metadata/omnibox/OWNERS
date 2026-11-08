@@ -4,6 +4,8 @@ per-file OWNERS=file://tools/metrics/histograms/metadata/METRIC_REVIEWER_OWNERS
 # Use chromium-metrics-reviews@google.com as a backup.
 ender@google.com
 jdonnelly@chromium.org
+julietlevesque@google.com
 mahmadi@chromium.org
 manukh@chromium.org
+niharm@google.com
 toyoshim@chromium.org

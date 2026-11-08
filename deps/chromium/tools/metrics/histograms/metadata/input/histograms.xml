@@ -32,6 +32,21 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
+<histogram name="Input.CommitContent.{Result}" enum="ImeCommitContentExtension"
+    expires_after="2027-08-01">
+  <owner>hdchuong@google.com</owner>
+  <owner>essential-inputs-team@google.com</owner>
+  <summary>
+    Records the file extension format for {Result} IME commitContent
+    (image/media insertion) attempts. Logged on Android when an IME commits rich
+    media content via InputConnection#commitContent.
+  </summary>
+  <token key="Result">
+    <variant name="Failure" summary="failed"/>
+    <variant name="Success" summary="successful"/>
+  </token>
+</histogram>
+
 <histogram name="Input.Digitizer.MaxTouchPoints.{PointerDigitizerType}"
     units="maximum allowed touch points" expires_after="2027-01-01">
   <owner>kouhei@chromium.org</owner>
@@ -80,7 +95,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Input.Digitizer.{Interaction}" enum="PointerDigitizerType"
-    expires_after="2027-01-01">
+    expires_after="2027-03-07">
   <owner>kouhei@chromium.org</owner>
   <owner>gastonr@microsoft.com</owner>
   <owner>gerchiko@microsoft.com</owner>
@@ -143,7 +158,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Input.ToolType.Android" units="tool type"
-    expires_after="2026-10-04">
+    expires_after="2026-12-06">
   <owner>alexmitra@chromium.org</owner>
   <owner>flackr@chromium.org</owner>
   <owner>peconn@chromium.org</owner>
@@ -273,7 +288,7 @@ chromium-metrics-reviews@google.com.
 
 <histogram
     name="InputMethod.Assistive.AutocorrectV2.Distance.SuggestedLength.{Keyboard}{Interaction}"
-    units="chars" expires_after="2026-12-01">
+    units="chars" expires_after="2027-02-07">
   <owner>zacpartridge@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -867,7 +882,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.CharactersPerSession{InputModality}"
-    units="characters" expires_after="2026-12-01">
+    units="characters" expires_after="2027-02-28">
   <owner>curtismcmullan@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -914,7 +929,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.Commit.Type2" enum="IMECommitType2"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>dvallet@chromium.org</owner>
   <owner>shuchen@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
@@ -1024,7 +1039,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.Handwriting.LanguagePackState"
-    enum="LanguagePackState" expires_after="2026-12-01">
+    enum="LanguagePackState" expires_after="2027-02-07">
   <owner>curtismcmullan@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -1035,7 +1050,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.ID2" enum="InputMethodID2"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>tranbaoduy@chromium.org</owner>
   <owner>shuchen@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
@@ -1062,7 +1077,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.ImeSwitch" enum="IMESwitchType"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>dvallet@chromium.org</owner>
   <owner>timloh@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
@@ -1070,7 +1085,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.KeyEventLatency" units="ms"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>shend@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>Time taken by the engine to handle a key event.</summary>
@@ -1448,7 +1463,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.Manta.Orca.{Language}.States.{Mode}"
-    enum="IMEEditorStates" expires_after="2026-12-01">
+    enum="IMEEditorStates" expires_after="2027-02-07">
   <owner>curtismcmullan@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -1628,7 +1643,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.PhysicalKeyboard.KeyboardShortcut"
-    enum="PhysicalKeyboardShortcut" expires_after="2026-12-01">
+    enum="PhysicalKeyboardShortcut" expires_after="2027-02-07">
   <owner>wbjacksonjr@chromium.org</owner>
   <owner>embedded-experience@google.com</owner>
   <summary>
@@ -1798,7 +1813,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.StylusHandwriting.Gesture"
-    enum="StylusHandwritingGesture" expires_after="2026-09-27">
+    enum="StylusHandwritingGesture" expires_after="2027-07-29">
   <owner>peconn@chromium.org</owner>
   <owner>embedded-experience@google.com</owner>
   <summary>
@@ -1809,7 +1824,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.StylusHandwriting.GestureResult"
-    enum="StylusHandwritingGestureResult" expires_after="2026-07-29">
+    enum="StylusHandwritingGestureResult" expires_after="2027-07-29">
   <owner>alexmitra@chromium.org</owner>
   <owner>embedded-experience@google.com</owner>
   <summary>
@@ -1818,7 +1833,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.StylusHandwriting.GestureTime2" units="ms"
-    expires_after="2026-07-29">
+    expires_after="2027-07-29">
   <owner>alexmitra@chromium.org</owner>
   <owner>embedded-experience@google.com</owner>
   <summary>
@@ -1829,7 +1844,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.StylusHandwriting.Triggered"
-    enum="StylusHandwritingApi" expires_after="2026-09-27">
+    enum="StylusHandwritingApi" expires_after="2027-07-29">
   <owner>peconn@chromium.org</owner>
   <owner>embedded-experience@google.com</owner>
   <summary>
@@ -1863,7 +1878,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.SystemEmojiPicker.LoadTime" units="ms"
-    expires_after="2026-12-01">
+    expires_after="2027-04-04">
   <owner>jopalmer@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -1891,7 +1906,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.TouchSelection.DragType"
-    enum="TouchSelectionDragType" expires_after="2026-12-01">
+    enum="TouchSelectionDragType" expires_after="2027-02-07">
   <owner>michellegc@google.com</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -2059,7 +2074,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.VirtualKeyboard.InitLatency.KeyboardShownLongTail"
-    units="ms" expires_after="2026-12-01">
+    units="ms" expires_after="2027-04-04">
   <owner>jopalmer@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -2070,7 +2085,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.VirtualKeyboard.InitLatency{IMEVKLatency}"
-    units="ms" expires_after="2026-12-01">
+    units="ms" expires_after="2027-04-04">
   <owner>shend@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -2156,7 +2171,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="InputMethod.VirtualKeyboard.ResizableWindowWidth" units="px"
-    expires_after="2026-12-01">
+    expires_after="2027-02-07">
   <owner>curtismcmullan@chromium.org</owner>
   <owner>essential-inputs-team@google.com</owner>
   <summary>
@@ -2195,10 +2210,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stylus.Handwriting.RequestHandwritingForPointer"
-    enum="Hresult" expires_after="2026-09-06">
+    enum="Hresult" expires_after="2027-09-06">
   <owner>flackr@chromium.org</owner>
   <owner>johna@microsoft.com</owner>
-  <owner>gerchiko@microsoft.com</owner>
+  <owner>mjackson@microsoft.com</owner>
   <summary>
     Records the HRESULT returned by RequestHandwritingForPointer. This is only
     applicable to users on Windows.
@@ -2206,10 +2221,10 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Stylus.Handwriting.TSFFocus" enum="Boolean"
-    expires_after="2026-09-06">
+    expires_after="2027-09-06">
   <owner>flackr@chromium.org</owner>
   <owner>johna@microsoft.com</owner>
-  <owner>gerchiko@microsoft.com</owner>
+  <owner>mjackson@microsoft.com</owner>
   <summary>
     Records whether the TSF focus was successfully set. This is only applicable
     to users on Windows.
@@ -2217,7 +2232,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TextInputClient.CharacterIndex.TimedOut" enum="Boolean"
-    expires_after="2026-08-16">
+    expires_after="2027-03-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2230,7 +2245,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TextInputClient.CharacterIndex2" units="ms"
-    expires_after="2026-08-16">
+    expires_after="2027-03-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2245,7 +2260,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TextInputClient.FirstRect.TimedOut" enum="Boolean"
-    expires_after="2026-10-25">
+    expires_after="2027-02-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2258,7 +2273,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TextInputClient.FirstRect2" units="ms"
-    expires_after="2026-10-25">
+    expires_after="2027-02-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2273,7 +2288,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="TextInputClient.GetCachedFirstRectResult"
-    enum="GetCachedFirstRectResult" expires_after="2026-10-18">
+    enum="GetCachedFirstRectResult" expires_after="2027-02-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2285,38 +2300,8 @@ chromium-metrics-reviews@google.com.
   </summary>
 </histogram>
 
-<histogram name="TextInputClient.InSyncRequest.CharacterIndex" enum="Boolean"
-    expires_after="2026-08-16">
-  <owner>joenotcharles@google.com</owner>
-  <owner>input-dev@chromium.org</owner>
-  <summary>
-    Recorded per call from a browser process thread to query
-    GetCharacterIndexAtPoint on a renderer process, with True if the thread is
-    already inside a call to GetCharacterIndexAtPoint or GetFirstRectForRange,
-    False otherwise. The call is intended to be synchronous, but nested event
-    loops can cause it to re-enter. This counts how often that happens.
-
-    Only recorded on macOS.
-  </summary>
-</histogram>
-
-<histogram name="TextInputClient.InSyncRequest.FirstRect" enum="Boolean"
-    expires_after="2026-10-25">
-  <owner>joenotcharles@google.com</owner>
-  <owner>input-dev@chromium.org</owner>
-  <summary>
-    Recorded per call from a browser process thread to query
-    GetFirstRectForRange on a renderer process, with True if the thread is
-    already inside a call to GetCharacterIndexAtPoint or GetFirstRectForRange,
-    False otherwise. The call is intended to be synchronous, but nested event
-    loops can cause it to re-enter. This counts how often that happens.
-
-    Only recorded on macOS.
-  </summary>
-</histogram>
-
 <histogram name="TextInputClient.LockWait2" units="ms"
-    expires_after="2026-10-25">
+    expires_after="2027-02-28">
   <owner>joenotcharles@google.com</owner>
   <owner>input-dev@chromium.org</owner>
   <summary>
@@ -2332,7 +2317,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Touch.DevicePosture.{Instance}" enum="PostureMode"
-    expires_after="2026-06-20">
+    expires_after="2027-06-20">
   <owner>robliao@chromium.org</owner>
   <owner>wangsongjin@microsoft.com</owner>
   <owner>gerchiko@microsoft.com</owner>

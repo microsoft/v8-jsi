@@ -5,7 +5,6 @@
 #ifndef BASE_MEMORY_COORDINATOR_MEMORY_CONSUMER_H_
 #define BASE_MEMORY_COORDINATOR_MEMORY_CONSUMER_H_
 
-#include <optional>
 #include <string>
 #include <string_view>
 
@@ -13,8 +12,10 @@
 #include "base/check_op.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory_coordinator/memory_consumer_registry_destruction_observer.h"
+#include "base/memory_coordinator/memory_limit.h"
 #include "base/memory_coordinator/traits.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/observer_list_types.h"
 #include "base/sequence_checker.h"
 #include "base/types/pass_key.h"
 
@@ -50,6 +51,14 @@ class MemoryConsumerRegistry;
 // a consumer should wait for a subsequent call to `OnReleaseMemory()` to free
 // any memory that exceeds that limit.
 //
+// IMPORTANT: `OnUpdateMemoryLimit()` and `OnReleaseMemory()` are NOT invoked
+// while a consumer is being registered, because synchronous registrations (via
+// `MemoryConsumerRegistration`) typically happen during construction. The
+// initial limit is still applied, so if your implementation maintains state
+// derived from the limit, you must query `memory_limit()` in your constructor
+// body to initialize it correctly. (Asynchronous registrations do not have
+// this limitation as they notify asynchronously after construction).
+//
 // Here is an example implementation for a consumer that manages a cache with a
 // LRU eviction policy.
 //
@@ -61,13 +70,12 @@ class MemoryConsumerRegistry;
 //   void OnUpdateMemoryLimit() override {
 //     // Update the maximum size of the cache, but don't decrease that maximum
 //     // size below its current size to avoid freeing memory.
-//     int target_cache_size = ScaleByMemoryLimit(kDefaultCacheMaxSize,
-//                                                memory_limit());
+//     int target_cache_size = memory_limit().Scale(kDefaultCacheMaxSize);
 //     cache_.SetMaxSize(std::max(cache_.size(), target_cache_size));
 //   }
 //   void OnReleaseMemory() override {
 //     cache_.SetMaxSizeAndEvictExtraEntries(
-//         ScaleByMemoryLimit(kDefaultCacheMaxSize, memory_limit()));
+//         memory_limit().Scale(kDefaultCacheMaxSize));
 //   }
 //
 //  private:
@@ -75,21 +83,31 @@ class MemoryConsumerRegistry;
 //   LRUCache cache_;
 // };
 //
-class BASE_EXPORT MemoryConsumer {
+// Note: If you need to support multiple memory interventions in the same class,
+// do not inherit from MemoryConsumer directly. Instead, use
+// MultiMemoryConsumer (defined in
+// base/memory_coordinator/multi_memory_consumer.h) which is specifically
+// designed to support multiple registrations.
+//
+class BASE_EXPORT MemoryConsumer : public CheckedObserver {
  public:
-  // This is the default value for a consumer's memory limit. It corresponds to
-  // 100%, meaning the consumer is not restricted in its memory usage.
+  // Deprecated: Use `base::MemoryLimit::Default()` or
+  // `base::MemoryLimit::Default().ratio()` instead.
+  // TODO(crbug.com/441951621): Remove after migration to base::MemoryLimit is
+  // complete.
   static constexpr int kDefaultMemoryLimit = 100;
   static constexpr double kDefaultMemoryLimitRatio = 1.0;
 
   MemoryConsumer();
-  virtual ~MemoryConsumer() = default;
+  ~MemoryConsumer() override = default;
 
-  // The memory limit, expressed as a percentage.
-  int memory_limit() const { return memory_limit_; }
+  virtual bool IsPassive() const;
 
-  // Same as `memory_limit`, but expressed as a ratio.
-  double memory_limit_ratio() const { return memory_limit_ / 100.0; }
+  // The memory limit assigned to this instance.
+  MemoryLimit memory_limit() const { return memory_limit_; }
+
+  // Same as `memory_limit().ratio()`, provided for convenience.
+  double memory_limit_ratio() const { return memory_limit_.ratio(); }
 
  protected:
   // Invoked when memory above the current `memory_limit()` should be freed.
@@ -100,30 +118,39 @@ class BASE_EXPORT MemoryConsumer {
   virtual void OnUpdateMemoryLimit() = 0;
 
  private:
-  friend class RegisteredMemoryConsumer;
+  friend class MemoryConsumerRegistry;
   friend class AsyncMemoryConsumerRegistration;
 
   // Instructs this consumer to update its internal memory limit. See the class
   // comment above for a detailed description of how this limit works.
-  void UpdateMemoryLimit(int percentage);
+  void UpdateMemoryLimit(MemoryLimit memory_limit);
 
   // Instructs this consumer to release memory that is above the current
   // `memory_limit()`.
   void ReleaseMemory();
 
-  int memory_limit_ = kDefaultMemoryLimit;
+  MemoryLimit memory_limit_ = MemoryLimit::Default();
+
+  // True while this consumer is being added to the MemoryConsumerRegistry.
+  // `OnUpdateMemoryLimit()` and `OnReleaseMemory()` are suppressed during that
+  // time because synchronous registration typically happens during the
+  // consumer's construction. `memory_limit_` is still updated.
+  bool is_registering_ = false;
 
   SEQUENCE_CHECKER(sequence_checker_);
 };
 
 // A PassiveMemoryConsumer is a MemoryConsumer that does not react to memory
 // pressure. It is intended for consumers that only need to query the current
-// memory limit.
+// memory limit. Passive consumers can optionally override
+// OnUpdateMemoryLimit(), but are not allowed to override and use
+// OnReleaseMemory().
 class BASE_EXPORT PassiveMemoryConsumer : public MemoryConsumer {
  public:
   // MemoryConsumer:
   void OnReleaseMemory() final {}
-  void OnUpdateMemoryLimit() final {}
+  void OnUpdateMemoryLimit() override {}
+  bool IsPassive() const final;
 };
 
 // Similar to ScopedObservation, registers a MemoryConsumer with the global
@@ -133,11 +160,6 @@ class BASE_EXPORT PassiveMemoryConsumer : public MemoryConsumer {
 // registration object is destroyed before the destruction of the global
 // registry. It can be useful to disable this assert for globals that are
 // sometimes leaked.
-//
-// If `check_registry_exists` is kEnabled, this class will assert that the
-// global MemoryConsumerRegistry exists at the time the registration object is
-// created. Useful for MemoryConsumers that are used indirectly in tests where
-// there are no MemoryConsumerRegistry.
 class BASE_EXPORT MemoryConsumerRegistration
     : public MemoryConsumerRegistryDestructionObserver {
  public:
@@ -145,21 +167,12 @@ class BASE_EXPORT MemoryConsumerRegistration
     kEnabled,
     kDisabled,
   };
-  enum class CheckRegistryExists {
-    kEnabled,
-    kDisabled,
-  };
 
-  // `traits` is only optional temporarily to assist with the migration of
-  // clients from MemoryPressureListener to MemoryCoordinator. It will be made
-  // mandatory in the future.
   MemoryConsumerRegistration(
       std::string_view consumer_name,
-      std::optional<MemoryConsumerTraits> traits,
+      MemoryConsumerTraits traits,
       MemoryConsumer* consumer,
-      CheckUnregister check_unregister = CheckUnregister::kEnabled,
-      CheckRegistryExists check_registry_exists =
-          CheckRegistryExists::kEnabled);
+      CheckUnregister check_unregister = CheckUnregister::kEnabled);
 
   MemoryConsumerRegistration(const MemoryConsumerRegistration&) = delete;
   MemoryConsumerRegistration& operator=(const MemoryConsumerRegistration&) =
@@ -193,21 +206,6 @@ class BASE_EXPORT MemoryConsumerRegistration
 
   raw_ptr<MemoryConsumerRegistry> registry_;
 };
-
-// Scales a baseline value linearly by the provided `memory_limit` (expressed as
-// a percentage, e.g., 100 for 1.0x).
-//
-// The result is truncated towards zero and clamped to the range of the
-// type to prevent overflow.
-template <typename T>
-T ScaleByMemoryLimit(T baseline, int memory_limit) {
-  static_assert(std::is_integral_v<T>, "T must be an integral type.");
-  CHECK_GE(memory_limit, 0);
-  // Calculate the ratio first (memory_limit / 100.0) to avoid potential
-  // overflow during multiplication and then scale the baseline.
-  double ratio = memory_limit / 100.0;
-  return base::saturated_cast<T>(baseline * ratio);
-}
 
 }  // namespace base
 

@@ -4,15 +4,16 @@
 
 #include "partition_alloc/thread_isolation/thread_isolation.h"
 
+#include "partition_alloc/buildflags.h"
 #include "partition_alloc/partition_alloc_base/compiler_specific.h"
 
 #if PA_BUILDFLAG(ENABLE_THREAD_ISOLATION)
 
 #include "partition_alloc/address_pool_manager.h"
+#include "partition_alloc/internal/reservation_offset_table_internal.h"
 #include "partition_alloc/page_allocator.h"
 #include "partition_alloc/partition_alloc_check.h"
-#include "partition_alloc/partition_alloc_constants.h"
-#include "partition_alloc/reservation_offset_table.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 
 #if PA_BUILDFLAG(ENABLE_PKEYS)
 #include "partition_alloc/thread_isolation/pkey.h"
@@ -22,7 +23,7 @@ namespace partition_alloc::internal {
 
 #if PA_BUILDFLAG(DCHECKS_ARE_ON) || \
     PA_BUILDFLAG(ENABLE_PARTITION_LOCK_REENTRANCY_CHECK)
-PA_CONSTINIT ThreadIsolationSettings ThreadIsolationSettings::settings;
+constinit ThreadIsolationSettings ThreadIsolationSettings::settings;
 #endif
 
 void WriteProtectThreadIsolatedMemory(ThreadIsolationOption thread_isolation,

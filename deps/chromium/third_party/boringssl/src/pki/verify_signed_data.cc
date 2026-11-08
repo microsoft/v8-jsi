@@ -238,7 +238,8 @@ bool VerifySignedData(SignatureAlgorithm algorithm, der::Input signed_data,
       is_rsa_pss = true;
       break;
 
-    case SignatureAlgorithm::kMtcProofDraftDavidben08:
+    case SignatureAlgorithm::kMtcProofDraftPlants04:
+    case SignatureAlgorithm::kMtcProof:
       // This function can't verify MTC proofs.
       return false;
 
@@ -286,7 +287,7 @@ bool VerifySignedData(SignatureAlgorithm algorithm, der::Input signed_data,
   OpenSSLErrStackTracer err_tracer;
 
   bssl::ScopedEVP_MD_CTX ctx;
-  EVP_PKEY_CTX *pctx = nullptr;  // Owned by |ctx|.
+  EVP_PKEY_CTX *pctx = nullptr;  // Owned by `ctx`.
 
   if (!EVP_DigestVerifyInit(ctx.get(), &pctx, digest, nullptr, public_key)) {
     return false;

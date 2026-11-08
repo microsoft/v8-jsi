@@ -15,6 +15,13 @@ if (!defined(partition_alloc_remove_configs)) {
   partition_alloc_remove_configs = []
 }
 
+_can_unwind_with_frame_pointers =
+    defined(can_unwind_with_frame_pointers) && can_unwind_with_frame_pointers
+_dcheck_is_configurable =
+    defined(dcheck_is_configurable) && dcheck_is_configurable
+_enable_expensive_dchecks =
+    defined(enable_expensive_dchecks) && enable_expensive_dchecks
+
 record_alloc_info = false
 
 # GWP-ASan is tied to BRP's enablement.
@@ -78,6 +85,8 @@ config("dependants_extra_warnings") {
       "-Winvalid-constexpr",
       "-Winvalid-offsetof",
       "-Wmissing-field-initializers",
+      "-Wnontrivial-memaccess",
+      "-Wnontrivial-memcall",
       "-Wnon-c-typedef-for-linkage",
       "-Wpessimizing-move",
       "-Wrange-loop-analysis",
@@ -138,6 +147,10 @@ declare_args() {
   partition_alloc_realloc_growth_factor_mitigation = false
 }
 
+# Sanitizers replace the allocator, don't use our own.
+memory_tool_replaces_allocator =
+    is_asan || is_hwasan || is_lsan || is_tsan || is_msan
+
 pa_buildflag_header("buildflags") {
   header = "buildflags.h"
   flags = [
@@ -145,15 +158,17 @@ pa_buildflag_header("buildflags") {
     "USER_SPACE_ZERO_SEGMENT_SIZE_MB=$user_space_zero_segment_size_mb",
     "BACKUP_REF_PTR_EXTRA_OOB_CHECKS=$backup_ref_ptr_extra_oob_checks",
     "BACKUP_REF_PTR_POISON_OOB_PTR=$backup_ref_ptr_poison_oob_ptr",
-    "CAN_UNWIND_WITH_FRAME_POINTERS=$can_unwind_with_frame_pointers",
+    "CAN_UNWIND_WITH_FRAME_POINTERS=$_can_unwind_with_frame_pointers",
     "CHECKED_SPAN=$use_checked_span",
+    "CHECKED_SPAN_HAS_METADATA_SUPPORT=$checked_span_has_metadata_support",
     "DCHECKS_ARE_ON=$partition_alloc_dchecks_are_on",
-    "DCHECK_IS_CONFIGURABLE=$dcheck_is_configurable",
+    "DCHECK_IS_CONFIGURABLE=$_dcheck_is_configurable",
     "ENABLE_AUTO_PARTITIONING=$enable_auto_partitioning",
     "ENABLE_BACKUP_REF_PTR_FEATURE_FLAG=$enable_backup_ref_ptr_feature_flag",
     "ENABLE_BACKUP_REF_PTR_INSTANCE_TRACER=$enable_backup_ref_ptr_instance_tracer",
     "ENABLE_BACKUP_REF_PTR_SLOW_CHECKS=$enable_backup_ref_ptr_slow_checks",
     "ENABLE_BACKUP_REF_PTR_SUPPORT=$enable_backup_ref_ptr_support",
+    "ENABLE_BRP_FOR_UNPROTECTED_IN_RELEASE_RAW_PTR=$enable_brp_for_unprotected_in_release_raw_ptr",
     "ENABLE_DANGLING_RAW_PTR_CHECKS=$enable_dangling_raw_ptr_checks",
     "ENABLE_DANGLING_RAW_PTR_FEATURE_FLAG=$enable_dangling_raw_ptr_feature_flag",
     "ENABLE_GWP_ASAN_SUPPORT=$enable_gwp_asan_support",
@@ -167,21 +182,24 @@ pa_buildflag_header("buildflags") {
     "MOVE_METADATA_OUT_OF_GIGACAGE_FOR_64_BITS_POINTERS=$move_metadata_outside_gigacage",
     "ENABLE_MOVE_METADATA_OUT_OF_GIGACAGE_TRIAL=$enable_move_metadata_outside_gigacage_trial",
     "ENABLE_THREAD_ISOLATION=$enable_pkeys",
-    "EXPENSIVE_DCHECKS_ARE_ON=$enable_expensive_dchecks",
+    "EXPENSIVE_DCHECKS_ARE_ON=$_enable_expensive_dchecks",
     "FORCE_DISABLE_BACKUP_REF_PTR_FEATURE=$force_disable_backup_ref_ptr_feature",
     "FORCE_ENABLE_RAW_PTR_EXCLUSION=$force_enable_raw_ptr_exclusion",
     "FORWARD_THROUGH_MALLOC=$forward_through_malloc",
     "HAS_64_BIT_POINTERS=$has_64_bit_pointers",
     "HAS_MEMORY_TAGGING=$has_memory_tagging",
     "IS_ANDROID=$is_android",
-    "IS_CASTOS=$is_castos",
     "IS_CHROMEOS=$is_chromeos",
+    "IS_COMPONENT_BUILD=$is_component_build",
     "IS_DEBUG=$partition_alloc_is_debug",
     "IS_HWASAN=$is_hwasan",
+    "MEMORY_TOOL_REPLACES_ALLOCATOR=$memory_tool_replaces_allocator",
+    "OFFICIAL=$partition_alloc_is_official_build",
     "RAW_PTR_ZERO_ON_CONSTRUCT=$raw_ptr_zero_on_construct",
     "RAW_PTR_ZERO_ON_DESTRUCT=$raw_ptr_zero_on_destruct",
     "RAW_PTR_ZERO_ON_MOVE=$raw_ptr_zero_on_move",
     "REALLOC_GROWTH_FACTOR_MITIGATION=$partition_alloc_realloc_growth_factor_mitigation",
+    "REMOVE_UNPROTECTED_IN_RELEASE_TRAIT=$remove_unprotected_in_release_trait",
     "RECORD_ALLOC_INFO=$record_alloc_info",
     "SHIM_SUPPORTS_ALLOC_TOKEN=$shim_supports_alloc_token",
     "SHIM_SUPPORTS_SIZED_DEALLOC=$shim_supports_sized_dealloc",
@@ -225,16 +243,25 @@ component("raw_ptr") {
     "pointers/raw_ptr_exclusion.h",
     "pointers/raw_ptr_noop_impl.h",
     "pointers/raw_ref.h",
+    "pointers/realloc_protected_iterator.h",
   ]
-  sources = [ "pointers/instance_tracer.cc" ]
+  sources = [
+    "pointers/instance_tracer.cc",
+    "pointers/realloc_protected_iterator.cc",
+  ]
   public_configs = [ ":public_includes" ]
   configs += [ ":wexit_time_destructors" ]
+  deps = []
 
   if (use_raw_ptr_backup_ref_impl) {
     sources += [
       "pointers/raw_ptr_backup_ref_impl.cc",
       "pointers/raw_ptr_backup_ref_impl.h",
     ]
+
+    # Depends on FreeAfterBRPQuarantine(). Is it possible to make
+    # FreeAfterBRPQuarantine() PA_NOINLINE like FreeNoInline?
+    deps += [ ":internal_headers" ]
   } else if (use_raw_ptr_hookable_impl) {
     sources += [
       "pointers/raw_ptr_hookable_impl.cc",
@@ -263,6 +290,7 @@ component("raw_ptr") {
   configs -= partition_alloc_remove_configs
   configs += partition_alloc_add_configs
   configs += [ ":dependants_extra_warnings" ]
+  check_includes_strict = CHECK_INCLUDES_STRICT_PUBLIC_INCLUDES_PRIVATE
 }
 
 if (is_clang_or_gcc) {
@@ -333,7 +361,8 @@ if (is_clang_or_gcc) {
     if (!is_component_build) {
       # This is already set when we compile libc++, see
       # buildtools/third_party/libc++/BUILD.gn. But it needs to be set here as
-      # well, since the shim defines the symbols, to prevent them being exported.
+      # well, since the shim defines the symbols, to prevent them being
+      # exported.
       cflags = [ "-fvisibility-global-new-delete=force-hidden" ]
     }
   }
@@ -379,6 +408,28 @@ if (is_clang_or_gcc) {
     }
   }
 
+  source_set("internal_headers") {
+    visibility = [
+      ":allocator_core",
+      ":death_unittests",
+      ":raw_ptr",
+      ":test_support",
+      ":unittests",
+    ]
+
+    sources = [
+      "internal/page_allocator_internal.h",
+      "internal/partition_address_space_internal.h",
+      "internal/partition_page_internal.h",
+      "internal/partition_root_exports.h",
+      "internal/partition_root_internal.h",
+      "internal/partition_root_internal_forward.h",
+      "internal/partition_superpage_extent_entry_internal.h",
+      "internal/reservation_offset_table_internal.h",
+      "internal/thread_cache_internal.h",
+    ]
+  }
+
   component("allocator_core") {
     visibility = [ ":*" ]
 
@@ -412,15 +463,20 @@ if (is_clang_or_gcc) {
       "compressed_pointer.h",
       "dangling_raw_ptr_checks.cc",
       "dangling_raw_ptr_checks.h",
+      "debug_data_on_stack.h",
       "extent_in_bounds.h",
       "flags.h",
+      "fnv1a_consteval.h",
+      "free_hint.h",
       "gwp_asan_support.cc",
       "gwp_asan_support.h",
       "in_slot_metadata.cc",
       "in_slot_metadata.h",
+      "intended_leak.cc",
       "internal_allocator.cc",
       "internal_allocator.h",
       "internal_allocator_forward.h",
+      "linux_name_region.h",
       "memory_reclaimer.cc",
       "memory_reclaimer.h",
       "oom.cc",
@@ -430,7 +486,6 @@ if (is_clang_or_gcc) {
       "page_allocator.cc",
       "page_allocator.h",
       "page_allocator_constants.h",
-      "page_allocator_internal.h",
       "partition_address_space.cc",
       "partition_address_space.h",
       "partition_alloc-inl.h",
@@ -443,6 +498,7 @@ if (is_clang_or_gcc) {
       "partition_alloc_forward.h",
       "partition_alloc_hooks.cc",
       "partition_alloc_hooks.h",
+      "partition_alloc_public_constants.h",
       "partition_bucket.cc",
       "partition_bucket.h",
       "partition_cookie.cc",
@@ -463,16 +519,19 @@ if (is_clang_or_gcc) {
       "partition_stats.cc",
       "partition_stats.h",
       "partition_superpage_extent_entry.h",
+      "partition_tls.cc",
       "partition_tls.h",
       "random.cc",
       "random.h",
       "reservation_offset_table.cc",
       "reservation_offset_table.h",
       "reverse_bytes.h",
+      "safety_checks.h",
       "scheduler_loop_quarantine.cc",
       "scheduler_loop_quarantine.h",
       "scheduler_loop_quarantine_support.cc",
       "scheduler_loop_quarantine_support.h",
+      "simple_algorithms.h",
       "slot_address_and_size.cc",
       "slot_address_and_size.h",
       "slot_start.cc",
@@ -503,9 +562,13 @@ if (is_clang_or_gcc) {
       sources += [
         "page_allocator_internals_posix.cc",
         "page_allocator_internals_posix.h",
+        "partition_tls_posix.cc",
       ]
     } else if (is_fuchsia) {
-      sources += [ "page_allocator_internals_fuchsia.h" ]
+      sources += [
+        "page_allocator_internals_fuchsia.h",
+        "partition_tls_posix.cc",
+      ]
     }
     if (is_android) {
       # The Android NDK supports PR_MTE_* macros as of NDK r23.
@@ -539,7 +602,10 @@ if (is_clang_or_gcc) {
       ":memory_tagging",
       ":wexit_time_destructors",
     ]
-    deps = [ ":allocator_base" ]
+    deps = [
+      ":allocator_base",
+      ":internal_headers",
+    ]
     if (use_partition_alloc_as_malloc_on_win_component_build) {
       # We need to add explicit libc++ dependency here because of
       # no_default_deps=true.
@@ -581,7 +647,8 @@ if (is_clang_or_gcc) {
     configs += [ ":dependants_extra_warnings" ]
 
     # We want to be able to test pkey mode without access to the default pkey.
-    # This is incompatible with stack protectors since the TLS won't be pkey-tagged.
+    # This is incompatible with stack protectors since the TLS won't be
+    # pkey-tagged.
     if (enable_pkeys && partition_alloc_is_debug) {
       configs += [ ":no_stack_protector" ]
 
@@ -613,7 +680,6 @@ if (is_clang_or_gcc) {
 
     sources = [
       "partition_alloc_base/atomic_ref_count.h",
-      "partition_alloc_base/augmentations/compiler_specific.h",
       "partition_alloc_base/bit_cast.h",
       "partition_alloc_base/bits.h",
       "partition_alloc_base/check.cc",
@@ -945,9 +1011,11 @@ if (is_clang_or_gcc) {
           "shim/allocator_shim_win_component.cc",
         ]
 
-        # allocator_shim cannot depend on libc++ objects because they use malloc()
-        # internally.
-        no_default_deps = true
+        # allocator_shim cannot depend on libc++ objects because they use
+        # malloc() internally.
+        if (build_with_chromium) {
+          no_default_deps = true
+        }
       }
     }
 
@@ -973,8 +1041,9 @@ if (is_clang_or_gcc) {
     if (use_allocator_shim) {
       sources += shim_sources
     } else {
-      # To avoid "lld-link: error: <root>: undefined symbol: _DllMainCRTStartup",
-      # at least one object file is required when linking allocator_shim.dll.
+      # To avoid "lld-link: error: <root>: undefined symbol:
+      # _DllMainCRTStartup", at least one object file is required when linking
+      # allocator_shim.dll.
       sources += [ "shim/empty.cc" ]
     }
 
@@ -1009,11 +1078,9 @@ if (build_with_chromium) {
   source_set("unittests") {
     testonly = true
 
-    sources = [
-      "partition_alloc_base/test/gtest_util.h",
-      "use_death_tests.h",
-    ]
+    sources = []
     deps = []
+    deps += [ ":internal_headers" ]
 
     if (is_linux || is_chromeos || is_android) {
       deps += [ ":debug_proc_maps" ]
@@ -1047,8 +1114,10 @@ if (build_with_chromium) {
         "partition_alloc_base/strings/stringprintf_pa_unittest.cc",
         "partition_alloc_base/thread_annotations_pa_unittest.cc",
         "partition_lock_unittest.cc",
+        "pointers/realloc_protected_iterator_unittest.cc",
         "reverse_bytes_unittest.cc",
         "scheduler_loop_quarantine_unittest.cc",
+        "stack/stack_unittest.cc",
         "thread_cache_unittest.cc",
       ]
 
@@ -1141,11 +1210,9 @@ if (build_with_chromium) {
   source_set("death_unittests") {
     testonly = true
 
-    sources = [
-      "partition_alloc_base/test/gtest_util.h",
-      "use_death_tests.h",
-    ]
+    sources = []
     deps = []
+    deps += [ ":internal_headers" ]
 
     if (is_linux || is_chromeos || is_android) {
       deps += [ ":debug_proc_maps" ]
@@ -1185,6 +1252,24 @@ if (build_with_chromium) {
     # enable the diagnostic by removing this line.
     configs += [ "//build/config/compiler:no_exit_time_destructors" ]
   }
+
+  source_set("perftests") {
+    testonly = true
+    sources = [
+      "partition_alloc_perftest.cc",
+      "partition_lock_perftest.cc",
+    ]
+
+    deps = [
+      ":partition_alloc",
+      ":test_support",
+      "//testing/gtest",
+      "//testing/perf",
+    ]
+
+    configs -= partition_alloc_remove_configs
+    configs += partition_alloc_add_configs
+  }
 }
 
 source_set("test_support") {
@@ -1193,11 +1278,15 @@ source_set("test_support") {
   sources = [
     "extended_api.cc",
     "extended_api.h",
+    "partition_alloc_base/test/gtest_util.h",
     "partition_alloc_base/test/move_only_int.h",
     "partition_alloc_base/threading/platform_thread_for_testing.h",
+    "partition_alloc_base/timer/lap_timer.cc",
+    "partition_alloc_base/timer/lap_timer.h",
     "partition_alloc_for_testing.h",
     "pointers/raw_ptr_counting_impl_for_test.cc",
     "pointers/raw_ptr_counting_impl_for_test.h",
+    "use_death_tests.h",
   ]
   if (is_posix) {
     sources += [
@@ -1218,6 +1307,10 @@ source_set("test_support") {
     sources += [
       "partition_alloc_base/threading/platform_thread_apple_for_testing.mm",
     ]
+    frameworks = [
+      "CoreFoundation.framework",
+      "Foundation.framework",
+    ]
   }
   if (is_linux || is_chromeos) {
     sources += [
@@ -1231,10 +1324,16 @@ source_set("test_support") {
   }
   public_deps = [
     ":arm_bti_testfunctions",
+    ":build_config",
     ":buildflags",
     ":partition_alloc",
     ":raw_ptr",
+    "//testing/gtest",
   ]
+
+  # "extended_api.cc" depends on thread_cache_internal.h.
+  deps = [ ":internal_headers" ]
+
   public_configs = []
 
   if (is_fuchsia) {

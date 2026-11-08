@@ -126,9 +126,40 @@ chromium-metrics-reviews@google.com.
   <int value="26" label="Cue not shown: disabled by enterprise policy">
     Cue could not be shown because it is disabled by enterprise policy.
   </int>
+  <int value="27" label="Cue not shown: age restriction enforced">
+    Cue could not be shown because the user is subject to age restrictions.
+  </int>
+  <int value="28" label="Cue not shown: no cues returned">
+    Model response was successful but returned no cues.
+  </int>
+  <int value="29" label="Cue not shown: not enough time since last click">
+    Cue could not be shown because not enough time has passed since the last
+    click.
+  </int>
+  <int value="30" label="Cue not shown: anchored message already showing">
+    Cue could not be shown because another anchored message is already showing.
+  </int>
+  <int value="31" label="Cue not shown: tab in split view">
+    Cue could not be shown because the tab is being shown in split view.
+  </int>
+  <int value="32" label="Cue not shown: WebContents destroyed">
+    Cue could not be shown because WebContents was destroyed during async
+    eligibility check.
+  </int>
+  <int value="33"
+      label="Cue not shown: tab navigated away or inactive after eligibility
+             check">
+    Cue could not be shown because the tab navigated away or became inactive
+    during async eligibility check.
+  </int>
+  <int value="34" label="Cue not shown: user ineligible">
+    (iOS only) Cue could not be shown because the user is not eligible for
+    Gemini (e.g., missing account capability, or disabled by enterprise or
+    workspace policy).
+  </int>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/contextual_cueing/contextual_cueing_enums.h:ContextualCueingDecision) -->
+<!-- LINT.ThenChange(//components/contextual_cueing/contextual_cueing_enums.h:ContextualCueingDecision) -->
 
 <!-- LINT.IfChange(ContextualCueingInteraction) -->
 
@@ -145,7 +176,7 @@ chromium-metrics-reviews@google.com.
   </int>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/contextual_cueing/contextual_cueing_enums.h:ContextualCueingInteraction) -->
+<!-- LINT.ThenChange(//components/contextual_cueing/contextual_cueing_enums.h:ContextualCueingInteraction) -->
 
 <!-- LINT.IfChange(NudgeDecision) -->
 
@@ -279,6 +310,29 @@ chromium-metrics-reviews@google.com.
     request) was invalid.
   </int>
 </enum>
+
+<!-- LINT.IfChange(CueFormFactor) -->
+
+<enum name="CueFormFactor">
+  <int value="0" label="Icon">The page action icon form factor.</int>
+  <int value="1" label="Chip">The page action chip form factor.</int>
+  <int value="2" label="AnchoredMessage">
+    The page action anchored message form factor.
+  </int>
+</enum>
+
+<!-- LINT.ThenChange(//components/contextual_cueing/contextual_cueing_enums.h:CueFormFactor) -->
+
+<!-- LINT.IfChange(CueTargetType) -->
+
+<enum name="CueTargetType">
+  <int value="0" label="Glic"/>
+  <int value="1" label="Test Source"/>
+  <int value="2" label="Indigo"/>
+  <int value="3" label="ContextualSearch"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/contextual_cueing/cue_target.h:CueTargetType) -->
 
 <!-- LINT.IfChange(GlicAutoOpenResult) -->
 

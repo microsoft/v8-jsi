@@ -117,7 +117,7 @@ ASN1_OBJECT *c2i_ASN1_OBJECT(ASN1_OBJECT **out, const unsigned char **inp,
         ASN1_OBJECT_create(NID_undef, CBS_data(cbs), CBS_len(cbs),
                            /*sn=*/nullptr, /*ln=*/nullptr);
     if (ret != nullptr) {
-      // |c2i_ASN1_OBJECT| consumes its whole input on success.
+      // `c2i_ASN1_OBJECT` consumes its whole input on success.
       BSSL_CHECK(CBS_skip(cbs, CBS_len(cbs)));
     }
     return ret;
@@ -158,12 +158,12 @@ void ASN1_OBJECT_free(ASN1_OBJECT *a) {
     return;
   }
   if (a->flags & ASN1_OBJECT_FLAG_DYNAMIC_STRINGS) {
-    OPENSSL_free((void *)a->sn);
-    OPENSSL_free((void *)a->ln);
+    OPENSSL_free(const_cast<char *>(a->sn));
+    OPENSSL_free(const_cast<char *>(a->ln));
     a->sn = a->ln = nullptr;
   }
   if (a->flags & ASN1_OBJECT_FLAG_DYNAMIC_DATA) {
-    OPENSSL_free((void *)a->data);
+    OPENSSL_free(const_cast<uint8_t *>(a->data));
     a->data = nullptr;
     a->length = 0;
   }

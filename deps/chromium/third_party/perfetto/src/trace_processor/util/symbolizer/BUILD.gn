@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import("../../../../gn/perfetto.gni")
+import("../../../../gn/perfetto_component.gni")
 import("../../../../gn/test.gni")
 
-source_set("symbolizer") {
+perfetto_component("symbolizer") {
   public_deps = [ "../../../../include/perfetto/ext/base" ]
   deps = [ "../../../../gn:default_deps" ]
   sources = [
@@ -23,6 +24,8 @@ source_set("symbolizer") {
     "breakpad_parser.h",
     "breakpad_symbolizer.cc",
     "breakpad_symbolizer.h",
+    "debuginfod.cc",
+    "debuginfod.h",
     "elf.h",
     "filesystem.h",
     "filesystem_posix.cc",
@@ -38,16 +41,17 @@ source_set("symbolizer") {
 }
 
 if (enable_perfetto_trace_processor) {
-  source_set("symbolize_database") {
+  perfetto_component("symbolize_database") {
     public_deps = [
       ":symbolizer",
       "../../../../include/perfetto/ext/base",
     ]
     deps = [
       "../:build_id",
+      "../:cold_sort",
       "../../../../gn:default_deps",
       "../../../../include/perfetto/protozero",
-      "../../../../include/perfetto/trace_processor:trace_processor",
+      "../../../../include/perfetto/trace_processor",
       "../../../../protos/perfetto/trace:zero",
       "../../../../protos/perfetto/trace/profiling:zero",
     ]
@@ -79,6 +83,7 @@ if (enable_perfetto_llvm_symbolizer) {
     cflags += [ "-fvisibility=hidden" ]  # Not currently necessary, but good for
                                          # future-proofing.
   }
+
   source_set("llvm_symbolizer_c_api") {
     sources = [ "llvm_symbolizer_c_api.h" ]
     deps = [ "../../../../gn:default_deps" ]
@@ -98,7 +103,6 @@ if (enable_perfetto_llvm_symbolizer) {
     visibility = [
       "../../../../buildtools/*",
       "../../../trace_processor/*",
-      "../../perfetto_sql/intrinsics/functions",
       "./*",
     ]
   }
@@ -117,6 +121,17 @@ perfetto_unittest_source_set("unittests") {
     "breakpad_symbolizer_unittest.cc",
     "local_symbolizer_unittest.cc",
   ]
+  if (enable_perfetto_trace_processor) {
+    sources += [ "symbolize_database_unittest.cc" ]
+    deps += [
+      ":symbolize_database",
+      "../../../../include/perfetto/trace_processor",
+      "../../../../protos/perfetto/trace:cpp",
+      "../../../../protos/perfetto/trace/interned_data:cpp",
+      "../../../../protos/perfetto/trace/profiling:cpp",
+      "../../../../protos/perfetto/trace/track_event:cpp",
+    ]
+  }
   if (enable_perfetto_llvm_symbolizer) {
     sources += [ "llvm_symbolizer_unittest.cc" ]
     deps += [ ":llvm_symbolizer" ]

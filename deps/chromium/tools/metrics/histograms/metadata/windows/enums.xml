@@ -26,12 +26,96 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<!-- LINT.IfChange(DelegatedTaskStatus) -->
+
+<enum name="DelegatedTaskStatus">
+  <summary>Outcome status of executing a delegated task.</summary>
+  <int value="0" label="Success"/>
+  <int value="1" label="PEH Not Found"/>
+  <int value="2" label="Process Launch Failure"/>
+  <int value="3" label="Runner Destroyed Before Task Completion"/>
+  <int value="4" label="Invalid Exit Code"/>
+  <int value="5" label="Watch Process Handle Failure"/>
+  <int value="6" label="Task Timeout"/>
+  <int value="7" label="Invalid Task Type"/>
+  <int value="8" label="Invalid Args"/>
+  <int value="9" label="PEH Validation Failure"/>
+  <int value="10" label="Unsupported Version"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/platform_experience/delegated_tasks/delegated_task.h:DelegatedTaskStatus) -->
+
 <enum name="DisplayIdResult">
   <int value="0" label="Error">Error calling EnumDisplayDevices</int>
   <int value="1" label="Empty">DISPLAY_DEVICE data was empty</int>
   <int value="2" label="Conflict">Display ID conflict detected</int>
   <int value="3" label="Valid">Display ID was not empty and unique</int>
 </enum>
+
+<!-- LINT.IfChange(FirmwareVmVendor) -->
+
+<enum name="FirmwareVmVendor">
+  <summary>
+    The virtualization vendor identified from the SMBIOS/firmware strings.
+  </summary>
+  <int value="0" label="None">Firmware looks like a physical machine.</int>
+  <int value="1" label="Unrecognized VM vendor">
+    Generic VM strings (e.g. &quot;Virtual Machine&quot;) from an unrecognized
+    vendor. Counts as a VM, unlike the CPUID &quot;Unknown&quot; bucket.
+  </int>
+  <int value="2" label="Read failed">
+    Firmware tables could not be read (&quot;don't know&quot;).
+  </int>
+  <int value="3" label="Hyper-V"/>
+  <int value="4" label="VMware"/>
+  <int value="5" label="VirtualBox"/>
+  <int value="6" label="QEMU/KVM"/>
+  <int value="7" label="Xen"/>
+  <int value="8" label="Parallels"/>
+  <int value="9" label="bhyve"/>
+  <int value="10" label="Google Compute Engine"/>
+  <int value="11" label="Amazon EC2">
+    Nitro instances only. Xen-based instances report as Xen.
+  </int>
+  <int value="12" label="Alibaba Cloud"/>
+  <int value="13" label="OpenStack"/>
+  <int value="14" label="Nutanix"/>
+  <int value="15" label="Apple Virtualization"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/activity_reporter/virtual_machine_win.h:FirmwareVmVendor) -->
+
+<!-- LINT.IfChange(HypervisorType) -->
+
+<enum name="HypervisorType">
+  <summary>The hypervisor identified via the CPUID hypervisor leaves.</summary>
+  <int value="0" label="None">No hypervisor: a physical machine.</int>
+  <int value="1" label="Unknown">
+    Hypervisor-present bit set, vendor not recognized. May be a physical host
+    running under a security hypervisor (&quot;don't know&quot;). Counts as not
+    a VM, unlike the SMBIOS &quot;Unrecognized VM vendor&quot; bucket.
+  </int>
+  <int value="2" label="Unsupported architecture">
+    Windows on ARM64, native or x86/x64 emulated: CPUID is unavailable or
+    synthesized (&quot;don't know&quot;).
+  </int>
+  <int value="3" label="Hyper-V guest">
+    Hyper-V/Azure VM or Windows Sandbox.
+  </int>
+  <int value="4" label="Hyper-V root">
+    The Hyper-V host: a physical machine with VBS, WSL2 or similar enabled.
+  </int>
+  <int value="5" label="VMware"/>
+  <int value="6" label="VirtualBox"/>
+  <int value="7" label="KVM"/>
+  <int value="8" label="QEMU TCG"/>
+  <int value="9" label="Xen"/>
+  <int value="10" label="Parallels"/>
+  <int value="11" label="bhyve"/>
+  <int value="12" label="ACRN"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/activity_reporter/virtual_machine_win.h:HypervisorType) -->
 
 <!-- LINT.IfChange(InstallerDownloaderFailureReason) -->
 
@@ -45,11 +129,15 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//chrome/browser/win/installer_downloader/installer_downloader_model_impl.cc:InstallerDownloaderFailureReason) -->
 
+<!-- LINT.IfChange(IsPinnedToTaskbarResult) -->
+
 <enum name="IsPinnedToTaskbarResult">
   <int value="0" label="Not pinned"/>
   <int value="1" label="Pinned"/>
   <int value="2" label="Failed to determine"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/shell_integration_win.h:IsPinnedToTaskbarResult) -->
 
 <enum name="NTSTATUS">
   <int value="-2147483647" label="0x80000001 - STATUS_GUARD_PAGE_VIOLATION"/>
@@ -2632,6 +2720,7 @@ https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_2.7.1.pdf
   <int value="9" label="kOtherErrorsMoveSuccess"/>
   <int value="10" label="kUnableToMoveReplacement2MoveFailed"/>
   <int value="11" label="kUnableToMoveReplacement2MoveSuccess"/>
+  <int value="12" label="kUnableToMoveReplacement2MoveSuccessWithBackup"/>
 </enum>
 
 <!-- LINT.IfChange(SystemInstallerLaunchStatus) -->
@@ -2690,6 +2779,21 @@ and the result of attempting to pin to taskbar when user requests it.
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/platform_experience/installer/installer_win.cc:UserInstallerLaunchStatus) -->
+
+<!-- LINT.IfChange(VmDetectionAgreement) -->
+
+<enum name="VmDetectionAgreement">
+  <summary>Which VM-guest detection implementations detected a VM.</summary>
+  <int value="0" label="Neither"/>
+  <int value="1" label="CPUID only"/>
+  <int value="2" label="SMBIOS only">
+    Expected for nested virtualization, on ARM64 (native or x86/x64 emulated)
+    and when CPUID reports an unrecognized hypervisor.
+  </int>
+  <int value="3" label="Both"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/activity_reporter/virtual_machine_win.h:VmDetectionAgreement) -->
 
 <enum name="WindowsPatchLevel">
 <!-- These can be generated by visiting https://bit.ly/2JQr6rB -->

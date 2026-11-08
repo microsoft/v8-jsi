@@ -8,10 +8,12 @@ Intended to be used to split up the large histograms.xml or enums.xml file.
 """
 
 import os
+from pathlib import Path
 import re
-from xml.dom import minidom
+import xml.etree.ElementTree as ET
 
 import setup_modules  # pylint: disable=unused-import
+
 
 import chromium_src.tools.metrics.common.path_util as path_util
 import chromium_src.tools.metrics.histograms.histogram_configuration_model as histogram_configuration_model
@@ -44,89 +46,85 @@ AGGREGATE_THRESHOLD = 20
 # A map from the histogram name to the folder name these histograms should be
 # put in.
 _PREDEFINED_NAMES_MAPPING = {
-    'BackForwardCache': 'BackForwardCache',
-    'ChromeOS': 'ChromeOS',
-    'CustomTabs': 'CustomTabs',
-    'CustomTab': 'CustomTabs',
-    'DataReductionProxy': 'DataReductionProxy',
-    'DataUse': 'DataUse',
-    'MultiDevice': 'MultiDevice',
-    'NaCl': 'NaCl',
-    'SafeBrowsing': 'SafeBrowsing',
-    'SafeBrowsingBinaryUploadRequest': 'SafeBrowsing',
-    'SafeBrowsingFCMService': 'SafeBrowsing',
-    'NewTabPage': 'NewTabPage',
-    'SiteEngagementService': 'SiteEngagementService',
-    'SiteIsolation': 'SiteIsolation',
-    'Tabs': 'Tab',
-    'TextFragmentAnchor': 'TextFragmentAnchor',
-    'TextToSpeech': 'TextToSpeech',
-    'UpdateEngine': 'UpdateEngine',
-    'WebApk': 'WebApk',
-    'WebApp': 'WebApp',
-    'WebAudio': 'WebAudio',
-    'WebAuthentication': 'WebAuthentication',
-    'WebCore': 'WebCore',
-    'WebFont': 'WebFont',
-    'WebHistory': 'WebHistory',
-    'WebRTC': 'WebRTC',
-    'WebRtcEventLogging': 'WebRTC',
-    'WebRtcTextLogging': 'WebRTC',
-    'WebUI': 'WebUI',
-    'WebUITabStrip': 'WebUI',
+  'BackForwardCache': 'BackForwardCache',
+  'ChromeOS': 'ChromeOS',
+  'CustomTabs': 'CustomTabs',
+  'CustomTab': 'CustomTabs',
+  'DataReductionProxy': 'DataReductionProxy',
+  'DataUse': 'DataUse',
+  'MultiDevice': 'MultiDevice',
+  'NaCl': 'NaCl',
+  'SafeBrowsing': 'SafeBrowsing',
+  'SafeBrowsingBinaryUploadRequest': 'SafeBrowsing',
+  'SafeBrowsingFCMService': 'SafeBrowsing',
+  'NewTabPage': 'NewTabPage',
+  'SiteEngagementService': 'SiteEngagementService',
+  'SiteIsolation': 'SiteIsolation',
+  'Tabs': 'Tab',
+  'TextFragmentAnchor': 'TextFragmentAnchor',
+  'TextToSpeech': 'TextToSpeech',
+  'UpdateEngine': 'UpdateEngine',
+  'WebApk': 'WebApk',
+  'WebApp': 'WebApp',
+  'WebAudio': 'WebAudio',
+  'WebAuthentication': 'WebAuthentication',
+  'WebCore': 'WebCore',
+  'WebFont': 'WebFont',
+  'WebHistory': 'WebHistory',
+  'WebRTC': 'WebRTC',
+  'WebRtcEventLogging': 'WebRTC',
+  'WebRtcTextLogging': 'WebRTC',
+  'WebUI': 'WebUI',
+  'WebUITabStrip': 'WebUI',
 }
 
 
 def _ParseMergedXML():
   """Parses merged xml into different types of nodes"""
   merged_histograms = merge_xml.MergeFiles(histogram_paths.HISTOGRAMS_XMLS)
-  histogram_nodes = merged_histograms.getElementsByTagName('histogram')
-  variants_nodes = merged_histograms.getElementsByTagName('variants')
-  histogram_suffixes_nodes = merged_histograms.getElementsByTagName(
-      'histogram_suffixes')
-  return histogram_nodes, variants_nodes, histogram_suffixes_nodes
+  histogram_nodes = list(merged_histograms.findall('.//histogram'))
+  variants_nodes = list(merged_histograms.findall('.//variants'))
+  return histogram_nodes, variants_nodes
 
 
 def _CreateXMLFile(comment, parent_node_string, nodes, output_dir, filename):
   """Creates XML file for given type of XML nodes.
 
   This function also creates a |parent_node_string| tag as the parent node, e.g.
-  <histograms> or <histogram_suffixes_list>, that wraps all the |nodes| in the
-  output XML.
+  <histograms>, that wraps all the |nodes| in the output XML.
 
   Args:
     comment: The string to be formatted in the |TOP_LEVEL_COMMENT_TEMPLATE|
         which will then be added on top of each split xml.
     parent_node_string: The name of the the second-level parent node, e.g.
-        <histograms> or <histogram_suffixes_list>.
-    nodes: A DOM NodeList object or a list containing <histogram> or
-        <histogram_suffixes> that will be inserted under the parent node.
+        <histograms>.
+    nodes: A list of ET.Element objects containing <histogram> that will be
+        inserted under the parent node.
     output_dir: The output directory.
     filename: The output filename.
   """
-  doc = minidom.Document()
-
-  doc.appendChild(doc.createComment(FIRST_TOP_LEVEL_COMMENT_TEMPLATE))
-  doc.appendChild(doc.createComment(SECOND_TOP_LEVEL_COMMENT_TEMPLATE %
-                                    comment))
-
-  # Create the <histogram-configuration> node for the new histograms.xml file.
-  histogram_config_element = doc.createElement('histogram-configuration')
-  doc.appendChild(histogram_config_element)
-  parent_element = doc.createElement(parent_node_string)
-  histogram_config_element.appendChild(parent_element)
-
-  # Under the parent node, append the children nodes.
+  root = ET.Element('histogram-configuration')
+  parent_element = ET.SubElement(root, parent_node_string)
   for node in nodes:
-    parent_element.appendChild(node)
+    parent_element.append(node)
 
-  output_path = os.path.join(output_dir, filename)
+  xml_string = ET.tostring(root, encoding='utf-8')
+  if isinstance(xml_string, bytes):
+    xml_string = xml_string.decode('utf-8')
+
+  first_comment = f'<!--{FIRST_TOP_LEVEL_COMMENT_TEMPLATE}-->'
+  second_comment = f'<!--{SECOND_TOP_LEVEL_COMMENT_TEMPLATE % comment}-->'
+  full_xml_string = f'{first_comment}\n{second_comment}\n{xml_string}'
+
+  output_path = str(Path(output_dir) / filename)
   if os.path.exists(output_path):
     os.remove(output_path)
 
   # Use the model to get pretty-printed XML string and write into file.
-  with open(output_path, 'w') as output_file:
-    pretty_xml_string = histogram_configuration_model.PrettifyTree(doc)
+  with open(output_path, 'w', encoding='utf-8', newline='\n') as output_file:
+    pretty_xml_string = histogram_configuration_model.PrettifyTree(
+      full_xml_string
+    )
     output_file.write(pretty_xml_string)
 
 
@@ -149,7 +147,7 @@ def _GetCamelCaseName(node, depth=0):
     The camelcase name part at specified depth. If the number of name parts is
     less than the depth, return 'others'.
   """
-  name = node.getAttribute('name')
+  name = node.get('name')
   split_string_list = name.split('.')
   if len(split_string_list) <= depth:
     return 'others'
@@ -199,11 +197,11 @@ def _OutputToFolderAndXML(nodes, output_dir, key):
     key: The prefix of the histograms, also the name of the new folder.
   """
   # Convert CamelCase name to snake_case when creating a directory.
-  output_dir = os.path.join(output_dir, _CamelCaseToSnakeCase(key))
-  if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-  _CreateXMLFile(key + ' histograms', 'histograms', nodes, output_dir,
-                 'histograms.xml')
+  output_dir = Path(output_dir) / _CamelCaseToSnakeCase(key)
+  output_dir.mkdir(parents=True, exist_ok=True)
+  _CreateXMLFile(
+    key + ' histograms', 'histograms', nodes, output_dir, 'histograms.xml'
+  )
 
 
 def _WriteDocumentDict(document_dict, output_dir):
@@ -218,7 +216,7 @@ def _WriteDocumentDict(document_dict, output_dir):
     if isinstance(val, list):
       _OutputToFolderAndXML(val, output_dir, key)
     else:
-      _WriteDocumentDict(val, os.path.join(output_dir, key))
+      _WriteDocumentDict(val, str(Path(output_dir) / key))
 
 
 def _AggregateMinorNodes(node_dict):
@@ -287,12 +285,7 @@ def SplitIntoMultipleHistogramXMLs(output_base_dir):
   if not os.path.exists(output_base_dir):
     os.mkdir(output_base_dir)
 
-  histogram_nodes, variants_nodes, histogram_suffixes_nodes = _ParseMergedXML()
-
-  # Create separate XML file for histogram suffixes.
-  _CreateXMLFile('histogram suffixes', 'histogram_suffixes_list',
-                 histogram_suffixes_nodes, output_base_dir,
-                 'histogram_suffixes_list.xml')
+  histogram_nodes, variants_nodes = _ParseMergedXML()
   document_dict = _BuildDocumentDict(histogram_nodes + variants_nodes, 0)
 
   _WriteDocumentDict(document_dict, output_base_dir)
@@ -300,4 +293,5 @@ def SplitIntoMultipleHistogramXMLs(output_base_dir):
 
 if __name__ == '__main__':
   SplitIntoMultipleHistogramXMLs(
-      path_util.GetInputFile('tools/metrics/histograms/metadata'))
+    path_util.GetInputFile('tools/metrics/histograms/metadata')
+  )

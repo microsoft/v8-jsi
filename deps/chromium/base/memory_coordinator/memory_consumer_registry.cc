@@ -4,9 +4,15 @@
 
 #include "base/memory_coordinator/memory_consumer_registry.h"
 
+#include "base/auto_reset.h"
 #include "base/check.h"
 #include "base/check_op.h"
 #include "base/hash/hash.h"
+#include "build/build_config.h"
+
+#if BUILDFLAG(IS_ANDROID)
+#include "base/memory_coordinator/memory_consumer_android.h"
+#endif
 
 namespace base {
 
@@ -16,17 +22,16 @@ MemoryConsumerRegistry* g_memory_consumer_registry = nullptr;
 
 }  // namespace
 
-void RegisteredMemoryConsumer::UpdateMemoryLimit(int percentage) {
-  memory_consumer_->UpdateMemoryLimit(percentage);
+void MemoryConsumerRegistry::NotifyReleaseMemory(MemoryConsumer* consumer) {
+  CHECK(consumer);
+  consumer->ReleaseMemory();
 }
 
-void RegisteredMemoryConsumer::ReleaseMemory() {
-  memory_consumer_->ReleaseMemory();
+void MemoryConsumerRegistry::NotifyUpdateMemoryLimit(MemoryConsumer* consumer,
+                                                     MemoryLimit memory_limit) {
+  CHECK(consumer);
+  consumer->UpdateMemoryLimit(memory_limit);
 }
-
-RegisteredMemoryConsumer::RegisteredMemoryConsumer(
-    MemoryConsumer* memory_consumer)
-    : memory_consumer_(memory_consumer) {}
 
 // static
 bool MemoryConsumerRegistry::Exists() {
@@ -48,6 +53,13 @@ MemoryConsumerRegistry* MemoryConsumerRegistry::MaybeGet() {
 void MemoryConsumerRegistry::Set(MemoryConsumerRegistry* instance) {
   CHECK_NE(bool(g_memory_consumer_registry), bool(instance));
   g_memory_consumer_registry = instance;
+#if BUILDFLAG(IS_ANDROID)
+  if (g_memory_consumer_registry) {
+    android::FlushPendingMemoryConsumerRegistrations();
+  } else {
+    android::OnMemoryConsumerRegistryDestroyed();
+  }
+#endif
 }
 
 MemoryConsumerRegistry::MemoryConsumerRegistry() = default;
@@ -62,15 +74,27 @@ MemoryConsumerRegistry::~MemoryConsumerRegistry() {
   CHECK(destruction_observers_.empty());
 }
 
-void MemoryConsumerRegistry::AddMemoryConsumer(
-    std::string_view consumer_name,
-    std::optional<MemoryConsumerTraits> traits,
-    MemoryConsumer* consumer) {
+void MemoryConsumerRegistry::AddMemoryConsumer(std::string_view consumer_name,
+                                               MemoryConsumerTraits traits,
+                                               MemoryConsumer* consumer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
+  if (traits.consumer_type == MemoryConsumerTraits::ConsumerType::kPassive) {
+    CHECK(consumer->IsPassive())
+        << "Active MemoryConsumer registered with Passive traits: "
+        << consumer_name;
+  }
+  // TODO(crbug.com/489671163): Re-enable the check that passive consumers
+  // don't register with active traits once all clients have been migrated.
+
   uint32_t consumer_id = PersistentHash(consumer_name);
-  OnMemoryConsumerAdded(consumer_id, consumer_name, traits,
-                        RegisteredMemoryConsumer(consumer));
+
+  // Suppress the consumer's callbacks for the duration of the registration,
+  // which typically happens during its construction. Implementations may
+  // still push an initial limit to the consumer synchronously; only
+  // `memory_limit()` is updated in that case.
+  AutoReset<bool> is_registering(&consumer->is_registering_, true);
+  OnMemoryConsumerAdded(consumer_id, consumer_name, traits, consumer);
 }
 
 void MemoryConsumerRegistry::RemoveMemoryConsumer(
@@ -78,7 +102,7 @@ void MemoryConsumerRegistry::RemoveMemoryConsumer(
     MemoryConsumer* consumer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   uint32_t consumer_id = PersistentHash(consumer_name);
-  OnMemoryConsumerRemoved(consumer_id, RegisteredMemoryConsumer(consumer));
+  OnMemoryConsumerRemoved(consumer_id, consumer);
 }
 
 void MemoryConsumerRegistry::AddDestructionObserver(

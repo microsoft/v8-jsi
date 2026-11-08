@@ -49,7 +49,7 @@ def LoadSymbols(pdb_name):
 def ShowExtras(symbols_A, symbols_B, name_A, name_B):
     print('Symbols that are in %s but not in %s' % (name_A, name_B))
     for key in symbols_A:
-        if not key in symbols_B:
+        if key not in symbols_B:
             # Print all the numerical data, followed by the symbol name,
             # separated by tabs.
             print('\t'.join(symbols_A[key] + [key]))
@@ -82,8 +82,10 @@ def main():
         print('No data found in %s - fastlink?' % sys.argv[2])
         return
 
-    print('%d interesting globals in %s, %d interesting globals in %s' %
-          (len(symbols_1), sys.argv[1], len(symbols_2), sys.argv[2]))
+    print(
+        '%d interesting globals in %s, %d interesting globals in %s'
+        % (len(symbols_1), sys.argv[1], len(symbols_2), sys.argv[2])
+    )
 
     ShowExtras(symbols_1, symbols_2, sys.argv[1], sys.argv[2])
     ShowExtras(symbols_2, symbols_1, sys.argv[2], sys.argv[1])

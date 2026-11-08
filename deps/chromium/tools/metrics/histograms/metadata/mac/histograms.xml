@@ -22,47 +22,6 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
-<histogram name="Mac.AppClonefileError" enum="MacErrno"
-    expires_after="2025-08-03">
-  <owner>avi@chromium.org</owner>
-  <owner>src/ui/base/cocoa/OWNERS</owner>
-  <summary>
-    The `errno` from the `clonefile` syscall. This histogram is emitted once at
-    browser startup.
-  </summary>
-</histogram>
-
-<histogram name="Mac.AppCodeSignCloneCount" units="count"
-    expires_after="2025-10-05">
-  <owner>avi@chromium.org</owner>
-  <owner>src/ui/base/cocoa/OWNERS</owner>
-  <summary>
-    The current count of app clones in the code sign clone temp dir. This
-    histogram is emitted once at browser startup.
-  </summary>
-</histogram>
-
-<histogram name="Mac.AppCodeSignCloneCreationTime" units="ms"
-    expires_after="2025-09-14">
-  <owner>avi@chromium.org</owner>
-  <owner>src/ui/base/cocoa/OWNERS</owner>
-  <summary>
-    The time it took in milliseconds to create the browser app code sign clone.
-    Logged once at browser startup.
-  </summary>
-</histogram>
-
-<histogram name="Mac.AppCodeSignCloneExists" enum="MacCloneExists"
-    expires_after="2025-08-03">
-  <owner>avi@chromium.org</owner>
-  <owner>src/ui/base/cocoa/OWNERS</owner>
-  <summary>
-    The existence of the clone on disk. This histogram is emitted up to two
-    times. Once, immediately after successful clone creation. Then again, if the
-    clone is prematurely removed.
-  </summary>
-</histogram>
-
 <histogram name="Mac.AppFileSystemType" enum="MacFileSystemType"
     expires_after="2025-09-14">
   <owner>avi@chromium.org</owner>
@@ -70,16 +29,6 @@ chromium-metrics-reviews@google.com.
   <summary>
     The file system type where the running instance of Chrome is installed. This
     histogram is emitted once at browser startup.
-  </summary>
-</histogram>
-
-<histogram name="Mac.AppHardLinkError" enum="MacErrno"
-    expires_after="2025-10-05">
-  <owner>avi@chromium.org</owner>
-  <owner>src/ui/base/cocoa/OWNERS</owner>
-  <summary>
-    The `errno` from the `link` syscall. This histogram is emitted once at
-    browser startup.
   </summary>
 </histogram>
 
@@ -91,6 +40,57 @@ chromium-metrics-reviews@google.com.
     The dynamic code signature validation status of Chrome with a pending Chrome
     update on disk. A single metric is emitted about an hour after an update to
     the running instance of Chrome has been staged on disk.
+  </summary>
+</histogram>
+
+<histogram
+    name="Mac.Experimental.Process.{Counter}.{ProcessType}{StartupState}"
+    units="counter value" expires_after="2027-03-07">
+  <owner>spvm@chromium.org</owner>
+  <owner>catan-team@chromium.org</owner>
+  <summary>
+    Records the {StartupState} of the {Counter} in the {ProcessType} process on
+    macOS. This is polled periodically using proc_pidinfo(..., PROC_PIDTASKINFO,
+    ...).
+
+    Recorded once every 30 seconds for the browser, GPU, and network processes,
+    and once every 30 seconds for every 1/20th renderer or utility process.
+  </summary>
+  <token key="Counter">
+    <variant name="ContextSwitchesPerSec" summary="Context Switches/sec"/>
+    <variant name="CowFaultsPerSec" summary="Copy-On-Write Page Faults/sec"/>
+    <variant name="MajorPageFaultsPerSec" summary="Major Page Faults/sec"/>
+    <variant name="PageFaultsPerSec" summary="Page Faults/sec"/>
+    <variant name="ResidentSize" summary="Resident Memory Size (MB)"/>
+    <variant name="ResidentVirtualRatio"
+        summary="Resident to Virtual Memory Ratio (%)"/>
+    <variant name="RunningThreadCount" summary="Running Thread Count"/>
+    <variant name="ThreadCount" summary="Thread Count"/>
+    <variant name="VirtualSize" summary="Virtual Memory Size (MB)"/>
+  </token>
+  <token key="ProcessType">
+    <variant name="Browser" summary="Browser"/>
+    <variant name="Extension" summary="Extension Renderer"/>
+    <variant name="Gpu" summary="GPU"/>
+    <variant name="NetworkService" summary="Network Service"/>
+    <variant name="Other" summary="Other"/>
+    <variant name="Renderer" summary="Renderer"/>
+    <variant name="Utility" summary="Non-network utility"/>
+  </token>
+  <token key="StartupState">
+    <variant name="" summary="value"/>
+    <variant name=".FirstSample" summary="first recorded value by process"/>
+  </token>
+</histogram>
+
+<histogram name="Mac.GlassFrame.MacOS26LiquidGlassPreferredLook"
+    enum="MacOS26LiquidGlassPreferredLook" expires_after="2027-07-15">
+  <owner>dpenning@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Logs the preferred look for the macOS 26 Liquid Glass effect (clear or tint)
+    on macOS 26. Logged once per process startup when GlassFrameService is
+    initialized.
   </summary>
 </histogram>
 
@@ -176,7 +176,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="Mac.ProcessRequirement.ValidationResult"
-    enum="MacSecurityFrameworkOSStatus" expires_after="2026-10-25">
+    enum="MacSecurityFrameworkOSStatus" expires_after="2026-12-27">
   <owner>markrowe@chromium.org</owner>
   <owner>src/base/mac/OWNERS</owner>
   <summary>

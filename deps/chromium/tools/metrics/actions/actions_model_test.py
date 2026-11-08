@@ -8,6 +8,7 @@ import xml.dom.minidom
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.actions.actions_model as actions_model
 
 PRETTY_XML = """
@@ -19,13 +20,11 @@ PRETTY_XML = """
 </action>
 
 <action name="Action2" not_user_triggered="true">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <description>Description2</description>
 </action>
 
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <owner>owner2@chromium.org</owner>
   <description>Description3</description>
@@ -55,13 +54,11 @@ XML_WITH_WRONG_INDENT = """
   </action>
 
 <action name="Action2" not_user_triggered="true">
-    <obsolete>Obsolete text</obsolete>
     <owner>owner@chromium.org</owner>
     <description>Description2</description>
 </action>
 
 <action name="Action3">
-<obsolete>Obsolete text</obsolete>
 <owner>owner@chromium.org</owner>
 <owner>owner2@chromium.org</owner>
 <description>Description3</description>
@@ -93,15 +90,13 @@ XML_WITH_WRONG_SINGLELINE = """
 </action>
 
 <action name="Action2" not_user_triggered="true">
-  <obsolete>
-    Obsolete text
-  </obsolete>
-  <owner>owner@chromium.org</owner>
+  <owner>
+    owner@chromium.org
+  </owner>
   <description>Description2</description>
 </action>
 
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <owner>owner2@chromium.org</owner>
   <description>
@@ -132,12 +127,10 @@ XML_WITH_WRONG_LINE_BREAK = """
 </action>
 
 <action name="Action2" not_user_triggered="true">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <description>Description2</description>
 </action>
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
 
   <owner>owner2@chromium.org</owner>
@@ -163,7 +156,6 @@ XML_WITH_WRONG_ORDER = """
 <actions>
 
 <action name="Action2" not_user_triggered="true">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <description>Description2</description>
 </action>
@@ -174,7 +166,6 @@ XML_WITH_WRONG_ORDER = """
 </action>
 
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <owner>owner2@chromium.org</owner>
   <description>Description3</description>
@@ -204,13 +195,11 @@ XML_WITH_WRONG_CHILDREN_ORDER = """
 </action>
 
 <action name="Action2" not_user_triggered="true">
-  <owner>owner@chromium.org</owner>
-  <obsolete>Obsolete text</obsolete>
   <description>Description2</description>
+  <owner>owner@chromium.org</owner>
 </action>
 
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <description>Description3</description>
   <owner>owner2@chromium.org</owner>
@@ -240,13 +229,11 @@ XML_WITH_WRONG_ATTRIBUTE_ORDER = """
 </action>
 
 <action not_user_triggered="true" name="Action2">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <description>Description2</description>
 </action>
 
 <action name="Action3">
-  <obsolete>Obsolete text</obsolete>
   <owner>owner@chromium.org</owner>
   <owner>owner2@chromium.org</owner>
   <description>Description3</description>
@@ -273,7 +260,8 @@ class ActionXmlTest(unittest.TestCase):
     super(ActionXmlTest, self).__init__(*args, **kwargs)
     self.maxDiff = None
 
-  @parameterized.expand([
+  @parameterized.expand(
+    [
       # Test prettify already pretty XML to verify the pretty-printed version
       # is the same.
       ('AlreadyPrettyXml', PRETTY_XML, PRETTY_XML),
@@ -281,25 +269,39 @@ class ActionXmlTest(unittest.TestCase):
       ('SingleLine', XML_WITH_WRONG_SINGLELINE, PRETTY_XML),
       ('LineBreak', XML_WITH_WRONG_LINE_BREAK, PRETTY_XML),
       ('Order', XML_WITH_WRONG_ORDER, PRETTY_XML),
-      # The children of <action> should be sorted in the order of <obsolete>,
+      # The children of <action> should be sorted in the order of
       # <owner> and <description>
       ('ChildrenOrder', XML_WITH_WRONG_CHILDREN_ORDER, PRETTY_XML),
-  ])
+    ]
+  )
   def testPrettify(self, _, input_xml, expected_xml):
     result = actions_model.PrettifyTree(xml.dom.minidom.parseString(input_xml))
     self.assertMultiLineEqual(result.strip(), expected_xml)
 
-  @parameterized.expand([
+  @parameterized.expand(
+    [
       ('BadAttributeBoolean', PRETTY_XML, 'true', 'hello', 'hello'),
       ('BadSuffixNameWithSpace', PRETTY_XML, 'AppMenu', 'App Menu', 'App Menu'),
-      ('BadAffectedActionNameWithSpace', PRETTY_XML, 'AnAction', 'An Action',
-       'An Action'),
+      (
+        'BadAffectedActionNameWithSpace',
+        PRETTY_XML,
+        'AnAction',
+        'An Action',
+        'An Action',
+      ),
       ('SuffixWithBadSeparator', PRETTY_XML, '.', '-', '-'),
-      ('BadOrdering_IllegalWord', PRETTY_XML, 'ordering="suffix"',
-       'ordering="hello"', 'hello'),
-  ])
-  def testRegex(self, _, pretty_input_xml, original_string, bad_string,
-                error_string):
+      (
+        'BadOrdering_IllegalWord',
+        PRETTY_XML,
+        'ordering="suffix"',
+        'ordering="hello"',
+        'hello',
+      ),
+    ]
+  )
+  def testRegex(
+    self, _, pretty_input_xml, original_string, bad_string, error_string
+  ):
     BAD_XML = pretty_input_xml.replace(original_string, bad_string)
     with self.assertRaises(ValueError) as context:
       actions_model.PrettifyTree(xml.dom.minidom.parseString(BAD_XML))

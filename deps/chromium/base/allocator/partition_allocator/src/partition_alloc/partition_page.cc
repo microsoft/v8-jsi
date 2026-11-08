@@ -2,14 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "partition_alloc/slot_start.h"
-
-#include "partition_alloc/partition_page.h"
-
 #include <cstdint>
 
 #include "partition_alloc/address_pool_manager.h"
 #include "partition_alloc/buildflags.h"
+#include "partition_alloc/internal/partition_page_internal.h"
+#include "partition_alloc/internal/partition_root_internal.h"
 #include "partition_alloc/page_allocator.h"
 #include "partition_alloc/page_allocator_constants.h"
 #include "partition_alloc/partition_address_space.h"
@@ -20,10 +18,11 @@
 #include "partition_alloc/partition_alloc_check.h"
 #include "partition_alloc/partition_alloc_constants.h"
 #include "partition_alloc/partition_alloc_forward.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/partition_direct_map_extent.h"
 #include "partition_alloc/partition_freelist_entry.h"
-#include "partition_alloc/partition_root.h"
 #include "partition_alloc/reservation_offset_table.h"
+#include "partition_alloc/slot_start.h"
 #include "partition_alloc/tagging.h"
 
 namespace partition_alloc::internal {
@@ -366,6 +365,13 @@ void UnmapNow(uintptr_t reservation_start,
   }
 #endif  // PA_BUILDFLAG(DCHECKS_ARE_ON)
 
+  // Reset the offset table entries first, before decommitting metadata.
+  // This ensures that concurrent callers of MallocZoneSize (on macOS) that
+  // check IsManagedByNormalBucketsOrDirectMap() will see "not allocated"
+  // before the metadata pages become inaccessible, avoiding SIGBUS.
+  root->GetReservationOffsetTable().SetNotAllocatedTag(reservation_start,
+                                                       reservation_size);
+
 #if PA_CONFIG(MOVE_METADATA_OUT_OF_GIGACAGE)
   // Decommit metadata area inside metadata cage to avoid DCHECK() failure
   // at next allocation. This must be done before
@@ -377,14 +383,6 @@ void UnmapNow(uintptr_t reservation_start,
                                PageTag::kPartitionAlloc);
   }
 #endif  // PA_CONFIG(MOVE_METADATA_OUT_OF_GIGACAGE)
-
-  // Reset the offset table entries for the given memory before unreserving
-  // it. Since the memory is not unreserved and not available for other
-  // threads, the table entries for the memory are not modified by other
-  // threads either. So we can update the table entries without race
-  // condition.
-  root->GetReservationOffsetTable().SetNotAllocatedTag(reservation_start,
-                                                       reservation_size);
 
 #if !PA_BUILDFLAG(HAS_64_BIT_POINTERS)
   AddressPoolManager::GetInstance().MarkUnused(pool, reservation_start,

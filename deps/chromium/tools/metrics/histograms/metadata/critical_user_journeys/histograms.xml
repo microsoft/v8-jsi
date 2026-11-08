@@ -5,10 +5,7 @@ found in the LICENSE file.
 -->
 
 <!--
-This file is used to generate a comprehensive list of Critical User Journeys histograms
-along with a detailed description for each histogram.
-
-For best practices on writing histogram descriptions, see
+This file is used to generate a metric definition markdown at
 https://chromium.googlesource.com/chromium/src.git/+/HEAD/tools/metrics/histograms/README.md
 
 Please follow the instructions in the OWNERS file in this directory to find a
@@ -29,7 +26,23 @@ chromium-metrics-reviews@google.com.
 
 <variants name="JourneyNames">
   <variant name="ClearBrowsingHistoryJourney"/>
+  <variant name="CustomizeChromeJourney"
+      summary="Customize Chrome Themes &amp; Colors"/>
   <variant name="PinExtensionJourney"/>
+  <variant name="ReadAnythingJourney" summary="Reading Mode (Read Anything)"/>
+  <variant name="SettingsAppearanceThemesJourney"
+      summary="Settings Appearance &amp; GM3 Themes"/>
+  <variant name="SettingsClearBrowsingDataJourney"
+      summary="Settings Clear Browsing Data Baseline"/>
+  <variant name="SettingsNavIAJourney"
+      summary="Settings Navigation IA Findability"/>
+  <variant name="SettingsSearchEngineJourney"
+      summary="Settings Search Engine &amp; Shortcuts"/>
+  <variant name="SettingsSitesDashboardJourney"
+      summary="Settings Sites Dashboard &amp; Permissions"/>
+  <variant name="SettingsSuperchargedSearchJourney"
+      summary="Settings Supercharged Search"/>
+  <variant name="TabSearchJourney" summary="Tab Search &amp; Switch Tab"/>
   <variant name="ViewDownloadedFileFromAppMenuJourney"/>
   <variant name="ViewDownloadedFileJourney"/>
 <!-- Add new journeys here! -->
@@ -37,7 +50,7 @@ chromium-metrics-reviews@google.com.
 </variants>
 
 <histogram name="CriticalUserJourney.ClearBrowsingHistoryJourney.{StepAction}"
-    enum="ClearBrowsingHistoryJourneySteps" expires_after="2027-01-01">
+    enum="ClearBrowsingHistoryJourneySteps" expires_after="2027-03-07">
   <owner>stluong@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -46,8 +59,19 @@ chromium-metrics-reviews@google.com.
   <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
 </histogram>
 
+<histogram name="CriticalUserJourney.CustomizeChromeJourney.{StepAction}"
+    enum="CustomizeChromeJourneySteps" expires_after="2027-01-01">
+  <owner>dljames@chromium.org</owner>
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the CustomizeChromeJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
 <histogram name="CriticalUserJourney.PinExtensionJourney.{StepAction}"
-    enum="PinExtensionJourneySteps" expires_after="2027-01-01">
+    enum="PinExtensionJourneySteps" expires_after="2027-03-07">
   <owner>stluong@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -56,9 +80,97 @@ chromium-metrics-reviews@google.com.
   <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
 </histogram>
 
+<histogram name="CriticalUserJourney.ReadAnythingJourney.{StepAction}"
+    enum="ReadAnythingJourneySteps" expires_after="2027-01-01">
+  <owner>dljames@chromium.org</owner>
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the ReadAnythingJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram
+    name="CriticalUserJourney.SettingsAppearanceThemesJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the SettingsAppearanceThemesJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram
+    name="CriticalUserJourney.SettingsClearBrowsingDataJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the
+    SettingsClearBrowsingDataJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram name="CriticalUserJourney.SettingsNavIAJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the SettingsNavIAJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram name="CriticalUserJourney.SettingsSearchEngineJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the SettingsSearchEngineJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram
+    name="CriticalUserJourney.SettingsSitesDashboardJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the SettingsSitesDashboardJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram
+    name="CriticalUserJourney.SettingsSuperchargedSearchJourney.{StepAction}"
+    enum="Boolean" expires_after="2027-01-01">
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the
+    SettingsSuperchargedSearchJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
+<histogram name="CriticalUserJourney.TabSearchJourney.{StepAction}"
+    enum="TabSearchJourneySteps" expires_after="2027-01-01">
+  <owner>dljames@chromium.org</owner>
+  <owner>yrian@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Recorded when a step is {StepAction} in the TabSearchJourney.
+  </summary>
+  <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
+</histogram>
+
 <histogram
     name="CriticalUserJourney.ViewDownloadedFileFromAppMenuJourney.{StepAction}"
-    enum="ViewDownloadedFileFromAppMenuJourneySteps" expires_after="2027-01-01">
+    enum="ViewDownloadedFileFromAppMenuJourneySteps" expires_after="2027-03-07">
   <owner>dljames@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -69,7 +181,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="CriticalUserJourney.ViewDownloadedFileJourney.{StepAction}"
-    enum="ViewDownloadedFileJourneySteps" expires_after="2027-01-01">
+    enum="ViewDownloadedFileJourneySteps" expires_after="2027-03-07">
   <owner>dljames@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -78,8 +190,25 @@ chromium-metrics-reviews@google.com.
   <token key="StepAction" variants="CriticalUserJourneyStepAction"/>
 </histogram>
 
+<histogram name="CriticalUserJourney.{JourneyName}.HaTSSurveyEvent"
+    enum="CriticalUserJourneyHaTSEvent" expires_after="2027-03-07">
+  <owner>dljames@chromium.org</owner>
+  <owner>top-chrome-desktop-ui@google.com</owner>
+  <summary>
+    Tracks the lifecycle of the HaTS survey triggered by the {JourneyName}
+    critical user journey.
+
+    Triggered: The request to show the survey was sent to the HaTS service (this
+    happens immediately upon journey completion). Shown: The survey was
+    successfully displayed to the user (confirmed via success callback). Failed:
+    The survey request failed or was rejected by the HaTS service (e.g. due to
+    rate limiting or cooldown).
+  </summary>
+  <token key="JourneyName" variants="JourneyNames"/>
+</histogram>
+
 <histogram name="CriticalUserJourney.{JourneyName}.OverallDuration" units="ms"
-    expires_after="2027-01-01">
+    expires_after="2027-03-07">
   <owner>dljames@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>
@@ -90,7 +219,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="CriticalUserJourney.{JourneyName}.Result"
-    enum="CriticalUserJourneyResult" expires_after="2027-01-01">
+    enum="CriticalUserJourneyResult" expires_after="2027-03-07">
   <owner>dljames@chromium.org</owner>
   <owner>top-chrome-desktop-ui@google.com</owner>
   <summary>

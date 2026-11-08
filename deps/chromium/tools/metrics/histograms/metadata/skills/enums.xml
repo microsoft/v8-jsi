@@ -24,6 +24,19 @@ chromium-metrics-reviews@google.com.
 
 <enums>
 
+<!-- LINT.IfChange(SkillsDerivedSource) -->
+
+<enum name="SkillsDerivedSource">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="FirstParty"/>
+  <int value="2" label="UserCreated"/>
+  <int value="3" label="DerivedFromFirstParty"/>
+  <int value="4" label="Enterprise"/>
+  <int value="5" label="DerivedFromEnterprise"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/sync/protocol/skill_specifics.proto:SkillSource) -->
+
 <!-- LINT.IfChange(SkillsDialogAction) -->
 
 <enum name="SkillsDialogAction">
@@ -66,6 +79,8 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="Used User-Created Skill"/>
   <int value="2" label="Used Derived from 1st Party (Remixed) Skill"/>
   <int value="3" label="Unknown"/>
+  <int value="4" label="Used Enterprise Skill"/>
+  <int value="5" label="Used Derived from Enterprise Skill"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/skills/public/skills_metrics.h:SkillsInvokeAction) -->

@@ -5,8 +5,8 @@
 #ifndef BASE_SUPPORTS_USER_DATA_H_
 #define BASE_SUPPORTS_USER_DATA_H_
 
-#include <map>
 #include <memory>
+#include <utility>
 
 #include "base/base_export.h"
 #include "base/memory/scoped_refptr.h"
@@ -27,6 +27,16 @@ class BASE_EXPORT SupportsUserData {
   // Derive from this class and add your own data members to associate extra
   // information with this object. Alternatively, add this as a public base
   // class to any class with a virtual destructor.
+  //
+  // Destructors of `Data` subclasses must not use or refer to their `host`
+  // object. Since `SupportsUserData` relies on inheritance, `Data` instances
+  // are destroyed after the `SupportsUserData` subclass's destructor has
+  // already run and its fields are destroyed.
+  //
+  // One workaround is to explicitly call `ClearAllUserData()` in the
+  // destructor of the `SupportsUserData` subclass, but this does not
+  // completely solve the issue, as new `Data` instances can still be
+  // registered after a call to `ClearAllUserData()`.
   class BASE_EXPORT Data {
    public:
     virtual ~Data() = default;
@@ -58,8 +68,8 @@ class BASE_EXPORT SupportsUserData {
  protected:
   virtual ~SupportsUserData();
 
-  // Clear all user data from this object. This can be used if the subclass
-  // needs to provide reset functionality.
+  // Clear all user data from this object. Can be used for reset or in a
+  // subclass destructor to destroy Data before derived state is torn down.
   void ClearAllUserData();
 
   // Returns the number of Data objects attached to this object.
@@ -84,12 +94,11 @@ class UserDataAdapter : public SupportsUserData::Data {
     return data ? static_cast<T*>(data->object_.get()) : nullptr;
   }
 
-  explicit UserDataAdapter(T* object) : object_(object) {}
+  explicit UserDataAdapter(scoped_refptr<T> object)
+      : object_(std::move(object)) {}
   UserDataAdapter(const UserDataAdapter&) = delete;
   UserDataAdapter& operator=(const UserDataAdapter&) = delete;
   ~UserDataAdapter() override = default;
-
-  T* release() { return object_.release(); }
 
  private:
   scoped_refptr<T> const object_;

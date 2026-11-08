@@ -46,6 +46,9 @@ chromium-metrics-reviews@google.com.
   <int value="6"
       label="Canonical URL retrieved: Canonical URL not HTTPS (but visible
              URL is)"/>
+  <int value="7"
+      label="Canonical URL not retrieved: Canonical URL not HTTP nor HTTPS
+             (but visible URL is)"/>
 </enum>
 
 <enum name="ContextMenuIOSCopyImage">
@@ -113,6 +116,7 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="NAME_CONFLICT"/>
   <int value="5" label="NAME_TOO_LONG"/>
   <int value="6" label="LOCATION_SUGGESTION"/>
+  <int value="7" label="FORCE_PROMPT"/>
 </enum>
 
 <enum name="DownloadLocationDirectoryType">
@@ -222,7 +226,7 @@ chromium-metrics-reviews@google.com.
   <int value="58" label="Sort Drive Items By Opening Time"/>
   <int value="59" label="Select Drive Identity"/>
   <int value="60" label="Add Drive Account"/>
-  <int value="61" label="Manage In New Tab"/>
+  <int value="61" label="Manage In New Tab (Obsolete)"/>
   <int value="62" label="Recent Activity in Shared Tab Group"/>
   <int value="63" label="AI Prototyping"/>
   <int value="64" label="Manage shared tab group"/>
@@ -235,6 +239,7 @@ chromium-metrics-reviews@google.com.
   <int value="71" label="Edit on pinned site on most visited sites section"/>
   <int value="72" label="Delete browsing data"/>
   <int value="73" label="Create empty tab group"/>
+  <int value="74" label="Send tab to self"/>
 </enum>
 
 <enum name="IOSMenuScenario">
@@ -269,13 +274,14 @@ chromium-metrics-reviews@google.com.
   <int value="28" label="Sort Drive Items Entry"/>
   <int value="29" label="Select Drive Identity Entry"/>
   <int value="30" label="Tab Group Indicator Entry"/>
-  <int value="31" label="Autofill Manual Fallback Plus Address Entry"/>
+  <int value="31"
+      label="Autofill Manual Fallback Plus Address Entry (Obsolete)"/>
   <int value="32" label="Tab Group Indicator on NTP Entry"/>
   <int value="33" label="Last Visited History Entry"/>
   <int value="34" label="Image on a Reader Mode page"/>
   <int value="35" label="Image-Link on a Reader Mode page"/>
   <int value="36" label="Link on a Reader Mode page"/>
-  <int value="37" label="Tab Group button in the Overflow Menu"/>
+  <int value="37" label="Tab Group button in the Overflow Menu (Obsolete)"/>
   <int value="38" label="Sad Tab Menu"/>
 </enum>
 
@@ -392,6 +398,9 @@ chromium-metrics-reviews@google.com.
   <int value="15" label="Default browser promo shown"/>
   <int value="16" label="The user accepted the default browser promo"/>
   <int value="17" label="The user rejected the default browser promo"/>
+  <int value="18" label="Safety promo shown"/>
+  <int value="19"
+      label="The user clicked the start browsing button on safety promo"/>
 </enum>
 
 <!-- LINT.ThenChange(/chrome/browser/first_run/android/java/src/org/chromium/chrome/browser/firstrun/MobileFreProgress.java:MobileFreProgress) -->
@@ -506,9 +515,9 @@ chromium-metrics-reviews@google.com.
 <!-- LINT.IfChange(ShareThisPageLocation) -->
 
 <enum name="ShareThisPageLocation">
-  <int value="0" label="Omnibox Long Press"/>
-  <int value="1" label="Overflow Menu"/>
-  <int value="2" label="Omnibox Verbatim Match"/>
+  <int value="0" label="(Obsolete) Omnibox Long Press"/>
+  <int value="1" label="(Obsolete) Overflow Menu"/>
+  <int value="2" label="(Obsolete) Omnibox Verbatim Match"/>
   <int value="3" label="Location bar"/>
 </enum>
 
@@ -564,53 +573,80 @@ chromium-metrics-reviews@google.com.
   <int value="45" label="View actor task"/>
 </enum>
 
-<enum name="SystemNotificationType">
-  <int value="0" label="Downloads - Files"/>
-  <int value="1" label="Downloads - Pages"/>
-  <int value="2" label="Close Incognito Tabs"/>
-  <int value="3" label="Content Suggestion"/>
-  <int value="4" label="Media Capture"/>
-  <int value="5" label="Physical Web"/>
-  <int value="6" label="Media"/>
-  <int value="7" label="Sites"/>
-  <int value="8" label="Sync"/>
-  <int value="9" label="WebApk"/>
-  <int value="10" label="Browser Actions"/>
-  <int value="11" label="Webapp Actions"/>
-  <int value="12" label="Offline Content Suggestion"/>
-  <int value="13" label="Sites shown in Trusted Web Activities"/>
-  <int value="14" label="Offline Pages"/>
-  <int value="15" label="Send Tab To Self"/>
-  <int value="16" label="Updates"/>
-  <int value="17" label="Click To Call"/>
-  <int value="18" label="Shared Clipboard"/>
-  <int value="19" label="Permission Requests"/>
-  <int value="20" label="Permission Requests High"/>
-  <int value="21" label="Announcement"/>
-  <int value="22" label="Share Save Image"/>
-  <int value="23" label="TWA Disclosure Initial"/>
-  <int value="24" label="TWA Disclosure Subsequent"/>
-  <int value="25" label="Chrome Reengagement 1"/>
-  <int value="26" label="Chrome Reengagement 2"/>
-  <int value="27" label="Chrome Reengagement 3"/>
-  <int value="28" label="Price Drop Alerts"/>
-  <int value="30" label="WebAPK install in progress"/>
-  <int value="31" label="WebAPK install complete"/>
-  <int value="32" label="Chrome Managed Price Drop Alerts"/>
-  <int value="33" label="User Managed Price Drop Alerts"/>
-  <int value="34" label="Chrome Tips"/>
-  <int value="35" label="Bluetooth"/>
-  <int value="36" label="USB"/>
-  <int value="37" label="Unified password manager error"/>
-  <int value="38" label="Webapk Install Failed"/>
-  <int value="39" label="Data Sharing"/>
-  <int value="40" label="Unified password manager access loss warning"/>
-  <int value="41" label="Tracing"/>
-  <int value="42" label="Serial"/>
-  <int value="43" label="Safety Check Revoked Notification Permissions"/>
-  <int value="44" label="Actor"/>
-  <int value="45" label="Chrome Finds"/>
+<!-- LINT.IfChange(SystemNotificationChannelStatus) -->
+
+<enum name="SystemNotificationChannelStatus">
+  <int value="0" label="Blocked (IMPORTANCE_NONE)"/>
+  <int value="1" label="Enabled (Default / High / Low / Min)"/>
+  <int value="2" label="Unavailable / Not Created"/>
 </enum>
+
+<!-- LINT.ThenChange(//chrome/browser/notifications/android/java/src/org/chromium/chrome/browser/notifications/NotificationUmaTracker.java:SystemNotificationChannelStatus) -->
+
+<!-- LINT.IfChange(SystemNotificationLifecycleEvent) -->
+
+<enum name="SystemNotificationLifecycleEvent">
+  <int value="0" label="Queued"/>
+  <int value="1" label="Shown"/>
+  <int value="2" label="Clicked"/>
+  <int value="3" label="Dismissed"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/notifications/android/java/src/org/chromium/chrome/browser/notifications/NotificationUmaTracker.java:SystemNotificationLifecycleEvent) -->
+
+<!-- LINT.IfChange(SystemNotificationType2) -->
+
+<enum name="SystemNotificationType2">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Downloads - Files"/>
+  <int value="2" label="Downloads - Pages"/>
+  <int value="3" label="Close Incognito Tabs"/>
+  <int value="4" label="Content Suggestion"/>
+  <int value="5" label="Media Capture"/>
+  <int value="6" label="Physical Web"/>
+  <int value="7" label="Media"/>
+  <int value="8" label="Sites"/>
+  <int value="9" label="Sync"/>
+  <int value="10" label="WebApk"/>
+  <int value="11" label="Browser Actions"/>
+  <int value="12" label="Webapp Actions"/>
+  <int value="13" label="Offline Content Suggestion"/>
+  <int value="14" label="Sites shown in Trusted Web Activities"/>
+  <int value="15" label="Offline Pages"/>
+  <int value="16" label="Send Tab To Self"/>
+  <int value="17" label="Updates"/>
+  <int value="18" label="Click To Call"/>
+  <int value="19" label="Shared Clipboard"/>
+  <int value="20" label="Permission Requests"/>
+  <int value="21" label="Permission Requests High"/>
+  <int value="22" label="Announcement"/>
+  <int value="23" label="Share Save Image"/>
+  <int value="24" label="TWA Disclosure Initial"/>
+  <int value="25" label="TWA Disclosure Subsequent"/>
+  <int value="26" label="Chrome Reengagement 1"/>
+  <int value="27" label="Chrome Reengagement 2"/>
+  <int value="28" label="Chrome Reengagement 3"/>
+  <int value="29" label="Price Drop Alerts"/>
+  <int value="30" label="SMS Fetcher"/>
+  <int value="31" label="WebAPK install in progress"/>
+  <int value="32" label="WebAPK install complete"/>
+  <int value="33" label="Chrome Managed Price Drop Alerts"/>
+  <int value="34" label="User Managed Price Drop Alerts"/>
+  <int value="35" label="Chrome Tips"/>
+  <int value="36" label="Bluetooth"/>
+  <int value="37" label="USB"/>
+  <int value="38" label="Unified password manager error"/>
+  <int value="39" label="Webapk Install Failed"/>
+  <int value="40" label="Data Sharing"/>
+  <int value="41" label="Unified password manager access loss warning"/>
+  <int value="42" label="Tracing"/>
+  <int value="43" label="Serial"/>
+  <int value="44" label="Safety Check Revoked Notification Permissions"/>
+  <int value="45" label="Actor"/>
+  <int value="46" label="Chrome Finds"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/notifications/android/java/src/org/chromium/chrome/browser/notifications/NotificationUmaTracker.java:SystemNotificationType) -->
 
 </enums>
 

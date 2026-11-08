@@ -44,8 +44,7 @@ void SetPrimitiveVariables(
     Context* context) {
   SetCommonFieldVariables(descriptor, info, variables);
 
-  (*variables)["empty_list"] =
-      "com.google.protobuf.GeneratedMessageLite.emptyProtobufList()";
+  (*variables)["empty_list"] = "emptyProtobufList()";
 
   (*variables)["default"] =
       ImmutableDefaultValue(descriptor, name_resolver, context->options());
@@ -168,10 +167,9 @@ void ImmutableStringFieldLiteGenerator::GenerateInterfaceMembers(
 void ImmutableStringFieldLiteGenerator::GenerateMembers(
     io::Printer* printer) const {
   if (!google::protobuf::internal::IsOss()) {
-    printer->Print(
-        variables_,
-        "@com.google.protobuf.ProtoField(\n"
-        "  isRequired=$required$)\n");
+    printer->Print(variables_,
+                   "@com.google.protobuf.ProtoField(\n"
+                   "  isRequired=$required$)\n");
     if (HasHasbit(descriptor_)) {
       printer->Print(variables_,
                      "@com.google.protobuf.ProtoPresenceCheckedField(\n"
@@ -218,10 +216,9 @@ void ImmutableStringFieldLiteGenerator::GenerateMembers(
                                context_->options(), /* builder */ false,
                                /* kdoc */ false, /* is_private */ true);
   printer->Print(variables_,
-                 "@java.lang.SuppressWarnings(\"ReturnValueIgnored\")\n"
                  "private void set$capitalized_name$(\n"
                  "    java.lang.String value) {\n"
-                 "  value.getClass();  // minimal bytecode null check\n"
+                 "  java.util.Objects.requireNonNull(value);\n"
                  "  $set_has_field_bit_message$\n"
                  "  $name$_ = value;\n"
                  "}\n");
@@ -401,10 +398,9 @@ void ImmutableStringOneofFieldLiteGenerator::GenerateMembers(
                                context_->options(), /* builder */ false,
                                /* kdoc */ false, /* is_private */ true);
   printer->Print(variables_,
-                 "@java.lang.SuppressWarnings(\"ReturnValueIgnored\")\n"
                  "private void ${$set$capitalized_name$$}$(\n"
                  "    java.lang.String value) {\n"
-                 "  value.getClass();  // minimal bytecode null check\n"
+                 "  java.util.Objects.requireNonNull(value);\n"
                  "  $set_oneof_case_message$;\n"
                  "  $oneof_name$_ = value;\n"
                  "}\n");
@@ -623,10 +619,9 @@ void RepeatedImmutableStringFieldLiteGenerator::GenerateMembers(
                                context_->options(), /* builder */ false,
                                /* kdoc */ false, /* is_private */ true);
   printer->Print(variables_,
-                 "@java.lang.SuppressWarnings(\"ReturnValueIgnored\")\n"
                  "private void set$capitalized_name$(\n"
                  "    int index, java.lang.String value) {\n"
-                 "  value.getClass();  // minimal bytecode null check\n"
+                 "  java.util.Objects.requireNonNull(value);\n"
                  "  ensure$capitalized_name$IsMutable();\n"
                  "  $name$_.set(index, value);\n"
                  "}\n");
@@ -634,10 +629,9 @@ void RepeatedImmutableStringFieldLiteGenerator::GenerateMembers(
                                context_->options(), /* builder */ false,
                                /* kdoc */ false, /* is_private */ true);
   printer->Print(variables_,
-                 "@java.lang.SuppressWarnings(\"ReturnValueIgnored\")\n"
                  "private void add$capitalized_name$(\n"
                  "    java.lang.String value) {\n"
-                 "  value.getClass();  // minimal bytecode null check\n"
+                 "  java.util.Objects.requireNonNull(value);\n"
                  "  ensure$capitalized_name$IsMutable();\n"
                  "  $name$_.add(value);\n"
                  "}\n");

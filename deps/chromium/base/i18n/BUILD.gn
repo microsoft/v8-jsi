@@ -6,18 +6,123 @@ source_set("base_i18n_export") {
   public = [ "base_i18n_export.h" ]
 }
 
-source_set("language_code") {
+# This component provides usability of `LanguageTag` without any dependencies on
+# ICU4C, it does however, depend on ICU4X locale canonicalization.
+component("language_tag") {
+  output_name = "language_tag"
   sources = [
-    "language_code.cc",
-    "language_code.h",
+    "bcp47_extensions.cc",
+    "bcp47_extensions.h",
+    "chinese_helpers.cc",
+    "chinese_helpers.h",
+    "language_tag.cc",
+    "language_tag.h",
+    "language_tag_matcher.cc",
+    "language_tag_matcher.h",
+    "language_tag_value_converters.cc",
+    "language_tag_value_converters.h",
+    "legacy_language_tag_helpers.h",
+    "locale_holder.cc",
+    "locale_holder.h",
+    "tag_converters.cc",
+    "tag_converters.h",
+  ]
+
+  defines = [ "IS_LANGUAGE_TAG_IMPL" ]
+
+  public_deps = [ "//base" ]
+  deps = [
+    "//base/i18n/internal",
+    "//base/i18n/internal:canonical_language_tags",
+    "//third_party/abseil-cpp:absl",
+    "//third_party/rust/icu_capi/v2:lib",
+  ]
+}
+
+source_set("unicodestring") {
+  sources = [ "unicodestring.h" ]
+  public_deps = [ "//third_party/icu" ]
+}
+
+source_set("timezone") {
+  sources = [
+    "timezone.cc",
+    "timezone.h",
   ]
 
   defines = [ "BASE_I18N_IMPLEMENTATION" ]
 
-  public_deps = [ ":base_i18n_export" ]
-  deps = [ "//base" ]
-  visibility = [
-    ":*",
-    "//base:i18n",
+  public_deps = [
+    ":base_i18n_export",
+    ":language_tag",
+    "//base",
   ]
+
+  deps = [
+    ":unicodestring",
+    "//third_party/icu",
+  ]
+}
+
+source_set("time_formatting_types") {
+  sources = [ "time_formatting_types.h" ]
+}
+
+source_set("test_support") {
+  testonly = true
+  public = [
+    "test/locales_for_test.h",
+    "test/scoped_icu_locale.h",
+    "test/scoped_rtl_for_testing.h",
+  ]
+  sources = [
+    "test/locales_for_test.cc",
+    "test/scoped_icu_locale.cc",
+    "test/scoped_rtl_for_testing.cc",
+  ]
+  public_deps = [ "//base:i18n" ]
+}
+
+source_set("unittests") {
+  testonly = true
+  sources = [
+    "bcp47_extensions_unittest.cc",
+    "chinese_helpers_unittest.cc",
+    "language_tag_matcher_unittest.cc",
+    "language_tag_unittest.cc",
+    "locale_holder_unittest.cc",
+  ]
+  deps = [
+    "//base",
+    "//base/i18n:language_tag",
+    "//base/i18n/internal:unittests",
+    "//base/test:test_support",
+    "//testing/gmock",
+    "//testing/gtest",
+  ]
+
+  if (is_android) {
+    sources += [ "android_locale_unittest.cc" ]
+  }
+}
+
+if (is_win) {
+  component("win_i18n") {
+    output_name = "win_i18n"
+    sources = [
+      "win/embedded_i18n/language_selector.cc",
+      "win/embedded_i18n/language_selector.h",
+      "win/preferred_languages.cc",
+      "win/preferred_languages.h",
+    ]
+
+    defines = [ "BASE_I18N_IMPLEMENTATION" ]
+
+    public_deps = [
+      ":base_i18n_export",
+      "//base/i18n:language_tag",
+    ]
+
+    deps = [ "//base" ]
+  }
 }

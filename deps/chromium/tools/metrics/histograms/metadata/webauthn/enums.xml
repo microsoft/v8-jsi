@@ -43,6 +43,17 @@ chromium-metrics-reviews@google.com.
       label="A PIN change request is triggered because the user has no UV"/>
 </enum>
 
+<!-- LINT.IfChange(CmtgDeviceKeysResult) -->
+
+<enum name="CmtgDeviceKeysResult">
+  <int value="0" label="Success"/>
+  <int value="1" label="Network error"/>
+  <int value="2" label="Parse error"/>
+  <int value="3" label="Access token error"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/webauthn/core/browser/cryptauth_cmtg_device_key_provider.h:CmtgDeviceKeysResult) -->
+
 <!-- LINT.IfChange(CombinedSelectorAction) -->
 
 <enum name="CombinedSelectorAction">
@@ -89,6 +100,19 @@ chromium-metrics-reviews@google.com.
       label="prepareGetCredential request succeeded but there are no results."/>
   <int value="4" label="prepareGetCredential request failed."/>
 </enum>
+
+<!-- LINT.IfChange(DeviceAuthorizationFetchResult) -->
+
+<enum name="DeviceAuthorizationFetchResult">
+  <int value="0" label="Success: Keys Fetched"/>
+  <int value="1" label="Success: ReAuth Challenge"/>
+  <int value="2" label="Error: Network / Transport / OAuth Failure"/>
+  <int value="3" label="Error: HTTP Non-200 Status"/>
+  <int value="4" label="Error: Proto Parse Failure"/>
+  <int value="5" label="Error: Fetch Already In Progress"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/webauthn/core/browser/device_authorization/device_authorization_metrics.h:DeviceAuthorizationFetchResultForUMA) -->
 
 <!-- LINT.IfChange(EnclaveManagerActionOutcome) -->
 
@@ -163,6 +187,13 @@ chromium-metrics-reviews@google.com.
   <int value="43"
       label="Can not parse a vault and security domain member keys from a
              CBOR map"/>
+  <int value="44" label="Account mismatch in DoNextAction"/>
+  <int value="45"
+      label="Failed to parse wrapped PIN or PIN invariants check failed in
+             AddDeviceToAccount"/>
+  <int value="46"
+      label="Failed to parse wrapped PIN or PIN invariants check failed in
+             ConsiderSecurityDomainState"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/webauthn/enclave_manager.h:EnclaveManagerActionOutcome) -->
@@ -242,6 +273,14 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="User ID too long"/>
   <int value="4" label="Private key missing"/>
   <int value="5" label="RP ID missing"/>
+  <int value="6" label="Private key invalid"/>
+  <int value="7" label="Private key unsupported algorithm"/>
+  <int value="8" label="Encryption failed"/>
+  <int value="9" label="HMAC secret invalid size"/>
+  <int value="10" label="HMAC secret unsupported algorithm"/>
+  <int value="11" label="Large blob required fields missing"/>
+  <int value="12" label="Large blob compressed size too big"/>
+  <int value="13" label="Large blob uncompressed size too big"/>
 </enum>
 
 <!-- LINT.ThenChange(//components/webauthn/core/browser/import/imported_passkey_checker.h:ImportedPasskeyStatus) -->
@@ -266,6 +305,8 @@ chromium-metrics-reviews@google.com.
   <int value="5" label="No password with matching username found"/>
   <int value="6" label="Matching password was not recently used"/>
   <int value="7" label="GPM Enclave error"/>
+  <int value="8" label="Security domain state is stale"/>
+  <int value="9" label="Off the record or guest profile"/>
 </enum>
 
 <!-- LINT.ThenChange(//chrome/browser/ui/webauthn/passkey_upgrade_request_controller.h:PasskeyUpgradeResult) -->
@@ -463,6 +504,7 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Cloud-assisted BLE"/>
   <int value="4" label="Internal"/>
   <int value="5" label="Android Accessory (Deprecated)"/>
+  <int value="6" label="Smart Card"/>
 </enum>
 
 <enum name="WebAuthenticationGetAssertionOutcome">
@@ -482,6 +524,7 @@ chromium-metrics-reviews@google.com.
   <int value="13" label="Timeout Occurred"/>
   <int value="14" label="Other Failure"/>
   <int value="15" label="Blocked by actor task"/>
+  <int value="16" label="Cross Device Fallback"/>
 </enum>
 
 <!-- LINT.IfChange(WebAuthenticationGPMCachedOpportunisticallyRetrievedKeyEvent) -->
@@ -529,6 +572,34 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//chrome/browser/webauthn/webauthn_metrics_util.h:WebAuthenticationGPMRecoveryEvent) -->
 
+<!-- LINT.IfChange(WebAuthenticationHybridPasskeyEngagement) -->
+
+<enum name="WebAuthenticationHybridPasskeyEngagement">
+  <int value="0" label="Scan detected"/>
+  <int value="1" label="No scan detected"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/webauthn/chrome_authenticator_request_delegate.h:HybridPasskeyEngagement) -->
+
+<!-- LINT.IfChange(WebAuthenticationHybridPasskeyOutcome) -->
+
+<enum name="WebAuthenticationHybridPasskeyOutcome">
+  <int value="0" label="Success"/>
+  <int value="1" label="Cancelled on desktop after BLE advert received"/>
+  <int value="2" label="Cancelled on desktop after phone connected to tunnel"/>
+  <int value="3" label="Cancelled on desktop while waiting for phone"/>
+  <int value="4" label="Failed after BLE advert received"/>
+  <int value="5" label="Failed after phone connected to tunnel"/>
+  <int value="6" label="Failed while waiting for phone"/>
+  <int value="7" label="Cancelled or no passkeys on phone"/>
+  <int value="8" label="Hybrid transport error"/>
+  <int value="9" label="Timed out"/>
+  <int value="10"
+      label="Another authenticator (not the phone) succeeded or failed"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/webauthn/chrome_authenticator_request_delegate.h:HybridPasskeyOutcome) -->
+
 <!-- LINT.IfChange(WebAuthenticationImmediateMediationRejectionReason) -->
 
 <enum name="WebAuthenticationImmediateMediationRejectionReason">
@@ -573,6 +644,15 @@ chromium-metrics-reviews@google.com.
   </int>
   <int value="7" label="CancelRequested">
     Page cancelled a WebAuthn credential request via an AbortSignal.
+  </int>
+  <int value="8" label="SignalUnknownCredentialRequested">
+    Page requested a WebAuthn signalUnknownCredential call.
+  </int>
+  <int value="9" label="SignalCurrentUserDetailsRequested">
+    Page requested a WebAuthn signalCurrentUserDetails call.
+  </int>
+  <int value="10" label="SignalAllAcceptedCredentialsRequested">
+    Page requested a WebAuthn signalAllAcceptedCredentials call.
   </int>
 </enum>
 
@@ -621,6 +701,47 @@ chromium-metrics-reviews@google.com.
   <int value="11" label="Successful get() from the profile authenticator"/>
   <int value="12" label="Successful get() from iCloud Keychain"/>
 </enum>
+
+<!-- LINT.IfChange(WebAuthenticationMacOSPlatformAuthenticatorActionV2) -->
+
+<enum name="WebAuthenticationMacOSPlatformAuthenticatorActionV2">
+  <int value="0"
+      label="Started create() for profile authenticator with iCloud Keychain
+             available"/>
+  <int value="1"
+      label="Started create() for profile authenticator with iCloud Keychain
+             unavailable"/>
+  <int value="2"
+      label="Started create() for iCloud Keychain with iCloud Keychain
+             available"/>
+  <int value="3"
+      label="Started create() for iCloud Keychain with iCloud Keychain
+             unavailable"/>
+  <int value="4"
+      label="Successful create() for profile authenticator with iCloud
+             Keychain available"/>
+  <int value="5"
+      label="Successful create() for profile authenticator with iCloud
+             Keychain unavailable"/>
+  <int value="6"
+      label="Successful create() for iCloud Keychain with iCloud Keychain
+             available"/>
+  <int value="7"
+      label="Successful create() for iCloud Keychain with iCloud Keychain
+             unavailable"/>
+  <int value="8"
+      label="Started get() where the profile authenticator recognised a
+             credential"/>
+  <int value="9"
+      label="Started get() where iCloud Keychain recognised a credential"/>
+  <int value="10"
+      label="Started get() where both the profile authenticator and iCloud
+             Keychain recognised a credential"/>
+  <int value="11" label="Successful get() from the profile authenticator"/>
+  <int value="12" label="Successful get() from iCloud Keychain"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/webauthn/authenticator_request_dialog_controller.cc:MacOsHistogramValues) -->
 
 <enum name="WebAuthenticationMakeCredentialOutcome">
   <int value="0" label="Success"/>
@@ -691,12 +812,29 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//third_party/blink/renderer/modules/credentialmanagement/authentication_credentials_container.cc:WebAuthenticationResidentKeyRequirement) -->
 
+<!-- LINT.IfChange(WebAuthenticationUnexportableKeyProviderType) -->
+
+<enum name="WebAuthenticationUnexportableKeyProviderType">
+  <int value="0" label="None"/>
+  <int value="1" label="Hardware"/>
+  <int value="2" label="Microsoft Software Key Storage Provider"/>
+  <int value="3" label="Software Fallback"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/webauthn/unexportable_key_utils.h:WebAuthenticationUnexportableKeyProviderType) -->
+
+<!-- LINT.IfChange(WindowsForegroundedHelloDialog) -->
+
 <enum name="WindowsForegroundedHelloDialog">
   <int value="0" label="Succeeded"/>
   <int value="1" label="SetForegroundWindow failed"/>
   <int value="2" label="Window not found"/>
   <int value="3" label="Polling cancelled before finding window"/>
 </enum>
+
+<!-- LINT.ThenChange(//crypto/user_verifying_key_win.cc:ForegroundHelloDialogResult) -->
+
+<!-- LINT.IfChange(WindowsKeyCredentialCreateResult) -->
 
 <enum name="WindowsKeyCredentialCreateResult">
   <int value="0" label="Operation succeeded"/>
@@ -709,6 +847,8 @@ chromium-metrics-reviews@google.com.
   <int value="7" label="Invalid credential returned"/>
 </enum>
 
+<!-- LINT.ThenChange(//crypto/user_verifying_key_win.cc:KeyCredentialCreateResult) -->
+
 <enum name="WindowsKeyCredentialManagerSupportResults">
   <int value="0" label="KeyCredentialManager Available"/>
   <int value="1" label="KeyCredentialManager Not Available"/>
@@ -717,6 +857,8 @@ chromium-metrics-reviews@google.com.
   <int value="4" label="PostAsyncHandlers Call Failed"/>
   <int value="5" label="Async Operation Failed"/>
 </enum>
+
+<!-- LINT.IfChange(WindowsKeyCredentialSignResult) -->
 
 <enum name="WindowsKeyCredentialSignResult">
   <int value="0" label="Operation succeeded"/>
@@ -728,6 +870,23 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="Invalid result returned"/>
   <int value="7" label="Invalid signature buffer returned"/>
 </enum>
+
+<!-- LINT.ThenChange(//crypto/user_verifying_key_win.cc:KeyCredentialSignResult) -->
+
+<!-- LINT.IfChange(WindowsKeyCredentialStatus) -->
+
+<enum name="WindowsKeyCredentialStatus">
+  <int value="0" label="Success"/>
+  <int value="1" label="UnknownError"/>
+  <int value="2" label="NotFound"/>
+  <int value="3" label="UserCanceled"/>
+  <int value="4" label="UserPrefersPassword"/>
+  <int value="5" label="CredentialAlreadyExists"/>
+  <int value="6" label="SecurityDeviceLocked"/>
+  <int value="7" label="AlgorithmNotSupported"/>
+</enum>
+
+<!-- LINT.ThenChange(//crypto/user_verifying_key_win.cc:KeyCredentialStatusResult) -->
 
 </enums>
 

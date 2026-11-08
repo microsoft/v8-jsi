@@ -51,7 +51,7 @@ extern "C" {
 
 
 #if defined(__APPLE__)
-// Note |TARGET_OS_MAC| is set for all Apple OS variants. |TARGET_OS_OSX|
+// Note `TARGET_OS_MAC` is set for all Apple OS variants. `TARGET_OS_OSX`
 // targets macOS specifically.
 #if defined(TARGET_OS_OSX) && TARGET_OS_OSX
 #define OPENSSL_MACOS
@@ -73,7 +73,7 @@ extern "C" {
 // A consumer may use this symbol in the preprocessor to temporarily build
 // against multiple revisions of BoringSSL at the same time. It is not
 // recommended to do so for longer than is necessary.
-#define BORINGSSL_API_VERSION 40
+#define BORINGSSL_API_VERSION 43
 
 #if defined(BORINGSSL_SHARED_LIBRARY)
 
@@ -182,7 +182,7 @@ extern "C" {
 
 #if defined(BORINGSSL_ALWAYS_USE_STATIC_INLINE)
 // Add OPENSSL_UNUSED so that, should an inline function be emitted via macro
-// (e.g. a |STACK_OF(T)| implementation) in a source file without tripping
+// (e.g. a `STACK_OF(T)` implementation) in a source file without tripping
 // clang's -Wunused-function.
 #define OPENSSL_INLINE static inline OPENSSL_UNUSED
 #else
@@ -208,23 +208,23 @@ enum ssl_verify_result_t BORINGSSL_ENUM_INT;
 #endif
 
 // ossl_ssize_t is a signed type which is large enough to fit the size of any
-// valid memory allocation. We prefer using |size_t|, but sometimes we need a
+// valid memory allocation. We prefer using `size_t`, but sometimes we need a
 // signed type for OpenSSL API compatibility. This type can be used in such
 // cases to avoid overflow.
 //
-// Not all |size_t| values fit in |ossl_ssize_t|, but all |size_t| values that
+// Not all `size_t` values fit in `ossl_ssize_t`, but all `size_t` values that
 // are sizes of or indices into C objects, can be converted without overflow.
 typedef ptrdiff_t ossl_ssize_t;
 
-// CBS_ASN1_TAG is the type used by |CBS| and |CBB| for ASN.1 tags. See that
+// CBS_ASN1_TAG is the type used by `CBS` and `CBB` for ASN.1 tags. See that
 // header for details. This type is defined in base.h as a forward declaration.
 typedef uint32_t CBS_ASN1_TAG;
 
 // CRYPTO_THREADID is a dummy value.
 typedef int CRYPTO_THREADID;
 
-// An |ASN1_NULL| is an opaque type. asn1.h represents the ASN.1 NULL value as
-// an opaque, non-NULL |ASN1_NULL*| pointer.
+// An `ASN1_NULL` is an opaque type. asn1.h represents the ASN.1 NULL value as
+// an opaque, non-NULL `ASN1_NULL*` pointer.
 typedef struct asn1_null_st ASN1_NULL;
 
 // CRYPTO_MUST_BE_NULL is an opaque type that is never returned from BoringSSL.
@@ -287,6 +287,7 @@ typedef struct cbs_st CBS;
 typedef struct cmac_ctx_st CMAC_CTX;
 typedef struct conf_st CONF;
 typedef struct conf_value_st CONF_VALUE;
+typedef struct cpace_ctx_st CPACE_CTX;
 typedef struct crypto_buffer_pool_st CRYPTO_BUFFER_POOL;
 typedef struct crypto_buffer_st CRYPTO_BUFFER;
 typedef struct crypto_ivec_st CRYPTO_IVEC;
@@ -365,7 +366,7 @@ typedef struct x509_store_st X509_STORE;
 
 typedef void *OPENSSL_BLOCK;
 
-// BSSL_CHECK aborts if |condition| is not true.
+// BSSL_CHECK aborts if `condition` is not true.
 #define BSSL_CHECK(condition) \
   do {                        \
     if (!(condition)) {       \
@@ -395,6 +396,9 @@ typedef void *OPENSSL_BLOCK;
 
 #define BORINGSSL_MAKE_DELETER(type, deleter)
 #define BORINGSSL_MAKE_UP_REF(type, up_ref_func)
+#define BORINGSSL_MAKE_STACK_TRAITS(type, init_func, cleanup_func)
+#define BORINGSSL_MAKE_STACK_TRAITS_MOVABLE(type, init_func, cleanup_func, \
+                                            move_func)
 
 #else
 
@@ -427,12 +431,14 @@ struct Deleter {
   }
 };
 
-template <typename T, typename CleanupRet, void (*init)(T *),
-          CleanupRet (*cleanup)(T *)>
+template <typename T>
+struct StackAllocatedTraits {};
+
+template <typename T, typename Traits = StackAllocatedTraits<T> >
 class StackAllocated {
  public:
-  StackAllocated() { init(&ctx_); }
-  ~StackAllocated() { cleanup(&ctx_); }
+  StackAllocated() { Traits::Init(&ctx_); }
+  ~StackAllocated() { Traits::Cleanup(&ctx_); }
 
   StackAllocated(const StackAllocated &) = delete;
   StackAllocated &operator=(const StackAllocated &) = delete;
@@ -444,27 +450,29 @@ class StackAllocated {
   const T *operator->() const { return &ctx_; }
 
   void Reset() {
-    cleanup(&ctx_);
-    init(&ctx_);
+    Traits::Cleanup(&ctx_);
+    Traits::Init(&ctx_);
   }
 
  private:
   T ctx_;
 };
 
-template <typename T, typename CleanupRet, void (*init)(T *),
-          CleanupRet (*cleanup)(T *), void (*move)(T *, T *)>
+template <typename T>
+struct StackAllocatedMovableTraits {};
+
+template <typename T, typename Traits = StackAllocatedMovableTraits<T> >
 class StackAllocatedMovable {
  public:
-  StackAllocatedMovable() { init(&ctx_); }
-  ~StackAllocatedMovable() { cleanup(&ctx_); }
+  StackAllocatedMovable() { Traits::Init(&ctx_); }
+  ~StackAllocatedMovable() { Traits::Cleanup(&ctx_); }
 
   StackAllocatedMovable(StackAllocatedMovable &&other) {
-    init(&ctx_);
-    move(&ctx_, &other.ctx_);
+    Traits::Init(&ctx_);
+    Traits::Move(&ctx_, &other.ctx_);
   }
   StackAllocatedMovable &operator=(StackAllocatedMovable &&other) {
-    move(&ctx_, &other.ctx_);
+    Traits::Move(&ctx_, &other.ctx_);
     return *this;
   }
 
@@ -475,8 +483,8 @@ class StackAllocatedMovable {
   const T *operator->() const { return &ctx_; }
 
   void Reset() {
-    cleanup(&ctx_);
-    init(&ctx_);
+    Traits::Cleanup(&ctx_);
+    Traits::Init(&ctx_);
   }
 
  private:
@@ -491,6 +499,26 @@ class StackAllocatedMovable {
   struct DeleterImpl<type> {                      \
     static void Free(type *ptr) { deleter(ptr); } \
   };                                              \
+  }
+
+#define BORINGSSL_MAKE_STACK_TRAITS(type, init_func, cleanup_func) \
+  namespace internal {                                             \
+  template <>                                                      \
+  struct StackAllocatedTraits<type> {                              \
+    static void Init(type *ptr) { init_func(ptr); }                \
+    static void Cleanup(type *ptr) { cleanup_func(ptr); }          \
+  };                                                               \
+  }
+
+#define BORINGSSL_MAKE_STACK_TRAITS_MOVABLE(type, init_func, cleanup_func, \
+                                            move_func)                     \
+  namespace internal {                                                     \
+  template <>                                                              \
+  struct StackAllocatedMovableTraits<type> {                               \
+    static void Init(type *ptr) { init_func(ptr); }                        \
+    static void Cleanup(type *ptr) { cleanup_func(ptr); }                  \
+    static void Move(type *out, type *in) { move_func(out, in); }          \
+  };                                                                       \
   }
 
 // Holds ownership of heap-allocated BoringSSL structures. Sample usage:

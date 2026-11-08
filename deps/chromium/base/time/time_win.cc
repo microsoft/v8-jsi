@@ -531,15 +531,8 @@ void InitializeNowFunctionPointer() {
   // `QueryPerformanceFrequency` always succeeds and sets its out parameter to a
   // nonzero value on Windows versions more recent than Windows XP:
   // https://learn.microsoft.com/en-us/windows/win32/api/profileapi/nf-profileapi-queryperformancefrequency
-  // Once these `CHECK`s are shown to not trigger in the wild, this condition
-  // can be changed to a CHECK and `ticks_per_sec.QuadPart <= 0 ` can be removed
-  // from the ternary below that selects the function pointer.
-  if (!QueryPerformanceFrequency(&ticks_per_sec)) {
-    ticks_per_sec.QuadPart = 0;
-    NOTREACHED(base::NotFatalUntil::M138);
-  } else {
-    CHECK(ticks_per_sec.QuadPart > 0, base::NotFatalUntil::M138);
-  }
+  CHECK(QueryPerformanceFrequency(&ticks_per_sec));
+  CHECK_GT(ticks_per_sec.QuadPart, 0);
 
   // If the QPC implementation is expensive and/or unreliable, TimeTicks::Now()
   // will still use the low-resolution clock. A CPU lacking a non-stop time
@@ -761,6 +754,27 @@ LiveTicks LiveTicksNowIgnoringOverride() {
   // QueryUnbiasedInterruptTimePrecise gets the interrupt time in system time
   // units of 100 nanoseconds.
   return LiveTicks() + Nanoseconds(unbiased_interrupt_time * 100);
+}
+}  // namespace subtle
+
+// RealTicks ------------------------------------------------------------------
+
+namespace subtle {
+// On Windows, `QueryInterruptTimePrecise()` and
+// `QueryUnbiasedInterruptTimePrecise()` (which backs `LiveTicks`) read the same
+// kernel interrupt-time clock in system time units of 100 nanoseconds. The
+// biased version includes time spent in sleep or hibernation, whereas the
+// unbiased version excludes it. While the system is awake, the sleep bias is
+// constant, guaranteeing that `RealTicks` and `LiveTicks` advance in exact
+// lockstep. See:
+// https://learn.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryinterrupttimeprecise
+// https://learn.microsoft.com/en-us/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryunbiasedinterrupttimeprecise
+time_internal::RealTicks RealTicksNowIgnoringOverride() {
+  ULONGLONG interrupt_time;
+  QueryInterruptTimePrecise(&interrupt_time);
+  // QueryInterruptTimePrecise gets the interrupt time in system time units of
+  // 100 nanoseconds.
+  return time_internal::RealTicks() + Nanoseconds(interrupt_time * 100);
 }
 }  // namespace subtle
 

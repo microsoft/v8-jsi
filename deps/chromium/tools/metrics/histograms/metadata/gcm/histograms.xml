@@ -22,16 +22,6 @@ chromium-metrics-reviews@google.com.
 
 <histograms>
 
-<histogram name="GCM.AccountMappingMessageReceived" enum="BooleanReceived"
-    expires_after="2022-01-02">
-  <owner>peter@chromium.org</owner>
-  <owner>knollr@chromium.org</owner>
-  <summary>
-    Records that a message has been received from a delivery channel powered by
-    the GCM account mappings.
-  </summary>
-</histogram>
-
 <histogram name="GCM.CheckinRequestStatus" enum="GCMCheckinRequestStatus"
     expires_after="2024-11-12">
   <owner>peter@chromium.org</owner>
@@ -93,7 +83,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="GCM.DeliveredToAppHandler{AppHandler}" enum="BooleanDelivered"
-    expires_after="2026-09-27">
+    expires_after="2027-02-07">
   <owner>peter@chromium.org</owner>
   <owner>rushans@google.com</owner>
   <summary>
@@ -159,7 +149,7 @@ chromium-metrics-reviews@google.com.
 </histogram>
 
 <histogram name="GCM.RegistrationRequestStatus"
-    enum="GCMRegistrationRequestStatus" expires_after="2026-10-11">
+    enum="GCMRegistrationRequestStatus" expires_after="2026-12-16">
   <owner>peter@chromium.org</owner>
   <summary>
     Status code of the outcome of a GCM registration request. The Unknown error

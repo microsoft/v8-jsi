@@ -26,7 +26,6 @@
 
 #include "../../internal.h"
 #include "../../mem_internal.h"
-#include "../bcm_interface.h"
 #include "../delocate.h"
 #include "../ecdsa/internal.h"
 #include "../service_indicator/internal.h"
@@ -147,6 +146,15 @@ int EC_KEY_up_ref(EC_KEY *r) {
   return 1;
 }
 
+EC_KEY *EC_KEY_dup_ref(const EC_KEY *key) {
+  if (key == nullptr) {
+    return nullptr;
+  }
+  auto *ptr = const_cast<EC_KEY *>(key);
+  EC_KEY_up_ref(ptr);
+  return ptr;
+}
+
 int EC_KEY_is_opaque(const EC_KEY *key) {
   auto *impl = FromOpaque(key);
   return impl->ecdsa_meth && (impl->ecdsa_meth->flags & ECDSA_FLAG_OPAQUE);
@@ -160,7 +168,7 @@ const EC_GROUP *EC_KEY_get0_group(const EC_KEY *key) {
 int EC_KEY_set_group(EC_KEY *key, const EC_GROUP *group) {
   auto *impl = FromOpaque(key);
 
-  // If |impl| already has a group, it is an error to switch to another one.
+  // If `impl` already has a group, it is an error to switch to another one.
   if (impl->group != nullptr) {
     if (EC_GROUP_cmp(impl->group, group, nullptr) != 0) {
       OPENSSL_PUT_ERROR(EC, EC_R_GROUP_MISMATCH);
@@ -285,7 +293,7 @@ int EC_KEY_check_key(const EC_KEY *eckey) {
       OPENSSL_PUT_ERROR(EC, ERR_R_EC_LIB);
       return 0;
     }
-    // Leaking this comparison only leaks whether |eckey|'s public key was
+    // Leaking this comparison only leaks whether `eckey`'s public key was
     // correct.
     if (!constant_time_declassify_int(ec_GFp_simple_points_equal(
             impl->group, &point, &impl->pub_key->raw))) {
@@ -480,7 +488,7 @@ int EC_KEY_generate_key(EC_KEY *key) {
 
   // The public key is derived from the private key, but it is public.
   //
-  // TODO(crbug.com/boringssl/677): This isn't quite right. While |pub_key|
+  // TODO(crbug.com/boringssl/677): This isn't quite right. While `pub_key`
   // represents a public point, it is still in Jacobian form and the exact
   // Jacobian representation is secret. We need to make it affine first. See
   // discussion in the bug.

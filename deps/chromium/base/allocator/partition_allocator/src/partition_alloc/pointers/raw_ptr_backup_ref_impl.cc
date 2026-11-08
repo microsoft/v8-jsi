@@ -10,9 +10,11 @@
 #include "partition_alloc/buildflags.h"
 #include "partition_alloc/dangling_raw_ptr_checks.h"
 #include "partition_alloc/in_slot_metadata.h"
+#include "partition_alloc/internal/partition_root_internal.h"
 #include "partition_alloc/partition_alloc.h"
 #include "partition_alloc/partition_alloc_base/check.h"
-#include "partition_alloc/partition_root.h"
+#include "partition_alloc/partition_alloc_constants.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/reservation_offset_table.h"
 #include "partition_alloc/slot_address_and_size.h"
 #include "partition_alloc/slot_start.h"
@@ -25,16 +27,14 @@ void RawPtrBackupRefImpl<AllowDangling>::AcquireInternal(uintptr_t address) {
     PA_BUILDFLAG(ENABLE_BACKUP_REF_PTR_SLOW_CHECKS)
   PA_BASE_CHECK(UseBrp(address));
 #endif
-  auto [slot_start, slot_size] =
+  const auto slot_and_size =
       partition_alloc::SlotAddressAndSize::FromBRPPool(address);
+  auto* in_slot_metadata =
+      partition_alloc::internal::InSlotMetadata::From(slot_and_size);
   if constexpr (AllowDangling) {
-    partition_alloc::PartitionRoot::InSlotMetadataPointerFromSlotStartAndSize(
-        partition_alloc::internal::UntaggedSlotStart(slot_start), slot_size)
-        ->AcquireFromUnprotectedPtr();
+    in_slot_metadata->AcquireFromUnprotectedPtr();
   } else {
-    partition_alloc::PartitionRoot::InSlotMetadataPointerFromSlotStartAndSize(
-        partition_alloc::internal::UntaggedSlotStart(slot_start), slot_size)
-        ->Acquire();
+    in_slot_metadata->Acquire();
   }
 }
 
@@ -44,25 +44,17 @@ void RawPtrBackupRefImpl<AllowDangling>::ReleaseInternal(uintptr_t address) {
     PA_BUILDFLAG(ENABLE_BACKUP_REF_PTR_SLOW_CHECKS)
   PA_BASE_CHECK(UseBrp(address));
 #endif
-  auto [slot_start, slot_size] =
+  const auto slot_and_size =
       partition_alloc::SlotAddressAndSize::FromBRPPool(address);
+  auto* in_slot_metadata =
+      partition_alloc::internal::InSlotMetadata::From(slot_and_size);
   if constexpr (AllowDangling) {
-    if (partition_alloc::PartitionRoot::
-            InSlotMetadataPointerFromSlotStartAndSize(
-                partition_alloc::internal::UntaggedSlotStart(slot_start),
-                slot_size)
-                ->ReleaseFromUnprotectedPtr()) {
-      partition_alloc::PartitionRoot::FreeAfterBRPQuarantine(
-          partition_alloc::internal::UntaggedSlotStart(slot_start), slot_size);
+    if (in_slot_metadata->ReleaseFromUnprotectedPtr()) {
+      partition_alloc::PartitionRoot::FreeAfterBRPQuarantine(slot_and_size);
     }
   } else {
-    if (partition_alloc::PartitionRoot::
-            InSlotMetadataPointerFromSlotStartAndSize(
-                partition_alloc::internal::UntaggedSlotStart(slot_start),
-                slot_size)
-                ->Release()) {
-      partition_alloc::PartitionRoot::FreeAfterBRPQuarantine(
-          partition_alloc::internal::UntaggedSlotStart(slot_start), slot_size);
+    if (in_slot_metadata->Release()) {
+      partition_alloc::PartitionRoot::FreeAfterBRPQuarantine(slot_and_size);
     }
   }
 }
@@ -72,10 +64,9 @@ void RawPtrBackupRefImpl<AllowDangling>::ReportIfDanglingInternal(
     uintptr_t address) {
   if (partition_alloc::internal::IsUnretainedDanglingRawPtrCheckEnabled()) {
     if (IsSupportedAndNotNull(address)) {
-      auto [slot_start, slot_size] =
+      const auto slot_and_size =
           partition_alloc::SlotAddressAndSize::FromBRPPool(address);
-      partition_alloc::PartitionRoot::InSlotMetadataPointerFromSlotStartAndSize(
-          partition_alloc::internal::UntaggedSlotStart(slot_start), slot_size)
+      partition_alloc::internal::InSlotMetadata::From(slot_and_size)
           ->ReportIfDangling();
     }
   }
@@ -109,13 +100,10 @@ bool RawPtrBackupRefImpl<AllowDangling>::IsPointeeAlive(uintptr_t address) {
     PA_BUILDFLAG(ENABLE_BACKUP_REF_PTR_SLOW_CHECKS)
   PA_BASE_CHECK(UseBrp(address));
 #endif
-  auto [slot_start, slot_size] =
+  const auto slot_and_size =
       partition_alloc::SlotAddressAndSize::FromBRPPool(address);
-  return partition_alloc::PartitionRoot::
-      InSlotMetadataPointerFromSlotStartAndSize(
-             partition_alloc::internal::UntaggedSlotStart(slot_start),
-             slot_size)
-          ->IsAlive();
+  return partition_alloc::internal::InSlotMetadata::From(slot_and_size)
+      ->IsAlive();
 }
 
 // Explicitly instantiates the two BackupRefPtr variants in the .cc. This
@@ -135,7 +123,7 @@ void CheckThatAddressIsntWithinFirstPartitionPage(uintptr_t address) {
                   partition_alloc::PartitionPageSize());
   } else {
     PA_BASE_CHECK(reservation_offset_table.IsManagedByNormalBuckets(address));
-    PA_BASE_CHECK(address % partition_alloc::kSuperPageSize >=
+    PA_BASE_CHECK(address % partition_alloc::internal::kSuperPageSize >=
                   partition_alloc::PartitionPageSize());
   }
 }

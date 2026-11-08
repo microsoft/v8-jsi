@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <concepts>
+#include <functional>
 #include <initializer_list>
 #include <iterator>
 #include <limits>
@@ -25,10 +26,12 @@
 #include <span>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "base/check.h"
 #include "base/compiler_specific.h"
 #include "base/containers/checked_iterators.h"
+#include "base/containers/span.h"
 #include "base/containers/span_forward_internal.h"
 #include "base/dcheck_is_on.h"
 #include "base/numerics/integral_constant_like.h"
@@ -471,6 +474,25 @@ constexpr auto as_byte_span(
       unchecked, reinterpret_cast<ByteType*>(s.data()), s.size_bytes()));
 }
 
+template <typename T>
+constexpr void copy_span_elements(span<T> dst, span<const T> src) {
+  CHECK(dst.size() == src.size());
+  if consteval {
+    // Comparing pointers to different objects at compile time yields
+    // unspecified behavior, which would halt compilation. Instead,
+    // unconditionally use a separate buffer in the constexpr context. This
+    // would be inefficient at runtime, but that's irrelevant.
+    std::ranges::move(std::vector(std::from_range, src), dst.begin());
+  } else {
+    // Using `<=` to compare pointers to different allocations is UB;
+    // delegating to the STL is the legal workaround:
+    // https://eel.is/c++draft/defns.order.ptr
+    std::less_equal{}(dst.data(), src.data())
+        ? std::ranges::copy(src, dst.begin())
+        : std::ranges::copy_backward(src, dst.end());
+  }
+}
+
 }  // namespace internal
 
 // [span]: class `span` (non-dynamic `Extent`s)
@@ -508,10 +530,8 @@ class GSL_POINTER span {
       : span(unchecked, first, count) {
 #if PA_BUILDFLAG(CHECKED_SPAN)
     if (!std::is_constant_evaluated()) {
-      if (data() || size()) {
-        CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
-                                                    sizeof(element_type)));
-      }
+      CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
+                                                  sizeof(element_type)));
     }
 #endif  // PA_BUILDFLAG(CHECKED_SPAN)
   }
@@ -544,10 +564,8 @@ class GSL_POINTER span {
       : UNSAFE_BUFFERS(span(unchecked, first, last)) {
 #if PA_BUILDFLAG(CHECKED_SPAN)
     if (!std::is_constant_evaluated()) {
-      if (data() || size()) {
-        CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
-                                                    sizeof(element_type)));
-      }
+      CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
+                                                  sizeof(element_type)));
     }
 #endif  // PA_BUILDFLAG(CHECKED_SPAN)
   }
@@ -642,44 +660,8 @@ class GSL_POINTER span {
   constexpr void copy_from(span<const element_type, extent> other)
     requires(!std::is_const_v<element_type>)
   {
-    if consteval {
-      // Comparing pointers to different objects at compile time yields
-      // unspecified behavior, which would halt compilation. Instead,
-      // unconditionally use a separate buffer in the constexpr context. This
-      // would be inefficient at runtime, but that's irrelevant.
-
-      // operator[] does not exist if extent == 0.
-      if constexpr (extent > 0) {
-        // Hold each value to be copied in a union so `element_type` does not
-        // need to be default constructible.
-        union Holder {
-          constexpr Holder() {}
-          constexpr ~Holder() {}
-          element_type value;
-        };
-        auto buffer = std::make_unique<Holder[]>(extent);
-        for (size_t i = 0; i < extent; ++i) {
-          // SAFETY: `buffers` is allocated with `extent` elements, and the loop
-          // body only executes if `i < extent`.
-          std::construct_at(&UNSAFE_BUFFERS(buffer[i]).value, other[i]);
-        }
-        for (size_t i = 0; i < extent; ++i) {
-          // SAFETY: `buffers` is allocated with `extent` elements, and the loop
-          // body only executes if `i < extent`.
-          (*this)[i] = UNSAFE_BUFFERS(buffer[i]).value;
-          UNSAFE_BUFFERS(buffer[i]).value.~element_type();
-        }
-      }
-    } else {
-      // Using `<=` to compare pointers to different allocations is UB;
-      // reinterpret_cast is the workaround.
-      if (reinterpret_cast<uintptr_t>(to_address(begin())) <=
-          reinterpret_cast<uintptr_t>(to_address(other.begin()))) {
-        std::ranges::copy(other, begin());
-      } else {
-        std::ranges::copy_backward(other, end());
-      }
-    }
+    internal::copy_span_elements(span<element_type>(*this),
+                                 span<const element_type>(other));
   }
   template <typename R, size_t N = internal::kComputedExtent<R>>
     requires(!std::is_const_v<element_type> &&
@@ -769,11 +751,11 @@ class GSL_POINTER span {
   // Implicit conversion to fixed-extent `std::span<>`. (The fixed-extent
   // `std::span` range constructor is explicit.)
   // NOLINTNEXTLINE(google-explicit-constructor)
-  operator std::span<element_type, extent>() const {
+  constexpr operator std::span<element_type, extent>() const {
     return std::span<element_type, extent>(*this);
   }
   // NOLINTNEXTLINE(google-explicit-constructor)
-  operator std::span<const element_type, extent>() const
+  constexpr operator std::span<const element_type, extent>() const
     requires(!std::is_const_v<element_type>)
   {
     return std::span<const element_type, extent>(*this);
@@ -1093,10 +1075,8 @@ class GSL_POINTER span<ElementType, dynamic_extent, InternalPtrType> {
       : span(unchecked, first, count) {
 #if PA_BUILDFLAG(CHECKED_SPAN)
     if (!std::is_constant_evaluated()) {
-      if (data() || size()) {
-        CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
-                                                    sizeof(element_type)));
-      }
+      CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
+                                                  sizeof(element_type)));
     }
 #endif  // PA_BUILDFLAG(CHECKED_SPAN)
   }
@@ -1127,10 +1107,8 @@ class GSL_POINTER span<ElementType, dynamic_extent, InternalPtrType> {
       : UNSAFE_BUFFERS(span(unchecked, first, last)) {
 #if PA_BUILDFLAG(CHECKED_SPAN)
     if (!std::is_constant_evaluated()) {
-      if (data() || size()) {
-        CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
-                                                    sizeof(element_type)));
-      }
+      CHECK(!partition_alloc::IsExtentOutOfBounds(data(), size_bytes(),
+                                                  sizeof(element_type)));
     }
 #endif  // PA_BUILDFLAG(CHECKED_SPAN)
   }
@@ -1221,42 +1199,8 @@ class GSL_POINTER span<ElementType, dynamic_extent, InternalPtrType> {
   constexpr void copy_from(span<const element_type> other)
     requires(!std::is_const_v<element_type>)
   {
-    CHECK(size() == other.size());
-    if consteval {
-      // Comparing pointers to different objects at compile time yields
-      // unspecified behavior, which would halt compilation. Instead,
-      // unconditionally use a separate buffer in the constexpr context. This
-      // would be inefficient at runtime, but that's irrelevant.
-
-      // Hold each value to be copied in a union so `element_type` does not
-      // need to be default constructible.
-      union Holder {
-        constexpr Holder() {}
-        constexpr ~Holder() {}
-        element_type value;
-      };
-      auto buffer = std::make_unique<Holder[]>(other.size());
-      for (size_t i = 0; i < other.size(); ++i) {
-        // SAFETY: `buffers` is allocated with `other.size()` elements, and the
-        // loop body only executes if `i < other.size()`.
-        std::construct_at(&UNSAFE_BUFFERS(buffer[i]).value, other[i]);
-      }
-      for (size_t i = 0; i < other.size(); ++i) {
-        // SAFETY: `buffers` is allocated with `other.size()` elements, and the
-        // loop body only executes if `i < other.size()`.
-        (*this)[i] = UNSAFE_BUFFERS(buffer[i]).value;
-        UNSAFE_BUFFERS(buffer[i]).value.~element_type();
-      }
-    } else {
-      // Using `<=` to compare pointers to different allocations is UB;
-      // reinterpret_cast is the workaround.
-      if (reinterpret_cast<uintptr_t>(to_address(begin())) <=
-          reinterpret_cast<uintptr_t>(to_address(other.begin()))) {
-        std::ranges::copy(other, begin());
-      } else {
-        std::ranges::copy_backward(other, end());
-      }
-    }
+    internal::copy_span_elements(span<element_type>(*this),
+                                 span<const element_type>(other));
   }
 
   // Performs a deep copy from a volatile source span. The spans must be the
@@ -1931,7 +1875,7 @@ template <typename ElementType,
   // [intro.object]: https://eel.is/c++draft/intro.object
   // [obj.lifetime] https://eel.is/c++draft/obj.lifetime
   //
-  // TODO(arthursonzogni): use std::start_lifetime_as_array.
+  // TODO(crbug.com/570737624): use std::start_lifetime_as_array.
   //
   // std::start_lifetime_as_array is part of C++23, but not yet implemented by
   // CLang as of January 2026. `std::launder` helps with pointer provenance

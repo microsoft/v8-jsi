@@ -11,8 +11,12 @@ _CHROMIUM_SRC_DIR = os.path.realpath(os.path.join(_THIS_DIR, '..', '..', '..'))
 
 # //build imports.
 sys.path.append(os.path.join(_CHROMIUM_SRC_DIR, 'build'))
-from skia_gold_common.skia_gold_properties import SkiaGoldProperties
-from skia_gold_common.skia_gold_session_manager import SkiaGoldSessionManager
+from skia_gold_common.skia_gold_properties import (  # noqa: E402
+  SkiaGoldProperties,
+)
+from skia_gold_common.skia_gold_session_manager import (  # noqa: E402
+  SkiaGoldSessionManager,
+)
 
 # This is the corpus used by skia gold to identify the data set.
 # We are not using the same corpus as the rest of the skia gold chromium tests.
@@ -21,11 +25,11 @@ CORPUS = 'finch-smoke-tests'
 
 
 class FinchSkiaGoldUtil:
-
   def __init__(self, temp_dir, args):
     self._skia_gold_properties = SkiaGoldProperties(args)
     self._skia_gold_session_manager = SkiaGoldSessionManager(
-        temp_dir, self._skia_gold_properties)
+      temp_dir, self._skia_gold_properties
+    )
     self._skia_gold_session = self._GetSkiaGoldSession()
     self._retry_without_patch = False
     if args.isolated_script_test_filter:
@@ -76,8 +80,9 @@ def _get_platform():
     return 'mac'
 
   raise RuntimeError(
-      'Unsupported platform: %s. Only Linux (linux*) and Mac (darwin) and '
-      'Windows (win32 or cygwin) are supported' % sys.platform)
+    'Unsupported platform: %s. Only Linux (linux*) and Mac (darwin) and '
+    'Windows (win32 or cygwin) are supported' % sys.platform
+  )
 
 
 def _output_local_diff_files(skia_gold_session, image_name):
@@ -120,10 +125,13 @@ def log_skia_gold_status_code(skia_gold_session, image_name, status, error):
   elif status == status_codes.COMPARISON_FAILURE_REMOTE:
     _, triage_link = skia_gold_session.GetTriageLinks(image_name)
     if not triage_link:
-      logging.error('Failed to get triage link for %s, raw output: %s',
-                    image_name, error)
-      logging.error('Reason for no triage link: %s',
-                    skia_gold_session.GetTriageLinkOmissionReason(image_name))
+      logging.error(
+        'Failed to get triage link for %s, raw output: %s', image_name, error
+      )
+      logging.error(
+        'Reason for no triage link: %s',
+        skia_gold_session.GetTriageLinkOmissionReason(image_name),
+      )
     else:
       logging.warning('triage link: %s', triage_link)
   elif status == status_codes.COMPARISON_FAILURE_LOCAL:
@@ -131,12 +139,17 @@ def log_skia_gold_status_code(skia_gold_session, image_name, status, error):
     _output_local_diff_files(skia_gold_session, image_name)
   elif status == status_codes.LOCAL_DIFF_FAILURE:
     logging.error(
-        'Local comparison failed and an error occurred during diff '
-        'generation: %s', error)
+      'Local comparison failed and an error occurred during diff '
+      'generation: %s',
+      error,
+    )
     # There might be some files, so try outputting them.
     logging.error('Local diff files:')
     _output_local_diff_files(skia_gold_session, image_name)
   else:
-    logging.error('Given unhandled SkiaGoldSession StatusCode %s with error %s',
-                  status, error)
+    logging.error(
+      'Given unhandled SkiaGoldSession StatusCode %s with error %s',
+      status,
+      error,
+    )
   return triage_link

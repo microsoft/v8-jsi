@@ -10,6 +10,7 @@
 
 #include "base/atomicops.h"
 #include "base/bits.h"
+#include "base/containers/span.h"
 #include "base/feature_list.h"
 #include "base/logging.h"
 #include "base/memory/discardable_memory.h"
@@ -341,7 +342,7 @@ void DiscardableSharedMemory::Unlock(size_t offset, size_t length) {
     return;
   }
 
-  Time current_time = Now();
+  Time current_time = Time::Now();
   DCHECK(!current_time.is_null());
 
   SharedState old_state(SharedState::LOCKED, Time());
@@ -555,10 +556,6 @@ void DiscardableSharedMemory::UnlockPages(
     }
   }
 #endif
-}
-
-Time DiscardableSharedMemory::Now() const {
-  return Time::Now();
 }
 
 #if BUILDFLAG(IS_ANDROID)

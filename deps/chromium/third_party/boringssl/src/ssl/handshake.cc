@@ -31,7 +31,7 @@
 
 BSSL_NAMESPACE_BEGIN
 
-SSL_HANDSHAKE::SSL_HANDSHAKE(SSL *ssl_arg)
+SSL_HANDSHAKE::SSL_HANDSHAKE(SSLImpl *ssl_arg)
     : ssl(ssl_arg),
       transcript(SSL_is_dtls(ssl_arg)),
       inner_transcript(SSL_is_dtls(ssl_arg)),
@@ -54,8 +54,6 @@ SSL_HANDSHAKE::SSL_HANDSHAKE(SSL *ssl_arg)
       ticket_expected(false),
       extended_master_secret(false),
       pending_private_key_op(false),
-      handback(false),
-      hints_requested(false),
       cert_compression_negotiated(false),
       apply_jdk11_workaround(false),
       can_release_private_key(false),
@@ -66,7 +64,7 @@ SSL_HANDSHAKE::SSL_HANDSHAKE(SSL *ssl_arg)
   assert(ssl);
 
   // Draw entropy for all GREASE values at once. This avoids calling
-  // |RAND_bytes| repeatedly and makes the values consistent within a
+  // `RAND_bytes` repeatedly and makes the values consistent within a
   // connection. The latter is so the second ClientHello matches after
   // HelloRetryRequest and so supported_groups and key_shares are consistent.
   RAND_bytes(grease_seed, sizeof(grease_seed));
@@ -100,7 +98,7 @@ bool SSL_HANDSHAKE::GetClientHello(SSLMessage *out_msg,
   return true;
 }
 
-UniquePtr<SSL_HANDSHAKE> ssl_handshake_new(SSL *ssl) {
+UniquePtr<SSL_HANDSHAKE> ssl_handshake_new(SSLImpl *ssl) {
   UniquePtr<SSL_HANDSHAKE> hs = MakeUnique<SSL_HANDSHAKE>(ssl);
   if (!hs || !hs->transcript.Init()) {
     return nullptr;
@@ -113,7 +111,7 @@ UniquePtr<SSL_HANDSHAKE> ssl_handshake_new(SSL *ssl) {
   return hs;
 }
 
-bool ssl_check_message_type(SSL *ssl, const SSLMessage &msg, int type) {
+bool ssl_check_message_type(SSLImpl *ssl, const SSLMessage &msg, int type) {
   if (msg.type != type) {
     ssl_send_alert(ssl, SSL3_AL_FATAL, SSL_AD_UNEXPECTED_MESSAGE);
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_MESSAGE);
@@ -124,7 +122,7 @@ bool ssl_check_message_type(SSL *ssl, const SSLMessage &msg, int type) {
   return true;
 }
 
-bool ssl_add_message_cbb(SSL *ssl, CBB *cbb) {
+bool ssl_add_message_cbb(SSLImpl *ssl, CBB *cbb) {
   Array<uint8_t> msg;
   if (!ssl->method->finish_message(ssl, cbb, &msg) ||
       !ssl->method->add_message(ssl, std::move(msg))) {
@@ -134,7 +132,7 @@ bool ssl_add_message_cbb(SSL *ssl, CBB *cbb) {
   return true;
 }
 
-size_t ssl_max_handshake_message_len(const SSL *ssl) {
+size_t ssl_max_handshake_message_len(const SSLImpl *ssl) {
   // kMaxMessageLen is the default maximum message size for handshakes which do
   // not accept peer certificate chains.
   static const size_t kMaxMessageLen = 16384;
@@ -229,8 +227,8 @@ bool ssl_parse_extensions(const CBS *cbs, uint8_t *out_alert,
   return true;
 }
 
-static bool peer_certificates_equal(const SSL_SESSION *session,
-                                    const SSL_SESSION *prev_session) {
+static bool peer_certificates_equal(const SSLSession *session,
+                                    const SSLSession *prev_session) {
   const uint8_t prev_cert_type = prev_session->peer_cert_type;
   if (session->peer_cert_type != prev_cert_type) {
     return false;
@@ -266,8 +264,8 @@ static bool peer_certificates_equal(const SSL_SESSION *session,
 }
 
 enum ssl_verify_result_t ssl_verify_peer_cert(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
-  const SSL_SESSION *prev_session = ssl->s3->established_session.get();
+  SSLImpl *const ssl = hs->ssl;
+  const SSLSession *prev_session = ssl->s3->established_session.get();
   if (prev_session != nullptr) {
     // If renegotiating, the server must not change the server certificate. See
     // https://mitls.org/pages/attacks/3SHAKE. We never resume on renegotiation,
@@ -300,7 +298,7 @@ enum ssl_verify_result_t ssl_verify_peer_cert(SSL_HANDSHAKE *hs) {
         hs->new_session->verify_result = X509_V_OK;
         break;
       case ssl_verify_invalid:
-        // If |SSL_VERIFY_NONE|, the error is non-fatal, but we keep the result.
+        // If `SSL_VERIFY_NONE`, the error is non-fatal, but we keep the result.
         if (hs->config->verify_mode == SSL_VERIFY_NONE) {
           ERR_clear_error();
           ret = ssl_verify_ok;
@@ -350,7 +348,7 @@ enum ssl_verify_result_t ssl_verify_peer_cert(SSL_HANDSHAKE *hs) {
 // 4. We only support custom verify callbacks.
 enum ssl_verify_result_t ssl_reverify_peer_cert(SSL_HANDSHAKE *hs,
                                                 bool send_alert) {
-  SSL *const ssl = hs->ssl;
+  SSLImpl *const ssl = hs->ssl;
   assert(ssl->s3->established_session == nullptr);
   assert(hs->config->verify_mode != SSL_VERIFY_NONE);
 
@@ -393,7 +391,7 @@ uint16_t ssl_get_grease_value(const SSL_HANDSHAKE *hs,
 }
 
 enum ssl_hs_wait_t ssl_get_finished(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
+  SSLImpl *const ssl = hs->ssl;
   SSLMessage msg;
   if (!ssl->method->get_message(ssl, &msg)) {
     return ssl_hs_read_message;
@@ -447,8 +445,8 @@ enum ssl_hs_wait_t ssl_get_finished(SSL_HANDSHAKE *hs) {
 }
 
 bool ssl_send_finished(SSL_HANDSHAKE *hs) {
-  SSL *const ssl = hs->ssl;
-  const SSL_SESSION *session = ssl_handshake_session(hs);
+  SSLImpl *const ssl = hs->ssl;
+  const SSLSession *session = ssl_handshake_session(hs);
 
   uint8_t finished_buf[EVP_MAX_MD_SIZE];
   size_t finished_len;
@@ -517,7 +515,7 @@ bool ssl_send_tls12_certificate(SSL_HANDSHAKE *hs) {
   return ssl_add_message_cbb(hs->ssl, cbb.get());
 }
 
-const SSL_SESSION *ssl_handshake_session(const SSL_HANDSHAKE *hs) {
+const SSLSession *ssl_handshake_session(const SSL_HANDSHAKE *hs) {
   if (hs->new_session) {
     return hs->new_session.get();
   }
@@ -525,10 +523,10 @@ const SSL_SESSION *ssl_handshake_session(const SSL_HANDSHAKE *hs) {
 }
 
 int ssl_run_handshake(SSL_HANDSHAKE *hs, bool *out_early_return) {
-  SSL *const ssl = hs->ssl;
+  SSLImpl *const ssl = hs->ssl;
   for (;;) {
     // If a timeout during the handshake triggered a DTLS ACK or retransmit, we
-    // resolve that first. E.g., if |ssl_hs_private_key_operation| is slow, the
+    // resolve that first. E.g., if `ssl_hs_private_key_operation` is slow, the
     // ACK timer may fire.
     if (hs->wait != ssl_hs_error && SSL_is_dtls(ssl)) {
       int ret = ssl->method->flush(ssl);
@@ -540,7 +538,7 @@ int ssl_run_handshake(SSL_HANDSHAKE *hs, bool *out_early_return) {
     // Resolve the operation the handshake was waiting on. Each condition may
     // halt the handshake by returning, or continue executing if the handshake
     // may immediately proceed. Cases which halt the handshake can clear
-    // |hs->wait| to re-enter the state machine on the next iteration, or leave
+    // `hs->wait` to re-enter the state machine on the next iteration, or leave
     // it set to keep the condition sticky.
     switch (hs->wait) {
       case ssl_hs_error:
@@ -561,7 +559,7 @@ int ssl_run_handshake(SSL_HANDSHAKE *hs, bool *out_early_return) {
         if (SSL_is_quic(ssl)) {
           // QUIC has no ChangeCipherSpec messages.
           assert(hs->wait != ssl_hs_read_change_cipher_spec);
-          // The caller should call |SSL_provide_quic_data|. Clear |hs->wait| so
+          // The caller should call `SSL_provide_quic_data`. Clear `hs->wait` so
           // the handshake can check if there is sufficient data next iteration.
           ssl->s3->rwstate = SSL_ERROR_WANT_READ;
           hs->wait = ssl_hs_ok;
@@ -619,24 +617,9 @@ int ssl_run_handshake(SSL_HANDSHAKE *hs, bool *out_early_return) {
         hs->wait = ssl_hs_ok;
         return -1;
 
-      case ssl_hs_handoff:
-        ssl->s3->rwstate = SSL_ERROR_HANDOFF;
-        hs->wait = ssl_hs_ok;
-        return -1;
-
-      case ssl_hs_handback: {
-        int ret = ssl->method->flush(ssl);
-        if (ret <= 0) {
-          return ret;
-        }
-        ssl->s3->rwstate = SSL_ERROR_HANDBACK;
-        hs->wait = ssl_hs_handback;
-        return -1;
-      }
-
         // The following cases are associated with callback APIs which expect to
-        // be called each time the state machine runs. Thus they set |hs->wait|
-        // to |ssl_hs_ok| so that, next time, we re-enter the state machine and
+        // be called each time the state machine runs. Thus they set `hs->wait`
+        // to `ssl_hs_ok` so that, next time, we re-enter the state machine and
         // call the callback again.
       case ssl_hs_x509_lookup:
         ssl->s3->rwstate = SSL_ERROR_WANT_X509_LOOKUP;
@@ -697,7 +680,7 @@ int ssl_run_handshake(SSL_HANDSHAKE *hs, bool *out_early_return) {
       *out_early_return = false;
       return 1;
     }
-    // If the handshake returns |ssl_hs_flush|, implicitly finish the flight.
+    // If the handshake returns `ssl_hs_flush`, implicitly finish the flight.
     // This is a convenience so we do not need to manually insert this
     // throughout the handshake.
     if (hs->wait == ssl_hs_flush) {

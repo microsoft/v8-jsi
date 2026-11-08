@@ -17,6 +17,7 @@
 #include "partition_alloc/partition_alloc_base/notreached.h"
 #include "partition_alloc/partition_alloc_check.h"
 #include "partition_alloc/partition_alloc_constants.h"
+#include "partition_alloc/partition_alloc_public_constants.h"
 #include "partition_alloc/reservation_offset_table.h"
 #include "partition_alloc/thread_isolation/alignment.h"
 
@@ -26,7 +27,7 @@
 
 namespace partition_alloc::internal {
 
-PA_CONSTINIT AddressPoolManager AddressPoolManager::singleton_;
+constinit AddressPoolManager AddressPoolManager::singleton_;
 
 // static
 AddressPoolManager& AddressPoolManager::GetInstance() {

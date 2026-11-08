@@ -17,10 +17,10 @@
 #include <cstdint>
 #include <cstring>
 #include <istream>
-#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
@@ -36,9 +36,12 @@
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
+#include "google/protobuf/message_traits.h"
 #include "google/protobuf/metadata_lite.h"
 #include "google/protobuf/parse_context.h"
 #include "google/protobuf/port.h"
+#include "google/protobuf/type_id.h"
+#include "google/protobuf/unknown_field_set.h"
 
 
 // Must be included last.
@@ -56,7 +59,7 @@ MessageLite* MessageLite::CopyConstruct(Arena* arena, const MessageLite& from) {
 
 void MessageLite::DestroyInstance() {
 #if defined(PROTOBUF_CUSTOM_VTABLE)
-  _class_data_->destroy_message(*this);
+  class_data()->destroy_message(*this);
 #else   // PROTOBUF_CUSTOM_VTABLE
   this->~MessageLite();
 #endif  // PROTOBUF_CUSTOM_VTABLE
@@ -87,11 +90,13 @@ void MessageLite::CheckTypeAndMergeFrom(const MessageLite& other) {
 
 MessageLite* MessageLite::New(Arena* arena) const {
   auto* data = GetClassData();
+  void* mem = data->message_creator.AllocateMessage(arena);
   // The `instance->New()` expression requires using the actual instance
   // instead of the prototype for the inner function call.
   // Certain custom instances have special per-instance state that needs to be
   // copied.
-  return data->message_creator.New(this, data->prototype, arena);
+  return data->message_creator.PlacementNew(this, data->default_instance(), mem,
+                                            arena);
 }
 
 bool MessageLite::IsInitialized() const {
@@ -108,33 +113,14 @@ absl::string_view MessageLite::GetTypeName() const {
   return TypeId::Get(*this).name();
 }
 
-absl::string_view TypeId::name() const {
-  if (!data_->is_lite) {
-    // For !LITE messages, we use the descriptor method function.
-    return data_->full().descriptor_methods->get_type_name(data_);
-  }
-
-  // For LITE messages, the type name is a char[] just beyond ClassData.
-  return reinterpret_cast<const char*>(data_) + sizeof(internal::ClassData);
-}
-
-void MessageLite::OnDemandRegisterArenaDtor(Arena* arena) {
-  if (arena == nullptr) return;
-  auto* data = GetClassData();
-  ABSL_DCHECK(data != nullptr);
-
-  if (data->on_demand_register_arena_dtor != nullptr) {
-    data->on_demand_register_arena_dtor(*this, *arena);
-  }
-}
-
 std::string MessageLite::InitializationErrorString() const {
   auto* data = GetClassData();
   ABSL_DCHECK(data != nullptr);
 
   if (!data->is_lite) {
     // For !LITE messages, we use the descriptor method function.
-    return data->full().descriptor_methods->initialization_error_string(*this);
+    return data->full().descriptor_methods()->initialization_error_string(
+        *this);
   }
 
   return "(cannot determine missing fields for lite message)";
@@ -144,7 +130,7 @@ std::string MessageLite::DebugString() const {
   auto* data = GetClassData();
   ABSL_DCHECK(data != nullptr);
   if (!data->is_lite) {
-    return data->full().descriptor_methods->debug_string(*this);
+    return data->full().descriptor_methods()->debug_string(*this);
   }
 
   return absl::StrCat("MessageLite at 0x", absl::Hex(this));
@@ -215,15 +201,24 @@ void MessageLite::LogInitializationErrorMessage() const {
 
 namespace internal {
 
-void FailDynamicCast(const MessageLite& from, const MessageLite& to) {
-  const auto to_name = to.GetTypeName();
+void FailDynamicCast(
+    const MessageLite& from,
+    std::variant<const char*, const MessageLite*> to_type_name) {
+  absl::string_view to_type_name_str;
+  if (std::holds_alternative<const char*>(to_type_name)) {
+    to_type_name_str = std::get<const char*>(to_type_name);
+  } else {
+    to_type_name_str =
+        std::get<const MessageLite*>(to_type_name)->GetTypeName();
+  }
   if (internal::GetClassData(from)->is_dynamic) {
     ABSL_LOG(FATAL)
         << "Cannot downcast from a DynamicMessage to generated type "
-        << to_name;
+        << to_type_name_str;
   }
   const auto from_name = from.GetTypeName();
-  ABSL_LOG(FATAL) << "Cannot downcast " << from_name << " to " << to_name;
+  ABSL_LOG(FATAL) << "Cannot downcast " << from_name << " to "
+                  << to_type_name_str;
 }
 
 template <bool aliasing>
@@ -299,7 +294,8 @@ class ZeroCopyCodedInputStream : public io::ZeroCopyInputStream {
   explicit ZeroCopyCodedInputStream(io::CodedInputStream* cis) : cis_(cis) {}
   bool Next(const void** data, int* size) final {
     if (!cis_->GetDirectBufferPointer(data, size)) return false;
-    cis_->Skip(*size);
+    // TODO: Remove this suppression.
+    (void)cis_->Skip(*size);
     return true;
   }
   void BackUp(int count) final { cis_->Advance(-count); }
@@ -416,10 +412,12 @@ bool MessageLite::ParsePartialFromBoundedZeroCopyStream(
 }
 
 bool MessageLite::ParseFromString(absl::string_view data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kParse>(data);
 }
 
 bool MessageLite::ParsePartialFromString(absl::string_view data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kParsePartial>(data);
 }
 
@@ -432,6 +430,7 @@ bool MessageLite::ParsePartialFromArray(const void* data, int size) {
 }
 
 bool MessageLite::MergeFromString(absl::string_view data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kMerge>(data);
 }
 
@@ -459,18 +458,22 @@ struct SourceWrapper<absl::Cord> {
 }  // namespace internal
 
 bool MessageLite::MergeFromString(const absl::Cord& data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kMerge>(internal::SourceWrapper<absl::Cord>(&data));
 }
 
 bool MessageLite::MergePartialFromString(const absl::Cord& data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kMergePartial>(internal::SourceWrapper<absl::Cord>(&data));
 }
 
 bool MessageLite::ParseFromString(const absl::Cord& data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kParse>(internal::SourceWrapper<absl::Cord>(&data));
 }
 
 bool MessageLite::ParsePartialFromString(const absl::Cord& data) {
+  if (ABSL_PREDICT_FALSE(data.size() > INT_MAX)) return false;
   return ParseFrom<kParsePartial>(internal::SourceWrapper<absl::Cord>(&data));
 }
 
@@ -489,7 +492,8 @@ inline uint8_t* SerializeToArrayImpl(const MessageLite& msg, uint8_t* target,
         &stream, io::CodedOutputStream::IsDefaultSerializationDeterministic(),
         &ptr);
     ptr = msg._InternalSerialize(ptr, &out);
-    out.Trim(ptr);
+    // TODO: Remove this suppression.
+    (void)out.Trim(ptr);
     ABSL_DCHECK(!out.HadError() && stream.ByteCount() == size);
     return target + size;
   } else {
@@ -559,7 +563,8 @@ bool MessageLite::SerializePartialToZeroCopyStream(
       output, io::CodedOutputStream::IsDefaultSerializationDeterministic(),
       &target);
   target = _InternalSerialize(target, &stream);
-  stream.Trim(target);
+  // TODO: Remove this suppression.
+  (void)stream.Trim(target);
   if (stream.HadError()) return false;
   return true;
 }
@@ -664,11 +669,17 @@ bool MessageLite::AppendPartialToString(absl::Cord* output) const {
   // For efficiency, we'd like to pass a size hint to CordOutputStream with
   // the exact total size expected.
   const size_t size = ByteSizeLong();
-  const size_t total_size = size + output->size();
   if (size > INT_MAX) {
     ABSL_LOG(ERROR) << "Exceeded maximum protobuf size of 2GB: " << size;
     return false;
   }
+  const size_t output_size = output->size();
+  if (output_size > SIZE_MAX - size) {
+    ABSL_LOG(ERROR) << "Exceeded maximum Cord size during append: "
+                    << output_size << " + " << size;
+    return false;
+  }
+  const size_t total_size = size + output_size;
 
 
   // Allocate a CordBuffer (which may utilize private capacity in 'output').
@@ -699,7 +710,8 @@ bool MessageLite::AppendPartialToString(absl::Cord* output) const {
       target, static_cast<int>(available.size()), &output_stream,
       io::CodedOutputStream::IsDefaultSerializationDeterministic(), &target);
   target = _InternalSerialize(target, &out);
-  out.Trim(target);
+  // TODO: Remove this suppression.
+  (void)out.Trim(target);
   if (out.HadError()) return false;
   *output = output_stream.Consume();
   ABSL_DCHECK_EQ(output->size(), total_size);
@@ -728,7 +740,6 @@ absl::Cord MessageLite::SerializePartialAsCord() const {
   return output;
 }
 
-
 namespace internal {
 
 // Non-inline variants of std::string specializations for
@@ -747,6 +758,9 @@ template <>
 void InternalMetadata::DoSwap<std::string>(std::string* other) {
   mutable_unknown_fields<std::string>()->swap(*other);
 }
+
+template UnknownFieldSet*
+InternalMetadata::mutable_unknown_fields_slow<UnknownFieldSet>();
 
 }  // namespace internal
 

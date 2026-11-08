@@ -66,11 +66,6 @@ int EVP_CIPHER_CTX_copy(EVP_CIPHER_CTX *out, const EVP_CIPHER_CTX *in) {
     return 0;
   }
 
-  if (in->poisoned) {
-    OPENSSL_PUT_ERROR(CIPHER, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return 0;
-  }
-
   EVP_CIPHER_CTX_cleanup(out);
   OPENSSL_memcpy(out, in, sizeof(EVP_CIPHER_CTX));
 
@@ -190,9 +185,6 @@ int EVP_CipherInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
 
   ctx->buf_len = 0;
   ctx->final_used = 0;
-  // Clear the poisoned flag to permit reuse of a CTX that previously had a
-  // failed operation.
-  ctx->poisoned = 0;
   return 1;
 }
 
@@ -206,13 +198,54 @@ int EVP_DecryptInit_ex(EVP_CIPHER_CTX *ctx, const EVP_CIPHER *cipher,
   return EVP_CipherInit_ex(ctx, cipher, impl, key, iv, 0);
 }
 
-// block_remainder returns the number of bytes to remove from |len| to get a
-// multiple of |ctx|'s block size.
+// block_remainder returns the number of bytes to remove from `len` to get a
+// multiple of `ctx`'s block size.
 static size_t block_remainder(const EVP_CIPHER_CTX *ctx, size_t len) {
-  // |block_size| must be a power of two.
+  // `block_size` must be a power of two.
   assert(ctx->cipher->block_size != 0);
   assert((ctx->cipher->block_size & (ctx->cipher->block_size - 1)) == 0);
   return len & (ctx->cipher->block_size - 1);
+}
+
+static size_t evp_cipher_ctx_max_encrypt_update(const EVP_CIPHER_CTX *ctx,
+                                                size_t in_len) {
+  if (in_len == 0) {
+    return 0;
+  }
+
+  size_t block_size = ctx->cipher->block_size;
+  // `block_size` must be a power of 2.
+  assert(block_size != 0 && (block_size & (block_size - 1)) == 0);
+  size_t buf_len = ctx->buf_len;
+
+  // Any buffered input is combined with `in_len`, then we round down to a
+  // multiple of the block size.
+  return (in_len + buf_len) & ~(block_size - 1);
+}
+
+size_t EVP_CIPHER_CTX_max_next_update(const EVP_CIPHER_CTX *ctx,
+                                      size_t in_len) {
+  if (in_len == 0) {
+    return 0;
+  }
+
+  size_t ret = evp_cipher_ctx_max_encrypt_update(ctx, in_len);
+  size_t block_size = ctx->cipher->block_size;
+  size_t buf_len = ctx->buf_len;
+  if (!ctx->encrypt && block_size > 1 && !(ctx->flags & EVP_CIPH_NO_PADDING)) {
+    if (ctx->final_used) {
+      // There was a buffered decrypted block. Now that it is known to not have
+      // padding, DecryptUpdate will output it.
+      ret += block_size;
+    }
+    if (block_remainder(ctx, in_len + buf_len) == 0) {
+      // This call ends on a block boundary. The last block will be buffered in
+      // `ctx->final` until it is known to have padding.
+      assert(ret >= block_size);
+      ret -= block_size;
+    }
+  }
+  return ret;
 }
 
 int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len,
@@ -242,30 +275,22 @@ int EVP_EncryptUpdate(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len,
   return 1;
 }
 
-template <typename F>
-static int WrapWithPoison(EVP_CIPHER_CTX *ctx, F f) {
-  if (ctx->poisoned) {
-    // |ctx| has been left in an indeterminate state by a previous failed
-    // operation. Do not allow proceeding.
-    OPENSSL_PUT_ERROR(CIPHER, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-    return 0;
-  }
-  if (!f()) {
-    // Functions using |WrapWithPoison| may leave |ctx| in an indeterminate
-    // state. Mark the object as poisoned.
-    ctx->poisoned = 1;
-    return 0;
-  }
-  return 1;
-}
-
-static int EVP_EncryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
-                                         size_t *out_len, size_t max_out_len,
-                                         const uint8_t *in, size_t in_len) {
+int EVP_EncryptUpdate_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
+                         size_t max_out_len, const uint8_t *in, size_t in_len) {
   *out_len = 0;
 
-  // Ciphers that use blocks may write up to |block_size| extra bytes. Ensure
-  // the output does not overflow |*out_len|.
+  // `evp_cipher_ctx_max_encrypt_update` is currently exact. Check bounds before
+  // performing any operations so that, if the output is too small, retrying the
+  // operation with a larger buffer is well-defined. This only matters when it
+  // takes two steps to process `in`.
+  size_t expected = evp_cipher_ctx_max_encrypt_update(ctx, in_len);
+  if (max_out_len < expected) {
+    OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BUFFER_TOO_SMALL);
+    return 0;
+  }
+
+  // Ciphers that use blocks may write up to `block_size` extra bytes. Ensure
+  // the output does not overflow `*out_len`.
   Span<const uint8_t> in_span(in, in_len);
   size_t block_size = ctx->cipher->block_size;
 
@@ -316,16 +341,8 @@ static int EVP_EncryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
   ctx->buf_len = in_span.size();
 
   *out_len = max_out_len - out_span.size();
+  assert(*out_len == expected);  // See `EVP_CIPHER_CTX_max_next_update` check.
   return 1;
-}
-
-int EVP_EncryptUpdate_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
-                         size_t max_out_len, const uint8_t *in, size_t in_len) {
-  *out_len = 0;
-  return WrapWithPoison(ctx, [&] {
-    return EVP_EncryptUpdate_ex_internal(ctx, out, out_len, max_out_len, in,
-                                         in_len);
-  });
 }
 
 int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len) {
@@ -337,8 +354,8 @@ int EVP_EncryptFinal_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len) {
   return ret;
 }
 
-static int EVP_EncryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
-                                         size_t *out_len, size_t max_out_len) {
+int EVP_EncryptFinal_ex2(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
+                         size_t max_out_len) {
   *out_len = 0;
 
   size_t block_size = ctx->cipher->block_size;
@@ -347,6 +364,7 @@ static int EVP_EncryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
     if (ctx->cipher->flags & EVP_CIPH_FLAG_CUSTOM_CIPHER) {
       return ctx->cipher->cipher_final(ctx);
     }
+    EVP_Cipher_verify_service_indicator(ctx);
     return 1;
   }
 
@@ -356,12 +374,8 @@ static int EVP_EncryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
       OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH);
       return 0;
     }
+    EVP_Cipher_verify_service_indicator(ctx);
     return 1;
-  }
-
-  size_t padding = block_size - buf_len;
-  for (size_t i = buf_len; i < block_size; i++) {
-    ctx->buf[i] = padding;
   }
 
   Span<uint8_t> out_span(out, max_out_len);
@@ -369,25 +383,19 @@ static int EVP_EncryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BUFFER_TOO_SMALL);
     return 0;
   }
+
+  size_t padding = block_size - buf_len;
+  for (size_t i = buf_len; i < block_size; i++) {
+    ctx->buf[i] = padding;
+  }
   if (!ctx->cipher->cipher_update(ctx, out_span.data(), ctx->buf, block_size)) {
     return 0;
   }
   out_span = out_span.subspan(block_size);
 
   *out_len = max_out_len - out_span.size();
+  EVP_Cipher_verify_service_indicator(ctx);
   return 1;
-}
-
-int EVP_EncryptFinal_ex2(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
-                         size_t max_out_len) {
-  *out_len = 0;
-  return WrapWithPoison(ctx, [&] {
-    if (!EVP_EncryptFinal_ex2_internal(ctx, out, out_len, max_out_len)) {
-      return 0;
-    }
-    EVP_Cipher_verify_service_indicator(ctx);
-    return 1;
-  });
 }
 
 int EVP_DecryptUpdate(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len,
@@ -417,16 +425,14 @@ int EVP_DecryptUpdate(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len,
   return 1;
 }
 
-static int EVP_DecryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
-                                         size_t *out_len, size_t max_out_len,
-                                         const uint8_t *in, size_t in_len) {
+int EVP_DecryptUpdate_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
+                         size_t max_out_len, const uint8_t *in, size_t in_len) {
   *out_len = 0;
 
-  // Ciphers that use blocks may write up to |block_size| extra bytes. Ensure
-  // the output does not overflow |*out_len|.
+  // Ciphers that use blocks may write up to `block_size` extra bytes. Ensure
+  // the output does not overflow `*out_len`.
   Span<const uint8_t> in_span(in, in_len);
   size_t block_size = ctx->cipher->block_size;
-
   if (in_span.empty()) {
     return 1;
   }
@@ -434,9 +440,18 @@ static int EVP_DecryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
   Span<uint8_t> out_span(out, max_out_len);
   if (ctx->flags & EVP_CIPH_NO_PADDING) {
     // Use the shared block handling logic from encryption.
-    return EVP_EncryptUpdate_ex_internal(ctx, out_span.data(), out_len,
-                                         out_span.size(), in_span.data(),
-                                         in_span.size());
+    return EVP_EncryptUpdate_ex(ctx, out_span.data(), out_len, out_span.size(),
+                                in_span.data(), in_span.size());
+  }
+
+  // `EVP_CIPHER_CTX_max_next_update` is currently exact. Check bounds before
+  // performing any operations so that, if the output is too small, retrying the
+  // operation with a larger buffer is well-defined. This only matters when it
+  // takes two steps to process `in`.
+  size_t expected = EVP_CIPHER_CTX_max_next_update(ctx, in_len);
+  if (max_out_len < expected) {
+    OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BUFFER_TOO_SMALL);
+    return 0;
   }
 
   assert(block_size <= sizeof(ctx->final));
@@ -466,16 +481,15 @@ static int EVP_DecryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
     // less.
     size_t head = in_span.size() > block_size ? in_span.size() - block_size : 0;
     size_t head_out_len;
-    if (!EVP_EncryptUpdate_ex_internal(ctx, out_span.data(), &head_out_len,
-                                       out_span.size(), in_span.data(), head)) {
+    if (!EVP_EncryptUpdate_ex(ctx, out_span.data(), &head_out_len,
+                              out_span.size(), in_span.data(), head)) {
       return 0;
     }
     in_span = in_span.subspan(head);
     out_span = out_span.subspan(head_out_len);
     size_t final_size;
-    if (!EVP_EncryptUpdate_ex_internal(ctx, ctx->final, &final_size,
-                                       sizeof(ctx->final), in_span.data(),
-                                       in_span.size())) {
+    if (!EVP_EncryptUpdate_ex(ctx, ctx->final, &final_size, sizeof(ctx->final),
+                              in_span.data(), in_span.size())) {
       return 0;
     }
     ctx->final_used = 1;
@@ -484,9 +498,9 @@ static int EVP_DecryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
   } else {
     // Buffer will be non-empty.
     size_t written_out_len;
-    if (!EVP_EncryptUpdate_ex_internal(ctx, out_span.data(), &written_out_len,
-                                       out_span.size(), in_span.data(),
-                                       in_span.size())) {
+    if (!EVP_EncryptUpdate_ex(ctx, out_span.data(), &written_out_len,
+                              out_span.size(), in_span.data(),
+                              in_span.size())) {
       return 0;
     }
     assert(block_size == 1 || ctx->buf_len != 0);
@@ -494,15 +508,8 @@ static int EVP_DecryptUpdate_ex_internal(EVP_CIPHER_CTX *ctx, uint8_t *out,
   }
 
   *out_len = max_out_len - out_span.size();
+  assert(*out_len == expected);  // See `EVP_CIPHER_CTX_max_next_update` check.
   return 1;
-}
-
-int EVP_DecryptUpdate_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
-                         size_t max_out_len, const uint8_t *in, size_t in_len) {
-  return WrapWithPoison(ctx, [&] {
-    return EVP_DecryptUpdate_ex_internal(ctx, out, out_len, max_out_len, in,
-                                         in_len);
-  });
 }
 
 int EVP_DecryptFinal_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len) {
@@ -514,9 +521,8 @@ int EVP_DecryptFinal_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len) {
   return ret;
 }
 
-static int EVP_DecryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx,
-                                         unsigned char *out, size_t *out_len,
-                                         size_t max_out_len) {
+int EVP_DecryptFinal_ex2(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
+                         size_t max_out_len) {
   *out_len = 0;
 
   size_t block_size = ctx->cipher->block_size;
@@ -525,6 +531,7 @@ static int EVP_DecryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx,
     if (ctx->cipher->flags & EVP_CIPH_FLAG_CUSTOM_CIPHER) {
       return ctx->cipher->cipher_final(ctx);
     }
+    EVP_Cipher_verify_service_indicator(ctx);
     return 1;
   }
 
@@ -534,6 +541,7 @@ static int EVP_DecryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx,
       OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_DATA_NOT_MULTIPLE_OF_BLOCK_LENGTH);
       return 0;
     }
+    EVP_Cipher_verify_service_indicator(ctx);
     return 1;
   }
 
@@ -543,8 +551,8 @@ static int EVP_DecryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx,
   }
   assert(block_size <= sizeof(ctx->final));
 
-  // The following assumes that the ciphertext has been authenticated.
-  // Otherwise it provides a padding oracle.
+  // The following assumes that the ciphertext has been authenticated. Otherwise
+  // it provides a padding oracle.
   size_t padding = ctx->final[block_size - 1];
   if (padding == 0 || padding > block_size) {
     OPENSSL_PUT_ERROR(CIPHER, CIPHER_R_BAD_DECRYPT);
@@ -568,19 +576,8 @@ static int EVP_DecryptFinal_ex2_internal(EVP_CIPHER_CTX *ctx,
   out_span = out_span.subspan(payload);
 
   *out_len = max_out_len - out_span.size();
+  EVP_Cipher_verify_service_indicator(ctx);
   return 1;
-}
-
-int EVP_DecryptFinal_ex2(EVP_CIPHER_CTX *ctx, unsigned char *out,
-                         size_t *out_len, size_t max_out_len) {
-  *out_len = 0;
-  return WrapWithPoison(ctx, [&] {
-    if (!EVP_DecryptFinal_ex2_internal(ctx, out, out_len, max_out_len)) {
-      return 0;
-    }
-    EVP_Cipher_verify_service_indicator(ctx);
-    return 1;
-  });
 }
 
 int EVP_Cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
@@ -614,15 +611,15 @@ int EVP_Cipher(EVP_CIPHER_CTX *ctx, uint8_t *out, const uint8_t *in,
     out_len = in_len;
   }
 
-  // |EVP_CIPH_FLAG_CUSTOM_CIPHER| never sets the FIPS indicator via
-  // |EVP_Cipher| because it's complicated whether the operation has completed
-  // or not. E.g. AES-GCM with a non-NULL |in| argument hasn't completed an
-  // operation. Callers should use the |EVP_AEAD| API or, at least,
-  // |EVP_CipherUpdate| etc.
+  // `EVP_CIPH_FLAG_CUSTOM_CIPHER` never sets the FIPS indicator via
+  // `EVP_Cipher` because it's complicated whether the operation has completed
+  // or not. E.g. AES-GCM with a non-NULL `in` argument hasn't completed an
+  // operation. Callers should use the `EVP_AEAD` API or, at least,
+  // `EVP_CipherUpdate` etc.
   //
-  // This call can't be pushed into |EVP_Cipher_verify_service_indicator|
-  // because whether |ret| indicates success or not depends on whether
-  // |EVP_CIPH_FLAG_CUSTOM_CIPHER| is set. (This unreasonable, but matches
+  // This call can't be pushed into `EVP_Cipher_verify_service_indicator`
+  // because whether `ret` indicates success or not depends on whether
+  // `EVP_CIPH_FLAG_CUSTOM_CIPHER` is set. (This unreasonable, but matches
   // OpenSSL.)
   if (!(ctx->cipher->flags & EVP_CIPH_FLAG_CUSTOM_CIPHER)) {
     EVP_Cipher_verify_service_indicator(ctx);
@@ -654,13 +651,11 @@ int EVP_CipherUpdate_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
 }
 
 int EVP_CipherUpdateAAD(EVP_CIPHER_CTX *ctx, const uint8_t *in, size_t in_len) {
-  return WrapWithPoison(ctx, [&] {
-    if (!(ctx->cipher->flags & EVP_CIPH_FLAG_CUSTOM_CIPHER)) {
-      OPENSSL_PUT_ERROR(CIPHER, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
-      return 0;
-    }
-    return ctx->cipher->update_aad(ctx, in, in_len);
-  });
+  if (!(ctx->cipher->flags & EVP_CIPH_FLAG_CUSTOM_CIPHER)) {
+    OPENSSL_PUT_ERROR(CIPHER, ERR_R_SHOULD_NOT_HAVE_BEEN_CALLED);
+    return 0;
+  }
+  return ctx->cipher->update_aad(ctx, in, in_len);
 }
 
 int EVP_CipherFinal_ex(EVP_CIPHER_CTX *ctx, uint8_t *out, int *out_len) {
@@ -677,6 +672,19 @@ int EVP_CipherFinal_ex2(EVP_CIPHER_CTX *ctx, uint8_t *out, size_t *out_len,
     return EVP_EncryptFinal_ex2(ctx, out, out_len, max_out_len);
   } else {
     return EVP_DecryptFinal_ex2(ctx, out, out_len, max_out_len);
+  }
+}
+
+size_t EVP_CIPHER_CTX_max_final(const EVP_CIPHER_CTX *ctx) {
+  size_t block_size = ctx->cipher->block_size;
+  if (block_size == 1 || (ctx->flags & EVP_CIPH_NO_PADDING)) {
+    return 0;
+  }
+  if (ctx->encrypt) {
+    return block_size;
+  } else {
+    // At least one byte will be removed when processing padding.
+    return block_size - 1;
   }
 }
 

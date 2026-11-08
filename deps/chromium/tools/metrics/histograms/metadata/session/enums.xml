@@ -50,7 +50,7 @@ chromium-metrics-reviews@google.com.
   <int value="8" label="Decryption Unavailable"/>
 </enum>
 
-<!-- LINT.ThenChange(//components/sessions/core/command_storage_backend.h:ReadStatus) -->
+<!-- LINT.ThenChange(//components/sessions/core/command_storage_read_status.h:CommandStorageReadStatus) -->
 
 <!-- LINT.IfChange(CommandStorageWriteStatus) -->
 
@@ -64,6 +64,85 @@ chromium-metrics-reviews@google.com.
 </enum>
 
 <!-- LINT.ThenChange(//components/sessions/core/command_storage_backend.h:WriteStatus) -->
+
+<!-- LINT.IfChange(ScheduledRestartBlocker) -->
+
+<enum name="ScheduledRestartBlocker">
+  <int value="0" label="Download"/>
+  <int value="1" label="Media"/>
+  <int value="2" label="Audible Tab"/>
+  <int value="3" label="Video Capture"/>
+  <int value="4" label="Audio Capture"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/lifetime/scheduled_restart_manager.h:ScheduledRestartBlocker) -->
+
+<!-- LINT.IfChange(ScheduledRestartDialogChoice) -->
+
+<enum name="ScheduledRestartDialogChoice">
+  <int value="0" label="Dismissed"/>
+  <int value="1" label="Restart Now"/>
+  <int value="2" label="Scheduled on Idle"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/views/scheduled_restart/scheduled_restart_bubble_view.h:ScheduledRestartDialogChoice) -->
+
+<!-- LINT.IfChange(ScheduledRestartExecutionOutcome) -->
+
+<enum name="ScheduledRestartExecutionOutcome">
+  <int value="0" label="Success on Idle"/>
+  <int value="1" label="Canceled Before Execution"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/lifetime/scheduled_restart_manager.h:ScheduledRestartExecutionOutcome) -->
+
+<enum name="SessionCrashedBubbleUserAction">
+  <int value="0" label="The bubble was shown"/>
+  <int value="1" label="There was an error when showing the bubble"/>
+  <int value="2" label="The Restore button was clicked"/>
+  <int value="3" label="User was already opted in to UMA"/>
+  <int value="4" label="User chose to opt in to UMA"/>
+  <int value="5" label="User clicked on the help button"/>
+  <int value="6" label="User ignored or closed the bubble"/>
+  <int value="7" label="The bar with UMA opt-in option was shown"/>
+  <int value="8" label="The Startup pages button was clicked"/>
+</enum>
+
+<!-- LINT.IfChange(SessionEncryptedBackendUninitialized) -->
+
+<enum name="SessionEncryptedBackendUninitialized">
+  <int value="0" label="Save"/>
+  <int value="1" label="MoveCurrentSessionToLastSession"/>
+  <int value="2" label="DeleteLastSession"/>
+  <int value="3" label="GetLastSessionCommands"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/sessions/core/command_storage_manager.cc:SessionEncryptedBackendUninitialized) -->
+
+<!-- LINT.IfChange(SessionReadComparisonResult) -->
+
+<enum name="SessionReadComparisonResult">
+  <int value="0" label="Match"/>
+  <int value="1" label="Error Mismatch"/>
+  <int value="2" label="Commands Mismatch"/>
+</enum>
+
+<!-- LINT.ThenChange(//components/sessions/core/command_storage_manager.cc:SessionReadComparisonResult) -->
+
+<!-- LINT.IfChange(SessionRestoreErrorReason) -->
+
+<enum name="SessionRestoreErrorReason">
+  <int value="0" label="Decryption unavailable (OSCrypt key unavailable)"/>
+  <int value="1" label="Invalid header or signature mismatch"/>
+  <int value="2" label="Unsupported file version"/>
+  <int value="3" label="Corrupted or incomplete session file"/>
+  <int value="4" label="Corrupted or incomplete command"/>
+  <int value="5" label="All tabs dropped for having no navigations"/>
+  <int value="6" label="All windows dropped for having no valid tabs"/>
+  <int value="7" label="No windows of the expected type"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/sessions/session_restore_metrics.h:SessionRestoreErrorReason) -->
 
 <enum name="SessionRestoreFinishReason">
   <int value="0"
@@ -87,12 +166,24 @@ chromium-metrics-reviews@google.com.
   </int>
 </enum>
 
-<!-- LINT.ThenChange(//chrome/browser/ui/views/session_restore_infobar/session_restore_infobar_delegate.h:SessionRestoreInfoBarAction) -->
+<!-- LINT.ThenChange(//chrome/browser/ui/views/session_restore_infobar/session_restore_infobar_manager.h:SessionRestoreInfoBarAction) -->
+
+<!-- LINT.IfChange(SessionRestoreOutcome) -->
+
+<enum name="SessionRestoreOutcome">
+  <int value="0"
+      label="Success (clean read and replay, at least 1 window restored)"/>
+  <int value="1" label="No session file"/>
+  <int value="2" label="Nothing to restore (session held no windows)"/>
+  <int value="3" label="Failed (see SessionRestore.ErrorReason)"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/sessions/session_restore_metrics.h:SessionRestoreOutcome) -->
 
 <enum name="SmartRestartability">
   <int value="0" label="None"/>
   <int value="1" label="Incognito"/>
-  <int value="2" label="Unsaved form data"/>
+  <int value="2" label="Unsaved form data (BeforeUnload)"/>
   <int value="3" label="Incognito, Unsaved form data"/>
   <int value="4" label="Active download"/>
   <int value="5" label="Incognito, Active download"/>
@@ -135,11 +226,61 @@ chromium-metrics-reviews@google.com.
       label="Active download, Active media, Total Browser Count Zero"/>
 </enum>
 
+<!-- LINT.IfChange(SmartRestartBlocker) -->
+
+<enum name="SmartRestartBlocker">
+  <int value="0" label="Incognito"/>
+  <int value="1" label="BeforeUnloadHandler"/>
+  <int value="2" label="Download"/>
+  <int value="3" label="Media"/>
+  <int value="4" label="AppWindow"/>
+  <int value="5" label="NoMainFrame"/>
+  <int value="6" label="Visible"/>
+  <int value="7" label="Audible"/>
+  <int value="8" label="PictureInPicture"/>
+  <int value="9" label="Pdf"/>
+  <int value="10" label="NotWebOrInternal"/>
+  <int value="11" label="InvalidURL"/>
+  <int value="12" label="NotificationsEnabled"/>
+  <int value="13" label="ExtensionProtected"/>
+  <int value="14" label="CapturingVideo"/>
+  <int value="15" label="CapturingAudio"/>
+  <int value="16" label="BeingMirrored"/>
+  <int value="17" label="CapturingWindow"/>
+  <int value="18" label="CapturingDisplay"/>
+  <int value="19" label="ConnectedToBluetooth"/>
+  <int value="20" label="ConnectedToUSB"/>
+  <int value="21" label="ActiveTab"/>
+  <int value="22" label="PinnedTab"/>
+  <int value="23" label="DevToolsOpen"/>
+  <int value="24" label="BackgroundActivity"/>
+  <int value="25" label="FormInteractions"/>
+  <int value="26" label="UserEdits"/>
+  <int value="27" label="GlicShared"/>
+  <int value="28" label="WebApp"/>
+  <int value="29" label="VisiblePausedMedia"/>
+  <int value="30" label="LensShared"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/lifetime/restartability_monitor.h:SmartRestartBlocker) -->
+
 <enum name="SmartRestartExecutionOutcome">
   <int value="0" label="Executed"/>
   <int value="1" label="Cancelled by user"/>
   <int value="2" label="Blocked by policy"/>
 </enum>
+
+<!-- LINT.IfChange(SmartRestartExtendedExecutionOutcome) -->
+
+<enum name="SmartRestartExtendedExecutionOutcome">
+  <int value="0" label="Executed"/>
+  <int value="1" label="Cancelled by user (Unlock)"/>
+  <int value="2" label="Blocked by policy (Picker/Startup)"/>
+  <int value="3" label="Blocked by tab threshold"/>
+  <int value="4" label="Blocked by disruption level"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/lifetime/smart_restart_policy.h:ExtendedExecutionOutcome) -->
 
 </enums>
 

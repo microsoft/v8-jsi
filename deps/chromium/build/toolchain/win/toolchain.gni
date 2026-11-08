@@ -197,7 +197,7 @@ template("msvc_toolchain") {
             rebase_path(toolchain_coverage_instrumentation_input_file,
                         root_build_dir)
       }
-      coverage_wrapper = "\"$python_path\" " + coverage_wrapper + " "
+      coverage_wrapper = "$python_path " + coverage_wrapper + " "
     } else {
       coverage_wrapper = ""
     }
@@ -218,7 +218,14 @@ template("msvc_toolchain") {
       show_includes = "/showIncludes"
     }
 
+    # -fmodule-name is not supported by MSVC.
+    module_name_flag = ""
+    if (toolchain_is_clang) {
+      module_name_flag = " \"-fmodule-name={{cc_module_name}}_Private\""
+    }
+
     tool("cc") {
+      output = "$object_subdir/{{source_name_part}}.obj"
       precompiled_header_type = "msvc"
       pdbname = "{{target_out_dir}}/{{label_name}}_c.pdb"
 
@@ -227,22 +234,26 @@ template("msvc_toolchain") {
       # full file name and will quote automatically when necessary.
       depsformat = "msvc"
       description = "CC {{output}}"
-      outputs = [ "$object_subdir/{{source_name_part}}.obj" ]
+      outputs = [ output ]
 
       # Note that the code coverage wrapper scripts assumes that {{source}}
       # comes immediately after /c.
-      command = "$coverage_wrapper$env_wrapper$cl /c {{source}} /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} {{cflags_c}} /Fo{{output}} /Fd\"$pdbname\""
+      # {{output}} may contain additional outputs, so use $output instead of
+      # {{output}} in command.
+      command = "$coverage_wrapper$env_wrapper$cl /c {{source}} /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} {{cflags_c}}${module_name_flag} /Fo$output /Fd\"$pdbname\""
     }
 
     tool("cxx_module") {
+      output = "$object_subdir/{{source_name_part}}.pcm"
       pdbname = "{{target_out_dir}}/{{label_name}}_c.pdb"
       depsformat = "msvc"
       description = "CXX_MODULE {{output}}"
-      outputs = [ "$object_subdir/{{source_name_part}}.pcm" ]
-      command = "$env_wrapper$cl /Fo{{output}} /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} {{module_deps_no_self}} /Fd\"$pdbname\" -fmodule-name={{cc_module_name}} /c -x c++ -Xclang -emit-module {{source}}"
+      outputs = [ output ]
+      command = "$env_wrapper$cl /Fo$output /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} {{module_deps_no_self}} -fmodule-name=\"{{cc_module_name}}\" /Fd\"$pdbname\" /c -x c++ -Xclang -emit-module {{source}}"
     }
 
     tool("cxx") {
+      output = "$object_subdir/{{source_name_part}}.obj"
       precompiled_header_type = "msvc"
 
       # The PDB name needs to be different between C and C++ compiled files.
@@ -251,11 +262,13 @@ template("msvc_toolchain") {
       # See comment in CC tool about quoting.
       depsformat = "msvc"
       description = "CXX {{output}}"
-      outputs = [ "$object_subdir/{{source_name_part}}.obj" ]
+      outputs = [ output ]
 
       # Note that the code coverage wrapper scripts assumes that {{source}}
       # comes immediately after /c.
-      command = "$coverage_wrapper$env_wrapper$cl /c {{source}} /Fo{{output}} /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} /TP {{cflags_cc}} {{module_deps_no_self}} /Fd\"$pdbname\""
+      # {{output}} may contain additional outputs, so use $output instead of
+      # {{output}} in command.
+      command = "$coverage_wrapper$env_wrapper$cl /c {{source}} /Fo$output /nologo $show_includes $sys_include_flags{{defines}} {{include_dirs}} {{cflags}} {{cflags_cc}} /TP {{module_deps}}${module_name_flag} /Fd\"$pdbname\""
     }
 
     tool("rc") {
@@ -675,6 +688,7 @@ template("msvc_toolchain") {
       description = stamp_description
       pool = "//build/toolchain:action_pool($default_toolchain)"
     }
+
     tool("copy") {
       command = copy_command
       description = copy_description
@@ -806,6 +820,7 @@ template("win_toolchains") {
     } else {
       cl_toolchain_prefix = ""
     }
+
     msvc_toolchain(cl_toolchain_prefix + target_name) {
       environment = "environment." + toolchain_arch
       cl = "\"${win_toolchain_data.vc_bin_dir}/cl.exe\""
@@ -820,6 +835,7 @@ template("win_toolchains") {
         current_cpu = toolchain_arch
       }
     }
+
     msvc_system_allocator_toolchain(
         cl_toolchain_prefix + target_name + "_host_with_system_allocator") {
       environment = "environment." + rust_host_toolchain_arch
@@ -835,6 +851,7 @@ template("win_toolchains") {
         current_cpu = rust_host_toolchain_arch
       }
     }
+
     msvc_system_allocator_toolchain(
         cl_toolchain_prefix + target_name + "_with_system_allocator") {
       environment = "environment." + toolchain_arch
@@ -850,6 +867,7 @@ template("win_toolchains") {
         current_cpu = toolchain_arch
       }
     }
+
     msvc_rust_host_build_tools_toolchain(
         cl_toolchain_prefix + target_name + "_for_rust_host_build_tools") {
       environment = "environment." + rust_host_toolchain_arch
@@ -898,6 +916,7 @@ template("win_toolchains") {
       current_cpu = toolchain_arch
     }
   }
+
   msvc_system_allocator_toolchain(
       clang_toolchain_prefix + target_name + "_host_with_system_allocator") {
     environment = "environment." + rust_host_toolchain_arch
@@ -918,6 +937,7 @@ template("win_toolchains") {
       current_cpu = rust_host_toolchain_arch
     }
   }
+
   msvc_system_allocator_toolchain(
       clang_toolchain_prefix + target_name + "_with_system_allocator") {
     environment = "environment." + toolchain_arch
@@ -938,6 +958,7 @@ template("win_toolchains") {
       current_cpu = toolchain_arch
     }
   }
+
   msvc_rust_host_build_tools_toolchain(
       clang_toolchain_prefix + target_name + "_for_rust_host_build_tools") {
     environment = "environment." + rust_host_toolchain_arch

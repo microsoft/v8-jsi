@@ -214,6 +214,17 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="Not seen, from Long-press"/>
 </enum>
 
+<!-- LINT.IfChange(CurrentDefaultPropagationOutcome) -->
+
+<enum name="CurrentDefaultPropagationOutcome">
+  <int value="0" label="PropagatedCurrentDefault"/>
+  <int value="1" label="SkippedDueToPolicies"/>
+  <int value="2" label="SkippedIsFallback"/>
+  <int value="3" label="SkippedIsExtension"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/search_engine_choice/search_engine_choice_dialog_service.h:CurrentDefaultPropagationOutcome) -->
+
 <enum name="DonateResult">
   <int value="0" label="No favicons available"/>
   <int value="1" label="Failed"/>
@@ -242,6 +253,9 @@ chromium-metrics-reviews@google.com.
       label="Hash was not verified as decryption services were not available"/>
   <int value="5"
       label="Hash was not verified as hash verification is disabled"/>
+  <int value="6"
+      label="Hash was rejected as it was encrypted with a weak algorithm
+             (Added May 2026)"/>
 </enum>
 
 <!-- LINT.IfChange(LaunchOsChoiceScreenTapHandlingStatus) -->
@@ -311,6 +325,71 @@ chromium-metrics-reviews@google.com.
 
 <!-- LINT.ThenChange(//chrome/browser/search_engines/android/java/src/org/chromium/chrome/browser/search_engines/choice_screen/ChoiceDialogCoordinator.java:DialogSuppressionStatus) -->
 
+<!-- LINT.IfChange(OseSplitEngineState) -->
+
+<enum name="OseSplitEngineState">
+  <summary>
+    Detailed configuration state of an individual search engine definition
+    undergoing an ID split / migration.
+  </summary>
+  <int value="0" label="Unknown"/>
+  <int value="1" label="LegacyDse">
+    Legacy (pre-migration), Default Search Engine, Default Config
+  </int>
+  <int value="2" label="LegacyDseCustomized">
+    Legacy (pre-migration), Default Search Engine, User Customized
+  </int>
+  <int value="3" label="LegacyNotDse">
+    Legacy (pre-migration), Not Default, Default Config
+  </int>
+  <int value="4" label="LegacyNotDseCustomized">
+    Legacy (pre-migration), Not Default, User Customized
+  </int>
+  <int value="5" label="NewDse">
+    New (post-migration), Default Search Engine, Default Config
+  </int>
+  <int value="6" label="NewDseCustomized">
+    New (post-migration), Default Search Engine, User Customized
+  </int>
+  <int value="7" label="NewNotDse">
+    New (post-migration), Not Default, Default Config
+  </int>
+  <int value="8" label="NewNotDseCustomized">
+    New (post-migration), Not Default, User Customized
+  </int>
+  <int value="9" label="LegacyDseDeviceChoice">
+    Legacy (pre-migration), Default Search Engine, Device Choice
+  </int>
+  <int value="10" label="LegacyNotDseDeviceChoice">
+    Legacy (pre-migration), Not Default, Device Choice
+  </int>
+  <int value="11" label="NewDseDeviceChoice">
+    New (post-migration), Default Search Engine, Device Choice
+  </int>
+  <int value="12" label="NewNotDseDeviceChoice">
+    New (post-migration), Not Default, Device Choice
+  </int>
+  <int value="13" label="CustomDse">Custom, Default Search Engine</int>
+  <int value="14" label="CustomNotDse">Custom, Not Default</int>
+</enum>
+
+<!-- LINT.ThenChange(//components/search_engines/search_engine_split_metrics.h:OseSplitEngineState) -->
+
+<!-- LINT.IfChange(OseSplitType) -->
+
+<enum name="OseSplitType">
+  <summary>
+    Classification of search engine definitions undergoing an ID split /
+    migration (e.g. Yahoo! JAPAN in JP).
+  </summary>
+  <int value="0" label="Unknown">Unknown / Unexpected ID</int>
+  <int value="1" label="Legacy">Legacy (pre-migration)</int>
+  <int value="2" label="New">New (post-migration)</int>
+  <int value="3" label="Custom">Custom</int>
+</enum>
+
+<!-- LINT.ThenChange(//components/search_engines/search_engine_split_metrics.h:OseSplitType) -->
+
 <!-- LINT.IfChange(PendingChoiceScreenDisplayStateStatus) -->
 
 <enum name="PendingChoiceScreenDisplayStateStatus">
@@ -328,6 +407,9 @@ chromium-metrics-reviews@google.com.
   <int value="3" label="StayPending">
     Intermediate state, the pending data processing will be re-attempted later
   </int>
+  <int value="4" label="ProgramMismatch">
+    Terminal state, the program has changed and the pending data will be wiped
+  </int>
 </enum>
 
 <!-- LINT.ThenChange(//components/search_engines/search_engine_choice/search_engine_choice_service.cc:PendingDisplayStateStatus) -->
@@ -337,6 +419,13 @@ chromium-metrics-reviews@google.com.
   <int value="1" label="NO_SCROLL_CLICKED"/>
   <int value="2" label="SCROLLED_NO_CLICK"/>
   <int value="3" label="SCROLLED_CLICKED"/>
+</enum>
+
+<enum name="SearchDuplicateKeyword">
+  <int value="0" label="No Duplicates"/>
+  <int value="1" label="Non-default keyword duplicated"/>
+  <int value="2" label="Default keyword duplicated"/>
+  <int value="3" label="Both Default and non-default duplicates"/>
 </enum>
 
 <enum name="SearchEngineChoiceDate">
@@ -438,7 +527,11 @@ chromium-metrics-reviews@google.com.
     An extension controls the default search engine.
   </int>
   <int value="6" label="Eligible"/>
-  <int value="7" label="AlreadyCompleted"/>
+  <int value="7" label="AlreadyCompleted">
+    A choice has already been made, so not eligible anymore for a choice screen.
+    Note: Choices imported through Backup &amp; Restore or carry-over mechanisms
+    are reported as AlreadyCompletedImported.
+  </int>
   <int value="8" label="UnsupportedBrowserType">
     The browser type is unsupported: PWA, Kiosk, unsupported platform, etc.
   </int>
@@ -498,6 +591,16 @@ chromium-metrics-reviews@google.com.
     offered on the choice screen set as default, while the program settings
     require to highlight the current default.
   </int>
+  <int value="24" label="UnavailableCurrentLocation">
+    The user's current location is unknown or invalid *and* the regional program
+    requires restricting to its associated countries. Note: it can be affected
+    by the client state (e.g. Desktop first run), leading to not emitting this
+    condition.
+  </int>
+  <int value="25" label="AlreadyCompletedImported">
+    A choice has already been made **on another device** and applied to this
+    profile, so this one is not eligible anymore for a choice screen.
+  </int>
 </enum>
 
 <!-- LINT.ThenChange(/components/regional_capabilities/enums.h:SearchEngineChoiceScreenConditions) -->
@@ -551,6 +654,7 @@ chromium-metrics-reviews@google.com.
   <int value="10" label="AccountNotEligible"/>
   <int value="11" label="Managed"/>
   <int value="12" label="CurrentCannotBeHighlighted"/>
+  <int value="13" label="ValidAndImported"/>
 </enum>
 
 <!-- LINT.ThenChange(/components/search_engines/search_engine_choice/search_engine_choice_service.h:ChoiceStatus) -->
@@ -565,17 +669,51 @@ chromium-metrics-reviews@google.com.
   <int value="6" label="Invalid choice metadata: Other"/>
   <int value="7" label="Missing default search engine"/>
   <int value="8" label="Choice remade after import"/>
+  <int value="9" label="Program changed"/>
 </enum>
 
-<!-- LINT.IfChange(SearchPolicyConflictType) -->
+<!-- LINT.IfChange(SearchPromotionDefaultBrowserType) -->
 
-<enum name="SearchPolicyConflictType">
-  <int value="0" label="No conflict"/>
-  <int value="1" label="Conflict with featured search engine"/>
-  <int value="2" label="Conflict with non-featured search engine"/>
+<enum name="SearchPromotionDefaultBrowserType">
+  <int value="0" label="Unknown"/>
+  <int value="1" label="Chrome"/>
+  <int value="2" label="Edge"/>
+  <int value="3" label="Safari"/>
+  <int value="4" label="Firefox"/>
+  <int value="5" label="Other"/>
 </enum>
 
-<!-- LINT.ThenChange(/components/search_engines/template_url_service.h:SearchPolicyConflictType) -->
+<!-- LINT.ThenChange(//chrome/browser/ui/search_promotion/search_promotion_manager.cc:DefaultBrowserType) -->
+
+<!-- LINT.IfChange(SearchPromotionExitCode) -->
+
+<enum name="SearchPromotionExitCode">
+  <int value="100" label="Invalid Extension ID"/>
+  <int value="101" label="Invalid Post-Install URL"/>
+  <int value="102" label="Registry Write Failed"/>
+  <int value="103" label="URL Launch Failed (Open)"/>
+  <int value="104" label="URL Launch Success (Open)"/>
+  <int value="105" label="Timeout (Install)"/>
+  <int value="106" label="Success Background (Install)"/>
+  <int value="107" label="Success With Foreground Fallback (Install)"/>
+  <int value="108" label="Foreground Fallback Launch Failed (Install)"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/search_promotion/register_search_promotion_task.h:SearchPromotionExitCode) -->
+
+<!-- LINT.IfChange(SearchPromotionPehEligibility) -->
+
+<enum name="SearchPromotionPehEligibility">
+  <int value="0" label="Eligible"/>
+  <int value="1" label="Launcher unavailable"/>
+  <int value="2" label="Min version parameter invalid"/>
+  <int value="3" label="Binary not found"/>
+  <int value="4" label="Binary not verified"/>
+  <int value="5" label="Binary version invalid"/>
+  <int value="6" label="Binary version too low"/>
+</enum>
+
+<!-- LINT.ThenChange(//chrome/browser/ui/search_promotion/search_promotion_manager.h:SearchPromotionPehEligibility) -->
 
 <enum name="SearchProviderOverrideStatus">
   <int value="0" label="kNoPref"/>

@@ -26,6 +26,9 @@ per-file mac_toolchain.py=justincohen@chromium.org
 per-file mac_toolchain.py=file://build/mac/OWNERS
 per-file xcode_binaries.yaml=file://build/mac/OWNERS
 
+per-file util/*tast_control*.py=fqj@chromium.org
+per-file util/*tast_control*.py=yoshiki@chromium.org
+
 per-file .gitignore=*
 per-file check_gn_headers_allowlist.txt=*
 per-file whitespace_file.txt=*
@@ -34,3 +37,18 @@ per-file OWNERS.setnoparent=set noparent
 per-file OWNERS.setnoparent=file://ATL_OWNERS
 
 per-file nocompile.gni=file://tools/nocompile/OWNERS
+
+# The people working on strict deps need to be notified of any new exceptions.
+# They can also advise on the best way to resolve strict deps issues.
+per-file strict_deps_failures.gni=set noparent
+per-file strict_deps_failures.gni=jwata@google.com
+per-file strict_deps_failures.gni=msta@google.com
+per-file strict_deps_failures.gni=rysk@google.com
+per-file strict_deps_failures.gni=tikuta@google.com
+
+# Project Bedrock circular include exceptions:
+# https://docs.google.com/document/d/1aQRPDX9RjWHE48rAHntsV64VU1-4uZO_nkL6A7ohr2k
+per-file circular_includes_bedrock.gni=tluk@chromium.org
+per-file circular_includes_bedrock.gni=erikchen@chromium.org
+per-file circular_includes_bedrock.gni=tacet@google.com
+per-file circular_includes_bedrock.gni=kuchyn@google.com

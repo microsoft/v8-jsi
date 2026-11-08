@@ -122,13 +122,12 @@ void ReclaimMemoryFromQueue(internal::TaskQueueImpl* queue, LazyNow* lazy_now) {
 // and moving backwards in memory. Returns a pointer to the first digit of the
 // result. Does *not* NUL-terminate the number.
 #if !BUILDFLAG(IS_ANDROID)
-char* PrependHexAddress(char* output, const void* address) {
-  uintptr_t value = reinterpret_cast<uintptr_t>(address);
+char* PrependHexAddress(char* output, uintptr_t address) {
   static const std::string_view kHexChars = "0123456789ABCDEF";
   do {
-    *UNSAFE_TODO(output--) = kHexChars[value % 16];
-    value /= 16;
-  } while (value);
+    *UNSAFE_TODO(output--) = kHexChars[address % 16];
+    address /= 16;
+  } while (address);
   *UNSAFE_TODO(output--) = 'x';
   *output = '0';
   return output;
@@ -446,11 +445,7 @@ void SequenceManagerImpl::SetNextWakeUp(LazyNow* lazy_now,
 void SequenceManagerImpl::MaybeEmitTaskDetails(
     perfetto::EventContext& ctx,
     const SequencedTaskSource::SelectedTask& selected_task) const {
-  // Other parameters are included only when "scheduler" category is enabled.
-  const uint8_t* scheduler_category_enabled =
-      TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED("scheduler");
-
-  if (!*scheduler_category_enabled) {
+  if (!TRACE_EVENT_CATEGORY_ENABLED("scheduler")) {
     return;
   }
   auto* event = ctx.event<perfetto::protos::pbzero::ChromeTrackEvent>();
@@ -828,7 +823,9 @@ void SequenceManagerImpl::NotifyDidProcessTask(ExecutingTask* executing_task,
     TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("sequence_manager"),
                  "SequenceManager.DidProcessTaskTimeObservers");
     for (auto& observer : main_thread_only().task_time_observers) {
-      observer.DidProcessTask(task_timing.start_time(), task_timing.end_time());
+      observer.DidProcessTask(
+          task_timing.start_time(), task_timing.end_time(),
+          executing_task->pending_task.GetDesiredExecutionTime());
     }
   }
 
@@ -989,7 +986,9 @@ void SequenceManagerImpl::SetDefaultTaskQueue(TaskQueue* task_queue) {
 void SequenceManagerImpl::SetDefaultTaskRunner(
     scoped_refptr<SingleThreadTaskRunner> task_runner,
     TaskQueue::QueuePriority priority) {
-  controller_->SetDefaultTaskRunner(std::move(task_runner));
+  controller_->SetDefaultTaskRunner(
+      std::move(task_runner),
+      settings().priority_settings.TaskPriorityToThreadType(priority));
 }
 
 const TickClock* SequenceManagerImpl::GetTickClock() const {

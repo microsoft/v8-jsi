@@ -19,6 +19,7 @@
 #include "base/metrics/field_trial_param_associator.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/metrics_hashes.h"
+#include "base/metrics/runtime_field_trial_overrides.h"
 #include "base/strings/escape.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -108,9 +109,9 @@ void LogInvalidEnumValue(const Feature& feature,
 
 bool AssociateFieldTrialParams(const std::string& trial_name,
                                const std::string& group_name,
-                               const FieldTrialParams& params) {
+                               FieldTrialParams params) {
   return FieldTrialParamAssociator::GetInstance()->AssociateFieldTrialParams(
-      trial_name, group_name, params);
+      trial_name, group_name, std::move(params));
 }
 
 bool AssociateFieldTrialParamsFromString(
@@ -154,7 +155,7 @@ bool AssociateFieldTrialParamsFromString(
       params[decode_data_func(key_values[i])] =
           decode_data_func(key_values[i + 1]);
     }
-    bool result = AssociateFieldTrialParams(trial, group, params);
+    bool result = AssociateFieldTrialParams(trial, group, std::move(params));
     if (!result) {
       DLOG(ERROR) << "Failed to associate field trial params for group \""
                   << group << "\" in trial \"" << trial << "\"";
@@ -175,6 +176,22 @@ bool GetFieldTrialParamsByFeature(const Feature& feature,
                                   FieldTrialParams* params) {
   if (!FeatureList::IsEnabled(feature)) {
     return false;
+  }
+
+  if (feature.IsRuntimeMutable()) {
+    auto* feature_list = FeatureList::GetInstance();
+    if (feature_list) {
+      auto override_info =
+          feature_list->GetAssociatedRuntimeFieldTrialOverrideInfoByFeatureName(
+              feature.name);
+      if (override_info.has_value() && override_info.value()) {
+        if (override_info.value()->params().empty()) {
+          return false;
+        }
+        *params = override_info.value()->params();
+        return true;
+      }
+    }
   }
 
   FieldTrial* trial = FeatureList::GetFieldTrial(feature);

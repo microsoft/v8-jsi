@@ -4,10 +4,12 @@
 
 # Please see the comments section at the top of the `run_performance_tests.py`.
 
+import io
 import json
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -16,11 +18,7 @@ from unittest import mock
 import run_performance_tests
 from run_performance_tests import TelemetryCommandGenerator
 
-# //third_party/catapult/telemetry imports.
-from telemetry.internal.util import binary_manager
-
 # Protected access is allowed for unittests.
-# pylint: disable=protected-access
 
 # The path where the output of a wpt run was written. This is the file that
 # gets processed by BaseWptScriptAdapter.
@@ -28,17 +26,17 @@ OUTPUT_JSON_FILENAME = 'out.json'
 
 
 class TelemetryCommandGeneratorTest(unittest.TestCase):
-
   def setUp(self):
     fake_args = ['./run_benchmark', '--isolated-script-test-output=output.json']
     self._fake_options = run_performance_tests.parse_arguments(fake_args)
-    mock.patch.object(binary_manager, 'InitDependencyManager').start()
 
   def testStorySelectionBeginEnd(self):
     story_selection_config = json.loads(
-        '{"begin": 11, "end": 21, "abridged": false}')
-    generator = TelemetryCommandGenerator('benchmark_name', self._fake_options,
-                                          story_selection_config)
+      '{"begin": 11, "end": 21, "abridged": false}'
+    )
+    generator = TelemetryCommandGenerator(
+      'benchmark_name', self._fake_options, story_selection_config
+    )
     command = generator.generate('output_dir')
     self.assertIn('--story-shard-begin-index=11', command)
     self.assertIn('--story-shard-end-index=21', command)
@@ -46,50 +44,58 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
   def testStorySelectionAbridgedDefault(self):
     story_selection_config = json.loads('{"begin": 11, "end": 21}')
-    generator = TelemetryCommandGenerator('benchmark_name', self._fake_options,
-                                          story_selection_config)
+    generator = TelemetryCommandGenerator(
+      'benchmark_name', self._fake_options, story_selection_config
+    )
     command = generator.generate('output_dir')
     self.assertIn('--run-abridged-story-set', command)
 
   def testStorySelectionIndexSectionsSingleIndex(self):
     story_selection_config = json.loads(
-        '{"sections": [{"begin": 11, "end": 21}, {"begin": 25, "end": 26}]}')
-    generator = TelemetryCommandGenerator('benchmark_name', self._fake_options,
-                                          story_selection_config)
+      '{"sections": [{"begin": 11, "end": 21}, {"begin": 25, "end": 26}]}'
+    )
+    generator = TelemetryCommandGenerator(
+      'benchmark_name', self._fake_options, story_selection_config
+    )
     command = generator.generate('output_dir')
     self.assertIn('--story-shard-indexes=11-21,25', command)
 
   def testStorySelectionIndexSectionsOpenEnds(self):
     story_selection_config = json.loads(
-        '{"sections": [{"end": 10}, {"begin": 15, "end": 16}, {"begin": 20}]}')
-    generator = TelemetryCommandGenerator('benchmark_name', self._fake_options,
-                                          story_selection_config)
+      '{"sections": [{"end": 10}, {"begin": 15, "end": 16}, {"begin": 20}]}'
+    )
+    generator = TelemetryCommandGenerator(
+      'benchmark_name', self._fake_options, story_selection_config
+    )
     command = generator.generate('output_dir')
     self.assertIn('--story-shard-indexes=-10,15,20-', command)
 
   def testStorySelectionIndexSectionsIllegalRange(self):
     with self.assertRaises(ValueError):
       story_selection_config = json.loads(
-          '{"sections": [{"begin": 15, "end": 16}, {"foo": "bar"}]}')
-      generator = TelemetryCommandGenerator('benchmark_name',
-                                            self._fake_options,
-                                            story_selection_config)
+        '{"sections": [{"begin": 15, "end": 16}, {"foo": "bar"}]}'
+      )
+      generator = TelemetryCommandGenerator(
+        'benchmark_name', self._fake_options, story_selection_config
+      )
       generator.generate('output_dir')
 
   def testStorySelectionIndexSectionsEmpty(self):
     story_selection_config = json.loads('{"sections": []}')
-    generator = TelemetryCommandGenerator('benchmark_name', self._fake_options,
-                                          story_selection_config)
+    generator = TelemetryCommandGenerator(
+      'benchmark_name', self._fake_options, story_selection_config
+    )
     command = generator.generate('output_dir')
     self.assertNotIn('--story-shard-indexes=', command)
 
   @mock.patch.object(os.path, 'exists')
   @mock.patch.object(run_performance_tests, 'copy_map_file_to_out_dir')
-  @mock.patch('builtins.open',
-              new_callable=mock.mock_open,
-              read_data='{"foo": 1}')
-  def testLoadMapFileSuccess(self, mock_open, mock_copy_map_file_to_out_dir,
-                             mock_exists):
+  @mock.patch(
+    'builtins.open', new_callable=mock.mock_open, read_data='{"foo": 1}'
+  )
+  def testLoadMapFileSuccess(
+    self, mock_open, mock_copy_map_file_to_out_dir, mock_exists
+  ):
     del mock_open, mock_exists
     content = run_performance_tests.load_map_file('file', 'dir')
 
@@ -100,12 +106,16 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
   @mock.patch.object(os.path, 'exists')
   @mock.patch.object(pathlib.Path, 'exists')
   @mock.patch.object(run_performance_tests, 'copy_map_file_to_out_dir')
-  @mock.patch('builtins.open',
-              new_callable=mock.mock_open,
-              read_data='{"foo": 1}')
-  def testLoadMapFileShardMapDirectory(self, mock_open,
-                                       mock_copy_map_file_to_out_dir,
-                                       mock_pathlib_exists, mock_exists):
+  @mock.patch(
+    'builtins.open', new_callable=mock.mock_open, read_data='{"foo": 1}'
+  )
+  def testLoadMapFileShardMapDirectory(
+    self,
+    mock_open,
+    mock_copy_map_file_to_out_dir,
+    mock_pathlib_exists,
+    mock_exists,
+  ):
     del mock_open
     mock_exists.return_value = False
     mock_pathlib_exists.return_value = True
@@ -119,11 +129,12 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
   @mock.patch.object(os.path, 'exists')
   @mock.patch.object(run_performance_tests, 'copy_map_file_to_out_dir')
-  @mock.patch('builtins.open',
-              new_callable=mock.mock_open,
-              read_data='{"foo": 1}')
-  def testLoadMapFileException(self, mock_open, mock_copy_map_file_to_out_dir,
-                               mock_exists):
+  @mock.patch(
+    'builtins.open', new_callable=mock.mock_open, read_data='{"foo": 1}'
+  )
+  def testLoadMapFileException(
+    self, mock_open, mock_copy_map_file_to_out_dir, mock_exists
+  ):
     del mock_open, mock_copy_map_file_to_out_dir
     mock_exists.side_effect = [False, False]
 
@@ -132,8 +143,9 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
   @mock.patch.object(run_performance_tests, 'copy_map_file_to_out_dir')
   @mock.patch.object(tempfile, 'NamedTemporaryFile')
-  def testLoadMapStringSuccess(self, mock_named_temporary_file,
-                               mock_copy_map_file_to_out_dir):
+  def testLoadMapStringSuccess(
+    self, mock_named_temporary_file, mock_copy_map_file_to_out_dir
+  ):
     del mock_named_temporary_file
     content = run_performance_tests.load_map_string('{"foo": 1}', 'dir')
 
@@ -141,7 +153,6 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     self.assertEqual(content['foo'], 1)
     mock_copy_map_file_to_out_dir.assert_called_with(mock.ANY, 'dir')
 
-  # pylint: disable=no-self-use
   @mock.patch.object(os.path, 'exists')
   @mock.patch.object(shutil, 'copyfile')
   def testCopyMapFileToOutDirSuccess(self, mock_copyfile, mock_exists):
@@ -149,12 +160,12 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     run_performance_tests.copy_map_file_to_out_dir('file', 'dir')
 
     mock_copyfile.assert_called_with(
-        'file', str(pathlib.Path('dir/benchmarks_shard_map.json')))
-  # pylint: enable=no-self-use
+      'file', str(pathlib.Path('dir/benchmarks_shard_map.json'))
+    )
 
-  @mock.patch.object(run_performance_tests.CrossbenchTest,
-                     'execute_benchmark',
-                     return_value=0)
+  @mock.patch.object(
+    run_performance_tests.CrossbenchTest, 'execute_benchmark', return_value=0
+  )
   def testCrossbenchTestBenchmarksArg(self, mock_execute_benchmark):
     fake_args = _create_crossbench_args()
     options = run_performance_tests.parse_arguments(fake_args)
@@ -162,21 +173,31 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     rc = run_performance_tests.CrossbenchTest(options, 'dir').execute()
 
     self.assertEqual(rc, 0)
-    mock_execute_benchmark.assert_called_with('speedometer_3.0',
-                                              'speedometer3.crossbench', [])
+    mock_execute_benchmark.assert_called_with(
+      'speedometer_3.0', 'speedometer3.crossbench', []
+    )
 
-  @mock.patch.object(run_performance_tests.test_env,
-                     'run_command_output_to_handle',
-                     return_value=3)
-  @mock.patch.object(run_performance_tests.crossbench_result_converter,
-                     'convert')
+  @mock.patch.object(
+    run_performance_tests.test_env,
+    'run_command_output_to_handle',
+    return_value=3,
+  )
+  @mock.patch.object(
+    run_performance_tests.crossbench_result_converter, 'convert'
+  )
   @mock.patch.object(run_performance_tests.OutputFilePaths, 'SetUp')
   @mock.patch.object(run_performance_tests, 'upload_simple_test_results')
   @mock.patch.object(os.path, 'exists', return_value=False)
   @mock.patch('builtins.open', new_callable=mock.mock_open)
-  def testCrossbenchTestIgnoreBenchmarkExitCode(self, mock_open, mock_exists,
-                                                mock_upload, mock_setup,
-                                                mock_convert, mock_run_command):
+  def testCrossbenchTestIgnoreBenchmarkExitCode(
+    self,
+    mock_open,
+    mock_exists,
+    mock_upload,
+    mock_setup,
+    mock_convert,
+    mock_run_command,
+  ):
     del mock_open, mock_exists, mock_upload, mock_setup, mock_run_command
     fake_args = _create_crossbench_args() + ['--ignore-benchmark-exit-code']
     options = run_performance_tests.parse_arguments(fake_args)
@@ -195,26 +216,30 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
   def testCrossbenchTestMultiBenchmarksException(self):
     fake_args = [
-        './cb.py', '--isolated-script-test-output=output',
-        '--benchmarks=speedometer_3.0,speedometer_2.0'
+      './cb.py',
+      '--isolated-script-test-output=output',
+      '--benchmarks=speedometer_3.0,speedometer_2.0',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
 
     with self.assertRaises(Exception):
       run_performance_tests.CrossbenchTest(options, 'dir').execute()
 
-  @mock.patch.object(run_performance_tests,
-                     '_run_benchmarks_on_shardmap',
-                     return_value=0)
+  @mock.patch.object(
+    run_performance_tests, '_run_benchmarks_on_shardmap', return_value=0
+  )
   @mock.patch.object(os.path, 'dirname')
   @mock.patch.object(run_performance_tests, 'load_map_file')
-  def testCrossbenchTestShardMapFile(self, mock_load_map_file, mock_direname,
-                                     mock_run_benchmarks_on_shardmap):
+  def testCrossbenchTestShardMapFile(
+    self, mock_load_map_file, mock_direname, mock_run_benchmarks_on_shardmap
+  ):
     mock_load_map_file.return_value = 'map_file'
     mock_direname.return_value = 'dir'
     fake_args = [
-        'skip', 'run_benchmark', '--isolated-script-test-output=output',
-        '--test-shard-map-filename=foo'
+      'skip',
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--test-shard-map-filename=foo',
     ]
     expected_options = run_performance_tests.parse_arguments(fake_args[1:])
 
@@ -222,23 +247,26 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
     self.assertEqual(rc, 0)
     mock_load_map_file.assert_called_with('foo', 'dir')
-    mock_run_benchmarks_on_shardmap.assert_called_with('map_file',
-                                                       expected_options, 'dir',
-                                                       [])
+    mock_run_benchmarks_on_shardmap.assert_called_with(
+      'map_file', expected_options, 'dir', []
+    )
 
-  @mock.patch.object(run_performance_tests,
-                     '_run_benchmarks_on_shardmap',
-                     return_value=0)
+  @mock.patch.object(
+    run_performance_tests, '_run_benchmarks_on_shardmap', return_value=0
+  )
   @mock.patch.object(os.path, 'dirname')
   @mock.patch.object(run_performance_tests, 'load_map_string')
-  def testCrossbenchTestShardMapString(self, mock_load_map_string,
-                                       mock_direname,
-                                       mock_run_benchmarks_on_shardmap):
+  def testCrossbenchTestShardMapString(
+    self, mock_load_map_string, mock_direname, mock_run_benchmarks_on_shardmap
+  ):
     mock_load_map_string.return_value = 'map_string'
     mock_direname.return_value = 'dir'
     fake_args = [
-        'skip', 'run_benchmark', '--isolated-script-test-output=output',
-        '--use-dynamic-shards', '--dynamic-shardmap=json'
+      'skip',
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--use-dynamic-shards',
+      '--dynamic-shardmap=json',
     ]
     expected_options = run_performance_tests.parse_arguments(fake_args[1:])
 
@@ -246,34 +274,32 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
     self.assertEqual(rc, 0)
     mock_load_map_string.assert_called_with('json', 'dir')
-    mock_run_benchmarks_on_shardmap.assert_called_with('map_string',
-                                                       expected_options, 'dir',
-                                                       [])
+    mock_run_benchmarks_on_shardmap.assert_called_with(
+      'map_string', expected_options, 'dir', []
+    )
 
   @mock.patch.object(run_performance_tests.CrossbenchTest, 'execute_benchmark')
   @mock.patch.dict(os.environ, {'GTEST_SHARD_INDEX': '0'})
   def testCrossbenchTestRunBenchmarkOnShardMap(self, mock_execute_benchmark):
     fake_args = [
-        'run_benchmark',
-        '--isolated-script-test-output=output',
-        '--test-shard-map-filename=foo',
-        '--browser=./chrome',
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--test-shard-map-filename=foo',
+      '--browser=./chrome',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     shard_map = {
-        '0': {
-            'crossbench': {
-                'my_display': {
-                    'crossbench_name': 'my_benchmark',
-                    'arguments': []
-                }
-            }
+      '0': {
+        'crossbench': {
+          'my_display': {'crossbench_name': 'my_benchmark', 'arguments': []}
         }
+      }
     }
     mock_execute_benchmark.return_value = 0
 
     return_code = run_performance_tests._run_benchmarks_on_shardmap(
-        shard_map, options, 'dir', [])
+      shard_map, options, 'dir', []
+    )
 
     self.assertEqual(return_code, 0)
     mock_execute_benchmark.assert_called_with('my_benchmark', 'my_display', [])
@@ -282,68 +308,69 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
   def testCrossbenchTestMissingShardIndex(self, mock_execute_benchmark):
     del mock_execute_benchmark
     fake_args = [
-        'run_benchmark', '--isolated-script-test-output=output',
-        '--test-shard-map-filename=foo'
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--test-shard-map-filename=foo',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     shard_map = {'0': {'crossbench': {'my_benchmark': []}}}
 
     with self.assertRaises(Exception):
-      run_performance_tests._run_benchmarks_on_shardmap(shard_map, options,
-                                                        'dir', [])
+      run_performance_tests._run_benchmarks_on_shardmap(
+        shard_map, options, 'dir', []
+      )
 
   @mock.patch.object(run_performance_tests.CrossbenchTest, 'execute_benchmark')
   @mock.patch.dict(os.environ, {'GTEST_SHARD_INDEX': '0'})
   def testCrossbenchTestMissingBenchmark(self, mock_execute_benchmark):
     fake_args = [
-        'run_benchmark',
-        '--isolated-script-test-output=output',
-        '--test-shard-map-filename=foo',
-        '--browser=./chrome',
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--test-shard-map-filename=foo',
+      '--browser=./chrome',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     shard_map = {'0': {'crossbench': {}}}
 
     return_code = run_performance_tests._run_benchmarks_on_shardmap(
-        shard_map, options, 'dir', [])
+      shard_map, options, 'dir', []
+    )
     self.assertEqual(return_code, 0)
     mock_execute_benchmark.assert_not_called()
 
   @mock.patch.object(run_performance_tests.CrossbenchTest, 'execute_benchmark')
   @mock.patch.dict(os.environ, {'GTEST_SHARD_INDEX': '0'})
-  def testCrossbenchTestRunMultiBenchmarkOnShardMap(self,
-                                                    mock_execute_benchmark):
+  def testCrossbenchTestRunMultiBenchmarkOnShardMap(
+    self, mock_execute_benchmark
+  ):
     fake_args = [
-        'run_benchmark',
-        '--isolated-script-test-output=output',
-        '--test-shard-map-filename=foo',
-        '--browser=./chrome',
+      'run_benchmark',
+      '--isolated-script-test-output=output',
+      '--test-shard-map-filename=foo',
+      '--browser=./chrome',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     shard_map = {
-        '0': {
-            'crossbench': {
-                'b1.crossbench': {
-                    'crossbench_name': 'b1',
-                    'arguments': []
-                },
-                'b2.crossbench': {
-                    'crossbench_name': 'b2',
-                    'arguments': []
-                }
-            }
+      '0': {
+        'crossbench': {
+          'b1.crossbench': {'crossbench_name': 'b1', 'arguments': []},
+          'b2.crossbench': {'crossbench_name': 'b2', 'arguments': []},
         }
+      }
     }
     mock_execute_benchmark.return_value = 1
 
     return_code = run_performance_tests._run_benchmarks_on_shardmap(
-        shard_map, options, 'dir', [])
+      shard_map, options, 'dir', []
+    )
 
     self.assertEqual(return_code, 1)
-    mock_execute_benchmark.assert_has_calls([
+    mock_execute_benchmark.assert_has_calls(
+      [
         mock.call('b1', 'b1.crossbench', []),
-        mock.call('b2', 'b2.crossbench', [])
-    ])
+        mock.call('b2', 'b2.crossbench', []),
+      ]
+    )
 
   def testCrossbenchGetNetworkArgWithNetwork(self):
     fake_args = _create_crossbench_args() + ['--network=foo']
@@ -360,9 +387,9 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     src_dir = run_performance_tests.CHROMIUM_SRC_DIR
     local_fileserver = str(src_dir / 'third_party/speedometer/v3.0')
     expected_dict = {
-        'type': 'local',
-        'path': local_fileserver,
-        'url': 'http://localhost:0'
+      'type': 'local',
+      'path': local_fileserver,
+      'url': 'http://localhost:0',
     }
 
     crosebench_test = run_performance_tests.CrossbenchTest(options, 'dir')
@@ -376,9 +403,9 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     src_dir = run_performance_tests.CHROMIUM_SRC_DIR
     local_fileserver = str(src_dir / 'foo')
     expected_dict = {
-        'type': 'local',
-        'path': local_fileserver,
-        'url': 'http://localhost:0'
+      'type': 'local',
+      'path': local_fileserver,
+      'url': 'http://localhost:0',
     }
 
     crosebench_test = run_performance_tests.CrossbenchTest(options, 'dir')
@@ -386,38 +413,30 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     network_dict = json.loads(crosebench_test.network[0].split('=', 1)[1])
     self.assertDictEqual(network_dict, expected_dict)
 
-  @mock.patch.object(binary_manager, 'FetchPath')
-  def testCrossbenchGetDefaultWpr(self, mock_fetch_path):
-    mock_fetch_path.return_value = 'wpr_go_path'
+  def testCrossbenchGetDefaultWpr(self):
     fake_args = _create_crossbench_args() + ['--wpr=fake.wprgo']
     options = run_performance_tests.parse_arguments(fake_args)
     data_dir = run_performance_tests.PAGE_SETS_DATA
     archive = str(data_dir / 'fake.wprgo')
-    expected_dict = {
-        'type': 'wpr',
-        'path': archive,
-        'wpr_go_bin': 'wpr_go_path'
-    }
+    expected_dict = {'type': 'wpr', 'path': archive}
 
     crosebench_test = run_performance_tests.CrossbenchTest(options, 'dir')
 
     network_dict = json.loads(crosebench_test.network[0].split('=', 1)[1])
     self.assertDictEqual(network_dict, expected_dict)
 
-  @mock.patch.object(binary_manager, 'FetchPath')
-  def testCrossbenchSkipInjectionWpr(self, mock_fetch_path):
-    mock_fetch_path.return_value = 'wpr_go_path'
+  def testCrossbenchSkipInjectionWpr(self):
     fake_args = _create_crossbench_args() + [
-        '--wpr=fake.wprgo', '--skip-wpr-script-injection'
+      '--wpr=fake.wprgo',
+      '--skip-wpr-script-injection',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     data_dir = run_performance_tests.PAGE_SETS_DATA
     archive = str(data_dir / 'fake.wprgo')
     expected_dict = {
-        'type': 'wpr',
-        'path': archive,
-        'wpr_go_bin': 'wpr_go_path',
-        'skip_deterministic_script_injection': True
+      'type': 'wpr',
+      'path': archive,
+      'skip_deterministic_script_injection': True,
     }
 
     crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
@@ -425,40 +444,48 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     network_dict = json.loads(crossbench_test.network[0].split('=', 1)[1])
     self.assertDictEqual(network_dict, expected_dict)
 
-  @mock.patch.object(binary_manager, 'FetchPath')
-  def testCrossbenchGetTargetWpr(self, mock_fetch_path):
-    mock_fetch_path.return_value = 'wpr_go_path'
+  def testCrossbenchGetTargetWpr(self):
     fake_args = _create_crossbench_args() + ['--wpr=foo']
     options = run_performance_tests.parse_arguments(fake_args)
     data_dir = run_performance_tests.PAGE_SETS_DATA
     archive = str(data_dir / 'foo')
-    expected_dict = {
-        'type': 'wpr',
-        'path': archive,
-        'wpr_go_bin': 'wpr_go_path'
-    }
+    expected_dict = {'type': 'wpr', 'path': archive}
 
     crosebench_test = run_performance_tests.CrossbenchTest(options, 'dir')
 
     network_dict = json.loads(crosebench_test.network[0].split('=', 1)[1])
     self.assertDictEqual(network_dict, expected_dict)
 
-  @mock.patch.object(binary_manager, 'FetchPath')
-  def testCrossbenchWprCustomPorts(self, mock_fetch_path):
-    mock_fetch_path.return_value = 'wpr_go_path'
+  def testCrossbenchWprCustomPorts(self):
     fake_args = _create_crossbench_args() + [
-        '--wpr=fake.wprgo', '--wpr-http-port=8080', '--wpr-https-port=8081'
+      '--wpr=fake.wprgo',
+      '--wpr-http-port=8080',
+      '--wpr-https-port=8081',
     ]
     options = run_performance_tests.parse_arguments(fake_args)
     data_dir = run_performance_tests.PAGE_SETS_DATA
     archive = str(data_dir / 'fake.wprgo')
     expected_dict = {
-        'type': 'wpr',
-        'path': archive,
-        'wpr_go_bin': 'wpr_go_path',
-        'http_port': 8080,
-        'https_port': 8081
+      'type': 'wpr',
+      'path': archive,
+      'http_port': 8080,
+      'https_port': 8081,
     }
+
+    crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
+
+    network_dict = json.loads(crossbench_test.network[0].split('=', 1)[1])
+    self.assertDictEqual(network_dict, expected_dict)
+
+  def testCrossbenchWprNetworkSpeed(self):
+    fake_args = _create_crossbench_args() + [
+      '--wpr=fake.wprgo',
+      '--wpr-network-speed=3G-slow',
+    ]
+    options = run_performance_tests.parse_arguments(fake_args)
+    data_dir = run_performance_tests.PAGE_SETS_DATA
+    archive = str(data_dir / 'fake.wprgo')
+    expected_dict = {'type': 'wpr', 'path': archive, 'speed': '3G-slow'}
 
     crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
 
@@ -467,9 +494,9 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
   @mock.patch.object(run_performance_tests.browser_finder, 'FindBrowser')
   def testCrossbenchFindBrowserFromEmbedder(self, _):
-    fake_args = (
-        _create_crossbench_args('android-webview-trichrome-google-bundle') +
-        ['--embedder=org.foo.bar'])
+    fake_args = _create_crossbench_args(
+      'android-webview-standalone-google-bundle'
+    ) + ['--embedder=org.foo.bar']
     options = run_performance_tests.parse_arguments(fake_args)
 
     crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
@@ -478,6 +505,30 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
     expected_browser = crossbench_test.CHROME_BROWSER % expected_hjson
     self.assertEqual(crossbench_test.browser, expected_browser)
 
+  @mock.patch.object(run_performance_tests.browser_finder, 'FindBrowser')
+  def testCrossbenchAndroidDefaultPowerMode(self, _):
+    fake_args = _create_crossbench_args('android-chrome-bundle')
+    options = run_performance_tests.parse_arguments(fake_args)
+
+    crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
+
+    self.assertEqual(
+      crossbench_test.env, ['--env={"cpu_power_mode":"performance"}']
+    )
+
+  @mock.patch.object(run_performance_tests.browser_finder, 'FindBrowser')
+  def testCrossbenchAndroidWebPowerUsesSchedPixel(self, _):
+    fake_args = _create_crossbench_args(
+      'android-chrome-bundle', benchmarks='web-power'
+    )
+    options = run_performance_tests.parse_arguments(fake_args)
+
+    crossbench_test = run_performance_tests.CrossbenchTest(options, 'dir')
+
+    self.assertEqual(
+      crossbench_test.env, ['--env={"cpu_power_mode":"sched_pixel"}']
+    )
+
   def testCrossbenchOfficialBrowser(self):
     fake_args = _create_crossbench_args()
     fake_args.append('--official-browser=chrome-stable-1.2.3.4')
@@ -485,12 +536,14 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
 
     cb_test = run_performance_tests.CrossbenchTest(options, 'dir')
     command_list = cb_test._generate_command_list(
-        cb_test.options.benchmarks, cb_test.options.passthrough_args, 'dir')
+      cb_test.options.benchmarks, cb_test.options.passthrough_args, 'dir'
+    )
 
     self.assertIn('--browser=chrome-stable-1.2.3.4', command_list)
     # The --official-browser arg should have been removed from command_list.
     self.assertFalse(
-        [x for x in command_list if x.startswith('--official-browser')])
+      [x for x in command_list if x.startswith('--official-browser')]
+    )
     # Crossbench should find the official build of WebDriver, instead of using
     # a path from us.
     self.assertFalse([x for x in command_list if x.startswith('--driver-path')])
@@ -498,25 +551,88 @@ class TelemetryCommandGeneratorTest(unittest.TestCase):
   def testCrossbenchExtraBrowserArgs(self):
     fake_args = _create_crossbench_args()
     fake_args.extend(
-        ('--extra-browser-args=--a --b --c', '--extra-browser-args=--x'))
+      ('--extra-browser-args=--a --b --c', '--extra-browser-args=--x')
+    )
     options = run_performance_tests.parse_arguments(fake_args)
 
     cb_test = run_performance_tests.CrossbenchTest(options, 'dir')
     command_list = cb_test._generate_command_list(
-        cb_test.options.benchmarks, cb_test.options.passthrough_args, 'dir')
+      cb_test.options.benchmarks, cb_test.options.passthrough_args, 'dir'
+    )
 
     pos = command_list.index('--')
-    self.assertEqual(command_list[pos + 1:], ['--a', '--b', '--c', '--x'])
+    expected_list = ['--a', '--b', '--c', '--x']
+    if sys.platform == 'darwin':
+      expected_list += ['--disable-updater-scheduler']
+    self.assertEqual(command_list[pos + 1 :], expected_list)
 
 
-def _create_crossbench_args(browser='./chrome'):
+def _create_crossbench_args(browser='./chrome', benchmarks='speedometer_3.0'):
   return [
-      './cb.py',
-      '--isolated-script-test-output=output',
-      '--benchmarks=speedometer_3.0',
-      '--benchmark-display-name=speedometer3.crossbench',
-      f'--browser={browser}',
+    './cb.py',
+    '--isolated-script-test-output=output',
+    f'--benchmarks={benchmarks}',
+    '--benchmark-display-name=speedometer3.crossbench',
+    f'--browser={browser}',
   ]
+
+
+class ArgumentParserTest(unittest.TestCase):
+  def testIsolatedScriptTestLauncherRetryLimitNotPassed(self):
+    fake_args = ['./run_benchmark', '--isolated-script-test-output=output.json']
+    options = run_performance_tests.parse_arguments(fake_args)
+    self.assertIsNone(options.isolated_script_test_launcher_retry_limit)
+
+  def testIsolatedScriptTestLauncherRetryLimitZero(self):
+    fake_args = [
+      './run_benchmark',
+      '--isolated-script-test-output=output.json',
+      '--isolated-script-test-launcher-retry-limit=0',
+    ]
+    with mock.patch('logging.warning') as mock_warn:
+      options = run_performance_tests.parse_arguments(fake_args)
+      self.assertEqual(options.isolated_script_test_launcher_retry_limit, 0)
+      mock_warn.assert_not_called()
+
+  def testIsolatedScriptTestLauncherRetryLimitPositive(self):
+    fake_args = [
+      './run_benchmark',
+      '--isolated-script-test-output=output.json',
+      '--isolated-script-test-launcher-retry-limit=3',
+    ]
+    with mock.patch('logging.warning') as mock_warn:
+      options = run_performance_tests.parse_arguments(fake_args)
+      self.assertEqual(options.isolated_script_test_launcher_retry_limit, 0)
+      mock_warn.assert_called_once_with(
+        'Ignoring non-zero retry limit %d: '
+        'performance tests do not support retries.',
+        3,
+      )
+
+  def testIsolatedScriptTestLauncherRetryLimitNegative(self):
+    fake_args = [
+      './run_benchmark',
+      '--isolated-script-test-output=output.json',
+      '--isolated-script-test-launcher-retry-limit=-2',
+    ]
+    with mock.patch('logging.warning') as mock_warn:
+      options = run_performance_tests.parse_arguments(fake_args)
+      self.assertEqual(options.isolated_script_test_launcher_retry_limit, 0)
+      mock_warn.assert_called_once_with(
+        'Ignoring non-zero retry limit %d: '
+        'performance tests do not support retries.',
+        -2,
+      )
+
+  def testIsolatedScriptTestLauncherRetryLimitInvalidType(self):
+    fake_args = [
+      './run_benchmark',
+      '--isolated-script-test-output=output.json',
+      '--isolated-script-test-launcher-retry-limit=abc',
+    ]
+    with mock.patch('sys.stderr', new_callable=io.StringIO):
+      with self.assertRaises(SystemExit):
+        run_performance_tests.parse_arguments(fake_args)
 
 
 if __name__ == '__main__':

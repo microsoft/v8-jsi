@@ -36,6 +36,7 @@ AllocatorDispatch allocator_dispatch = {
     nullptr,                     // alloc_zero_initialized_function
     nullptr,                     // alloc_zero_initialized_unchecked_function
     nullptr,                     // alloc_aligned_function
+    nullptr,                     // alloc_aligned_unchecked_function
     nullptr,                     // realloc_function
     nullptr,                     // realloc_unchecked_function
     FreeFn,                      // free_function
@@ -50,6 +51,7 @@ AllocatorDispatch allocator_dispatch = {
     TryFreeDefaultFn,            // try_free_default_function
     nullptr,                     // aligned_malloc_function
     nullptr,                     // aligned_malloc_unchecked_function
+    nullptr,                     // aligned_calloc_unchecked_function
     nullptr,                     // aligned_realloc_function
     nullptr,                     // aligned_realloc_unchecked_function
     AlignedFreeFn,               // aligned_free_function
@@ -60,7 +62,9 @@ AllocatorDispatch allocator_dispatch = {
 
 void InsertNoOpOnFreeAllocatorShimOnShutDown() {
   static bool called = false;
-  PA_CHECK(!called);
+  if (called) {
+    return;
+  }
   called = true;
   InsertAllocatorDispatch(&allocator_dispatch);
 }

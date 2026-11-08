@@ -9,6 +9,7 @@ import unittest
 
 import setup_modules  # pylint: disable=unused-import
 
+
 import chromium_src.tools.metrics.structured.sync.model_unittest as model_unittest
 
 # model_unittest.py lives in the sync directory (as the unit test is synced

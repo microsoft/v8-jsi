@@ -75,6 +75,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/config.h"
 #include "absl/base/internal/endian.h"
+#include "absl/base/internal/hardening.h"
 #include "absl/base/macros.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
@@ -97,6 +98,11 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/compare.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
+
+namespace strings {
+class CordReader;
+}  // namespace strings
 
 namespace absl {
 ABSL_NAMESPACE_BEGIN
@@ -106,6 +112,7 @@ template <typename Releaser>
 Cord MakeCordFromExternal(absl::string_view, Releaser&&);
 void CopyCordToString(const Cord& src, std::string* absl_nonnull dst);
 void AppendCordToString(const Cord& src, std::string* absl_nonnull dst);
+[[nodiscard]] size_t CopyCordToSpan(const Cord& src, absl::Span<char> dst);
 
 // Cord memory accounting modes
 enum class CordMemoryAccounting {
@@ -170,11 +177,10 @@ enum class CordMemoryAccounting {
 // Additionally, the API provides iterator utilities to iterate through Cord
 // data via chunks or character bytes.
 //
-class Cord {
+class ABSL_ATTRIBUTE_TRIVIAL_ABI Cord {
  private:
   template <typename T>
-  using EnableIfString =
-      std::enable_if_t<std::is_same<T, std::string>::value, int>;
+  using EnableIfString = std::enable_if_t<std::is_same_v<T, std::string>, int>;
 
  public:
   // Cord::Cord() Constructors.
@@ -184,10 +190,12 @@ class Cord {
 
   // Creates a Cord from an existing Cord. Cord is copyable and efficiently
   // movable. The moved-from state is valid but unspecified.
-  Cord(const Cord& src);
-  Cord(Cord&& src) noexcept;
-  Cord& operator=(const Cord& x);
-  Cord& operator=(Cord&& x) noexcept;
+  // Moves need to be declared since they are otherwise inhibited via the
+  // declaration of the destructor.
+  Cord(const Cord&) = default;
+  Cord(Cord&&) = default;
+  Cord& operator=(const Cord&) = default;
+  Cord& operator=(Cord&&) = default;
 
   // Creates a Cord from a `src` string. This constructor is marked explicit to
   // prevent implicit Cord constructions from arguments convertible to an
@@ -432,6 +440,12 @@ class Cord {
   // conversion operator to `std::string`.
   friend void AppendCordToString(const Cord& src,
                                  std::string* absl_nonnull dst);
+
+  // CopyCordToSpan()
+  //
+  // Copies up to `dst.size()` bytes starting from the beginning of `src` to
+  // `dst`.  Returns the number of bytes copied.
+  friend size_t CopyCordToSpan(const Cord& src, absl::Span<char> dst);
 
   class CharIterator;
 
@@ -850,6 +864,7 @@ class Cord {
   // public API call causing the cord to be created.
   explicit Cord(absl::string_view src, MethodIdentifier method);
 
+  friend class ::strings::CordReader;
   friend class CordTestPeer;
   friend bool operator==(const Cord& lhs, const Cord& rhs);
   friend bool operator==(const Cord& lhs, absl::string_view rhs);
@@ -902,13 +917,12 @@ class Cord {
   // to the representation.
   //
   // InlineRep holds either a tree pointer, or an array of kMaxInline bytes.
-  class InlineRep {
+  class ABSL_ATTRIBUTE_TRIVIAL_ABI InlineRep {
    public:
     static constexpr unsigned char kMaxInline = cord_internal::kMaxInline;
-    static_assert(kMaxInline >= sizeof(absl::cord_internal::CordRep*), "");
+    static_assert(kMaxInline >= sizeof(absl::cord_internal::CordRep*));
 
-    constexpr InlineRep() : data_() {}
-    explicit InlineRep(InlineData::DefaultInitType init) : data_(init) {}
+    InlineRep() = default;
     InlineRep(const InlineRep& src);
     InlineRep(InlineRep&& src);
     InlineRep& operator=(const InlineRep& src);
@@ -1111,12 +1125,6 @@ class Cord {
   void CopyToArrayImpl(char* absl_nonnull dst) const;
 };
 
-ABSL_NAMESPACE_END
-}  // namespace absl
-
-namespace absl {
-ABSL_NAMESPACE_BEGIN
-
 // allow a Cord to be logged
 extern std::ostream& operator<<(std::ostream& out, const Cord& cord);
 
@@ -1174,8 +1182,7 @@ constexpr Cord::InlineRep::InlineRep(absl::string_view sv,
                                      CordRep* absl_nullable rep)
     : data_(sv, rep) {}
 
-inline Cord::InlineRep::InlineRep(const Cord::InlineRep& src)
-    : data_(InlineData::kDefaultInit) {
+inline Cord::InlineRep::InlineRep(const Cord::InlineRep& src) {
   if (CordRep* tree = src.tree()) {
     EmplaceTree(CordRep::Ref(tree), src.data_,
                 CordzUpdateTracker::kConstructorCord);
@@ -1222,6 +1229,35 @@ inline const char* absl_nullable Cord::InlineRep::data() const {
   return is_tree() ? nullptr : data_.as_chars();
 }
 
+inline char* absl_nonnull Cord::InlineRep::set_data(size_t n) {
+  assert(n <= kMaxInline);
+  ResetToEmpty();
+  set_inline_size(n);
+  return data_.as_chars();
+}
+
+inline void Cord::InlineRep::set_data(const char* absl_nullable data,
+                                      size_t n) {
+  static_assert(kMaxInline == 15, "set_data is hard-coded for a length of 15");
+  assert(data != nullptr || n == 0);
+  data_.set_inline_data(data, n);
+}
+
+inline void Cord::InlineRep::reduce_size(size_t n) {
+  size_t tag = inline_size();
+  assert(tag <= kMaxInline);
+  assert(tag >= n);
+  tag -= n;
+  memset(data_.as_chars() + tag, 0, n);
+  set_inline_size(tag);
+}
+
+inline void Cord::InlineRep::remove_prefix(size_t n) {
+  cord_internal::SmallMemmove(data_.as_chars(), data_.as_chars() + n,
+                              inline_size() - n);
+  reduce_size(n);
+}
+
 inline const char* absl_nonnull Cord::InlineRep::as_chars() const {
   assert(!data_.is_tree());
   return data_.as_chars();
@@ -1248,7 +1284,7 @@ inline size_t Cord::InlineRep::size() const {
 
 inline cord_internal::CordRepFlat* absl_nonnull
 Cord::InlineRep::MakeFlatWithExtraCapacity(size_t extra) {
-  static_assert(cord_internal::kMinFlatLength >= sizeof(data_), "");
+  static_assert(cord_internal::kMinFlatLength >= sizeof(data_));
   size_t len = data_.inline_size();
   auto* result = CordRepFlat::New(len + extra);
   result->length = len;
@@ -1328,7 +1364,7 @@ inline void Cord::InlineRep::MaybeRemoveEmptyCrcNode() {
   ResetToEmpty();
 }
 
-constexpr inline Cord::Cord() noexcept {}
+constexpr inline Cord::Cord() noexcept : contents_() {}
 
 inline Cord::Cord(absl::string_view src)
     : Cord(src, CordzUpdateTracker::kConstructorString) {}
@@ -1342,11 +1378,6 @@ constexpr Cord::Cord(strings_internal::StringConstant<T>)
                     : &cord_internal::ConstInitExternalStorage<
                           strings_internal::StringConstant<T>>::value) {}
 
-inline Cord& Cord::operator=(const Cord& x) {
-  contents_ = x.contents_;
-  return *this;
-}
-
 template <typename T, Cord::EnableIfString<T>>
 Cord& Cord::operator=(T&& src) {
   if (src.size() <= cord_internal::kMaxBytesToCopy) {
@@ -1356,17 +1387,8 @@ Cord& Cord::operator=(T&& src) {
   }
 }
 
-inline Cord::Cord(const Cord& src) : contents_(src.contents_) {}
-
-inline Cord::Cord(Cord&& src) noexcept : contents_(std::move(src.contents_)) {}
-
 inline void Cord::swap(Cord& other) noexcept {
   contents_.Swap(&other.contents_);
-}
-
-inline Cord& Cord::operator=(Cord&& x) noexcept {
-  contents_ = std::move(x.contents_);
-  return *this;
 }
 
 extern template Cord::Cord(std::string&& src);
@@ -1553,8 +1575,8 @@ inline void Cord::ChunkIterator::AdvanceBytesBtree(size_t n) {
 }
 
 inline Cord::ChunkIterator& Cord::ChunkIterator::operator++() {
-  ABSL_HARDENING_ASSERT(bytes_remaining_ > 0 &&
-                        "Attempted to iterate past `end()`");
+  // Failure of this assertion indicates an attempt to iterate past `end()`.
+  absl::base_internal::HardeningAssertGT(bytes_remaining_, size_t{0});
   assert(bytes_remaining_ >= current_chunk_.size());
   bytes_remaining_ -= current_chunk_.size();
   if (bytes_remaining_ > 0) {
@@ -1583,12 +1605,14 @@ inline bool Cord::ChunkIterator::operator!=(const ChunkIterator& other) const {
 }
 
 inline Cord::ChunkIterator::reference Cord::ChunkIterator::operator*() const {
-  ABSL_HARDENING_ASSERT(bytes_remaining_ != 0);
+  absl::base_internal::HardeningAssertGT(bytes_remaining_, size_t{0});
+  ABSL_ASSERT(bytes_remaining_ >= current_chunk_.size());
   return current_chunk_;
 }
 
 inline Cord::ChunkIterator::pointer Cord::ChunkIterator::operator->() const {
-  ABSL_HARDENING_ASSERT(bytes_remaining_ != 0);
+  absl::base_internal::HardeningAssertGT(bytes_remaining_, size_t{0});
+  ABSL_ASSERT(bytes_remaining_ >= current_chunk_.size());
   return &current_chunk_;
 }
 

@@ -14,20 +14,13 @@ import noop_merge
 
 
 class NoopMergeTest(unittest.TestCase):
-
-  # pylint: disable=super-with-arguments
   def setUp(self):
     super(NoopMergeTest, self).setUp()
     self.temp_dir = tempfile.mkdtemp()
 
-  # pylint: enable=super-with-arguments
-
-  # pylint: disable=super-with-arguments
   def tearDown(self):
     shutil.rmtree(self.temp_dir)
     super(NoopMergeTest, self).tearDown()
-
-  # pylint: enable=super-with-arguments
 
   def test_copies_first_json(self):
     input_json = os.path.join(self.temp_dir, 'input.json')
@@ -56,15 +49,13 @@ class NoopMergeTest(unittest.TestCase):
       json.dump(input_json2_contents, f)
     output_json = os.path.join(self.temp_dir, 'output.json')
     self.assertNotEqual(
-        0, noop_merge.noop_merge(output_json, [input_json1, input_json2]))
+      0, noop_merge.noop_merge(output_json, [input_json1, input_json2])
+    )
 
 
 class CommandLineTest(common_merge_script_tests.CommandLineTest):
-  # pylint: disable=super-with-arguments
   def __init__(self, methodName='runTest'):
     super(CommandLineTest, self).__init__(methodName, noop_merge)
-
-  # pylint: enable=super-with-arguments
 
 
 if __name__ == '__main__':

@@ -7,22 +7,39 @@ import argparse
 import datetime
 import hashlib
 import os
+from pathlib import Path
 import re
 import sys
+from typing import Iterable
 
 import setup_modules  # pylint: disable=unused-import
+
 
 import chromium_src.tools.metrics.histograms.extract_histograms as extract_histograms
 import chromium_src.tools.metrics.histograms.histogram_paths as histogram_paths
 import chromium_src.tools.metrics.histograms.merge_xml as merge_xml
 
+# The number of weeks per milestone, used for calculating expiry dates.
+_WEEKS_PER_MSTONE = 4
 
-_DATE_FILE_RE = re.compile(r".*MAJOR_BRANCH_DATE=(.+).*")
-_CURRENT_MILESTONE_RE = re.compile(r"MAJOR=([0-9]{2,3})\n")
-_MILESTONE_EXPIRY_RE = re.compile(r"\AM([0-9]{2,3})")
+# Some extra "grace" time is given to expired histograms during which they
+# will contintue to be collected and reported. The dashboard should ignore
+# data from this period making the expiry noticeable and giving time for
+# owners to re-enable them without any discontinuity of data. Releases are
+# generally 4 weeks apart but sometimes longer so +2 weeks to be safe.
 
-_SCRIPT_NAME = "generate_expired_histograms_array.py"
-_HASH_DATATYPE = "uint32_t"
+# _EXPIRE_GRACE_MSTONES is used for expiry dates in the milestone format.
+_EXPIRE_GRACE_MSTONES = 3
+
+# _EXPIRE_GRACE_WEEKS is used for expiry dates in the date format.
+_EXPIRE_GRACE_WEEKS = _EXPIRE_GRACE_MSTONES * _WEEKS_PER_MSTONE + 2
+
+_DATE_FILE_RE = re.compile(r'.*MAJOR_BRANCH_DATE=(.+).*')
+_CURRENT_MILESTONE_RE = re.compile(r'MAJOR=([0-9]{2,3})\n')
+_MILESTONE_EXPIRY_RE = re.compile(r'\AM([0-9]{2,3})')
+
+_SCRIPT_NAME = 'generate_expired_histograms_array.py'
+_HASH_DATATYPE = 'uint32_t'
 _HEADER = """// Generated from {script_name}. Do not edit!
 
 #ifndef {include_guard}
@@ -42,15 +59,7 @@ const {hash_datatype} kExpiredHistogramsHashes[] = {{
 #endif  // {include_guard}
 """
 
-_DATE_FORMAT_ERROR = "Unable to parse expiry {date} in histogram {name}."
-
-# Some extra "grace" time is given to expired histograms during which they
-# will contintue to be collected and reported.  The dashboard should ignore
-# data from this period making the expiry noticeable and giving time for
-# owners to re-enable them without any discontinuity of data. Releases are
-# geneally 6 weeks apart but sometimes 7 so +2 to be safe.
-_EXPIRE_GRACE_MSTONES = 2
-_EXPIRE_GRACE_WEEKS = _EXPIRE_GRACE_MSTONES * 6 + 2
+_DATE_FORMAT_ERROR = 'Unable to parse expiry {date} in histogram {name}.'
 
 
 class Error(Exception):
@@ -73,10 +82,10 @@ def _GetExpiredHistograms(histograms, base_date, current_milestone):
   """
   expired_histograms_names = []
   for name, content in histograms.items():
-    if "expires_after" not in content:
+    if 'expires_after' not in content:
       continue
-    expiry_str = content["expires_after"]
-    if expiry_str == "never":
+    expiry_str = content['expires_after']
+    if expiry_str == 'never':
       continue
 
     match = _MILESTONE_EXPIRY_RE.search(expiry_str)
@@ -88,10 +97,10 @@ def _GetExpiredHistograms(histograms, base_date, current_milestone):
       # if no match then we try the date format.
       try:
         expiry_date = datetime.datetime.strptime(
-            expiry_str, extract_histograms.EXPIRY_DATE_PATTERN).date()
+          expiry_str, extract_histograms.EXPIRY_DATE_PATTERN
+        ).date()
       except ValueError:
-        raise Error(_DATE_FORMAT_ERROR.
-                    format(date=expiry_str, name=name))
+        raise Error(_DATE_FORMAT_ERROR.format(date=expiry_str, name=name))
       if expiry_date < base_date:
         expired_histograms_names.append(name)
   return expired_histograms_names
@@ -100,8 +109,11 @@ def _GetExpiredHistograms(histograms, base_date, current_milestone):
 def _FindMatch(content, regex, group_num):
   match_result = regex.search(content)
   if not match_result:
-    raise Error("Unable to match {pattern} with provided content: {content}".
-                format(pattern=regex.pattern, content=content))
+    raise Error(
+      'Unable to match {pattern} with provided content: {content}'.format(
+        pattern=regex.pattern, content=content
+      )
+    )
   return match_result.group(group_num)
 
 
@@ -124,11 +136,15 @@ def _GetBaseDate(content, regex):
     return None
   try:
     base_date = datetime.datetime.strptime(
-        base_date_str, extract_histograms.EXPIRY_DATE_PATTERN).date()
+      base_date_str, extract_histograms.EXPIRY_DATE_PATTERN
+    ).date()
     return base_date
   except ValueError:
-    raise Error("Unable to parse base date {date} from {content}.".
-                format(date=base_date_str, content=content))
+    raise Error(
+      'Unable to parse base date {date} from {content}.'.format(
+        date=base_date_str, content=content
+      )
+    )
 
 
 def _GetCurrentMilestone(content, regex):
@@ -150,7 +166,7 @@ def _GetCurrentMilestone(content, regex):
 def _HashName(name):
   """Returns hash for the given histogram |name|."""
   # This corresponds to HashMetricNameAs32Bits() in C++
-  return "0x" + hashlib.md5(name.encode()).hexdigest()[:8]
+  return '0x' + hashlib.md5(name.encode()).hexdigest()[:8]
 
 
 def _GetHashToNameMap(histograms_names):
@@ -161,8 +177,7 @@ def _GetHashToNameMap(histograms_names):
   return hash_to_name_map
 
 
-def _GenerateHeaderFileContent(header_filename, namespace,
-                               histograms_map):
+def _GenerateHeaderFileContent(header_filename, namespace, histograms_map):
   """Generates header file content.
 
   Args:
@@ -173,23 +188,32 @@ def _GenerateHeaderFileContent(header_filename, namespace,
   Returns:
     String with the generated content.
   """
-  include_guard = re.sub("[^A-Z]", "_", header_filename.upper()) + "_"
+  include_guard = re.sub('[^A-Z]', '_', header_filename.upper()) + '_'
   if not histograms_map:
     # Some platforms don't allow creating empty arrays.
-    histograms_map["0x00000000"] = "Dummy.Histogram"
-  hashes = "\n".join([
-      "  {hash},  // {name}".format(hash=value, name=histograms_map[value])
+    histograms_map['0x00000000'] = 'Dummy.Histogram'
+  hashes = '\n'.join(
+    [
+      '  {hash},  // {name}'.format(hash=value, name=histograms_map[value])
       for value in sorted(histograms_map.keys())
-  ])
-  return _HEADER.format(script_name=_SCRIPT_NAME,
-                        include_guard=include_guard,
-                        namespace=namespace,
-                        hash_datatype=_HASH_DATATYPE,
-                        hashes=hashes)
+    ]
+  )
+  return _HEADER.format(
+    script_name=_SCRIPT_NAME,
+    include_guard=include_guard,
+    namespace=namespace,
+    hash_datatype=_HASH_DATATYPE,
+    hashes=hashes,
+  )
 
 
-def _GenerateFileContent(descriptions, branch_file_content,
-                         mstone_file_content, header_filename, namespace):
+def _GenerateFileContent(
+  descriptions,
+  branch_file_content,
+  mstone_file_content,
+  header_filename,
+  namespace,
+):
   """Generates header file containing array with hashes of expired histograms.
 
   Args:
@@ -202,29 +226,40 @@ def _GenerateFileContent(descriptions, branch_file_content,
   Raises:
     Error if there is an error in input xml files.
   """
-  histograms, had_errors = (
-      extract_histograms.ExtractHistogramsFromDom(descriptions))
+  histograms, had_errors = extract_histograms.ExtractHistogramsFromXmlET(
+    descriptions
+  )
   if had_errors:
-    raise Error("Error parsing inputs.")
+    raise Error('Error parsing inputs.')
   base_date = _GetBaseDate(branch_file_content, _DATE_FILE_RE)
   base_date -= datetime.timedelta(weeks=_EXPIRE_GRACE_WEEKS)
   current_milestone = _GetCurrentMilestone(
-      mstone_file_content, _CURRENT_MILESTONE_RE)
+    mstone_file_content, _CURRENT_MILESTONE_RE
+  )
   current_milestone -= _EXPIRE_GRACE_MSTONES
 
   expired_histograms_names = _GetExpiredHistograms(
-      histograms, base_date, current_milestone)
+    histograms, base_date, current_milestone
+  )
   expired_histograms_map = _GetHashToNameMap(expired_histograms_names)
   header_file_content = _GenerateHeaderFileContent(
-      header_filename, namespace, expired_histograms_map)
+    header_filename, namespace, expired_histograms_map
+  )
   return header_file_content
 
 
-def CheckUnsyncedHistograms(inputs):
-  """Checks whether --inputs is in sync with |histogram_paths.ALL_XMLS|."""
-  all_xmls_set = set(histogram_paths.ALL_XMLS)
+def CheckUnsyncedHistograms(inputs: Iterable[str]) -> tuple[set[str], set[str]]:
+  """Checks whether --inputs matches |histogram_paths.HISTOGRAMS_XMLS|."""
+  expected_set = set(
+    histogram_paths.HISTOGRAMS_XMLS + histogram_paths.VARIANTS_XMLS
+  )
   inputs_set = set(os.path.abspath(input) for input in inputs)
-  to_add, to_remove = all_xmls_set - inputs_set, inputs_set - all_xmls_set
+  for platform_xmls in histogram_paths.PLATFORM_HISTOGRAMS_XMLS:
+    platform_set = set(platform_xmls)
+    if not (inputs_set & platform_set):
+      expected_set -= platform_set
+  to_add = expected_set - inputs_set
+  to_remove = inputs_set - expected_set
   return to_add, to_remove
 
 
@@ -240,65 +275,75 @@ def _GenerateFile(arguments):
       arguments.major_branch_date_filepath: File path for base date.
       arguments.milestone_filepath: File path for milestone information.
   """
-  # Assert that the |--inputs| is the same as |histogram_paths.ALL_XMLS| to make
-  # sure we have the most updated list of histogram descriptions. Otherwise,
-  # inform the cl owner to update the --inputs.
+  # Assert that |--inputs| is in sync with |histogram_paths.HISTOGRAMS_XMLS| to
+  # ensure we have the most updated list of histogram descriptions. Otherwise,
+  # inform the CL owner to update the --inputs.
   to_add, to_remove = CheckUnsyncedHistograms(arguments.inputs)
   assert len(to_add) == 0 and len(to_remove) == 0, (
-      "The --inputs is not in sync with the most updated list of xmls. Please "
-      "update the inputs in "
-      "components/metrics/generate_expired_histograms_array.gni.\n"
-      "  add: %s\n  remove: %s" % (", ".join(to_add), ", ".join(to_remove)))
+    'The --inputs is not in sync with the most updated list of xmls. Please '
+    'update the inputs in '
+    'components/metrics/generate_expired_histograms_array.gni.\n'
+    '  add: %s\n  remove: %s' % (', '.join(to_add), ', '.join(to_remove))
+  )
 
   descriptions = merge_xml.MergeFiles(arguments.inputs)
-  with open(arguments.major_branch_date_filepath, "r") as date_file:
+  with open(arguments.major_branch_date_filepath, 'r') as date_file:
     branch_file_content = date_file.read()
-  with open(arguments.milestone_filepath, "r") as milestone_file:
+  with open(arguments.milestone_filepath, 'r') as milestone_file:
     mstone_file_content = milestone_file.read()
 
   header_file_content = _GenerateFileContent(
-      descriptions, branch_file_content, mstone_file_content,
-      arguments.header_filename, arguments.namespace)
+    descriptions,
+    branch_file_content,
+    mstone_file_content,
+    arguments.header_filename,
+    arguments.namespace,
+  )
 
-  with open(os.path.join(arguments.output_dir, arguments.header_filename),
-            "w") as generated_file:
+  output_path = Path(arguments.output_dir) / arguments.header_filename
+  with open(output_path, 'w') as generated_file:
     generated_file.write(header_file_content)
 
 
 def _ParseArguments():
   """Defines and parses arguments from the command line."""
   arg_parser = argparse.ArgumentParser(
-      description="Generate array of expired histograms' hashes.")
+    description="Generate array of expired histograms' hashes."
+  )
   arg_parser.add_argument(
-      "--output_dir",
-      "-o",
-      required=True,
-      help="Base directory to for generated files.")
+    '--output_dir',
+    '-o',
+    required=True,
+    help='Base directory to for generated files.',
+  )
   arg_parser.add_argument(
-      "--header_filename",
-      "-H",
-      required=True,
-      help="File name of the generated header file.")
+    '--header_filename',
+    '-H',
+    required=True,
+    help='File name of the generated header file.',
+  )
   arg_parser.add_argument(
-      "--namespace",
-      "-n",
-      default="",
-      help="Namespace of the generated factory function (code will be in "
-      "the global namespace if this is omitted).")
+    '--namespace',
+    '-n',
+    default='',
+    help='Namespace of the generated factory function (code will be in '
+    'the global namespace if this is omitted).',
+  )
   arg_parser.add_argument(
-      "--major_branch_date_filepath",
-      "-d",
-      required=True,
-      help="A path to the file with the base date.")
+    '--major_branch_date_filepath',
+    '-d',
+    required=True,
+    help='A path to the file with the base date.',
+  )
   arg_parser.add_argument(
-      "--milestone_filepath",
-      "-m",
-      required=True,
-      help="A path to the file with the milestone information.")
+    '--milestone_filepath',
+    '-m',
+    required=True,
+    help='A path to the file with the milestone information.',
+  )
   arg_parser.add_argument(
-      "inputs",
-      nargs="+",
-      help="Paths to .xml files with histogram descriptions.")
+    'inputs', nargs='+', help='Paths to .xml files with histogram descriptions.'
+  )
   return arg_parser.parse_args()
 
 
@@ -307,5 +352,5 @@ def main():
   _GenerateFile(arguments)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   sys.exit(main())

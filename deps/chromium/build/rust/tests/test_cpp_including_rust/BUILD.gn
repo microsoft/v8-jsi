@@ -11,21 +11,16 @@ executable("test_cpp_including_rust") {
   deps = [ "//build/rust/tests/test_rust_static_library" ]
 }
 
-test("test_cpp_including_rust_unittests") {
+source_set("test_cpp_including_rust_unittest_sources") {
   sources = [ "static_unittest.cc" ]
   deps = [
     "//base",
     "//base/allocator:buildflags",
-    "//base/test:run_all_unittests",
-    "//build/rust/tests/test_buildflag_header",
-    "//build/rust/tests/test_cxx_cfg",
     "//build/rust/tests/test_rust_static_library",
     "//testing/gmock",
     "//testing/gtest",
   ]
-  if (enable_cpp_api_from_rust) {
-    deps += [ "//build/rust/tests/test_cpp_api_from_rust" ]
-  }
+  testonly = true
 }
 
 if (is_component_build) {
