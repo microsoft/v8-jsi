@@ -57,3 +57,6 @@
 # Linux io_uring backend - the Windows inspector uses IOCP.
 /include/asio/detail/io_uring*
 /include/asio/detail/impl/io_uring*
+
+# Aggregate forward declarations are unused by <asio.hpp> and the inspector.
+/include/asio/fwd.hpp
