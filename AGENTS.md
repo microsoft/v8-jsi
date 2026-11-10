@@ -10,8 +10,10 @@ targets the Node.js-based build.
 
 ## Environment
 
-This is a Windows project. Builds and tooling run on Windows with **PowerShell**;
-paths use backslashes and `$null`/`$env:` rather than POSIX equivalents. The
+This is a Windows project. Builds and tooling run on Windows with **PowerShell
+7.x (`pwsh`)**, not Windows PowerShell 5.1. Use `pwsh` YAML tasks and invoke
+PowerShell scripts directly inside them. Paths use backslashes and `$null`/`$env:`
+rather than POSIX equivalents. The
 TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 `--strip-types`, so there is no separate transpile step — run `node script.ts`).
 
@@ -98,8 +100,8 @@ ABI-backed; `/0` goes through the public `makeV8Runtime`, `/1` through
 (V8-specific). Swap `Release`→`Debug` to exercise the Debug build (which compiles
 in V8's DCHECKs).
 
-Recent baseline: 127 JSI tests (2 disabled) + 52 Node-API tests, x64 Release
-and Debug (the exact counts shift as tests are added or removed).
+Run both test runners for the configuration being validated; test counts change
+as coverage is added or removed.
 
 ## Source layout
 
@@ -197,6 +199,7 @@ consumers compiled with different toolchains.
 - **Process-global V8 engine flags** (`sparkplug`, `jitless`, …) are set via the
   process-level `v8_jsi_abi_set_v8_flags` (forwarded to `V8::SetFlagsFromCommandLine`),
   not per-runtime config, because V8 reads them only at first process init.
+  Calls after V8 initialization are rejected.
 
 The V8 implementation (`jsi_abi_v8.cpp`) is **exception-free** to match
 V8/Node.js style: it uses a `TryCatch` wrapper and V8's `Maybe`/`MaybeLocal`
@@ -204,6 +207,8 @@ patterns, returns `jsi_status` codes, and can compile with exceptions disabled.
 
 `makeV8Runtime` (the public JSI entry point) is itself ABI-backed — it builds a
 runtime through the same ABI path as the Node-API surface.
+See [Runtime hosting and migration notes](docs/runtime-hosting.md) for microtask
+policies, code-cache behavior, and host task-runner and teardown rules.
 
 ## V8 API compatibility notes
 
@@ -219,6 +224,7 @@ When updating to newer V8 versions, watch for these renames/changes:
 - `V8JSI_ENABLE_INSPECTOR` — inspector support (enabled)
 - `V8JSI_ENABLE_NODE_API` — Node-API integration
 - `JSI_TESTING_ONLY` — gates test-only DLL exports (see `v8jsi_test_hooks`)
+- `V8JSI_TEST_WEBASSEMBLY` — enables flag tests that require WebAssembly
 
 ## Dependencies & binary size
 V8 + `v8_libplatform`, ICU, OpenSSL, libuv, etc. — all from the vendored Node.js
@@ -228,8 +234,10 @@ narrow build) is ~33 MB.
 ## Scripts and tooling
 The `scripts/` folder holds the TypeScript build tooling (`build.ts`,
 `sbox-build.ts`, `header-check.ts`, and their helpers). In `scripts/`, `npm run typecheck`
-type-checks it and `npm run header-check` runs the header gate below; Stela's
-own tests are `npm test` in `tools/stela/`. Run TypeScript with
+type-checks it and `npm run header-check` runs the header gate below.
+`npm run native-rid-test` (or `node --test scripts/native-rid.test.ts` from the
+repo root) tests native package RID selection. Stela's own tests are `npm test`
+in `tools/stela/`. Run TypeScript with
 `node <script>.ts` directly.
 
 The public C ABI headers have a compile gate: `node --test

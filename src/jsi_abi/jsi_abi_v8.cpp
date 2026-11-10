@@ -40,6 +40,9 @@
 #endif
 
 #include <atomic>
+#include <algorithm>
+#include <condition_variable>
+#include <thread>
 #include <string>
 #include <vector>
 #include <memory>
@@ -178,6 +181,52 @@ struct HostFunctionContext;
 //==============================================================================
 // TaskRunner adapter (C-callbacks → v8rt::TaskRunner)
 //==============================================================================
+// close() blocks new runs and waits for other threads, never its own.
+struct TaskGate {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool alive{true};
+  std::vector<std::thread::id> running;
+
+  bool enter() {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!alive) return false;
+    running.push_back(std::this_thread::get_id());
+    return true;
+  }
+  void leave() {
+    std::lock_guard<std::mutex> lock(mutex);
+    running.erase(std::find(running.begin(), running.end(), std::this_thread::get_id()));
+    cv.notify_all();
+  }
+  template <class Cancel>
+  void close(Cancel cancel) {
+    std::unique_lock<std::mutex> lock(mutex);
+    alive = false;
+    lock.unlock();
+    cancel();
+    lock.lock();
+    cv.wait(lock, [this] {
+      return std::all_of(running.begin(), running.end(), [](auto id) {
+        return id == std::this_thread::get_id();
+      });
+    });
+  }
+};
+
+struct GatedTask {
+  std::unique_ptr<v8rt::TaskRunner::Task> task;
+  std::shared_ptr<TaskGate> gate;
+  void run() {
+    if (!gate->enter()) return;
+    struct Leave {
+      TaskGate &gate;
+      ~Leave() { gate.leave(); }
+    } leave{*gate};
+    task->run();
+  }
+};
+
 //
 // Internal-only adapter held inside v8rt::IsolateData via shared_ptr. The
 // engine-internal v8rt::TaskRunner interface is what V8's inspector and other
@@ -192,8 +241,9 @@ class CTaskRunner final : public v8rt::TaskRunner {
   CTaskRunner(v8_jsi_abi_task_runner_post_task_cb post_task_cb,
               void *user_data,
               jsi_data_delete_cb user_data_delete_cb,
-              void *user_data_delete_data) noexcept
-      : post_task_cb_(post_task_cb),
+              void *user_data_delete_data,
+              std::shared_ptr<TaskGate> gate) noexcept
+      : gate_(std::move(gate)), post_task_cb_(post_task_cb),
         user_data_(user_data),
         user_data_delete_cb_(user_data_delete_cb),
         user_data_delete_data_(user_data_delete_data) {}
@@ -210,17 +260,18 @@ class CTaskRunner final : public v8rt::TaskRunner {
   void postTask(std::unique_ptr<Task> task) override {
     post_task_cb_(
         user_data_,
-        static_cast<void *>(task.release()),
+        new GatedTask{std::move(task), gate_},
         [](void *task_data) {
-          static_cast<Task *>(task_data)->run();
+          static_cast<GatedTask *>(task_data)->run();
         },
         [](void * /*delete_data*/, void *task_data) {
-          delete static_cast<Task *>(task_data);
+          delete static_cast<GatedTask *>(task_data);
         },
         /*task_data_delete_data:*/ nullptr);
   }
 
  private:
+  std::shared_ptr<TaskGate> gate_;
   v8_jsi_abi_task_runner_post_task_cb post_task_cb_;
   void *user_data_;
   jsi_data_delete_cb user_data_delete_cb_;
@@ -457,6 +508,7 @@ struct JsiRuntimeState : public jsi_runtime {
   // Reference count. Starts at 1 in create(); incremented by jsi_add_ref;
   // decremented by jsi_release, which destroys the runtime at zero.
   std::atomic<uint32_t> refcount{1};
+  std::shared_ptr<TaskGate> task_gate;
 
   // ABI version negotiated in v8_jsi_abi_runtime_create (the consumer's compiled
   // JSI_ABI_VERSION). Reserved for future behavioral pinning; get_abi_version
@@ -818,6 +870,7 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
   // This preserves the existing test corpus (117/117) since JsiAbiRuntime's
   // C++ constructor passes config=nullptr by default.
   const bool useDefaults = (config == nullptr);
+  auto task_gate = std::make_shared<TaskGate>();
 
   // Build the V8 platform-init flag string. V8 only consumes these flags on
   // first platform init in the process; subsequent runtimes inherit them
@@ -878,7 +931,7 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
           mutableConfig->task_runner_post_task_cb,
           mutableConfig->task_runner_data,
           mutableConfig->task_runner_data_delete_cb,
-          mutableConfig->task_runner_delete_data);
+          mutableConfig->task_runner_delete_data, task_gate);
       mutableConfig->task_runner_data = nullptr;
       mutableConfig->task_runner_post_task_cb = nullptr;
       mutableConfig->task_runner_data_delete_cb = nullptr;
@@ -901,6 +954,7 @@ JsiRuntimeState *JsiRuntimeState::create(const jsi_config_s *config) {
   extern const jsi_runtime_api g_vtable;
 
   auto *state = new JsiRuntimeState();
+  state->task_gate = std::move(task_gate);
   state->api = &g_vtable;
   state->isolate = isolate;
   state->context.Reset(isolate, context);
@@ -1089,6 +1143,15 @@ struct HostFunctionContext {
 // Deferred definition — requires HostFunctionContext and AbiHostObjectProxy
 // to be complete types.
 JsiRuntimeState::~JsiRuntimeState() {
+  task_gate->close([this] {
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+    if (inspector_agent) inspector_agent->prepareForShutdown();
+#endif
+  });
+  // Other-thread host tasks have drained; direct runtime calls are host-serialized.
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+  isolate->CancelTerminateExecution();
+#endif
   // tear down the attached Node-API surface (if any) before disposing
   // V8 state. The destroy callback owns deleting the attached object.
   if (attached_owner_destroy) {
@@ -1448,82 +1511,36 @@ jsi_status JSI_ABI_CDECL jsi_pop_scope(jsi_runtime *rt, void *scope) {
 // Script Evaluation
 //------------------------------------------------------------------------------
 
-jsi_status JSI_ABI_CDECL jsi_evaluate_javascript_source(
-    jsi_runtime *rt, jsi_buffer *buffer, const char *source_url,
-    size_t source_url_length, jsi_value *out_value) {
-  if (!out_value)
-    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
-  *out_value = abi::create_undefined_value();
-  source_url_length = resolveUtf8Length(source_url, source_url_length);
-  if (!source_url && source_url_length != 0)
-    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
-  source_url = source_url ? source_url : "";
-  auto *state = getState(rt);
-  V8Scope scope(state);
+// cache_tag = "perf" matches the legacy V8Runtime convention.
+// runtime_name = "V8" likewise — preserves cache keys for deployed
+// consumers whose stores already contain entries under that name.
+constexpr const char *kScriptCacheTag = "perf";
+constexpr const char *kScriptCacheRuntimeName = "V8";
+
+// A compiled script and the script cache key for its code cache.
+struct CompiledScript {
+  v8::Local<v8::Script> script;
+  // True when the cache missed or was rejected and the consumer stores caches.
+  bool store_code_cache{false};
+  std::string cache_source_url;
+  uint64_t source_hash{0};
+  uint64_t runtime_version{0};
+};
+
+// Compiles the source in `buffer`, consuming the script cache's code cache
+// when it has one, and releases `buffer`. Call inside a V8Scope and TryCatch.
+jsi_status compileScript(JsiRuntimeState *state, jsi_buffer *buffer,
+                         const char *source_url, size_t source_url_length,
+                         CompiledScript *out) {
   v8::Isolate *isolate = state->isolate;
-  TryCatch try_catch(state);
-
-  v8::Local<v8::String> sourceStr;
-  if (!v8::String::NewFromUtf8(isolate,
-                                reinterpret_cast<const char *>(buffer->data),
-                                v8::NewStringType::kNormal,
-                                static_cast<int>(buffer->size))
-           .ToLocal(&sourceStr)) {
-    if (buffer->api && buffer->api->release)
-      buffer->api->release(buffer);
-    state->setNativeError("Failed to create source string");
-    return jsi_status_native_error;
-  }
-
-  v8::Local<v8::String> urlV8Str;
-  if (!v8::String::NewFromUtf8(isolate, source_url,
-                                v8::NewStringType::kNormal,
-                                static_cast<int>(source_url_length))
-           .ToLocal(&urlV8Str)) {
-    if (buffer->api && buffer->api->release)
-      buffer->api->release(buffer);
-    state->setNativeError("Failed to create source URL string");
-    return jsi_status_native_error;
-  }
-
-  if (buffer->api && buffer->api->release)
-    buffer->api->release(buffer);
-
-  v8::ScriptOrigin origin(urlV8Str);
-
-  v8::Local<v8::Script> compiled;
-  if (!v8::Script::Compile(state->getContextLocal(), sourceStr, &origin)
-           .ToLocal(&compiled))
-    return jsi_status_js_error;
-
-  v8::Local<v8::Value> resultValue;
-  if (!compiled->Run(state->getContextLocal()).ToLocal(&resultValue))
-    return jsi_status_js_error;
-
-  *out_value = createJsiValue(isolate, resultValue);
-  return jsi_status_ok;
-}
-
-jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
-    jsi_runtime *rt, jsi_buffer *buffer, const char *source_url,
-    size_t source_url_length, jsi_prepared_javascript **out_prepared) {
-  if (!out_prepared)
-    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
-  *out_prepared = nullptr;
-  source_url_length = resolveUtf8Length(source_url, source_url_length);
-  if (!source_url && source_url_length != 0)
-    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
-  source_url = source_url ? source_url : "";
-  auto *state = getState(rt);
-  V8Scope scope(state);
-  v8::Isolate *isolate = state->isolate;
-  TryCatch try_catch(state);
 
   // compute MurmurHash3 over the source bytes for the cache key. Must
   // happen before buffer->release() since the buffer pointer becomes invalid.
-  uint64_t source_hash = 0;
   if (state->script_cache_load_cb || state->script_cache_store_cb) {
-    murmurhash(buffer->data, buffer->size, source_hash);
+    murmurhash(buffer->data, buffer->size, out->source_hash);
+    // The callbacks get a NUL-terminated copy; the caller's URL may not be.
+    out->cache_source_url.assign(source_url, source_url_length);
+    out->runtime_version = v8::ScriptCompiler::CachedDataVersionTag();
   }
 
   v8::Local<v8::String> sourceStr;
@@ -1553,17 +1570,6 @@ jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
     buffer->api->release(buffer);
 
   v8::ScriptOrigin origin(urlV8Str);
-
-  // cache_tag = "perf" matches the legacy V8Runtime convention.
-  // runtime_name = "V8" likewise — preserves cache keys for deployed
-  // consumers whose stores already contain entries under that name.
-  static constexpr const char *kCacheTag = "perf";
-  static constexpr const char *kRuntimeName = "V8";
-  const uint64_t runtime_version = v8::ScriptCompiler::CachedDataVersionTag();
-  // The callbacks get a NUL-terminated copy; the caller's URL may not be.
-  std::string cache_source_url;
-  if (state->script_cache_load_cb || state->script_cache_store_cb)
-    cache_source_url.assign(source_url, source_url_length);
 
   // try cache load.
   v8::ScriptCompiler::CompileOptions options =
@@ -1577,11 +1583,11 @@ jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
   if (state->script_cache_load_cb) {
     state->script_cache_load_cb(
         state->script_cache_data,
-        cache_source_url.c_str(),
-        source_hash,
-        kRuntimeName,
-        runtime_version,
-        kCacheTag,
+        out->cache_source_url.c_str(),
+        out->source_hash,
+        kScriptCacheRuntimeName,
+        out->runtime_version,
+        kScriptCacheTag,
         &cache_buffer,
         &cache_buffer_size,
         &cache_buffer_delete_cb,
@@ -1597,11 +1603,10 @@ jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
 
   v8::ScriptCompiler::Source script_source(sourceStr, origin, cached_data);
 
-  v8::Local<v8::Script> compiled;
   bool compile_ok =
       v8::ScriptCompiler::Compile(state->getContextLocal(), &script_source,
                                   options)
-          .ToLocal(&compiled);
+          .ToLocal(&out->script);
 
   // Release the consumer's cache buffer (if any) now that V8 is done with it.
   // Compile is synchronous, so the bytes are no longer needed past this point.
@@ -1613,35 +1618,96 @@ jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
   if (!compile_ok)
     return jsi_status_js_error;
 
-  v8::Local<v8::UnboundScript> unbound = compiled->GetUnboundScript();
+  out->store_code_cache = state->script_cache_store_cb &&
+      (options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache ||
+       cached_data->rejected);
+  return jsi_status_ok;
+}
 
-  // cache miss → produce code cache and hand it to the consumer.
-  if (state->script_cache_store_cb &&
-      options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
-    v8::ScriptCompiler::CachedData *codeCache =
-        v8::ScriptCompiler::CreateCodeCache(unbound);
-    if (codeCache) {
-      // The consumer reads codeCache->data and then calls our delete_cb,
-      // which deletes the V8 CachedData object (and its owned buffer) in the
-      // DLL's CRT — the same CRT that allocated it.
-      auto delete_cb = [](void *delete_data, void * /*data*/) {
-        delete static_cast<v8::ScriptCompiler::CachedData *>(delete_data);
-      };
-      state->script_cache_store_cb(
-          state->script_cache_data,
-          cache_source_url.c_str(),
-          source_hash,
-          kRuntimeName,
-          runtime_version,
-          kCacheTag,
-          codeCache->data,
-          static_cast<size_t>(codeCache->length),
-          delete_cb,
-          codeCache);
-    }
-  }
+// Produces a V8 code cache for `unbound` and hands it to the consumer.
+void storeCodeCache(JsiRuntimeState *state, const CompiledScript &compiled,
+                    v8::Local<v8::UnboundScript> unbound) {
+  v8::ScriptCompiler::CachedData *codeCache =
+      v8::ScriptCompiler::CreateCodeCache(unbound);
+  if (!codeCache)
+    return;
+  // The consumer reads codeCache->data and then calls our delete_cb,
+  // which deletes the V8 CachedData object (and its owned buffer) in the
+  // DLL's CRT — the same CRT that allocated it.
+  auto delete_cb = [](void *delete_data, void * /*data*/) {
+    delete static_cast<v8::ScriptCompiler::CachedData *>(delete_data);
+  };
+  state->script_cache_store_cb(
+      state->script_cache_data,
+      compiled.cache_source_url.c_str(),
+      compiled.source_hash,
+      kScriptCacheRuntimeName,
+      compiled.runtime_version,
+      kScriptCacheTag,
+      codeCache->data,
+      static_cast<size_t>(codeCache->length),
+      delete_cb,
+      codeCache);
+}
 
-  *out_prepared = new PreparedScriptImpl(isolate, unbound);
+jsi_status JSI_ABI_CDECL jsi_evaluate_javascript_source(
+    jsi_runtime *rt, jsi_buffer *buffer, const char *source_url,
+    size_t source_url_length, jsi_value *out_value) {
+  if (!out_value)
+    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
+  *out_value = abi::create_undefined_value();
+  source_url_length = resolveUtf8Length(source_url, source_url_length);
+  if (!source_url && source_url_length != 0)
+    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
+  source_url = source_url ? source_url : "";
+  auto *state = getState(rt);
+  V8Scope scope(state);
+  TryCatch try_catch(state);
+
+  CompiledScript compiled;
+  jsi_status status =
+      compileScript(state, buffer, source_url, source_url_length, &compiled);
+  if (status != jsi_status_ok)
+    return status;
+
+  v8::Local<v8::Value> resultValue;
+  if (!compiled.script->Run(state->getContextLocal()).ToLocal(&resultValue))
+    return jsi_status_js_error;
+
+  // A code cache made after the run also holds the functions the run
+  // compiled, so hosts that load their bundle this way start faster.
+  if (compiled.store_code_cache)
+    storeCodeCache(state, compiled, compiled.script->GetUnboundScript());
+
+  *out_value = createJsiValue(state->isolate, resultValue);
+  return jsi_status_ok;
+}
+
+jsi_status JSI_ABI_CDECL jsi_prepare_javascript(
+    jsi_runtime *rt, jsi_buffer *buffer, const char *source_url,
+    size_t source_url_length, jsi_prepared_javascript **out_prepared) {
+  if (!out_prepared)
+    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
+  *out_prepared = nullptr;
+  source_url_length = resolveUtf8Length(source_url, source_url_length);
+  if (!source_url && source_url_length != 0)
+    return releaseBufferAndFail(buffer, jsi_status_invalid_arg);
+  source_url = source_url ? source_url : "";
+  auto *state = getState(rt);
+  V8Scope scope(state);
+  TryCatch try_catch(state);
+
+  CompiledScript compiled;
+  jsi_status status =
+      compileScript(state, buffer, source_url, source_url_length, &compiled);
+  if (status != jsi_status_ok)
+    return status;
+
+  v8::Local<v8::UnboundScript> unbound = compiled.script->GetUnboundScript();
+  if (compiled.store_code_cache)
+    storeCodeCache(state, compiled, unbound);
+
+  *out_prepared = new PreparedScriptImpl(state->isolate, unbound);
   return jsi_status_ok;
 }
 
@@ -1680,9 +1746,11 @@ jsi_status JSI_ABI_CDECL jsi_drain_microtasks(
   auto *state = getState(rt);
   V8Scope scope(state);
 
-  if (state->isolate->GetMicrotasksPolicy() == v8::MicrotasksPolicy::kExplicit)
-    state->isolate->PerformMicrotaskCheckpoint();
+  // Host-queued microtasks need a checkpoint even with kAuto, since queuing
+  // them need not involve a top-level JavaScript call.
+  state->isolate->PerformMicrotaskCheckpoint();
 
+  *out_drained = true;
   return jsi_status_ok;
 }
 
@@ -3095,10 +3163,14 @@ V8_JSI_ABI_API jsi_status JSI_ABI_CDECL v8_jsi_abi_set_v8_flags(
     return jsi_status_invalid_arg;
   if (*argc == 0)
     return jsi_status_ok;
-  int n = static_cast<int>(*argc);
-  v8::V8::SetFlagsFromCommandLine(&n, argv, remove_flags);
-  *argc = n < 0 ? 0u : static_cast<size_t>(n);
-  return jsi_status_ok;
+  // After V8 initializes, its flag memory is read-only and changing a flag
+  // would crash the process.
+  bool applied = v8rt::V8PlatformHolder::runBeforeInitialization([&]() {
+    int n = static_cast<int>(*argc);
+    v8::V8::SetFlagsFromCommandLine(&n, argv, remove_flags);
+    *argc = n < 0 ? 0u : static_cast<size_t>(n);
+  });
+  return applied ? jsi_status_ok : jsi_status_invalid_arg;
 }
 
 // Startup-snapshot creation. See v8_jsi_abi.h for the contract. Builds a

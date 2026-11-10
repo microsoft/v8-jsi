@@ -134,4 +134,10 @@ if ($UseV8Sandbox -and $ReleaseTrustPayload) {
 }
 & $exe
 if ($LASTEXITCODE -ne 0) { throw "v8jsi_smoke.exe failed (exit $LASTEXITCODE)" }
+if (-not $UseV8Sandbox) {
+    # Fresh process: a lone flag must apply before the first V8 initialization.
+    Write-Host "tests: running $exe --jitless"
+    & $exe --jitless
+    if ($LASTEXITCODE -ne 0) { throw "v8jsi_smoke.exe --jitless failed (exit $LASTEXITCODE)" }
+}
 Write-Host "tests: smoke OK"

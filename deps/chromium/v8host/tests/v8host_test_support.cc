@@ -30,7 +30,7 @@ bool WaitForProcessExit(DWORD pid, DWORD timeout_ms) {
   return exited;
 }
 
-bool RunProcess(const std::wstring& command, DWORD* exit_code) {
+bool RunProcess(const std::wstring& command, DWORD* exit_code, DWORD timeout_ms) {
   std::wstring mutable_command = command;
   STARTUPINFOW startup = {};
   startup.cb = sizeof(startup);
@@ -41,14 +41,14 @@ bool RunProcess(const std::wstring& command, DWORD* exit_code) {
     return false;
   ::CloseHandle(process.hThread);
   const bool waited =
-      ::WaitForSingleObject(process.hProcess, 10000) == WAIT_OBJECT_0;
+      ::WaitForSingleObject(process.hProcess, timeout_ms) == WAIT_OBJECT_0;
   if (!waited) {
     // A hung child must not outlive the test: it could hold a broker endpoint
     // or payload files a later case reuses. The timeout still fails the call.
     ::TerminateProcess(process.hProcess, ERROR_TIMEOUT);
     ::WaitForSingleObject(process.hProcess, 5000);
   }
-  DWORD code = 0;
+  DWORD code = waited ? 0 : ERROR_TIMEOUT;
   const bool queried = waited && ::GetExitCodeProcess(process.hProcess, &code);
   ::CloseHandle(process.hProcess);
   if (exit_code)

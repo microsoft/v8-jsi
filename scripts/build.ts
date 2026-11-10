@@ -136,7 +136,7 @@ async function ensureNasm(toolsPath: string): Promise<string> {
   await downloadFile(nasmDownloadUrl, zipPath);
   const extractDir = path.join(toolsPath, "nasm");
   ensureDir(extractDir);
-  run("powershell.exe", [
+  run("pwsh", [
     "-NoProfile",
     "-Command",
     `"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`,
@@ -990,7 +990,7 @@ function runHarnessScenario(
         `"${pkgDir}"`,
       ];
       if (sandbox) psArgs.push("-UseV8Sandbox", ...sandboxArgs);
-      run("powershell.exe", psArgs);
+      run("pwsh", psArgs);
     };
 
     for (const config of consumerConfigs) {

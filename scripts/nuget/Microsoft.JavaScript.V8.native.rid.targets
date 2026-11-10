@@ -1,5 +1,27 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+  <!-- Identical across RID packages: the last import validates all available RIDs. -->
+  <Target Name="V8JsiValidateRuntimeIdentifier" BeforeTargets="PrepareForBuild">
+    <Error Condition=" '$(Platform)' == 'ARM64EC' AND '$(UseV8Sandbox)' == 'True' "
+           Text="UseV8Sandbox supports x64 and ARM64 consumers only. x86 and ARM64EC clients need the cross-architecture install layout described in docs\v8host-sandbox.md, which this package does not stage." />
+    <!-- Unmapped platforms keep an empty RID and receive no engine wiring or availability error. -->
+    <Error Code="V8JSI001"
+           Condition=" '$(V8JsiRuntimeIdentifier)' != '' AND !$([System.String]::Copy(';$(V8JsiAvailableRuntimeIdentifiers);').ToLowerInvariant().Contains($([System.String]::Copy(';$(V8JsiRuntimeIdentifier);').ToLowerInvariant()))) "
+           Text="V8 JSI runtime '$(V8JsiRuntimeIdentifier)' is not available. Restore and import the matching RID package; no architecture fallback is supported." />
+  </Target>
+
+  <!-- Fail before linking/copying rather than silently dropping a missing RID dependency. -->
+  <Target Name="V8JsiValidatePayload_$rid$" BeforeTargets="PrepareForBuild"
+          DependsOnTargets="V8JsiValidateRuntimeIdentifier"
+          Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' ">
+    <Error Code="V8JSI001"
+           Condition=" '$(V8JsiAddLibDependency)' == 'True' AND !Exists('$(MSBuildThisFileDirectory)$rid$\v8jsi.dll.lib') "
+           Text="Missing V8 JSI import library for '$rid$': $([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '$rid$', 'v8jsi.dll.lib')). The imported RID package is incomplete; restore it again; no architecture fallback is supported." />
+    <Error Code="V8JSI001"
+           Condition=" '$(V8JsiCopyDLL)' == 'True' AND !Exists('$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$v8jsiName$') "
+           Text="Missing V8 JSI engine DLL for '$rid$': $([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..', '..', 'runtimes', '$rid$', 'native', '$v8jsiName$')). The imported RID package is incomplete; restore it again; no architecture fallback is supported." />
+  </Target>
+
   <!-- Add include paths to header files. -->
   <ItemDefinitionGroup Condition=" '$(V8JsiRuntimeIdentifier)' == '$rid$' ">
     <ClCompile>

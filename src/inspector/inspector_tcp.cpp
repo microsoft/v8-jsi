@@ -4,6 +4,7 @@
 #include "inspector_tcp.h"
 
 #include <memory>
+#include <algorithm>
 #include "V8Windows.h"
 #include <asio.hpp>
 
@@ -21,21 +22,72 @@ tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
 }
 
 void tcp_server::run() {
-  try {
-    io_context_.run();
-  } catch (std::exception const& e) {
-    TRACEV8INSPECTOR_ERROR(
-        "io_context_.run",
-        TraceLoggingString(
-            e.what(), "message"));
+  unsigned consecutive_failures = 0;
+  while (!io_context_.stopped()) {
+    auto completed_posts = completed_posts_;
+    try {
+      if (!io_context_.run_one()) break;
+      consecutive_failures = 0;
+      continue;
+    } catch (std::exception const& e) {
+      TRACEV8INSPECTOR_ERROR("io_context_.run", TraceLoggingString(e.what(), "message"));
+    } catch (...) {
+      TRACEV8INSPECTOR_ERROR("io_context_.run", TraceLoggingString("Unknown handler exception", "message"));
+    }
+    if (completed_posts_ != completed_posts) consecutive_failures = 0;
+    if (++consecutive_failures == 8) {
+      TRACEV8INSPECTOR_CRITICAL("io_context_.run",
+          TraceLoggingString("Repeated failures without a completed handler", "message"));
+      io_context_.stop();
+    }
   }
+  closeOnIoThread();
 }
 
-void tcp_server::stop() {
+void tcp_server::post(std::function<void()> callback) {
+  asio::post(strand_, [this, callback = std::move(callback)] {
+    callback();
+    ++completed_posts_;
+  });
+}
+
+void tcp_server::closeOnIoThread() {
   asio::error_code ec;
   acceptor_.close(ec);
   socket_.close(ec);
+  // EOF callbacks release the socket server's sessions on this same thread.
+  auto connections = std::move(connections_);
+  for (auto &weak : connections) {
+    try {
+      if (auto connection = weak.lock()) connection->eof();
+    } catch (std::exception const& e) {
+      TRACEV8INSPECTOR_ERROR("tcp_server.close", TraceLoggingString(e.what(), "message"));
+    } catch (...) {
+      TRACEV8INSPECTOR_ERROR("tcp_server.close", TraceLoggingString("Unknown EOF handler exception", "message"));
+    }
+  }
   io_context_.stop();
+  {
+    std::lock_guard<std::mutex> lock(stopped_mutex_);
+    stopped_ = true;
+  }
+  stopped_cv_.notify_all();
+}
+
+void tcp_server::stop() {
+  if (stopped_) return;
+  if (io_context_.get_executor().running_in_this_thread()) {
+    closeOnIoThread();
+    return;
+  }
+  post([this] { closeOnIoThread(); });
+  // Also signalled when run() itself reaches its failure cap.
+  std::unique_lock<std::mutex> lock(stopped_mutex_);
+  if (!stopped_cv_.wait_for(lock, std::chrono::seconds(5), [this] { return stopped_.load(); })) {
+    TRACEV8INSPECTOR_ERROR("tcp_server.stop", TraceLoggingString("Timed out waiting for io thread", "message"));
+    // Socket operations remain confined to run() after the handler returns.
+    io_context_.stop();
+  }
 }
 
 void tcp_server::do_accept()
@@ -46,10 +98,16 @@ void tcp_server::do_accept()
   {
     if (!ec)
     {
-      connectioncallback_(std::make_shared<tcp_connection>(std::move(socket_)), callbackData_);
+      auto connection = std::make_shared<tcp_connection>(std::move(socket_));
+      connections_.erase(std::remove_if(connections_.begin(), connections_.end(),
+          [](const auto &weak) { return weak.expired(); }), connections_.end());
+      connections_.push_back(connection);
+      if (acceptor_.is_open()) do_accept();
+      connectioncallback_(std::move(connection), callbackData_);
+      return;
     }
 
-    do_accept();
+    if (acceptor_.is_open()) do_accept();
   });
 }
 
@@ -74,63 +132,51 @@ void tcp_connection::read_loop_async() {
 
       std::string s((buffer_.data()), bytes_transferred);
 
-      readcallback_(vc, false, callbackData_);
-
-      self->read_loop_async();
+      if (readcallback_) readcallback_(vc, false, callbackData_);
+      if (readcallback_ && !eof_) self->read_loop_async();
     }
-    else if (ec == asio::error::eof)
-    {
-      std::vector<char> vc;
-      readcallback_(vc, true, callbackData_);
-    }
-    else if (ec == asio::error::operation_aborted) {
-      std::abort();
-    }
-    else
-    {
-      return;
+    else if (ec != asio::error::operation_aborted) {
+      eof();
     }
   });
 }
 
 void tcp_connection::write_async(std::vector<char>&& message_) {
-
-  {
-    std::lock_guard<std::mutex> guard(queueAccessMutex);
-    outQueue.push(std::move(message_));
+  auto self = shared_from_this(); // eof() can release the connection's owner.
+  if (eof_) return;
+  if (message_.empty()) {
+    if (!writing_ && outQueue.empty()) {
+      eof();
+      return;
+    }
+    // Preserve queued messages for a reader, but bound a stalled disconnect.
+    close_timer_.expires_after(std::chrono::seconds(2));
+    close_timer_.async_wait([self](asio::error_code ec) { if (!ec) self->eof(); });
   }
+  outQueue.push(std::move(message_));
 
   do_write(false);
 }
 
 void tcp_connection::do_write(bool cont) {
 
-  std::vector<char> message;
-  {
-    std::lock_guard<std::mutex> guard(queueAccessMutex);
+  // New message but the last write is going on.
+  if (!cont && writing_) return;
 
-    // New message but the last write is going on.
-    if (!cont && writing_) return;
-
-    if (outQueue.empty()) {
-      writing_ = false;
-      return;
-    }
-    message = outQueue.front();
-    outQueue.pop();
-
-    writing_ = true;
+  if (outQueue.empty()) {
+    writing_ = false;
+    return;
   }
+  messageToWrite_ = std::move(outQueue.front());
+  outQueue.pop();
+  writing_ = true;
 
   auto self(shared_from_this());
 
-  messageToWrite_ = std::move(message);
-
-
-  if (messageToWrite_.size() == 0) {
-    this->close();
-    std::vector<char> vc;
-    readcallback_(vc, true, callbackData_);
+  if (messageToWrite_.empty()) {
+    writing_ = false;
+    eof();
+    return;
   }
 
   std::string str;
@@ -147,18 +193,27 @@ void tcp_connection::do_write(bool cont) {
       self->do_write(true);
     }
 
-    if (ec == asio::error::operation_aborted) {
-      std::abort();
-    }
-    else
-    {
-      // TODO
+    if (ec == asio::error::operation_aborted) return;
+    if (ec) {
+      self->writing_ = false;
+      self->eof();
     }
   });
 }
 
+void tcp_connection::eof() {
+  if (eof_) return;
+  eof_ = true;
+  close();
+  std::vector<char> data;
+  if (readcallback_) readcallback_(data, true, callbackData_);
+}
+
 void tcp_connection::close() {
   asio::error_code ec;
+  close_timer_.cancel();
+  // Send FIN before cancelling the outstanding read on Windows.
+  socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
   socket_.close(ec);
   if (ec)
     std::abort();

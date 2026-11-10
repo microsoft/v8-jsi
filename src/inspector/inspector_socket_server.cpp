@@ -172,7 +172,16 @@ InspectorSocketServer::InspectorSocketServer(
   state_ = ServerState::kNew;
 }
 
-InspectorSocketServer::~InspectorSocketServer() = default;
+InspectorSocketServer::~InspectorSocketServer() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    state_ = ServerState::kStopped;
+    delegate_.reset();
+  }
+  // run() has returned; callbacks see an empty map during destruction.
+  auto sessions = std::move(connected_sessions_);
+  sessions.clear();
+}
 
 SocketSession* InspectorSocketServer::Session(int session_id) {
   auto it = connected_sessions_.find(session_id);
@@ -183,44 +192,51 @@ SocketSession* InspectorSocketServer::Session(int session_id) {
 void InspectorSocketServer::SessionStarted(int session_id,
   const std::string& id,
   const std::string& ws_key) {
-  SocketSession* session = Session(session_id);
-
-  if (!TargetExists(id)) {
-    session->Decline();
-    return;
+  std::shared_ptr<AgentImpl> agent;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == ServerState::kStopped || !delegate_) return;
+    SocketSession* session = Session(session_id);
+    if (!session) return;
+    if (!TargetExists(id)) {
+      session->Decline();
+      return;
+    }
+    connected_sessions_[session_id].first = id;
+    session->Accept(ws_key);
+    agent = delegate_->StartSession(session_id, id);
   }
-      
-  //TODODO
-  // if (connected_session_) std::abort();
-  //connected_session_.reset(session);
-  connected_sessions_[session_id].first = id;
-  session->Accept(ws_key);
-  delegate_->StartSession(session_id, id);
+  InspectorAgentDelegate::PostIncomingMessage(agent, session_id, TAG_CONNECT);
 }
 
 void InspectorSocketServer::SessionTerminated(int session_id) {
-  if (Session(session_id) == nullptr) {
-    return;
+  auto session = connected_sessions_.extract(session_id);
+  std::shared_ptr<AgentImpl> agent;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != ServerState::kStopped && delegate_ && !session.empty())
+      agent = delegate_->EndSession(session_id);
   }
-  bool was_attached = connected_sessions_[session_id].first != "";
-  // bool was_attached = connected_session_ != nullptr;
-  if (was_attached) {
-    delegate_->EndSession(session_id);
+  InspectorAgentDelegate::PostIncomingMessage(agent, session_id, TAG_DISCONNECT);
+}
+
+void InspectorSocketServer::MessageReceived(int session_id, const std::string &message) {
+  std::shared_ptr<AgentImpl> agent;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == ServerState::kStopped || !delegate_) return;
+    agent = delegate_->GetSession(session_id);
   }
-  connected_sessions_.erase(session_id);
-  if (connected_sessions_.empty()) {
-    if (was_attached && state_ == ServerState::kRunning) {
-    }
-    if (state_ == ServerState::kStopped) {
-      delegate_.reset();
-    }
-  }
+  InspectorAgentDelegate::PostIncomingMessage(agent, session_id, message);
 }
 
 bool InspectorSocketServer::HandleGetRequest(int session_id,
   const std::string& host,
   const std::string& path) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ == ServerState::kStopped || !delegate_) return false;
   SocketSession* session = Session(session_id);
+  if (!session) return false;
   InspectorSocket* socket = session->ws_socket();
   const char* command = MatchPathSegment(path.c_str(), "/json");
   if (command == nullptr)
@@ -290,24 +306,31 @@ std::string InspectorSocketServer::GetFrontendURL(bool is_compat,
   server->Accept(connection, server->port_);
 }
 
-/*static */void InspectorSocketServer::SocketClosedCallback(void* callbackData_) {
-  InspectorSocketServer* server = reinterpret_cast<InspectorSocketServer*>(callbackData_);
-  server->Stop();
-}
-
 void InspectorSocketServer::AddTarget(std::shared_ptr<AgentImpl> agent) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ == ServerState::kStopped || !delegate_) return;
   delegate_->AddTarget(agent);
 }
 
 void InspectorSocketServer::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
-  delegate_->RemoveTarget(agent);
+  std::vector<int> sessions;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == ServerState::kStopped || !delegate_) return;
+    sessions = delegate_->RemoveTarget(agent);
+  }
+  // Close on the IO strand even if the runtime has not dispatched CONNECT.
+  for (int session_id : sessions) Send(session_id, "");
 }
 
 bool InspectorSocketServer::HasTargets() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ == ServerState::kStopped || !delegate_) return false;
   return delegate_->HasTargets();
 }
 
 bool InspectorSocketServer::Start() {
+  std::lock_guard<std::mutex> lock(mutex_);
   CHECK_NE(state_, ServerState::kStopped);
   state_ = ServerState::kRunning;
 
@@ -327,29 +350,20 @@ bool InspectorSocketServer::Start() {
 }
 
 void InspectorSocketServer::Stop() {
-  if (state_ == ServerState::kStopped)
-    return;
-  CHECK_EQ(state_, ServerState::kRunning);
-
-  state_ = ServerState::kStopped;
-
   {
-    std::unique_lock<std::mutex> tcp_server_lock(mutex_tcp_server_);
-    // This will stop the the server io_context which will result in stopping the server thread as well.
-    if (tcp_server_) {
-      tcp_server_->stop();
-    }
-
-    tcp_server_stopped_ = true;
-  }
-
-  if (state_ == ServerState::kStopped) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ == ServerState::kStopped || !delegate_) return;
+    CHECK_EQ(state_, ServerState::kRunning);
+    state_ = ServerState::kStopped;
     delegate_.reset();
   }
-}
-
-void InspectorSocketServer::TerminateConnections() {
-  for (const auto& key_value : connected_sessions_) key_value.second.second->Close();
+  std::shared_ptr<tcp_server> server;
+  {
+    std::lock_guard<std::mutex> lock(mutex_tcp_server_);
+    tcp_server_stopped_ = true;
+    server = tcp_server_;
+  }
+  if (server) server->stop();
 }
 
 bool InspectorSocketServer::TargetExists(const std::string& id) {
@@ -364,6 +378,8 @@ int InspectorSocketServer::Port() const {
 }
 
 void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, int server_port) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (state_ == ServerState::kStopped || !delegate_) return;
   std::unique_ptr<SocketSession> session(
     new SocketSession(this, next_session_id_++, server_port));
 
@@ -378,10 +394,12 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
 }
 
 void InspectorSocketServer::Send(int session_id, const std::string& message) {
-  SocketSession* session = Session(session_id);
-  if (session != nullptr) {
-    session->Send(message);
-  }
+  std::lock_guard<std::mutex> lock(mutex_tcp_server_);
+  if (!tcp_server_) return;
+  // The io thread owns sessions, including empty-message close and destruction.
+  tcp_server_->post([this, session_id, message] {
+    if (auto *session = Session(session_id)) session->Send(message);
+  });
 }
 
 // InspectorSession tracking

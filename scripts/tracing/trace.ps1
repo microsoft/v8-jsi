@@ -93,7 +93,7 @@ process {
         }
 
         Write-Host -NoNewLine "$arguments";
-        Start-Process powershell -Verb runAs -ArgumentList $arguments
+        Start-Process pwsh -Verb runAs -ArgumentList $arguments
 
         Break
     }

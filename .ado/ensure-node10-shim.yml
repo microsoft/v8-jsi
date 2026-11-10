@@ -14,7 +14,7 @@
 # Reference it from a job's steps BEFORE its work so node10 exists by the time
 # the post-job runs on the same agent.
 steps:
-- powershell: |
+- pwsh: |
     $ErrorActionPreference = 'Stop'
     $ext = Join-Path $env:AGENT_HOMEDIRECTORY 'externals'
     $node10Exe = Join-Path $ext 'node10\bin\node.exe'

@@ -515,6 +515,17 @@ v8host::RunEnvelope GuestRelay(size_t size, uint32_t id = 1) {
   env.payload.assign(size, 7);
   return env;
 }
+// Independent worker engine lifetimes cannot reuse process-global V8 flags.
+bool IsolatedEngineCase(const wchar_t* name, std::string* detail) {
+  const std::wstring command = L"\"" + ExecutableDirectory() +
+      L"\\v8host_broker_tests.exe\" --engine-case=" + name;
+  DWORD code = 1;
+  if (!v8host::test::RunProcess(command, &code, 60000) || code != 0) {
+    *detail = "engine case " + std::string(name, name + std::wcslen(name)) + " exit=" + std::to_string(code);
+    return false;
+  }
+  return true;
+}
 bool StartRelaySameDrain(std::string *detail) {
   EngineFixture f;
   size_t bytes, frames;
@@ -3371,6 +3382,62 @@ bool RuntimeIndependentRunsCancels(std::string* detail) {
   return f.conn.sessions.at(2)->credit == 8 && f.conn.sessions.at(3)->credit == 8 && f.conn.workers.size() == 1;
 }
 
+bool RuntimeEngineOutputState(unsigned part) {
+  if (part == 0) {
+    EngineFixture f;
+    if (!f.Warm()) return false;
+    v8host::RunEnvelope env;
+    env.type = v8host::RunEnvelopeType::kCreateRuntime;
+    if (V8HostEngineTestRoute({env})) return false;
+    env.type = v8host::RunEnvelopeType::kStart;
+    env.run_id = 1; env.slot = 1;
+    if (V8HostEngineTestRoute({env})) return false;
+  }
+  if (part == 1) {
+    EngineFixture f(2);
+    if (!f.Warm()) return false;
+    for (auto type : {v8host::RunEnvelopeType::kStart, v8host::RunEnvelopeType::kRelay,
+                     v8host::RunEnvelopeType::kCancel, v8host::RunEnvelopeType::kCloseRuntime}) {
+      v8host::RunEnvelope env;
+      env.type = type; env.slot = 1;
+      env.run_id = type == v8host::RunEnvelopeType::kCloseRuntime ? 0 : 1;
+      env.relay_kind = sbox_msg_kind_binary;
+      if (V8HostEngineTestRoute({env})) return false;
+    }
+  }
+  if (part == 2) {
+    EngineFixture f(2);
+    if (!f.Warm()) return false;
+    v8host::RunEnvelope create;
+    create.type = v8host::RunEnvelopeType::kCreateRuntime;
+    if (!V8HostEngineTestRoute({create}) || !V8HostEngineTestWaitSlot(0, false) ||
+        f.output.size() != 1 || f.output[0].type != v8host::RunEnvelopeType::kRuntimeReady ||
+        f.output[0].slot != 0) return false;
+    v8host::RunEnvelope close;
+    close.type = v8host::RunEnvelopeType::kCloseRuntime;
+    if (!V8HostEngineTestRoute({close}) || !V8HostEngineTestWaitSlot(0, true) ||
+        f.output.size() != 2 || f.output[1].type != v8host::RunEnvelopeType::kRuntimeClosed ||
+        f.output[1].slot != 0 || f.output[1].status_code != 0) return false;
+    std::vector<v8host::RunEnvelope> late;
+    for (auto type : {v8host::RunEnvelopeType::kStart, v8host::RunEnvelopeType::kRelay,
+                     v8host::RunEnvelopeType::kCancel, v8host::RunEnvelopeType::kCloseRuntime}) {
+      v8host::RunEnvelope env;
+      env.type = type;
+      env.run_id = type == v8host::RunEnvelopeType::kCloseRuntime ? 0 : 1;
+      env.relay_kind = sbox_msg_kind_binary;
+      late.push_back(std::move(env));
+    }
+    if (!V8HostEngineTestRoute(late) || f.output.size() != 2 ||
+        !V8HostEngineTestRoute({create}) || !V8HostEngineTestWaitSlot(0, false) ||
+        f.output.size() != 3 || f.output[2].type != v8host::RunEnvelopeType::kRuntimeReady ||
+        f.output[2].slot != 0 || f.invalid) return false;
+    for (auto& env : late) env.slot = 1;
+    for (const auto& env : late)
+      if (V8HostEngineTestRoute({env})) return false;
+  }
+  return part < 3;
+}
+
 bool RuntimeInvalidOutputState(std::string* detail) {
   for (unsigned variant = 0; variant != 6; ++variant) {
     *detail = "invalid worker output variant " + std::to_string(variant);
@@ -3401,59 +3468,12 @@ bool RuntimeInvalidOutputState(std::string* detail) {
     f.service->Close(f.conn);
     if (f.closes != 1 || f.waits != 1 || f.post_after_close || f.close_before_removal) return false;
   }
-  *detail = "engine rejects occupied/out-of-range/empty runtime slots";
-  {
-    EngineFixture f;
-    if (!f.Warm()) return false;
-    v8host::RunEnvelope env;
-    env.type = v8host::RunEnvelopeType::kCreateRuntime;
-    if (V8HostEngineTestRoute({env})) return false;
-    env.type = v8host::RunEnvelopeType::kStart;
-    env.run_id = 1; env.slot = 1;
-    if (V8HostEngineTestRoute({env})) return false;
-  }
-  {
-    EngineFixture f(2);
-    if (!f.Warm()) return false;
-    for (auto type : {v8host::RunEnvelopeType::kStart, v8host::RunEnvelopeType::kRelay,
-                     v8host::RunEnvelopeType::kCancel, v8host::RunEnvelopeType::kCloseRuntime}) {
-      v8host::RunEnvelope env;
-      env.type = type; env.slot = 1;
-      env.run_id = type == v8host::RunEnvelopeType::kCloseRuntime ? 0 : 1;
-      env.relay_kind = sbox_msg_kind_binary;
-      if (V8HostEngineTestRoute({env})) return false;
-    }
-  }
-  *detail = "engine drops crossed frames after RUNTIME_CLOSED and permits slot reuse";
-  {
-    EngineFixture f(2);
-    if (!f.Warm()) return false;
-    v8host::RunEnvelope create;
-    create.type = v8host::RunEnvelopeType::kCreateRuntime;
-    if (!V8HostEngineTestRoute({create}) || !V8HostEngineTestWaitSlot(0, false) ||
-        f.output.size() != 1 || f.output[0].type != v8host::RunEnvelopeType::kRuntimeReady ||
-        f.output[0].slot != 0) return false;
-    v8host::RunEnvelope close;
-    close.type = v8host::RunEnvelopeType::kCloseRuntime;
-    if (!V8HostEngineTestRoute({close}) || !V8HostEngineTestWaitSlot(0, true) ||
-        f.output.size() != 2 || f.output[1].type != v8host::RunEnvelopeType::kRuntimeClosed ||
-        f.output[1].slot != 0 || f.output[1].status_code != 0) return false;
-    std::vector<v8host::RunEnvelope> late;
-    for (auto type : {v8host::RunEnvelopeType::kStart, v8host::RunEnvelopeType::kRelay,
-                     v8host::RunEnvelopeType::kCancel, v8host::RunEnvelopeType::kCloseRuntime}) {
-      v8host::RunEnvelope env;
-      env.type = type;
-      env.run_id = type == v8host::RunEnvelopeType::kCloseRuntime ? 0 : 1;
-      env.relay_kind = sbox_msg_kind_binary;
-      late.push_back(std::move(env));
-    }
-    if (!V8HostEngineTestRoute(late) || f.output.size() != 2 ||
-        !V8HostEngineTestRoute({create}) || !V8HostEngineTestWaitSlot(0, false) ||
-        f.output.size() != 3 || f.output[2].type != v8host::RunEnvelopeType::kRuntimeReady ||
-        f.output[2].slot != 0 || f.invalid) return false;
-    for (auto& env : late) env.slot = 1;
-    for (const auto& env : late)
-      if (V8HostEngineTestRoute({env})) return false;
+  *detail = "engine rejects invalid slots, drops crossed frames, and permits slot reuse";
+  // V8 flags and initialization are process-global, even after engine shutdown.
+  // Each independent engine lifetime needs a fresh process, as real workers do.
+  for (int part = 0; part < 3; ++part) {
+    if (!IsolatedEngineCase((L"runtime-output-state-" + std::to_wstring(part)).c_str(), detail))
+      return false;
   }
   *detail = "each closing slot has its own 5-second deadline";
   for (uint32_t first : {2u, 3u}) {
@@ -7517,6 +7537,19 @@ bool SharedLegacyBody(const std::string& name, std::string* detail) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc == 2 && std::strncmp(argv[1], "--engine-case=", 14) == 0) {
+    const std::string name = argv[1] + 14;
+    std::string detail;
+    const bool ok = name == "start-relay-same-drain" ? StartRelaySameDrain(&detail) :
+        name == "start-bridge-overflow" ? StartBridgeOverflow(&detail) :
+        name == "start-cancel-same-drain" ? StartCancelSameDrain(&detail) :
+        name == "runtime-output-state-0" ? RuntimeEngineOutputState(0) :
+        name == "runtime-output-state-1" ? RuntimeEngineOutputState(1) :
+        name == "runtime-output-state-2" && RuntimeEngineOutputState(2);
+    if (!ok) std::fprintf(stderr, "engine case %s failed: %s\n", name.c_str(), detail.c_str());
+    return ok ? 0 : 1;
+  }
+
   for (int i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "--public-child=", 15) != 0) continue;
     std::string name = argv[i] + 15, detail;
@@ -7657,9 +7690,12 @@ int main(int argc, char** argv) {
       {"run", "real-two-run-reuse", RealTwoRunReuse},
       {"lifetime", "close-live-worker", CloseLiveWorker},
       {"lifetime", "disconnect-live-worker", DisconnectLiveWorker},
-      {"run", "start-relay-same-drain", StartRelaySameDrain},
-      {"run", "start-bridge-overflow", StartBridgeOverflow},
-      {"cancel", "start-cancel-same-drain", StartCancelSameDrain},
+      {"run", "start-relay-same-drain", [](std::string* detail) {
+        return IsolatedEngineCase(L"start-relay-same-drain", detail); }},
+      {"run", "start-bridge-overflow", [](std::string* detail) {
+        return IsolatedEngineCase(L"start-bridge-overflow", detail); }},
+      {"cancel", "start-cancel-same-drain", [](std::string* detail) {
+        return IsolatedEngineCase(L"start-cancel-same-drain", detail); }},
       {"run", "coordinator-terminal-holds-next-start", CoordinatorTerminalHoldsNext},
       {"session", "create-close-loop", CreateCloseLoop},
       {"run", "relay-hold-before-ready", RelayHoldBeforeReady},

@@ -28,6 +28,8 @@ class Agent : public std::enable_shared_from_this<Agent> {
 
   void start();
   void stop();
+  // Thread-safe cancellation before waiting for foreground tasks at teardown.
+  void prepareForShutdown();
 
   bool IsStarted();
   bool IsConnected();
