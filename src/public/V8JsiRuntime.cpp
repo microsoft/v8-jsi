@@ -280,11 +280,13 @@ jsi_status JSI_ABI_CDECL configureFromArgs(void *user_data, jsi_config cfg) {
 
 // Forward the process-global V8 engine flags carried on V8RuntimeArgs to the
 // process-level setter before the first runtime triggers V8 init. They are
-// process-global and first-init-only; on later runtimes this is effectively a
-// no-op (matching the historical per-config behavior). Static mutable storage
-// because V8::SetFlagsFromCommandLine takes char** and may split "name=value"
-// in place (these boolean flags have no '=', but static arrays keep us safe).
+// process-global and first-init-only; on later runtimes the setter declines
+// and changes nothing (matching the historical per-config behavior), so its
+// status is ignored. Static mutable storage because V8::SetFlagsFromCommandLine
+// takes char** and may split "name=value" in place (these boolean flags have
+// no '=', but static arrays keep us safe).
 void applyV8Flags(const V8RuntimeArgs &args) {
+  static char kProgramName[] = "v8jsi";
   static char kSparkplug[] = "--sparkplug";
   static char kPredictable[] = "--predictable";
   static char kOptimizeForSize[] = "--optimize_for_size";
@@ -292,8 +294,9 @@ void applyV8Flags(const V8RuntimeArgs &args) {
   static char kJitless[] = "--jitless";
   static char kLiteMode[] = "--lite_mode";
 
-  char *argv[6];
-  size_t argc = 0;
+  // V8 does not parse argv[0]: like main(), it holds the program name.
+  char *argv[7] = {kProgramName};
+  size_t argc = 1;
   const auto &f = args.flags;
   if (f.sparkplug) argv[argc++] = kSparkplug;
   if (f.predictable) argv[argc++] = kPredictable;
@@ -301,7 +304,7 @@ void applyV8Flags(const V8RuntimeArgs &args) {
   if (f.always_compact) argv[argc++] = kAlwaysCompact;
   if (f.jitless) argv[argc++] = kJitless;
   if (f.lite_mode) argv[argc++] = kLiteMode;
-  if (argc == 0) return;
+  if (argc == 1) return;
 
   // remove_flags=false: we pass only known flags, nothing to report back.
   v8_jsi_abi_set_v8_flags(&argc, argv, /*remove_flags:*/ false);

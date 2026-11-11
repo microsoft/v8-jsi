@@ -56,6 +56,32 @@ cross-architecture layout, which the package does not stage yet. There is no wea
 other-architecture fallback: a qualification failure fails closed, never falls
 back.
 
+### NuGet engine RID selection
+
+The native package defaults `V8JsiRuntimeIdentifier` from the consumer's
+`Platform` for the **in-process engine**, independently of sandbox payload discovery:
+
+| Platform | Engine RID |
+| --- | --- |
+| X64, ARM64EC | win-x64 |
+| Arm64 | win-arm64 |
+| X86, Win32 | win-x86 |
+
+ARM64EC consumers use the x64 `v8jsi.dll` and import library, not native ARM64
+binaries; no ARM64EC engine binary is shipped. The selected RID also controls
+PDB copy-local (when present), public include paths, and consumer source injection.
+RID selection applies to all package consumers, not only sandbox consumers.
+Set `V8JsiRuntimeIdentifier` in the project or `Directory.Build.props` before the
+package props import to override selection;
+an explicit value is preserved, including for ARM64EC. The caller must choose a
+RID compatible with its process. A selected RID whose package is not imported
+fails the build. Missing selected engine DLLs or import libraries
+fail the build when the corresponding copy or link option is enabled; there is
+no architecture fallback. This engine mapping does **not** enable sandbox staging:
+`UseV8Sandbox=true` still rejects ARM64EC, including with an explicit RID override.
+
+### Sandbox payload layout
+
 Package each native payload in this layout:
 
 ```text
@@ -314,3 +340,10 @@ likewise does not prove that JavaScript produced no effects.
 - **Connection ended:** distinguish `v8host_status_protocol_error`,
   `v8host_status_broker_lost`, and `v8host_status_callback_backpressure` in
   callbacks. Repair the cause and open new handles; never replay prior runs.
+
+## Testing
+
+On native x64, run `pwsh -NoProfile -File tests\run-worker.ps1` after building
+both engines and the sandbox test binaries. It uses unsigned build outputs to
+cover console-less sessions, guest async relay and queue pressure, queued close,
+and worker snapshot compatibility. It does not qualify signed installed payloads.

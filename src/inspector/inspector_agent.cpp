@@ -13,6 +13,7 @@
 #include <string.h>
 #include <chrono>
 #include <map>
+#include <deque>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -31,9 +32,6 @@
 #endif
 
 namespace inspector {
-
-const char TAG_CONNECT[] = "#connect";
-const char TAG_DISCONNECT[] = "#disconnect";
 
 inline v8::Local<v8::String>
 OneByteString(v8::Isolate *isolate, const char *data, int length = -1) {
@@ -82,6 +80,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
 
   void Start();
   void Stop();
+  void PrepareForShutdown();
 
   size_t getInspectedContextsCount();
 
@@ -105,7 +104,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
 
  private:
   using MessageQueue =
-      std::vector<std::pair<int, std::unique_ptr<v8_inspector::StringBuffer>>>;
+      std::deque<std::pair<int, std::unique_ptr<v8_inspector::StringBuffer>>>;
   enum class State { kNew, kAccepting, kConnected, kDone, kError };
 
   static void ThreadCbIO(void *agent);
@@ -123,13 +122,16 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
       int session_id,
       std::unique_ptr<v8_inspector::StringBuffer> buffer);
   void SwapBehindLock(MessageQueue *vector1, MessageQueue *vector2);
-  void WaitForFrontendMessage();
+  void WaitForFrontendMessage(bool disconnect_only = false);
   void NotifyMessageReceived();
   State ToState(State state);
 
   std::mutex incoming_message_cond_m_;
   std::condition_variable incoming_message_cond_;
   std::mutex state_m;
+  std::mutex post_m_;
+  bool detached_{false};
+  std::atomic<bool> stopping_{false};
 
   int port_;
   bool wait_;
@@ -143,7 +145,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   std::unique_ptr<V8NodeInspector> inspector_;
   v8::Isolate *isolate_;
   MessageQueue incoming_message_queue_;
-  MessageQueue outgoing_message_queue_;
+  MessageQueue dispatching_message_queue_; // Runtime-thread-only, shared by nested pause loops.
   bool dispatching_messages_;
   int session_id_;
 
@@ -154,6 +156,7 @@ class AgentImpl : public std::enable_shared_from_this<AgentImpl> {
   std::string loaded_urls_;
   std::string targetId_;
 
+  friend class Agent;
   friend class ChannelImpl;
   friend class DispatchOnInspectorBackendTask;
   friend class SetConnectedTask;
@@ -183,7 +186,8 @@ class DispatchOnInspectorBackendTask : public v8runtime::JSITask {
 
 class ChannelImpl final : public v8_inspector::V8Inspector::Channel {
  public:
-  explicit ChannelImpl(AgentImpl& agent) : agent_(agent) {}
+  explicit ChannelImpl(AgentImpl& agent, int session_id)
+      : agent_(agent), session_id_(session_id) {}
   virtual ~ChannelImpl() {}
 
  private:
@@ -202,10 +206,11 @@ class ChannelImpl final : public v8_inspector::V8Inspector::Channel {
 
   void sendMessageToFrontend(
       std::unique_ptr<v8_inspector::StringBuffer> message) {
-    agent_.Write(agent_.session_id_, std::move(message));
+    agent_.Write(session_id_, std::move(message));
   }
 
   AgentImpl& agent_;
+  const int session_id_;
 };
 
 using V8Inspector = v8_inspector::V8Inspector;
@@ -235,14 +240,25 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
   }
 
   void runMessageLoopOnPause(int context_group_id) override {
+    if (agent_.stopping_) {
+      agent_.isolate_->TerminateExecution();
+      return;
+    }
     waiting_for_resume_ = true;
     if (running_nested_loop_)
       return;
     running_nested_loop_ = true;
-    while (waiting_for_resume_) {
+    // Runtime.evaluate can pause inside DispatchMessages. Allow the nested loop
+    // to dispatch resume commands, then restore the outer dispatch guard.
+    bool was_dispatching = agent_.dispatching_messages_;
+    agent_.dispatching_messages_ = false;
+    while (waiting_for_resume_ && !agent_.stopping_) {
       agent_.WaitForFrontendMessage();
       agent_.DispatchMessages();
     }
+    // A shutdown must unwind paused JS, not resume user code after the pause.
+    if (agent_.stopping_) agent_.isolate_->TerminateExecution();
+    agent_.dispatching_messages_ = was_dispatching;
     waiting_for_resume_ = false;
     running_nested_loop_ = false;
   }
@@ -258,12 +274,17 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
   }
 
   void connectFrontend() {
-    session_ = inspector_->connect(
-        1, new ChannelImpl(agent_), v8_inspector::StringView(), v8_inspector::V8Inspector::ClientTrustLevel::kFullyTrusted);
+    disconnectFrontend();
+    channel_ = std::make_shared<ChannelImpl>(agent_, agent_.session_id_);
+    session_ = inspector_->connectShared(
+        1, channel_.get(), v8_inspector::StringView(), V8Inspector::ClientTrustLevel::kFullyTrusted,
+        V8Inspector::SessionPauseState::kNotWaitingForDebugger);
   }
 
   void disconnectFrontend() {
+    if (session_) session_->stop();
     session_.reset();
+    channel_.reset();
   }
 
   void dispatchMessageFromFrontend(const v8_inspector::StringView &message) {
@@ -274,7 +295,11 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
           messagestr.find("Runtime.runIfWaitingForDebugger") !=
           std::string::npos;
 
-    session_->dispatchProtocolMessage(message);
+    // Nested dispatch can disconnect or replace the frontend. Release the old
+    // session before its channel, and only after its outer dispatch returns.
+    auto channel = channel_;
+    auto session = session_;
+    session->dispatchProtocolMessage(message);
   }
 
   v8::Local<v8::Context> ensureDefaultContextInGroup(
@@ -290,13 +315,16 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
     return waiting_for_resume_;
   }
 
-  std::unique_ptr<v8_inspector::V8InspectorSession> session_;
-
  private:
   AgentImpl& agent_;
   std::atomic<bool> waiting_for_resume_ {false};
   bool running_nested_loop_;
   std::unique_ptr<V8Inspector> inspector_;
+  // The channel outlives the session, which can use it during destruction.
+  std::shared_ptr<ChannelImpl> channel_;
+
+ public:
+  std::shared_ptr<v8_inspector::V8InspectorSession> session_;
 };
 
 namespace {
@@ -398,7 +426,7 @@ void InspectorWrapConsoleCall(const v8::FunctionCallbackInfo<v8::Value> &args) {
 
 class ServerCollection {
  public:
-  std::shared_ptr<inspector::InspectorSocketServer> getServer(int port) {
+  std::shared_ptr<inspector::InspectorSocketServer> addTarget(int port, std::shared_ptr<AgentImpl> agent) {
     const std::lock_guard<std::mutex> lock(mutex_server_init_);
 
     std::shared_ptr<inspector::InspectorSocketServer> server;
@@ -424,12 +452,21 @@ class ServerCollection {
       servers_[port] = server;
     }
 
+    server->AddTarget(agent);
     return server;
   }
 
-  void removeServer(int port) {
+  void removeTarget(int port, std::shared_ptr<AgentImpl> agent) {
     const std::lock_guard<std::mutex> lock(mutex_server_init_);
-    servers_.erase(port);
+    auto it = servers_.find(port);
+    if (it == servers_.end()) return;
+    if (auto server = it->second.lock()) {
+      server->RemoveTarget(agent);
+      if (server->HasTargets()) return;
+      // Keep addTarget excluded until the old listener is actually closed.
+      server->Stop();
+    }
+    servers_.erase(it);
   }
 
   static ServerCollection& Instance() {
@@ -445,8 +482,11 @@ class ServerCollection {
 void AgentImpl::Start() {
   if (state_ == State::kConnected || state_ == State::kAccepting) return;
 
-  server_ = ServerCollection::Instance().getServer(port_);
-  server_->AddTarget(shared_from_this());
+  {
+    std::lock_guard<std::mutex> lock(post_m_);
+    detached_ = false;
+  }
+  server_ = ServerCollection::Instance().addTarget(port_, shared_from_this());
   state_ = State::kAccepting;
 }
 
@@ -474,6 +514,14 @@ void AgentImpl::waitForDebugger() {
 }
 
 
+void AgentImpl::PrepareForShutdown() {
+  {
+    std::lock_guard<std::mutex> lock(post_m_);
+    stopping_ = true;
+  }
+  NotifyMessageReceived();
+}
+
 void AgentImpl::Stop() {
   if (!IsStarted()) return;
 
@@ -488,13 +536,13 @@ void AgentImpl::Stop() {
   }
 
   WaitForDisconnect();
+  {
+    std::lock_guard<std::mutex> lock(post_m_);
+    detached_ = true;
+  }
   state_ = State::kDone;
 
-  server_->RemoveTarget(shared_from_this());
-  if (!server_->HasTargets()) {
-    server_->Stop();
-    ServerCollection::Instance().removeServer(port_);
-  }
+  ServerCollection::Instance().removeTarget(port_, shared_from_this());
 }
 
 bool AgentImpl::IsConnected() { return state_ == State::kConnected; }
@@ -523,7 +571,10 @@ void AgentImpl::removeContext(v8::Local<v8::Context> context) {
 void AgentImpl::WaitForDisconnect() {
   if (state_ == State::kConnected) {
     shutting_down_ = true;
-    inspector_->runMessageLoopOnPause(0);
+    while (state_ == State::kConnected) {
+      WaitForFrontendMessage(true);
+      DispatchMessages();
+    }
   }
 }
 
@@ -597,7 +648,10 @@ void AgentImpl::PostIncomingMessage(
     int session_id,
     const std::string &message) {
 
-  if (AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message))) {
+  bool pump = AppendMessage(&incoming_message_queue_, session_id, Utf8ToStringView(message));
+  NotifyMessageReceived();
+  std::lock_guard<std::mutex> lock(post_m_);
+  if (pump && !detached_) {
     // Need to get the foreground runner from the isolate data slot.
 #ifdef JSI_ABI_BUILDING
     // The ABI runtime stores a v8rt::IsolateData in the slot; the inspector is
@@ -613,18 +667,19 @@ void AgentImpl::PostIncomingMessage(
 #endif
     isolate_->RequestInterrupt(InterruptCallback, this);
   }
-
-  NotifyMessageReceived();
 }
 
-void AgentImpl::WaitForFrontendMessage() {
+void AgentImpl::WaitForFrontendMessage(bool disconnect_only) {
   std::unique_lock<std::mutex> lock(incoming_message_cond_m_);
-  if (incoming_message_queue_.empty())
-    incoming_message_cond_.wait(
-        lock, [this] { return !incoming_message_queue_.empty(); });
+  incoming_message_cond_.wait(lock, [this, disconnect_only] {
+    std::lock_guard<std::mutex> state_lock(state_m);
+    return (!disconnect_only && stopping_) ||
+        !dispatching_message_queue_.empty() || !incoming_message_queue_.empty();
+  });
 }
 
 void AgentImpl::NotifyMessageReceived() {
+  std::lock_guard<std::mutex> lock(incoming_message_cond_m_);
   incoming_message_cond_.notify_all();
 }
 
@@ -636,63 +691,57 @@ void AgentImpl::DispatchMessages() {
   if (dispatching_messages_)
     return;
   dispatching_messages_ = true;
-  MessageQueue tasks;
-  do {
-    tasks.clear();
-    SwapBehindLock(&incoming_message_queue_, &tasks);
-    for (const MessageQueue::value_type &pair : tasks) {
-      v8_inspector::StringView message = pair.second->string();
-      std::string tag;
-      if (message.length() == sizeof(TAG_CONNECT) - 1 ||
-          message.length() == sizeof(TAG_DISCONNECT) - 1) {
-        tag = StringViewToUtf8(message);
+  for (;;) {
+    // Never hide work behind the current request: Runtime.evaluate may pause
+    // and recursively dispatch the rest of this batch, including resume/EOF.
+    if (dispatching_message_queue_.empty())
+      SwapBehindLock(&incoming_message_queue_, &dispatching_message_queue_);
+    if (dispatching_message_queue_.empty()) break;
+    auto pair = std::move(dispatching_message_queue_.front());
+    dispatching_message_queue_.pop_front();
+    v8_inspector::StringView message = pair.second->string();
+    std::string tag;
+    if (message.length() == sizeof(TAG_CONNECT) - 1 ||
+        message.length() == sizeof(TAG_DISCONNECT) - 1)
+      tag = StringViewToUtf8(message);
+
+    if (tag == TAG_CONNECT) {
+      if (stopping_ || state_ != State::kAccepting) {
+        Write(pair.first, Utf8ToStringView(""));
+        continue;
       }
-
-      if (tag == TAG_CONNECT) {
-        CHECK_EQ(State::kAccepting, state_);
-        session_id_ = pair.first;
-        state_ = State::kConnected;
-        inspector_->connectFrontend();
-      } else if (tag == TAG_DISCONNECT) {
-        CHECK_EQ(State::kConnected, state_);
-        if (shutting_down_) {
-          state_ = State::kDone;
-        } else {
-          state_ = State::kAccepting;
-        }
-
-        inspector_->quitMessageLoopOnPause();
-        inspector_->disconnectFrontend();
-      } else {
-
-        TRACEV8INSPECTOR_VERBOSE(
-            "InMessage",
-            TraceLoggingCountedString16(
-                reinterpret_cast<const char16_t*>(message.characters16()), message.length(), "message"));
-
-
-        inspector_->dispatchMessageFromFrontend(message);
-      }
+      session_id_ = pair.first;
+      state_ = State::kConnected;
+      inspector_->connectFrontend();
+    } else if (state_ != State::kConnected || pair.first != session_id_) {
+      // EOF may have been processed in a nested loop. Never dispatch stale
+      // commands (or disconnects) into a null or replacement session.
+      continue;
+    } else if (tag == TAG_DISCONNECT) {
+      state_ = shutting_down_ ? State::kDone : State::kAccepting;
+      inspector_->quitMessageLoopOnPause();
+      inspector_->disconnectFrontend();
+    } else if (!stopping_) {
+      TRACEV8INSPECTOR_VERBOSE(
+          "InMessage",
+          TraceLoggingCountedString16(
+              reinterpret_cast<const char16_t*>(message.characters16()), message.length(), "message"));
+      inspector_->dispatchMessageFromFrontend(message);
     }
-  } while (!tasks.empty());
+  }
   dispatching_messages_ = false;
 }
 
 void AgentImpl::Write(
     int session_id,
     std::unique_ptr<v8_inspector::StringBuffer> inspector_message) {
-  AppendMessage(&outgoing_message_queue_, session_id,
-                std::move(inspector_message));
-
-  MessageQueue outgoing_messages;
-  SwapBehindLock(&outgoing_message_queue_, &outgoing_messages);
-  for (const MessageQueue::value_type& outgoing : outgoing_messages) {
-    std::string message = StringViewToUtf8(outgoing.second->string());
-    TRACEV8INSPECTOR_VERBOSE("OutMessage",
-                             TraceLoggingString(message.c_str(), "message"));
-
-    server_->Send(outgoing.first, std::move(message));
-  }
+  // Channel callbacks and Stop/DispatchMessages are runtime-serialized (also
+  // during teardown). Send posts in order to the IO strand with this session ID;
+  // it never resolves the current frontend on the runtime thread.
+  std::string message = StringViewToUtf8(inspector_message->string());
+  TRACEV8INSPECTOR_VERBOSE("OutMessage",
+                           TraceLoggingString(message.c_str(), "message"));
+  server_->Send(session_id, message);
 }
 
 void AgentImpl::notifyLoadedUrl(const std::string& url) {
@@ -737,10 +786,16 @@ Agent::~Agent() {
   if (IsStarted()) {
     stop();
   }
+  // An io callback may retain impl after this runtime-thread destructor.
+  impl->inspector_.reset();
 }
 
 void Agent::waitForDebugger() {
   impl->waitForDebugger();
+}
+
+void Agent::prepareForShutdown() {
+  impl->PrepareForShutdown();
 }
 
 void Agent::stop() {
@@ -817,33 +872,44 @@ void Agent::FatalException(
 
 InspectorAgentDelegate::InspectorAgentDelegate(){}
 
-void InspectorAgentDelegate::StartSession(
-    int session_id,
-    const std::string & target_id) {
-  auto agent = targets_map_[target_id];
-  session_targets_map_.emplace(session_id, agent);
-  agent->PostIncomingMessage(session_id, TAG_CONNECT);
+std::shared_ptr<AgentImpl> InspectorAgentDelegate::StartSession(
+    int session_id, const std::string &target_id) {
+  auto it = targets_map_.find(target_id);
+  if (it == targets_map_.end()) return {};
+  session_targets_map_.emplace(session_id, it->second);
+  return it->second;
 }
 
-void InspectorAgentDelegate::MessageReceived(
-    int session_id,
-    const std::string &message) {
-  session_targets_map_[session_id]->PostIncomingMessage(session_id, message);
+std::shared_ptr<AgentImpl> InspectorAgentDelegate::GetSession(int session_id) {
+  auto it = session_targets_map_.find(session_id);
+  return it == session_targets_map_.end() ? nullptr : it->second;
 }
 
-void InspectorAgentDelegate::EndSession(int session_id) {
-  // connected_ = false;
-  session_targets_map_[session_id]->PostIncomingMessage(session_id,
-                                                       TAG_DISCONNECT);
+std::shared_ptr<AgentImpl> InspectorAgentDelegate::EndSession(int session_id) {
+  auto agent = GetSession(session_id);
+  session_targets_map_.erase(session_id);
+  return agent;
 }
+
+void InspectorAgentDelegate::PostIncomingMessage(std::shared_ptr<AgentImpl> agent,
+    int session_id, const std::string &message) {
+  if (agent) agent->PostIncomingMessage(session_id, message);
+}
+
 void InspectorAgentDelegate::AddTarget(std::shared_ptr<AgentImpl> agent) {
-  std::string targetId = agent->targetId();
-  targets_map_.emplace(targetId, agent);
+  targets_map_.emplace(agent->targetId(), agent);
 }
 
-void InspectorAgentDelegate::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
-  std::string targetId = agent->targetId();
-  targets_map_.erase(targetId);
+std::vector<int> InspectorAgentDelegate::RemoveTarget(std::shared_ptr<AgentImpl> agent) {
+  std::vector<int> sessions;
+  targets_map_.erase(agent->targetId());
+  for (auto it = session_targets_map_.begin(); it != session_targets_map_.end();) {
+    if (it->second == agent) {
+      sessions.push_back(it->first);
+      it = session_targets_map_.erase(it);
+    } else ++it;
+  }
+  return sessions;
 }
 
 bool InspectorAgentDelegate::HasTargets() { return targets_map_.size() > 0; }
@@ -860,8 +926,8 @@ std::vector<std::string> InspectorAgentDelegate::GetTargetIds() {
 }
 
 std::string InspectorAgentDelegate::GetTargetTitle(const std::string& id) {
-  auto agent = targets_map_[id];
-  return agent->getTitle();
+  auto it = targets_map_.find(id);
+  return it == targets_map_.end() ? std::string() : it->second->getTitle();
 }
 
 std::string InspectorAgentDelegate::GetTargetUrl(const std::string &id) {

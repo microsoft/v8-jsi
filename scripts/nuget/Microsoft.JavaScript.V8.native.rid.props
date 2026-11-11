@@ -1,6 +1,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <PropertyGroup>
+    <V8JsiAvailableRuntimeIdentifiers>$(V8JsiAvailableRuntimeIdentifiers);$rid$</V8JsiAvailableRuntimeIdentifiers>
     <!-- If V8JsiIncludePublicHeaders == False then don't add include directories for the V8 JSI public headers. -->
     <V8JsiIncludePublicHeaders Condition=" '$(V8JsiIncludePublicHeaders)' == '' ">True</V8JsiIncludePublicHeaders>
 
@@ -31,7 +32,7 @@
     <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'X86' ">win-x86</V8JsiRuntimeIdentifier>
     <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'Win32' ">win-x86</V8JsiRuntimeIdentifier>
     <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'Arm64' ">win-arm64</V8JsiRuntimeIdentifier>
-    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'ARM64EC' ">win-arm64</V8JsiRuntimeIdentifier>
+    <V8JsiRuntimeIdentifier Condition=" '$(Platform)' == 'ARM64EC' ">win-x64</V8JsiRuntimeIdentifier>
   </PropertyGroup>
 
 </Project>

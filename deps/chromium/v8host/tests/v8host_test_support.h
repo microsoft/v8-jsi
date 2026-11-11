@@ -20,7 +20,7 @@ struct TestCase {
 
 std::wstring ExecutableDirectory();
 bool WaitForProcessExit(DWORD pid, DWORD timeout_ms);
-bool RunProcess(const std::wstring& command, DWORD* exit_code);
+bool RunProcess(const std::wstring& command, DWORD* exit_code, DWORD timeout_ms = 10000);
 int RunTests(int argc, char** argv, const std::vector<TestCase>& tests);
 
 }  // namespace v8host::test

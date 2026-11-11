@@ -52,14 +52,15 @@ struct Options {
   std::wstring role, client_dll, mode = L"dedicated", expected_image;
   DWORD hold_ms = 0;
   USHORT native = 0;
-  bool keep = false, missing = false;
+  bool keep = false, missing = false, no_console = false;
+  std::wstring snapshot;
 };
 bool Parse(int argc, wchar_t** argv, Options* o) {
   for (int i = 1; i < argc; ++i) {
     std::wstring key = argv[i], value;
     const auto eq = key.find(L'=');
     if (eq != std::wstring::npos) { value = key.substr(eq + 1); key.resize(eq); }
-    else if (key != L"--keep-layout" && key != L"--expect-missing") {
+    else if (key != L"--keep-layout" && key != L"--expect-missing" && key != L"--no-console") {
       if (++i == argc) return Fail("missing argument value");
       value = argv[i];
     }
@@ -74,6 +75,8 @@ bool Parse(int argc, wchar_t** argv, Options* o) {
     else if (key == L"--expected-image") o->expected_image = Absolute(value);
     else if (key == L"--keep-layout") o->keep = true;
     else if (key == L"--expect-missing") o->missing = true;
+    else if (key == L"--no-console") o->no_console = true;
+    else if (key == L"--snapshot-path") o->snapshot = value;
     else if (key == L"--hold-ms" || key == L"--verify-native") {
       wchar_t* end = nullptr;
       const unsigned long number = std::wcstoul(value.c_str(), &end, 10);
@@ -254,11 +257,169 @@ struct Capture {
     return table;
   }
 };
+// These cases use restricted-token workers, not registered AppContainer profiles.
+bool WorkerCoverage(Client& client, const Options& o) {
+  Capture c(&client);
+  v8host::test::TestSessionConfig config;
+  config.prohibit_dynamic_code = true;
+  v8host::test::SessionConfigure session{&client.config, &config};
+  if (client.open(&v8host::test::ConfigureSession, &session, &c.session) != v8host_status_ok)
+    return Fail("coverage session_open");
+  auto table = c.Table();
+  if (client.callbacks(c.session, &table) != v8host_status_ok) return Fail("coverage callbacks");
+  const bool snapshot = o.scenario == L"worker-snapshot";
+  const bool closing = o.scenario == L"queued-close";
+  const bool pressure = o.scenario == L"guest-pressure";
+  size_t count = closing ? 128 : 1;
+  const std::string js = snapshot
+      ? "if(globalThis.snapshotMarker!==42)throw Error('snapshot not restored');"
+        "host.postMessage('restored');host.complete();"
+      : "host.onmessage=async function(m){const value=await Promise.resolve(m.split(':')[0]);"
+        "host.postMessage('async: '+value);if(value==='done')host.complete();};";
+  v8host::test::TestRunInputs input;
+  input.payload = js.data(); input.payload_len = js.size();
+  if (snapshot) input.startup_snapshot_path = o.snapshot.c_str();
+  v8host::test::RunConfigure run{&client.config, &input};
+  if (client.start(c.session, &v8host::test::ConfigureRun, &run, &c.run) != v8host_status_ok)
+    return Fail("coverage start_run");
+  if (snapshot && o.missing) {
+    if (!Pump([&] { return c.terminals || c.disconnects; }, 20000)) return Fail("snapshot failure timeout");
+    const bool ready = std::find(c.states.begin(), c.states.end(),
+        v8host_session_state_worker_security_ready) != c.states.end();
+    std::printf("[snapshot] terminal=%d status=%d messages=%zu security_ready=%d\n",
+        c.terminals, c.statuses.empty() ? -1 : c.statuses.back(), c.messages.size(), ready);
+    return (!ready && c.terminals == 1 && !c.statuses.empty() &&
+        c.statuses.back() != v8host_status_ok && c.messages.empty()) || Fail("snapshot did not fail closed");
+  }
+  if (!snapshot) {
+    // Avoid the separate pre-activation bridge quota: pressure the active relay.
+    if (!Pump([&] {
+          return (!c.events.empty() && std::find(c.states.begin(), c.states.end(),
+              v8host_session_state_worker_security_ready) != c.states.end()) || c.terminals || c.disconnects;
+        }, 20000) || c.terminals || c.disconnects ||
+        c.events != std::vector<int>{v8host_run_event_started}) return Fail("run start timeout");
+    // The client rejects this above its 65,528-byte message cap, before transport admission.
+    const std::string oversized(1u << 20, 'x');
+    if (client.post(c.run, v8host_message_kind_string, oversized.data(), oversized.size()) !=
+        v8host_status_quota_exceeded) return Fail("oversized relay quota");
+    if (pressure) {
+      // Legal, padded frames pressure the live transport's 1 MiB per-run queue.
+      // Replies omit padding so non-pumping cannot overflow the callback byte cap.
+      constexpr size_t limit = 4096, payload_size = 60000;
+      count = 0;
+      for (; count < limit; ++count) {
+        std::string message = std::to_string(count) + ":";
+        message.resize(payload_size, 'x');
+        const auto status = client.post(c.run, v8host_message_kind_string, message.data(), message.size());
+        if (status == v8host_status_quota_exceeded) break;
+        if (status != v8host_status_ok) return Fail("pressure admission status");
+      }
+      std::printf("[pressure] accepted=%zu quota=%d\n", count, count < limit);
+      if (count < (1u << 20) / (payload_size + 36) || count == limit)
+        return Fail("live queue did not saturate within bound");
+    } else {
+      for (size_t i = 0; i < count; ++i) {
+        const std::string message = std::to_string(i);
+        if (client.post(c.run, v8host_message_kind_string, message.data(), message.size()) != v8host_status_ok)
+          return Fail("queued message admission");
+      }
+    }
+    if (closing) {
+      // Let the worker and I/O thread queue replies without dispatching callbacks.
+      ::Sleep(300);
+      if (!c.messages.empty() || c.terminals || c.disconnects) return Fail("non-pumping wait dispatched");
+      const auto begin = ::GetTickCount64();
+      c.Close();
+      const auto elapsed = ::GetTickCount64() - begin;
+      std::printf("[close] duration_ms=%llu queued_posts=%zu\n", elapsed, count);
+      if (elapsed > 1000) return Fail("close blocked");
+      const auto callbacks = c.states.size() + c.events.size() + c.messages.size() + c.disconnects;
+      const auto until = ::GetTickCount64() + 1000;
+      Pump([&] { return ::GetTickCount64() >= until; }, 2000);
+      return callbacks == c.states.size() + c.events.size() + c.messages.size() + c.disconnects ||
+          Fail("callback after close");
+    }
+    if (pressure) {
+      if (!Pump([&] { return c.messages.size() >= count || c.terminals || c.disconnects; }, 20000) ||
+          !c.valid || c.terminals || c.disconnects || c.messages.size() != count)
+        return Fail("accepted pressure replies/run liveness");
+      for (size_t i = 0; i < count; ++i)
+        if (c.messages[i] != "async: " + std::to_string(i) || c.kinds[i] != v8host_message_kind_string)
+          return Fail("accepted pressure FIFO");
+      if (client.post(c.run, v8host_message_kind_string, "recovery", 8) != v8host_status_ok ||
+          !Pump([&] { return c.messages.size() > count || c.terminals || c.disconnects; }, 20000) ||
+          c.terminals || c.disconnects || c.messages.size() != count + 1 ||
+          c.messages.back() != "async: recovery" || c.kinds.back() != v8host_message_kind_string)
+        return Fail("pressure recovery");
+    }
+    if (client.post(c.run, v8host_message_kind_string, "done", 4) != v8host_status_ok)
+      return Fail("completion message admission");
+  }
+  if (!Pump([&] { return c.terminals || c.disconnects; }, 20000)) return Fail("async reply timeout");
+  if (!c.valid || c.disconnects || c.terminals != 1 || c.statuses.back() != v8host_status_ok ||
+      c.events.back() != v8host_run_event_completed) {
+    std::printf("[relay] valid=%d disconnects=%d terminals=%d status=%d replies=%zu\n",
+        c.valid, c.disconnects, c.terminals, c.statuses.empty() ? -1 : c.statuses.back(), c.messages.size());
+    return Fail("async terminal/readiness");
+  }
+  if (snapshot) {
+    if (c.messages != std::vector<std::string>{"restored"}) return Fail("snapshot marker reply");
+    input.startup_snapshot_path = L"different.bin";
+    const auto status = client.start(c.session, &v8host::test::ConfigureRun, &run, &c.run);
+    // Session start accepts inputs synchronously; broker admission reports failure asynchronously.
+    if (status != v8host_status_ok || !Pump([&] { return c.terminals == 2 || c.disconnects; }, 20000))
+      return Fail("profile conflict timeout");
+    std::printf("[snapshot] conflicting profile terminal_status=%d\n", c.statuses.back());
+    return (c.valid && !c.disconnects && c.terminals == 2 &&
+        c.events.back() == v8host_run_event_failed &&
+        c.statuses.back() == v8host_status_profile_already_bound && c.messages.size() == 1) ||
+        Fail("profile conflict executed guest");
+  }
+  if (c.messages.size() != count + (pressure ? 2 : 1) || c.messages.back() != "async: done") return Fail("async reply count");
+  for (size_t i = 0; i < count; ++i)
+    if (c.messages[i] != "async: " + std::to_string(i)) return Fail("async reply FIFO");
+  return true;
+}
+
+bool WrongSnapshotIndex(Client& client) {
+#define LOAD(name) auto name = reinterpret_cast<decltype(&v8host_##name)>(::GetProcAddress(client.module, "v8host_" #name)); if (!name) return Fail("missing " #name)
+  LOAD(broker_open); LOAD(broker_close); LOAD(worker_open); LOAD(worker_close);
+  LOAD(runtime_open); LOAD(runtime_close); LOAD(runtime_config_set_startup_snapshot_index);
+#undef LOAD
+  v8host_broker broker = nullptr;
+  if (broker_open(nullptr, nullptr, &broker) != v8host_status_ok) return Fail("index broker_open");
+  v8host_worker worker = nullptr;
+  bool ok = worker_open(broker, nullptr, nullptr, &worker) == v8host_status_ok;
+  struct Configure {
+    decltype(runtime_config_set_startup_snapshot_index) setter;
+    static v8host_status V8HOST_CDECL Call(void* data, v8host_runtime_config config) {
+      return static_cast<Configure*>(data)->setter(config, 0);
+    }
+  } configure{runtime_config_set_startup_snapshot_index};
+  v8host_runtime runtime = reinterpret_cast<v8host_runtime>(1);
+  const auto status = ok ? runtime_open(worker, Configure::Call, &configure, &runtime) : v8host_status_internal_error;
+  std::printf("[snapshot] absent index status=%d null_runtime=%d\n", status, runtime == nullptr);
+  ok = ok && status == v8host_status_invalid_arg && !runtime;
+  if (runtime && runtime != reinterpret_cast<v8host_runtime>(1)) runtime_close(runtime);
+  if (worker) worker_close(worker);
+  broker_close(broker);
+  return ok || Fail("unknown snapshot index admitted");
+}
+
 bool ClientStep(const Options& o) {
   if (o.client_dll.empty() || (o.mode != L"shared" && o.mode != L"dedicated"))
     return Fail("client requires --client-dll and shared/dedicated mode");
+  if (o.no_console) {
+    if (::GetConsoleWindow() || ::GetConsoleCP() != 0) return Fail("console allocated");
+    for (DWORD id : {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE}) {
+      HANDLE handle = ::GetStdHandle(id);
+      if (handle && handle != INVALID_HANDLE_VALUE) return Fail("standard handle present");
+    }
+  }
   Client client;
   if (!client.Load(o.client_dll)) return false;
+  if (o.scenario == L"wrong-snapshot-index") return WrongSnapshotIndex(client);
+  if (!o.scenario.empty()) return WorkerCoverage(client, o);
   Capture capture(&client);
   v8host::test::TestSessionConfig config;
   config.broker_mode = o.mode == L"shared" ? v8host_broker_mode_shared : v8host_broker_mode_dedicated;
@@ -335,7 +496,7 @@ struct Child {
       ::WaitForSingleObject(process.value, 5000);
     }
   }
-  bool Launch(const std::wstring& arguments, std::wstring exe = {}) {
+  bool Launch(const std::wstring& arguments, std::wstring exe = {}, bool detached = false) {
     if (exe.empty()) exe = ExecutablePath();
     if (exe.empty()) return false;
     SECURITY_ATTRIBUTES sa = {sizeof(sa), nullptr, TRUE};
@@ -344,12 +505,12 @@ struct Child {
     output.value = read; Handle writer(write);
     if (!::SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0)) return WinFail("SetHandleInformation");
     STARTUPINFOW si = {}; si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
+    si.dwFlags = detached ? 0 : STARTF_USESTDHANDLES;
     si.hStdOutput = write; si.hStdError = write;
     si.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
     PROCESS_INFORMATION pi = {};
     std::wstring command = Quote(exe) + L" --role=client " + arguments;
-    if (!::CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+    if (!::CreateProcessW(exe.c_str(), command.data(), nullptr, nullptr, !detached, detached ? DETACHED_PROCESS : CREATE_NO_WINDOW,
                           nullptr, nullptr, &si, &pi)) return WinFail("CreateProcess client");
     process.value = pi.hProcess; pid = pi.dwProcessId; ::CloseHandle(pi.hThread);
     std::printf("[xa] launched client pid=%lu\n", pid);
@@ -383,6 +544,11 @@ struct Child {
     DWORD code = STILL_ACTIVE;
     if (!::GetExitCodeProcess(process.value, &code)) return WinFail("GetExitCodeProcess");
     std::printf("[xa] client pid=%lu wait=%lu exit=%lu\n", pid, wait, code);
+    if (code >= 10 && code <= 19) {
+      const char* reasons[] = {"console allocated", "standard handle present", "client load/initialize",
+          "session open", "callbacks", "run start", "post", "reply timeout", "reply/readiness oracle", "process reaping"};
+      std::printf("[xa] consoleless failure: %s\n", reasons[code - 10]);
+    }
     return (wait == WAIT_OBJECT_0 && code == 0) || Fail("client exit/wait");
   }
 };
@@ -608,6 +774,12 @@ int wmain(int argc, wchar_t** argv) {
     ok = ClientStep(options);
     ok = ok && failure.empty();
     if (!ok) std::printf("[client] result=FAIL - %s\n", failure.c_str());
+    return ok ? 0 : 1;
+  }
+  if (ok && options.scenario == L"consoleless-session") {
+    Child child;
+    ok = child.Launch(L"--client-dll " + Quote(options.client_dll) + L" --no-console", {}, true) && child.Wait();
+    std::printf("consoleless-session: %s\n", ok ? "PASS" : "FAIL");
     return ok ? 0 : 1;
   }
   Layout layout;

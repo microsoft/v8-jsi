@@ -20,6 +20,7 @@
 //
 // Scenario selection (argv):
 //   (no args)                  cross-CRT / sandbox-surface smoke (runJsiChecks).
+//   --jitless                 lone flag, second runtime, and normal shutdown.
 //   --snapshot <blob>          create a runtime FROM a startup-snapshot blob and
 //                              assert the baked-in global is restored with NO
 //                              script evaluated (the public
@@ -295,6 +296,28 @@ static int runSnapshotScenario(const char *blobPath, bool expectMarker) {
   return 0;
 }
 
+// Run in a fresh process: the first runtime fixes process-global V8 flags.
+static int runJitlessScenario() {
+  for (int i = 0; i < 2; ++i) {
+    v8runtime::V8RuntimeArgs args;
+    args.flags.jitless = true;  // The only engine flag on the first runtime.
+    // The second runtime requests a changed value, not just the same jitless
+    // flag again: an unguarded late write would crash with frozen V8 flags.
+    args.flags.optimize_for_size = (i == 1);
+    auto runtime = v8runtime::makeV8Runtime(std::move(args));
+    if (!runtime) FAIL("makeV8Runtime(jitless) returned null");
+    auto result = runtime->evaluateJavaScript(
+        std::make_shared<jsi::StringBuffer>(
+            "typeof WebAssembly === 'undefined' && 1 + 2 === 3"),
+        "jitless-smoke.js");
+    if (!result.isBool() || !result.getBool())
+      FAIL("lone jitless flag was not applied or runtime is not live");
+  }
+  // Both runtimes are destroyed; return normally to exercise process shutdown.
+  std::printf("test-harness: jitless / second runtime smoke OK\n");
+  return 0;
+}
+
 int main(int argc, char **argv) {
   // Scenario dispatch. Snapshot modes return before the default smoke checks.
   const char *snapshotPath = nullptr;
@@ -310,6 +333,8 @@ int main(int argc, char **argv) {
   }
 
   try {
+    if (argc == 2 && std::strcmp(argv[1], "--jitless") == 0)
+      return runJitlessScenario();
     if (snapshotPath)
       return runSnapshotScenario(snapshotPath, expectMarker);
 

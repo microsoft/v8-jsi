@@ -99,23 +99,9 @@ class V8RuntimeEnv {
     rootEnv_ = createNodeApi(NAPI_VERSION_EXPERIMENTAL);
   }
 
-  ~V8RuntimeEnv() {
-    // Drive the root env's refcount to 0. Its DeleteMe ΓåÆ unlinks itself
-    // from moduleEnvList_ and frees the env. Iterate any remaining module
-    // envs and Unref them too ΓÇö typical case is none, but a misbehaving
-    // consumer might have leaked one.
-    NodeApiEnv *root = rootEnv_;
-    rootEnv_ = nullptr;
-    if (root) {
-      Unref(root);
-    }
-    // Module envs that survived (unusual). Take a snapshot since Unref ΓåÆ
-    // DeleteMe mutates the list.
-    std::vector<NodeApiEnv*> remaining = std::move(moduleEnvList_);
-    for (NodeApiEnv *env : remaining) {
-      Unref(env);
-    }
-  }
+  ~V8RuntimeEnv();
+
+  bool isTearingDown() const { return tearingDown_; }
 
   V8RuntimeEnv(const V8RuntimeEnv &) = delete;
   V8RuntimeEnv &operator=(const V8RuntimeEnv &) = delete;
@@ -216,6 +202,7 @@ class V8RuntimeEnv {
   std::unique_ptr<v8runtime::V8Instrumentation> instrumentation_;
   std::vector<NodeApiEnv*> moduleEnvList_;
   NodeApiEnv *rootEnv_{nullptr};
+  bool tearingDown_{false};
 };
 
 //============================================================================
@@ -268,7 +255,8 @@ class NodeApiEnv : public napi_env__ {
     napi_env__::EnqueueFinalizer(finalizer);
     // Schedule a second pass only when it has not been scheduled, and not
     // destructing the env.
-    if (!m_isFinalizationScheduled && !m_isDestructing && m_runtime) {
+    if (!m_isFinalizationScheduled && !m_isDestructing && m_runtime &&
+        !m_runtime->isTearingDown()) {
       m_isFinalizationScheduled = true;
       Ref();
       m_runtime->SetImmediate([this]() {
@@ -276,6 +264,13 @@ class NodeApiEnv : public napi_env__ {
         Unref();
         DrainFinalizerQueue();
       });
+    }
+  }
+
+  void CancelScheduledFinalization() {
+    if (m_isFinalizationScheduled) {
+      m_isFinalizationScheduled = false;
+      Unref();
     }
   }
 
@@ -355,11 +350,51 @@ class NodeApiEnv : public napi_env__ {
     return GET_RETURN_STATUS(env);
   }
 
-  napi_status drainMicrotasks(int32_t /*maxCountHint*/, bool* result) {
-    if (result) {
-      *result = true;
+  struct MicrotaskDrain {
+    NodeApiEnv* env;
+    MicrotaskDrain* previous;
+    v8::Global<v8::Value> exception;
+  };
+  static inline thread_local MicrotaskDrain* microtaskDrain_{};
+
+  static void CaptureMicrotaskException(v8::Local<v8::Message>,
+                                       v8::Local<v8::Value> exception) {
+    for (auto* drain = microtaskDrain_; drain; drain = drain->previous) {
+      auto* env = drain->env;
+      if (env->isolate != v8::Isolate::GetCurrent()) continue;
+      if (drain->exception.IsEmpty()) drain->exception.Reset(env->isolate, exception);
+      return;
     }
-    return napi_ok;
+  }
+
+  napi_status drainMicrotasks(int32_t /*maxCountHint*/, bool* result) {
+    CHECK_ARG(env, result);
+    *result = false;
+    if (!m_runtime || !can_call_into_js() || m_runtime->isTearingDown()) {
+      return napi_set_last_error(env, napi_cannot_run_js);
+    }
+    v8rt::IsolateLocker scope(isolate, m_runtime->GetContext(),
+                             m_runtime->getEnableMultiThread());
+    NAPI_PREAMBLE(env);
+    // Like the JSI path, a checkpoint ignores the hint and drains the queue.
+    // Nested checkpoints are suppressed by V8; the outer checkpoint finishes it.
+    // V8 reports and swallows raw microtask exceptions. Preserve the first one
+    // in drain-owned storage so later module callbacks cannot consume it.
+    bool installListener = true;
+    for (auto* drain = microtaskDrain_; drain; drain = drain->previous)
+      if (drain->env->isolate == isolate) installListener = false;
+    MicrotaskDrain drain{this, microtaskDrain_, {}};
+    microtaskDrain_ = &drain;
+    if (installListener) isolate->AddMessageListener(CaptureMicrotaskException);
+    isolate->PerformMicrotaskCheckpoint();
+    if (installListener) isolate->RemoveMessageListeners(CaptureMicrotaskException);
+    microtaskDrain_ = drain.previous;
+    if (last_exception.IsEmpty()) last_exception = std::move(drain.exception);
+    if (!last_exception.IsEmpty() || try_catch.HasCaught()) {
+      return napi_set_last_error(env, napi_pending_exception);
+    }
+    *result = true;
+    return GET_RETURN_STATUS(env);
   }
 
   napi_status isInspectable(bool* result) noexcept {
@@ -685,6 +720,27 @@ void V8RuntimeEnv::removeModuleEnv(NodeApiEnv* env) {
   }
   if (rootEnv_ == env) {
     rootEnv_ = nullptr;
+  }
+}
+
+V8RuntimeEnv::~V8RuntimeEnv() {
+  tearingDown_ = true;
+  auto scheduled = moduleEnvList_;
+  for (auto *env : scheduled) env->CancelScheduledFinalization();
+  // Drive the root env's refcount to 0. Its DeleteMe ΓåÆ unlinks itself
+  // from moduleEnvList_ and frees the env. Iterate any remaining module
+  // envs and Unref them too ΓÇö typical case is none, but a misbehaving
+  // consumer might have leaked one.
+  NodeApiEnv *root = rootEnv_;
+  rootEnv_ = nullptr;
+  if (root) {
+    Unref(root);
+  }
+  // Module envs that survived (unusual). Take a snapshot since Unref ΓåÆ
+  // DeleteMe mutates the list.
+  std::vector<NodeApiEnv*> remaining = std::move(moduleEnvList_);
+  for (NodeApiEnv *env : remaining) {
+    Unref(env);
   }
 }
 

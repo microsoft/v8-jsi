@@ -639,6 +639,7 @@ TcpHolder::TcpHolder(std::shared_ptr<tcp_connection> connection, std::unique_ptr
 }
 
 TcpHolder::~TcpHolder() {
+  connection_->registerReadCallback(nullptr, nullptr);
   connection_->close();
 }
 

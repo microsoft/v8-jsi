@@ -261,14 +261,20 @@ typedef jsi_status(
  *
  * Call this BEFORE the first v8_jsi_abi_runtime_create. argv uses V8 CLI flag
  * syntax (e.g. "--sparkplug", "--jitless", "--optimize_for_size",
- * "--max-old-space-size=512"). Forwarded to V8::SetFlagsFromCommandLine.
+ * "--max-old-space-size=512") and the main() convention: argv[0] is the
+ * program name, which V8 does not parse. Forwarded to
+ * V8::SetFlagsFromCommandLine.
  *
- * remove_flags=true: V8 removes the flags it recognized from argv, compacts
- * the remaining (unrecognized) entries to the front, and updates *argc to
- * that count — letting the caller report leftover/unknown flags.
+ * remove_flags=true: V8 removes the flags it recognized from argv, moves the
+ * remaining (unrecognized) entries up behind argv[0], and updates *argc to
+ * the count that is left, argv[0] included — letting the caller report
+ * leftover/unknown flags.
  *
  * Returns jsi_status_invalid_arg for a NULL argc, or a NULL argv with a
- * nonzero *argc.
+ * nonzero *argc. Once V8 is initialized (by the first runtime creation,
+ * v8_jsi_abi_snapshot_create, or v8_jsi_abi_snapshot_check in the process),
+ * the call changes nothing and returns jsi_status_invalid_arg, even after
+ * platform disposal. A zero *argc is always a successful no-op.
  *============================================================================*/
 
 V8_JSI_ABI_API jsi_status JSI_ABI_CDECL
@@ -410,8 +416,10 @@ typedef const char *(
  * Script cache (prepared-script storage)
  *
  * Consumers register a pair of C callbacks that load and store compiled
- * bytecode on behalf of prepare_javascript. NULL callbacks mean "no cache" —
- * prepare always falls back to fresh V8 compilation.
+ * bytecode on behalf of prepare_javascript and evaluate_javascript_source.
+ * NULL callbacks mean "no cache" — scripts always compile fresh. Evaluate
+ * stores after a successful run, so its cache also holds the functions the
+ * run compiled.
  *
  * load_cb: on a hit, sets *out_data / *out_size to the cached bytes and
  *   *out_data_delete_cb / *out_data_delete_data to how the runtime releases

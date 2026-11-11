@@ -102,6 +102,20 @@ class V8PlatformHolder {
     return is_initialized_ && !is_disposed_;
   }
 
+  /// Run `callback` under the platform lock unless V8 has been initialized,
+  /// and return whether it ran. V8 makes its flags read-only when it
+  /// initializes, and they stay read-only after a dispose, so flags can be set
+  /// only before then.
+  template <typename Callback>
+  static bool runBeforeInitialization(Callback&& callback) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if (is_initialized_) {
+      return false;
+    }
+    callback();
+    return true;
+  }
+
   V8PlatformHolder() = delete;
   V8PlatformHolder(const V8PlatformHolder&) = delete;
   V8PlatformHolder& operator=(const V8PlatformHolder&) = delete;

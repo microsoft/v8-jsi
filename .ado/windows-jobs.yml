@@ -359,7 +359,11 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Public C ABI header checks FAILED (exit $LASTEXITCODE)"
                   }
-                displayName: C ABI header gates (Stela vendor check, Stela tests, header, layout, lint, and ABI diff checks)
+                  node --test scripts/native-rid.test.ts
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
+                  }
+                displayName: C ABI header and native RID gates (Stela vendor check, Stela tests, header, layout, lint, ABI diff, and native RID checks)
                 workingDirectory: $(Build.SourcesDirectory)
 
               # BinSkim (run by --check) installs from the react-native-public ADO
@@ -451,6 +455,12 @@ extends:
                 if ($LASTEXITCODE -ne 0) { throw "v8host_protocol_fuzz FAILED (exit $LASTEXITCODE)" }
               displayName: Sandbox suites (--all; trust-transition on x64 only)
               workingDirectory: $(Build.SourcesDirectory)
+
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
+                  .\tests\run-worker.ps1
+                displayName: Sandbox worker coverage (unsigned build outputs)
+                workingDirectory: $(Build.SourcesDirectory)
 
               # Cross-architecture qualification. Compile-only is not evidence: each
               # scenario runs. A second payload build (different stamped version) is
@@ -735,9 +745,8 @@ extends:
                   folderPath: $(Build.SourcesDirectory)\tests\bin\Release\${{ matrix.BuildPlatform }}
                   pattern: v8jsi_smoke.exe
               - pwsh: |
-                  powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\run-smoke.ps1 `
+                  .\tests\run-smoke.ps1 `
                       -Configuration Release -Platform ${{ matrix.BuildPlatform }} -UseV8Sandbox -RunSigned
-                  if ($LASTEXITCODE -ne 0) { throw "Signed sandbox smoke FAILED (exit $LASTEXITCODE)" }
                 displayName: Acceptance - signed consumer against the shipped sandbox
                 workingDirectory: $(Build.SourcesDirectory)
 

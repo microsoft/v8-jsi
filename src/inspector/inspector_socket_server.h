@@ -13,6 +13,9 @@
 
 namespace inspector {
 
+inline constexpr char TAG_CONNECT[] = "#connect";
+inline constexpr char TAG_DISCONNECT[] = "#disconnect";
+
 class InspectorSocketServer;
 class SocketSession;
 class ServerSocket;
@@ -20,14 +23,16 @@ class ServerSocket;
 class InspectorAgentDelegate {
  public:
   InspectorAgentDelegate();
-  void StartSession(int session_id, const std::string &target_id);
-  void MessageReceived(int session_id, const std::string &message);
-  void EndSession(int session_id);
+  std::shared_ptr<AgentImpl> StartSession(int session_id, const std::string &target_id);
+  std::shared_ptr<AgentImpl> GetSession(int session_id);
+  std::shared_ptr<AgentImpl> EndSession(int session_id);
+  static void PostIncomingMessage(std::shared_ptr<AgentImpl> agent,
+                                  int session_id, const std::string &message);
   std::vector<std::string> GetTargetIds();
   std::string GetTargetTitle(const std::string &id);
   std::string GetTargetUrl(const std::string &id);
   void AddTarget(std::shared_ptr<AgentImpl> agent);
-  void RemoveTarget(std::shared_ptr<AgentImpl> agent);
+  std::vector<int> RemoveTarget(std::shared_ptr<AgentImpl> agent);
   bool HasTargets();
 
  private:
@@ -39,6 +44,8 @@ class InspectorAgentDelegate {
 // to HTTP requests and WS upgrades.
 
 class InspectorSocketServer : public std::enable_shared_from_this<InspectorSocketServer> {
+  // Declared first: session destruction can reenter SessionTerminated.
+  std::mutex mutex_;
 public:
   InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, int port,
     FILE* out = stderr);
@@ -49,7 +56,6 @@ public:
 
   void Stop();
   void Send(int session_id, const std::string& message);
-  void TerminateConnections();
   int Port() const;
 
   void AddTarget(std::shared_ptr<AgentImpl> agent);
@@ -61,13 +67,10 @@ public:
   bool HandleGetRequest(int session_id, const std::string& host, const std::string& path);
   void SessionStarted(int session_id, const std::string& target_id, const std::string& ws_id);
   void SessionTerminated(int session_id);
-  void MessageReceived(int session_id, const std::string& message) {
-    delegate_->MessageReceived(session_id, message);
-  }
+  void MessageReceived(int session_id, const std::string& message);
   SocketSession* Session(int session_id);
 
   static void SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_);
-  static void SocketClosedCallback(void* callbackData_);
 
 private:
   static void CloseServerSocket(ServerSocket*);

@@ -48,7 +48,8 @@
           target="runtimes\$rid$\native\" />
     <file src="$nugetroot$\build\native\$rid$\*.exe"
           target="runtimes\$rid$\native\" />
-    <!-- The v8jsi.dll.lib is Windows-only. We use the *.lib pattern to copy the optional file. -->
+    <!-- Local builds stage v8jsi.dll.lib, but pre-staged aggregator payloads may omit it.
+         Keep the glob optional; consumers enabling engine linkage validate its presence. -->
     <file src="$nugetroot$\build\native\$rid$\*.lib"
           target="build\native\$rid$\" />
     <file src="$nugetroot$\Microsoft.JavaScript.V8.native.$rid$.props"

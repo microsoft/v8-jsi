@@ -22,7 +22,7 @@ steps:
     artifact: version-config
     path: $(Pipeline.Workspace)/version-config
 
-- powershell: |
+- pwsh: |
     $ErrorActionPreference = 'Stop'
     $src = '$(Pipeline.Workspace)/version-config/config.json'
     $dst = '$(Build.SourcesDirectory)/config.json'

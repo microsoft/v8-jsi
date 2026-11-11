@@ -514,8 +514,25 @@
           },
         }],
         ['OS=="win" and v8jsi_enable_inspector==1', {
+          # Exercise the private TCP implementation without exporting test hooks.
+          'sources': [
+            '<(v8jsi_root)/src/inspector/inspector_tcp.cpp',
+            '<(v8jsi_root)/src/etw/tracing.cpp',
+          ],
+          'include_dirs': [ '<(v8jsi_root)/deps/asio/include' ],
+          'msvs_settings': {
+            'VCLinkerTool': { 'AdditionalDependencies': [ 'advapi32.lib' ] },
+          },
           'defines': [
             'V8JSI_ENABLE_INSPECTOR',
+            'ASIO_STANDALONE',
+            '_WIN32_WINNT=0x0601',
+          ],
+        }],
+        # The sandbox engine (build_v8jsisb) is built without WebAssembly.
+        ['v8_enable_webassembly==1', {
+          'defines': [
+            'V8JSI_TEST_WEBASSEMBLY',
           ],
         }],
         ['OS=="linux" or OS=="freebsd" or OS=="openbsd" or OS=="solaris" or OS=="mac"', {
