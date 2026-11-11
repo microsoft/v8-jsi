@@ -64,6 +64,10 @@ so a pipeline run always uses the *currently published* image, not the JSON on t
 branch. **After editing a JSON, the image must be rebuilt** before pipelines see
 the change.
 
+Both images are currently rebuilt every Sunday. Windows security servicing
+relies on refreshed, patched base images and successful image publication;
+automatic Windows updates are disabled on the resulting build agents.
+
 Most artifacts accept parameters; the managed-image build passes each JSON
 `parameters` entry to the artifact **by name**.
 
@@ -104,7 +108,7 @@ come before the artifacts that depend on them.
 | `windows-git-lfs` | Git LFS (required — some build inputs, e.g. the vendored `gn.exe`, are LFS objects) |
 | `windows-AzPipeline-ImageHelpers` | Azure Pipelines image-helper PowerShell modules used by later artifacts |
 | `windows-AzPipeline-InitializeVM` | Baseline VM initialization |
-| `windows-AzPipeline-powershellCore` | PowerShell 7 (`pwsh`); arch-aware (native on both) |
+| `windows-powershell-core` | PowerShell 7 LTS (`Channel: lts`), native on both images; see [PowerShell](#powershell) |
 | `windows-1es-install-winget` | **ARM64 only** — provision winget (all-users, sysprep-safe) into the shipped image |
 | `windows-AzPipeline-7zip` | **x64 only** — install 7-zip through Chocolatey; see [7-zip note](#7-zip) |
 | `windows-powershell-invokecommand` ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) | **ARM64 only** — install the latest native 7-zip and native Python `3.14.x` (off `PATH`) through winget; see [7-zip note](#7-zip) and [Python note](#python) |
@@ -123,6 +127,7 @@ come before the artifacts that depend on them.
 | `windows-1es-pt-prerequisites-v2` | Provision the private tool cache and dependencies required by 1ES Pipeline Templates; see [1ES prerequisites](#1es-pipeline-template-prerequisites) |
 | `Windows-AzureCLI` | Azure CLI |
 | `windows-updateregistry` (`BackgroundDownloadDisabled`) | Disable Visual Studio Installer background downloads in both Setup registry hives; see [Visual Studio background downloads](#visual-studio-background-downloads) |
+| `windows-removeautoupdate` | Disable Windows Update after provisioning; must run last; see [Windows Update during builds](#windows-update-during-builds) |
 
 ## Per-architecture differences
 
@@ -133,6 +138,7 @@ Everything else is identical; only these entries differ between the two JSONs:
 | 7-zip | `windows-AzPipeline-7zip` through Chocolatey | latest native release through winget ([`install-winget-packages.ps1`](./install-winget-packages.ps1)) |
 | winget | not provisioned separately | `windows-1es-install-winget` added |
 | NASM | installed through `windows-chocolatey` | not installed separately |
+| PowerShell | `Channel: lts` (x64 by default) | `Channel: lts`, `InstallARM64: true` |
 | `Windows-NodeJS` | `Version: 24.x`, `UseARM: false` | `Version: 24.x`, `UseARM: true` |
 | Tool-cache Python 3.13 | x64 | x64 (runs under emulation) |
 | Latest Python on `PATH` | `Architecture: x64` | `Architecture: arm64` (native) |
@@ -140,6 +146,14 @@ Everything else is identical; only these entries differ between the two JSONs:
 | `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK under `%ProgramFiles%\dotnet\x64` + `DOTNET_ROOT_X64` |
 
 ## Key decisions
+
+### PowerShell
+
+Both images use the `windows-powershell-core` factory artifact with
+`Channel: lts`, so rebuilds follow the latest LTS servicing release without a
+version pin. The artifact resolves the version from official PowerShell channel
+metadata and downloads the MSI from a Microsoft-hosted CDN. The ARM64 recipe
+sets `InstallARM64: true` for a native installation; x64 is the default.
 
 ### Python
 
@@ -340,6 +354,14 @@ foreach ($e in $embedded) {
     [IO.File]::WriteAllText($path, $json, (New-Object Text.UTF8Encoding $false))
 }
 ```
+
+### Windows Update during builds
+
+Both recipes finish with the factory `windows-removeautoupdate` artifact. It
+blocks Windows Update internet access and stops and disables the Windows
+Update service, preventing background checks from triggering network-isolation
+warnings during builds. Keep this artifact last, after tool provisioning and
+any image-time patching.
 
 ### Visual Studio background downloads
 
