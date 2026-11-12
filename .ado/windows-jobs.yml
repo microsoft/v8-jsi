@@ -366,6 +366,22 @@ extends:
                 displayName: C ABI header and native RID gates (Stela vendor check, Stela tests, header, layout, lint, ABI diff, and native RID checks)
                 workingDirectory: $(Build.SourcesDirectory)
 
+              # The vendored Node.js root store must not trust an eMudhra root,
+              # and Node's block list of the compromised eMudhra intermediate
+              # keys must stay intact. Upstream still ships one of those roots,
+              # so a Node.js sync can bring it back.
+              - pwsh: |
+                  node --test scripts/check-root-certs.test.ts
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Root certificate check tests FAILED (exit $LASTEXITCODE)"
+                  }
+                  node scripts/check-root-certs.ts
+                  if ($LASTEXITCODE -ne 0) {
+                    throw "Node.js root certificate check FAILED (exit $LASTEXITCODE)"
+                  }
+                displayName: Node.js root certificate check
+                workingDirectory: $(Build.SourcesDirectory)
+
               # BinSkim (run by --check) installs from the react-native-public ADO
               # feed; authenticate the NuGet client for that restore.
             - task: NuGetToolInstaller@1

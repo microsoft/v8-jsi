@@ -1,9 +1,9 @@
 {
   "repo": "https://github.com/nodejs/node",
   "branch": "v26.x",
-  "commit": "18b32a3b1552e199a01f1a8d9fd64aa756d3b75b",
+  "commit": "e9c277643b0249c50f6e6de5413be8a88ea11b6a",
   "fetchMode": "snapshot",
   "keepLocalDeletions": true,
-  "tag": "v26.13.0",
-  "lastSync": "2026-10-30T21:32:43.736Z"
+  "tag": "v26.13.1",
+  "lastSync": "2026-11-12T05:38:52.811Z"
 }

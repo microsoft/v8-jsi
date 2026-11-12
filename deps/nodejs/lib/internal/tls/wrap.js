@@ -248,6 +248,10 @@ function loadSession(hello) {
         'ticket?', hello.tlsTicket,
   );
   const owner = this[owner_symbol];
+  if (owner.destroyed) {
+    debug('server onclienthello after destroy, ignoring');
+    return;
+  }
 
   let once = false;
   function onSession(err, session) {
@@ -290,6 +294,10 @@ function loadSession(hello) {
 
 function loadSNI(info) {
   const owner = this[owner_symbol];
+  if (owner.destroyed) {
+    debug('server oncertcb after destroy, ignoring');
+    return;
+  }
   const servername = info.servername;
   if (!servername || !owner._SNICallback)
     return requestOCSP(owner, info);
@@ -1198,7 +1206,7 @@ TLSSocket.prototype._finishInit = function() {
     return;
 
   this.alpnProtocol = this._handle.getALPNNegotiatedProtocol();
-  // The servername could be set by TLSWrap::SelectSNIContextCallback().
+  // On a server, TLSWrap::PinServerName() sets it from the first ClientHello.
   if (this.servername === null) {
     this.servername = this._handle.getServername();
   }
