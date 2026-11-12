@@ -3,5 +3,5 @@
     "v8ref":  "refs/branch-heads/12.1",
     "buildNumber":  "285",
     "v8jsi_version":  "26.0.0",
-    "nodejs_version":  "26.13.0"
+    "nodejs_version":  "26.13.1"
 }

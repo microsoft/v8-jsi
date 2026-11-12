@@ -1731,6 +1731,7 @@ inline void SecureContext::Reset() {
   ctx_.reset();
   cert_.reset();
   issuer_.reset();
+  has_own_ca_ = false;
 }
 
 SecureContext::~SecureContext() {
@@ -2066,6 +2067,7 @@ void SecureContext::SetAllowPartialTrustChain(
 void SecureContext::SetCACert(const BIOPointer& bio) {
   ClearErrorOnReturn clear_error_on_return;
   AddCACertificates(env(), ctx_.get(), bio, &own_cert_store_cache_);
+  has_own_ca_ = true;
 }
 
 void SecureContext::AddCACert(const FunctionCallbackInfo<Value>& args) {
@@ -2309,8 +2311,11 @@ void SecureContext::SetSessionIdContext(
       reinterpret_cast<const unsigned char*>(*sessionIdContext);
   unsigned int sid_ctx_len = sessionIdContext.length();
 
-  if (SSL_CTX_set_session_id_context(sc->ctx_.get(), sid_ctx, sid_ctx_len) == 1)
+  int ok = SSL_CTX_set_session_id_context(sc->ctx_.get(), sid_ctx, sid_ctx_len);
+  if (ok == 1) {
+    sc->session_id_context_.assign(*sessionIdContext, sid_ctx_len);
     return;
+  }
 
   Local<String> message;
 
