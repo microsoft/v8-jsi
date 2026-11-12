@@ -1,24 +1,21 @@
-# Temporary agent probe for the libnode build. Not for merging.
-# Reports the Linux and macOS agents the libnode jobs would use and what the
-# network-isolation policy of this pipeline allows on Linux.
+# Temporary agent check for the libnode Linux images. Not for merging.
+# Reports each Linux agent image and the report its image build left behind, and
+# checks that the planned toolchain links a C++ shared library that loads on a
+# stock Ubuntu 22.04. Set the pool and image names to the ones created in Azure;
+# leave Image empty for a single-image pool.
 
 parameters:
 - name: linuxCells
   type: object
   default:
-  - Name: linux_x64_ubuntu2204
-    PoolName: Azure-Pipelines-1ESPT-ExDShared
-    Image: ubuntu-2204
-  - Name: linux_x64_ubuntulatest
-    PoolName: Azure-Pipelines-1ESPT-ExDShared
-    Image: ubuntu-latest
-- name: macCells
-  type: object
-  default:
-  - Name: macos15_x64
-    Image: macos-15
-  - Name: macos15_arm64
-    Image: macos-15-arm64
+  - Name: linux_x64
+    PoolName: fabric-internal-pool-large
+    Image: azurelinux3-1espt
+    HostArchitecture: amd64
+  - Name: linux_arm64
+    PoolName: azurelinux3-1espt-arm64
+    Image: ''
+    HostArchitecture: arm64
 
 resources:
   repositories:
@@ -55,36 +52,80 @@ extends:
       jobs:
       - ${{ each cell in parameters.linuxCells }}:
         - job: ${{ cell.Name }}
-          displayName: Probe ${{ cell.Name }}
+          displayName: Check ${{ cell.Name }}
           timeoutInMinutes: 30
           pool:
             name: ${{ cell.PoolName }}
-            image: ${{ cell.Image }}
+            ${{ if ne(cell.Image, '') }}:
+              image: ${{ cell.Image }}
             os: linux
+            hostArchitecture: ${{ cell.HostArchitecture }}
           steps:
           - checkout: none
           - bash: |
               set -u
               echo "##[group]Host"
-              . /etc/os-release
-              echo "OS: $PRETTY_NAME ($(uname -m)), kernel $(uname -r)"
+              cat /etc/os-release
+              echo "arch: $(uname -m), kernel $(uname -r)"
               ldd --version | head -1
               echo "CPUs: $(nproc)"
               free -g | sed -n '1,2p'
               df -h / /mnt "$(Agent.BuildDirectory)" 2>/dev/null
               echo "##[endgroup]"
               echo "##[group]Tools"
-              for t in gcc g++ clang python3 ninja make cmake rustc cargo node dotnet docker pwsh git; do
+              for t in docker git python3 pwsh curl gcc clang make ninja node dotnet; do
                 if command -v "$t" >/dev/null 2>&1; then printf '%-8s %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; else printf '%-8s missing\n' "$t"; fi
               done
-              echo "versioned compilers: $(ls /usr/bin/clang-[0-9]* /usr/bin/g++-[0-9]* 2>/dev/null | tr '\n' ' ')"
+              if sudo -n true 2>/dev/null; then echo "passwordless sudo: yes"; else echo "passwordless sudo: no"; fi
               echo "##[endgroup]"
               echo "##[group]Docker"
               docker info --format 'server {{.ServerVersion}}, driver {{.Driver}}, root {{.DockerRootDir}}' || true
-              docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | head -30 || true
-              if sudo -n true 2>/dev/null; then echo "passwordless sudo: yes"; else echo "passwordless sudo: no"; fi
+              docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' || true
+              echo "##[endgroup]"
+              echo "##[group]Image build report"
+              cat /opt/v8jsi/image-build-report.txt 2>/dev/null || echo "no /opt/v8jsi/image-build-report.txt"
               echo "##[endgroup]"
             displayName: Report agent
+          - bash: |
+              set -u
+              img=v8jsi-image-check:1
+              if ! docker image inspect "$img" >/dev/null 2>&1; then echo "##[error]$img is not in the agent image"; exit 1; fi
+              work=$(mktemp -d)
+              cat > "$work/probe.cc" <<'EOF'
+              #include <cstdio>
+              #include <format>
+              #include <string>
+              extern "C" __attribute__((visibility("default"))) int probe_format(char *buf, int size) {
+                std::string s = std::format("{} {}", "libnode", 147);
+                return std::snprintf(buf, size, "%s", s.c_str());
+              }
+              EOF
+              cat > "$work/loader.c" <<'EOF'
+              #include <dlfcn.h>
+              #include <stdio.h>
+              int main(int argc, char **argv) {
+                void *lib = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
+                if (!lib) { fprintf(stderr, "%s\n", dlerror()); return 1; }
+                int (*probe)(char *, int) = (int (*)(char *, int))dlsym(lib, "probe_format");
+                if (!probe) { fprintf(stderr, "%s\n", dlerror()); return 1; }
+                char buf[64];
+                probe(buf, sizeof buf);
+                printf("loaded: %s\n", buf);
+                return 0;
+              }
+              EOF
+              docker run --rm --network=none -v "$work:/w" -w /w "$img" bash -c '
+                set -e
+                clang++-20 -std=c++20 -O2 -fPIC -fvisibility=hidden -shared -o libprobe.so probe.cc \
+                  -static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL -Wl,--no-undefined
+                clang-20 -O2 -o loader loader.c -ldl
+                echo "NEEDED:"; readelf -d libprobe.so | grep NEEDED
+                echo "symbol versions:"; readelf -V libprobe.so | grep -oE "(GLIBC|GLIBCXX|CXXABI)_[0-9.]+" | sort -uV
+                echo "exported:"; nm -D --defined-only libprobe.so | awk "{print \$3}"'
+              docker run --rm --network=none -v "$work:/w" -w /w mcr.microsoft.com/mirror/docker/library/ubuntu:22.04 \
+                sh -c '. /etc/os-release; echo "stock container: $PRETTY_NAME"; ./loader ./libprobe.so'
+            displayName: Link a static-libstdc++ shared library and load it on stock Ubuntu 22.04
+            continueOnError: true
           - bash: |
               set -u
               probe() {
@@ -93,41 +134,8 @@ extends:
                 printf '%s  %s  %s\n' "$code" "$url" "$(head -c 200 /tmp/probe-err | tr '\n' ' ')"
               }
               probe http://azure.archive.ubuntu.com/ubuntu/dists/jammy/InRelease
-              probe http://ports.ubuntu.com/ubuntu-ports/dists/jammy/InRelease
               probe https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu/dists/jammy/InRelease
               probe https://static.rust-lang.org/rustup/release-stable.toml
               probe https://mcr.microsoft.com/v2/
               probe -L -r 0-1023 https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-Linux-X64.tar.xz
-              echo "##[group]docker pull from MCR"
-              start=$(date +%s)
-              if docker pull -q mcr.microsoft.com/mirror/docker/library/ubuntu:22.04; then
-                echo "pull took $(( $(date +%s) - start )) s"
-                docker run --rm mcr.microsoft.com/mirror/docker/library/ubuntu:22.04 sh -c '. /etc/os-release; echo "container: $PRETTY_NAME"; ldd --version | head -1'
-              fi
-              echo "##[endgroup]"
             displayName: Check reachability under network isolation
-
-      - ${{ each cell in parameters.macCells }}:
-        - job: ${{ cell.Name }}
-          displayName: Probe ${{ cell.Name }}
-          timeoutInMinutes: 30
-          pool:
-            name: Azure Pipelines
-            image: ${{ cell.Image }}
-            os: macOS
-          steps:
-          - checkout: none
-          - bash: |
-              set -u
-              sw_vers
-              echo "arch: $(uname -m)"
-              echo "CPUs: $(sysctl -n hw.ncpu)  RAM: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
-              df -h / "$(Agent.BuildDirectory)"
-              echo "selected Xcode: $(xcode-select -p) / $(xcodebuild -version | head -1)"
-              echo "installed: $(ls -d /Applications/Xcode_*.app 2>/dev/null | tr '\n' ' ')"
-              clang --version | head -1
-              for t in python3 ninja make cmake rustc cargo node dotnet git; do
-                if command -v "$t" >/dev/null 2>&1; then printf '%-8s %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; else printf '%-8s missing\n' "$t"; fi
-              done
-              if arch -x86_64 /usr/bin/true 2>/dev/null; then echo "x86_64 execution (Rosetta or native): yes"; else echo "x86_64 execution: no"; fi
-            displayName: Report agent
