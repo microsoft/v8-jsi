@@ -33,10 +33,6 @@ variables:
   - name: tags
     value: production,externalfacing
 
+# Temporary agent probe for the libnode build. Not for merging.
 extends:
-  template: windows-jobs.yml@self
-  parameters:
-    # CI builds must pass true.
-    isPublish: true
-    # It must be false for real builds. Use true only for the build pipeline debugging.
-    fakeBuild: false
+  template: libnode-probe.yml@self

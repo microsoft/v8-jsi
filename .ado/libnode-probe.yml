@@ -1,0 +1,133 @@
+# Temporary agent probe for the libnode build. Not for merging.
+# Reports the Linux and macOS agents the libnode jobs would use and what the
+# network-isolation policy of this pipeline allows on Linux.
+
+parameters:
+- name: linuxCells
+  type: object
+  default:
+  - Name: linux_x64_ubuntu2204
+    PoolName: Azure-Pipelines-1ESPT-ExDShared
+    Image: ubuntu-2204
+  - Name: linux_x64_ubuntulatest
+    PoolName: Azure-Pipelines-1ESPT-ExDShared
+    Image: ubuntu-latest
+- name: macCells
+  type: object
+  default:
+  - Name: macos15_x64
+    Image: macos-15
+  - Name: macos15_arm64
+    Image: macos-15-arm64
+
+resources:
+  repositories:
+  - repository: OfficePipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/OfficePipelineTemplates
+    ref: refs/tags/release
+
+extends:
+  template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
+  parameters:
+    featureFlags:
+      autoEnablePREfastWithNewRuleset: false
+    pool:
+      name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
+    sdl:
+      prefast:
+        enabled: false
+        justificationForDisabling: "Build uses clang-cl (required by Node.js >= 24); MSVC PREfast /analyze is incompatible. Compiled static analysis is covered by CodeQL."
+      bandit:
+        excludedPaths: |
+          .gdn
+          deps\chromium
+      eslint:
+        enableExclusions: true
+        exclusionPatterns: |
+          '**/*.*'
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnsuppress
+
+    stages:
+    - stage: probe
+      jobs:
+      - ${{ each cell in parameters.linuxCells }}:
+        - job: ${{ cell.Name }}
+          displayName: Probe ${{ cell.Name }}
+          timeoutInMinutes: 30
+          pool:
+            name: ${{ cell.PoolName }}
+            image: ${{ cell.Image }}
+            os: linux
+          steps:
+          - checkout: none
+          - bash: |
+              set -u
+              echo "##[group]Host"
+              . /etc/os-release
+              echo "OS: $PRETTY_NAME ($(uname -m)), kernel $(uname -r)"
+              ldd --version | head -1
+              echo "CPUs: $(nproc)"
+              free -g | sed -n '1,2p'
+              df -h / /mnt "$(Agent.BuildDirectory)" 2>/dev/null
+              echo "##[endgroup]"
+              echo "##[group]Tools"
+              for t in gcc g++ clang python3 ninja make cmake rustc cargo node dotnet docker pwsh git; do
+                if command -v "$t" >/dev/null 2>&1; then printf '%-8s %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; else printf '%-8s missing\n' "$t"; fi
+              done
+              echo "versioned compilers: $(ls /usr/bin/clang-[0-9]* /usr/bin/g++-[0-9]* 2>/dev/null | tr '\n' ' ')"
+              echo "##[endgroup]"
+              echo "##[group]Docker"
+              docker info --format 'server {{.ServerVersion}}, driver {{.Driver}}, root {{.DockerRootDir}}' || true
+              docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | head -30 || true
+              if sudo -n true 2>/dev/null; then echo "passwordless sudo: yes"; else echo "passwordless sudo: no"; fi
+              echo "##[endgroup]"
+            displayName: Report agent
+          - bash: |
+              set -u
+              probe() {
+                local url="${@: -1}" code
+                code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$@" 2>/tmp/probe-err)
+                printf '%s  %s  %s\n' "$code" "$url" "$(head -c 200 /tmp/probe-err | tr '\n' ' ')"
+              }
+              probe http://azure.archive.ubuntu.com/ubuntu/dists/jammy/InRelease
+              probe http://ports.ubuntu.com/ubuntu-ports/dists/jammy/InRelease
+              probe https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu/dists/jammy/InRelease
+              probe https://static.rust-lang.org/rustup/release-stable.toml
+              probe https://mcr.microsoft.com/v2/
+              probe -L -r 0-1023 https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/LLVM-20.1.8-Linux-X64.tar.xz
+              echo "##[group]docker pull from MCR"
+              start=$(date +%s)
+              if docker pull -q mcr.microsoft.com/mirror/docker/library/ubuntu:22.04; then
+                echo "pull took $(( $(date +%s) - start )) s"
+                docker run --rm mcr.microsoft.com/mirror/docker/library/ubuntu:22.04 sh -c '. /etc/os-release; echo "container: $PRETTY_NAME"; ldd --version | head -1'
+              fi
+              echo "##[endgroup]"
+            displayName: Check reachability under network isolation
+
+      - ${{ each cell in parameters.macCells }}:
+        - job: ${{ cell.Name }}
+          displayName: Probe ${{ cell.Name }}
+          timeoutInMinutes: 30
+          pool:
+            name: Azure Pipelines
+            image: ${{ cell.Image }}
+            os: macOS
+          steps:
+          - checkout: none
+          - bash: |
+              set -u
+              sw_vers
+              echo "arch: $(uname -m)"
+              echo "CPUs: $(sysctl -n hw.ncpu)  RAM: $(( $(sysctl -n hw.memsize) / 1073741824 )) GB"
+              df -h / "$(Agent.BuildDirectory)"
+              echo "selected Xcode: $(xcode-select -p) / $(xcodebuild -version | head -1)"
+              echo "installed: $(ls -d /Applications/Xcode_*.app 2>/dev/null | tr '\n' ' ')"
+              clang --version | head -1
+              for t in python3 ninja make cmake rustc cargo node dotnet git; do
+                if command -v "$t" >/dev/null 2>&1; then printf '%-8s %s\n' "$t" "$("$t" --version 2>&1 | head -1)"; else printf '%-8s missing\n' "$t"; fi
+              done
+              if arch -x86_64 /usr/bin/true 2>/dev/null; then echo "x86_64 execution (Rosetta or native): yes"; else echo "x86_64 execution: no"; fi
+            displayName: Report agent
