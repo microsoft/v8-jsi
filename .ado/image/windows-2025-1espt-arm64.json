@@ -31,7 +31,11 @@
             "name": "windows-AzPipeline-InitializeVM"
         },
         {
-            "name": "windows-AzPipeline-powershellCore"
+            "name": "windows-powershell-core",
+            "parameters": {
+                "Channel": "lts",
+                "InstallARM64": true
+            }
         },
         {
             "name": "windows-1es-install-winget"
@@ -139,6 +143,9 @@
                 "DataType": "REG_DWORD",
                 "Value": "1"
             }
+        },
+        {
+            "name": "windows-removeautoupdate"
         }
     ]
 }

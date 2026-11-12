@@ -31,7 +31,10 @@
             "name": "windows-AzPipeline-InitializeVM"
         },
         {
-            "name": "windows-AzPipeline-powershellCore"
+            "name": "windows-powershell-core",
+            "parameters": {
+                "Channel": "lts"
+            }
         },
         {
             "name": "windows-AzPipeline-7zip"
@@ -129,6 +132,9 @@
                 "DataType": "REG_DWORD",
                 "Value": "1"
             }
+        },
+        {
+            "name": "windows-removeautoupdate"
         }
     ]
 }
