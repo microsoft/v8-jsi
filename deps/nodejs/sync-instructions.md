@@ -53,6 +53,24 @@ the API, compiler phase, or default that our patch originally extended.
   the SQLite and fast_float license additions, and the Git-ignore exceptions
   that keep them trackable. Snapshot mode with `keepLocalDeletions` preserves
   pruning, but newly introduced build inputs still need explicit review.
+- **No eMudhra roots:** `src/node_root_certs.h` and `tools/certdata.txt` omit
+  "emSign Root CA - G1", which upstream still ships after removing the other
+  eMudhra roots. Keep it removed when a sync touches either file.
+  `scripts/check-root-certs.ts` fails CI if an eMudhra root returns or Node's
+  `kBlockedSPKIs` list loses an entry. Drop this contract once upstream
+  removes the root.
+- **Full-Node inputs for libnode:** ICU (`deps/icu-small`), LIEF, amaro,
+  undici, acorn, minimatch, `deps/uv/src/unix`, the Linux and macOS OpenSSL
+  configurations, the V8 valgrind header, `test/common`, `test/testpy`,
+  `test/root.status`, and the four fixtures the embedding tests load are
+  synced in full (see `.syncignore`), except the npm lockfiles in undici and
+  minimatch, which are not build inputs. They were copied in once from the
+  upstream commit, because `keepLocalDeletions` keeps a pruned path absent
+  even after its ignore rule is removed. Upstream marks a few of these files
+  executable, and Windows checkouts drop that bit, so stage new copies with
+  `git update-index --chmod=+x` where upstream has it. A few upstream files
+  also match Git ignore rules here (undici's `src/build/`, mbedtls's
+  `error.c` under LIEF); add those with `git add -f`.
 
 ## When to call human
 

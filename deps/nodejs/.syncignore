@@ -4,13 +4,13 @@
 # narrow build skips node.exe / libnode / cctest / embedtest /
 # openssl-cli / fuzz_* / nop / overlapped-checker. Part B (this
 # file) drops on-disk content those targets needed but the v8jsi
-# closure does not — non-Windows OpenSSL arches, V8 test corpus,
-# Node.js JS test corpus, doc/, pure-JS deps, etc.
+# closure does not — V8 test corpus, Node.js JS test corpus, doc/,
+# npm, etc.
 #
-# A future libnode.dll build may need to un-prune some of these:
-# - ICU if libnode ships with Intl.
-# - Other libnode-graph deps stay pruned because libnode.dll
-#   doesn't need their tests / docs / openssl-cli / fuzz corpora.
+# The full Node.js library (libnode) also builds from this tree, for
+# Windows, Linux, and macOS, with Intl. So ICU, the JS dependencies
+# bundled into the builtins, the POSIX libuv and OpenSSL sources, and
+# the test helpers and fixtures its embedding tests use stay synced.
 
 # ── CI/CD configurations (already excluded; kept for visibility) ────
 .configurations/
@@ -40,6 +40,21 @@
 !/test/overlapped-checker/**
 !/test/nop/
 !/test/nop/**
+# libnode's embedding tests: the test runner, its helpers, and the
+# fixtures those tests load.
+!/test/testpy/
+!/test/testpy/**
+!/test/root.status
+!/test/common/
+!/test/common/**
+!/test/fixtures/
+/test/fixtures/*
+!/test/fixtures/exit.js
+!/test/fixtures/snapshot/
+/test/fixtures/snapshot/*
+!/test/fixtures/snapshot/echo-args.js
+!/test/fixtures/snapshot/create-vm.js
+!/test/fixtures/snapshot/create-worker.js
 
 # ── Pure-JS package-manager assets — never compiled by msbuild ─────
 /deps/npm/
@@ -87,6 +102,15 @@
 !/deps/openssl/config/archs/VC-WIN64A/**
 !/deps/openssl/config/archs/VC-WIN64-ARM/
 !/deps/openssl/config/archs/VC-WIN64-ARM/**
+# Linux and macOS arches kept fully for the libnode builds.
+!/deps/openssl/config/archs/linux-x86_64/
+!/deps/openssl/config/archs/linux-x86_64/**
+!/deps/openssl/config/archs/linux-aarch64/
+!/deps/openssl/config/archs/linux-aarch64/**
+!/deps/openssl/config/archs/darwin64-x86_64-cc/
+!/deps/openssl/config/archs/darwin64-x86_64-cc/**
+!/deps/openssl/config/archs/darwin64-arm64-cc/
+!/deps/openssl/config/archs/darwin64-arm64-cc/**
 
 # ── deps/openssl/openssl/ internals — drop test/doc/cli source ─────
 # These are referenced only by the openssl-cli and fuzz_* targets
@@ -120,22 +144,21 @@
 /deps/v8/tools/package.json
 /deps/v8/tools/package-lock.json
 
-# ── deps/v8/third_party/ — drop POSIX-only / unreferenced sub-libs ─
-/deps/v8/third_party/valgrind/
+# ── deps/v8/third_party/ — drop unreferenced sub-libs ──────────────
+# valgrind stays: V8's x64 code includes its header when built by GCC
+# or Clang, so the Linux and macOS libnode builds need it.
 /deps/v8/third_party/ittapi/
 /deps/v8/third_party/vtune/
 /deps/v8/third_party/glibc/
 /deps/v8/third_party/colorama/
 
-# ── ICU (we ship --without-intl; reversible if Intl returns) ───────
-/deps/icu-small/
+# ── ICU build scratch directory ───────────────────────────────────
 /deps/icu-tmp/
 
-# ── deps/uv/ internals — drop POSIX impl, tests, docs, img ─────────
+# ── deps/uv/ internals — drop tests, docs, img ────────────────────
 /deps/uv/test/
 /deps/uv/docs/
 /deps/uv/img/
-/deps/uv/src/unix/
 
 # ── deps/zlib/google/test/ — Chromium zip wrapper test corpus ──────
 # Node's deps/zlib/google/ (zip.cc, compression_utils, …) is unused by
@@ -149,20 +172,16 @@
 /deps/cares/m4/
 
 # ── Node-only or unused deps ──────────────────────────────────────
-# LIEF: Node's single-executable-app packaging tool. Node 26 references
-#   lief.gyp conditionally; v8-jsi configure opts out with without_lief.
-# amaro / undici / acorn / minimatch: pure-JS bundles referenced
-#   only from node.gyp's deps_files list (lines 64-66) and
-#   config.gypi (lines 489-490) — consumed by node_js2c, which
-#   doesn't run in the post-Part-A narrow build.
+# LIEF, amaro, undici, acorn, and minimatch stay synced: libnode
+# builds single-executable-app support (LIEF) and bundles the JS
+# dependencies into its builtins. The v8jsi build doesn't use them.
+# Their npm lockfiles are not build inputs; dependency scanning would
+# report the packages they pin as if we shipped them.
+/deps/undici/src/package-lock.json
+/deps/minimatch/package-lock.json
 # NOTE: deps/merve/ stays — it has merve.gyp which node.gypi:230
 #   references as a libnode dep. Pruning it would break gyp configure
 #   even though merve never compiles in narrow mode.
-/deps/LIEF/
-/deps/amaro/
-/deps/undici/
-/deps/acorn/
-/deps/minimatch/
 
 # ── Top-level loose files unused by build ───────────────────────────
 /CHANGELOG.md
