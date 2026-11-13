@@ -294,6 +294,12 @@ async function runBuild(platform: string, configuration: string, toolsPath: stri
     "no-openssl-cli",
     "no-nop",
     "no-overlapped-checker",
+    // OpenSSL has no assembly for Windows ARM64, and openssl.gyp builds the
+    // library without it. The targets that include OpenSSL's headers (ncrypto,
+    // openssl-cli, node) get OPENSSL_NO_ASM only from this option; without it
+    // they pick the assembly configuration headers, which have no Windows
+    // ARM64 entry.
+    ...(platform === "arm64" ? ["openssl-no-asm"] : []),
   ];
 
   const env = { ...process.env };
