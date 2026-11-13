@@ -133,6 +133,7 @@
       'src/node_debug.cc',
       'src/node_dir.cc',
       'src/node_dotenv.cc',
+      'src/node_embedding_api.cc',
       'src/node_env_var.cc',
       'src/node_errors.cc',
       'src/node_external_reference.cc',
@@ -258,6 +259,8 @@
       'src/node_debug.h',
       'src/node_dir.h',
       'src/node_dotenv.h',
+      'src/node_embedding_api.h',
+      'src/node_embedding_api_cpp.h',
       'src/node_errors.h',
       'src/node_exit_code.h',
       'src/node_external_reference.h',
@@ -1234,6 +1237,10 @@
           'sources': [
             'src/res/node.rc',
           ],
+          # v8-jsi: embeds the embedding API manifest (src/libnode.gyp).
+          'dependencies': [
+            'libnode_stela_gen',
+          ],
           'libraries': [
             'Dbghelp.lib',
             'winmm.lib',
@@ -1494,16 +1501,34 @@
 
       'sources': [
         'test/embedding/embedtest.cc',
+        # v8-jsi: tests of the libnode embedding API (src/node_embedding_api.h).
+        # embedtest_main.cc selects a test by its first argument and runs
+        # embedtest.cc for any other arguments.
+        'test/embedding/embedtest_c_api.c',
+        'test/embedding/embedtest_c_api_common.c',
+        'test/embedding/embedtest_c_api_common.h',
+        'test/embedding/embedtest_c_api_env.c',
+        'test/embedding/embedtest_c_api_modules.c',
+        'test/embedding/embedtest_c_api_preload.c',
+        'test/embedding/embedtest_c_api_run_main.c',
+        'test/embedding/embedtest_c_api_threading.c',
+        'test/embedding/embedtest_c_cpp_api.cc',
+        'test/embedding/embedtest_c_cpp_api_common.cc',
+        'test/embedding/embedtest_c_cpp_api_common.h',
+        'test/embedding/embedtest_c_cpp_api_env.cc',
+        'test/embedding/embedtest_c_cpp_api_modules.cc',
+        'test/embedding/embedtest_c_cpp_api_preload.cc',
+        'test/embedding/embedtest_c_cpp_api_run_main.cc',
+        'test/embedding/embedtest_c_cpp_api_threading.cc',
+        'test/embedding/embedtest_main.cc',
       ],
 
       'conditions': [
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
-        # Skip cctest while building shared lib node for Windows
-        [ 'OS=="win" and node_shared=="true"', {
-          'type': 'none',
-        }],
+        # v8-jsi: embedtest is also built for the Windows shared library, where
+        # it links against libnode.dll, to test the embedding API.
         [ 'node_shared=="true"', {
           'xcode_settings': {
             'OTHER_LDFLAGS': [ '-Wl,-rpath,@loader_path', ],
@@ -1835,6 +1860,12 @@
         # Node-API conformance test rig -> 34 addon DLLs + node_lite.exe
         # + node_api_tests.exe + JS-file copy. Built alongside v8jsi.dll.
         '../../src/node-api/test/node_api_tests.gyp',
+      ],
+    }],
+    # v8-jsi: the embedded API manifest of the Windows libnode.dll.
+    ['OS=="win" and node_shared=="true"', {
+      'includes': [
+        '../../src/libnode.gyp',
       ],
     }],
   ], # end conditions block

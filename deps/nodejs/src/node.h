@@ -491,9 +491,12 @@ struct IsolateSettings {
 // Snapshots are an *experimental* feature. In particular, the embedder API
 // exposed through this class is subject to change or removal between Node.js
 // versions, including possible API and ABI breakage.
-class EmbedderSnapshotData {
+// v8-jsi: NODE_EXTERN so that embedders of the Windows libnode.dll, such as
+// test/embedding/embedtest.cc, can use snapshots; dllexport does not apply to
+// nested types, so DeleteSnapshotData needs its own.
+class NODE_EXTERN EmbedderSnapshotData {
  public:
-  struct DeleteSnapshotData {
+  struct NODE_EXTERN DeleteSnapshotData {
     void operator()(const EmbedderSnapshotData*) const;
   };
   using Pointer =

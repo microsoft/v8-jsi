@@ -1,0 +1,25 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Add include paths to header files. -->
+  <ItemDefinitionGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '$rid$' ">
+    <ClCompile>
+      <AdditionalIncludeDirectories Condition="'$(LibNodeIncludeEmbeddingApiHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\embedding</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories Condition="'$(LibNodeIncludeNodeApiHeaders)' == 'True'">%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)include\node-api</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Add libnode.lib dependency required for MSVC C++ linker if it is part of this package. -->
+  <ItemDefinitionGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '$rid$' AND '$(LibNodeAddLibDependency)' == 'True' AND Exists('$(MSBuildThisFileDirectory)$rid$\libnode.lib') ">
+    <Link>
+      <AdditionalDependencies>libnode.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)$rid$;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+
+  <!-- Copy libnode.dll to the output directory. -->
+  <ItemGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '$rid$' AND '$(LibNodeCopyDLL)' == 'True' ">
+    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$libnodeName$" />
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$libnodeName$" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

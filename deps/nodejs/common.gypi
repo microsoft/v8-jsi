@@ -138,13 +138,11 @@
       'Debug': {
         'variables': {
           'v8_enable_handle_zapping': 1,
-          'conditions': [
-            ['node_shared != "true"', {
-              'MSVC_runtimeType': 1,    # MultiThreadedDebug (/MTd)
-            }, {
-              'MSVC_runtimeType': 3,    # MultiThreadedDebugDLL (/MDd)
-            }],
-          ],
+          # v8-jsi: the shared library (libnode.dll) also uses the static C++
+          # runtime; src/libnode_settings.gypi links the system UCRT instead of
+          # the static one (the Hybrid CRT), so consumers need no VC++
+          # redistributable.
+          'MSVC_runtimeType': 1,    # MultiThreadedDebug (/MTd)
         },
         'defines': [ 'DEBUG', '_DEBUG' ],
         'cflags': [ '-g', '-O0' ],
@@ -182,12 +180,9 @@
           'v8_enable_handle_zapping': 0,
           'pgo_generate': ' -fprofile-generate ',
           'pgo_use': ' -fprofile-use -fprofile-correction ',
+          # v8-jsi: static C++ runtime for the shared library too (see Debug).
+          'MSVC_runtimeType': 0,    # MultiThreaded (/MT)
           'conditions': [
-            ['node_shared != "true"', {
-              'MSVC_runtimeType': 0    # MultiThreaded (/MT)
-            }, {
-              'MSVC_runtimeType': 2   # MultiThreadedDLL (/MD)
-            }],
             ['clang==1', {
               'lto': ' -flto ', # Clang
               'pgo_use': '-fprofile-use=<(pgo_profile)',
@@ -874,5 +869,11 @@
         ],
       }],
     ],
-  }
+  },
+  'conditions': [
+    # v8-jsi: Hybrid CRT and hardening for the Windows libnode.dll build.
+    ['OS=="win" and node_shared=="true"', {
+      'includes': [ '../../src/libnode_settings.gypi' ],
+    }],
+  ],
 }

@@ -103,6 +103,34 @@ in V8's DCHECKs).
 Run both test runners for the configuration being validated; test counts change
 as coverage is added or removed.
 
+## LibNode
+
+`Microsoft.JavaScript.LibNode` packages Node.js from `deps/nodejs` built as a
+shared library (libnode), with the C embedding API
+(`deps/nodejs/src/node_embedding_api.h`, version 1) that node-api-dotnet uses.
+`scripts/libnode-build.ts` builds, tests, checks, stages, packs, and
+smoke-tests it; only Windows is implemented so far:
+
+```powershell
+node scripts\libnode-build.ts --platform x64 --configuration release --test --check --stage out\libnode\stage\win-x64
+node scripts\libnode-build.ts --pack out\libnode\stage --output out\libnode\packages
+node scripts\libnode-build.ts --smoke out\libnode\packages
+```
+
+- The build runs `vcbuild.bat <config> <arch> dll cfg full-icu v8temporal` with
+  the `no-*` flags: full ICU, Temporal (it needs Rust), and Node's other
+  defaults. It shares `deps\nodejs\out\<Config>` with the v8jsi build: use a
+  separate worktree, or build again until nearly a no-op after switching.
+- Windows shared builds get the Hybrid CRT and v8jsi's hardening from
+  `src/libnode_settings.gypi`, which `common.gypi` includes.
+- `--test` runs `tools\test.py embedding`: Node's embedding tests plus the C and
+  C++ API tests in `deps/nodejs/test/embedding`. `--smoke` builds the consumer in
+  `tests/libnode/` from a packed package and runs `tests/libnode/features.js`.
+- The embedding API has its own Stela configuration, `stela.libnode.config.json`,
+  and baseline, `api/node_embedding.model.json`. The header predates Stela's
+  conventions and can't change, so `header-check.ts` doesn't lint it.
+  libnode.dll embeds its manifest through `src/libnode.gyp`.
+
 ## Source layout
 
 ### Core (`src/`)

@@ -2335,7 +2335,9 @@ def configure_v8(o, configs):
   o['variables']['v8_use_perfetto'] = 1 if options.with_perfetto else 0
   o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
   o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
-  o['variables']['force_dynamic_crt'] = 1 if options.shared else 0
+  # v8-jsi: Windows shared builds (libnode.dll) keep V8 on the static C++
+  # runtime, matching common.gypi (the Hybrid CRT).
+  o['variables']['force_dynamic_crt'] = 1 if options.shared and flavor != 'win' else 0
   o['variables']['node_enable_d8'] = b(options.enable_d8)
   o['variables']['node_enable_v8windbg'] = b(options.enable_v8windbg)
   o['variables']['node_enable_v8debughelper'] = b(options.enable_v8debughelper)

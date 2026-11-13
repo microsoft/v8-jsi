@@ -1,0 +1,12 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Copy the libnode.dll file to the output directory. -->
+  <ItemGroup Condition=" '$(LibNodeCopyDLL)' == 'True' ">
+    <None Include="$(MSBuildThisFileDirectory)..\..\runtimes\$rid$\native\$libnodeName$">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>runtimes\$rid$\native\$libnodeName$</TargetPath>
+      <Pack>false</Pack>
+    </None>
+  </ItemGroup>
+
+</Project>

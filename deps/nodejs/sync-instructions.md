@@ -4,7 +4,10 @@ This Node.js tree is vendored. The hunks below are v8-jsi-side additions
 that the fork-sync must keep when upstream Node.js diverges around them.
 Defaults are unchanged: every patch is gated on opt-in (`--build-v8jsi`,
 `v8jsi` / `no-*` keywords, `target_arch=="ia32"`, etc.), so upstream
-behavior is preserved when the new options aren't requested.
+behavior is preserved when the new options aren't requested. Two exceptions:
+the libnode embedding API and its tests are part of every Node.js build of
+this tree, and Windows shared builds (`--shared`, vcbuild `dll`), which here
+are always libnode, get the Hybrid CRT and hardening.
 
 ## Rule of thumb
 
@@ -59,9 +62,36 @@ the API, compiler phase, or default that our patch originally extended.
   `scripts/check-root-certs.ts` fails CI if an eMudhra root returns or Node's
   `kBlockedSPKIs` list loses an entry. Drop this contract once upstream
   removes the root.
+- **libnode embedding API (version 1):** the local-only files
+  `src/node_embedding_api.h`, `src/node_embedding_api.cc`, and
+  `src/node_embedding_api_cpp.h`, listed in node.gyp's `node_sources` and
+  headers. The header is a published ABI: `api/node_embedding.model.json` and
+  `stela.libnode.config.json` (repository root) fail the build on any change.
+  The `.cc` uses Node's embedder API and internals (`CommonEnvironmentSetup`,
+  `LoadEnvironment`, `node_napi_env__::New`, `napi_env__`'s scope counters, the
+  event loop, cppgc setup); adapt it when upstream changes them.
+- **libnode embedding tests:** the local-only `test/embedding` files
+  (`embedtest_c_api*`, `embedtest_c_cpp_api*`, `embedtest_main.cc`,
+  `embedding-api-test-cases.js`, `test-embedding-c-api.js`,
+  `test-embedding-c-cpp-api.js`, `preload-with-worker.js`,
+  `use-linked-modules.js`); in `embedtest.cc`, `test_main_cpp_api` instead of
+  `NODE_MAIN` and the `uv.h` include, because `embedtest_main.cc` owns `main`;
+  and in node.gyp, those sources in `embedtest`, which is also built for the
+  Windows shared library. vcbuild.bat's target list builds `shared_embedtest`
+  with `embedtest`.
+- **libnode on Windows:** `class NODE_EXTERN EmbedderSnapshotData` and its
+  `struct NODE_EXTERN DeleteSnapshotData` in `src/node.h` (upstream exports
+  neither, so `embedtest` can't link against libnode.dll); the static C++
+  runtime for shared builds in common.gypi (`MSVC_runtimeType`) and
+  configure.py (`force_dynamic_crt`); common.gypi's include of
+  `../../src/libnode_settings.gypi` (the Hybrid CRT and hardening); and
+  node.gyp's include of `../../src/libnode.gyp` with the libnode target's
+  `libnode_stela_gen` dependency (the embedded API manifest).
 - **Full-Node inputs for libnode:** ICU (`deps/icu-small`), LIEF, amaro,
   undici, acorn, minimatch, `deps/uv/src/unix`, the Linux and macOS OpenSSL
-  configurations, the V8 valgrind header, `test/common`, `test/testpy`,
+  configurations, the OpenSSL command-line sources (`deps/openssl/openssl/apps`,
+  which `node.gypi` makes every Node.js target depend on), the V8 valgrind
+  header, `test/common`, `test/testpy`,
   `test/root.status`, and the four fixtures the embedding tests load are
   synced in full (see `.syncignore`), except the npm lockfiles in undici and
   minimatch, which are not build inputs. They were copied in once from the

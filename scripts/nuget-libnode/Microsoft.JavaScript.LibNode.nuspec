@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Microsoft.JavaScript.LibNode</id>
+    <version>$version$</version>
+    <description>Node.js library</description>
+    <title>Node.js library</title>
+    <authors>Microsoft</authors>
+    <projectUrl>https://nodejs.org/</projectUrl>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <copyright>&#169; Microsoft Corporation. All rights reserved.</copyright>
+    <repository type="git" url="$repoUrl$" branch="$repoBranch$" commit="$repoCommit$" />
+    <icon>icon.png</icon>
+    <language>en-US</language>
+    <readme>README.md</readme>
+    <tags>native JavaScript JS V8 library node.js node NodeAPI Node-API NAPI</tags>
+    <dependencies>
+      <dependency id="Microsoft.JavaScript.LibNode.linux-arm64" version="$version$" />
+      <dependency id="Microsoft.JavaScript.LibNode.linux-x64" version="$version$" />
+      <dependency id="Microsoft.JavaScript.LibNode.osx-arm64" version="$version$" />
+      <dependency id="Microsoft.JavaScript.LibNode.osx-x64" version="$version$" />
+      <dependency id="Microsoft.JavaScript.LibNode.win-arm64" version="$version$" />
+      <dependency id="Microsoft.JavaScript.LibNode.win-x64" version="$version$" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="$nugetroot$\_._" target="lib\netstandard2.0\" />
+    <file src="$nugetroot$\LICENSE" target="LICENSE" />
+    <file src="$nugetroot$\NOTICE.txt" target="" />
+    <file src="$nugetroot$\README.md" target="" />
+    <file src="$nugetroot$\icon.png" target="" />
+  </files>
+</package>
