@@ -112,10 +112,12 @@
 !/deps/openssl/config/archs/darwin64-arm64-cc/
 !/deps/openssl/config/archs/darwin64-arm64-cc/**
 
-# ── deps/openssl/openssl/ internals — drop test/doc/cli source ─────
-# These are referenced only by the openssl-cli and fuzz_* targets
-# which Part A excludes from the build.
-/deps/openssl/openssl/apps/
+# ── deps/openssl/openssl/ internals — drop test/doc source ─────────
+# These are referenced only by the fuzz_* targets, which Part A excludes
+# from the build. apps/ stays synced: node.gypi makes every Node.js
+# target, libnode included, depend on openssl-cli (a test tool).
+# Its sample PEM keys, certificates, and requests are not build inputs.
+/deps/openssl/openssl/apps/*.pem
 /deps/openssl/openssl/fuzz/
 /deps/openssl/openssl/doc/
 /deps/openssl/openssl/external/
