@@ -3,8 +3,11 @@
 #
 # Single source of truth for the binary-signing step so the build jobs don't
 # each carry a copy. Callers pass the folder to search and the minimatch
-# pattern(s) selecting the files to sign; the ESRP account, signing key
-# (CP-230012), and SigntoolSign/Verify operations are fixed here.
+# pattern(s) selecting the files to sign; the ESRP account and the
+# SigntoolSign/Verify operations are fixed here. The signing key defaults to
+# CP-230012 (signer "Microsoft Corporation"); libnode.dll passes CP-231522
+# (signer "Microsoft 3rd Party Application Component"), the key its
+# Microsoft.JavaScript.LibNode 20.x packages were signed with.
 #
 parameters:
 - name: displayName
@@ -16,6 +19,9 @@ parameters:
   # folderPath (useMinimatch). A single value works too.
 - name: pattern
   type: string
+- name: keyCode
+  type: string
+  default: CP-230012
 
 steps:
 - task: EsrpCodeSigning@6
@@ -35,7 +41,7 @@ steps:
     inlineOperation: |
       [
         {
-          "KeyCode" : "CP-230012",
+          "KeyCode" : "${{ parameters.keyCode }}",
           "OperationCode" : "SigntoolSign",
           "Parameters" : {
             "OpusName" : "Microsoft",
@@ -48,7 +54,7 @@ steps:
           "ToolVersion" : "1.0"
         },
         {
-          "KeyCode" : "CP-230012",
+          "KeyCode" : "${{ parameters.keyCode }}",
           "OperationCode" : "SigntoolVerify",
           "Parameters" : {},
           "ToolName" : "sign",

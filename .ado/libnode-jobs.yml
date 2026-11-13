@@ -1,0 +1,206 @@
+# Microsoft.JavaScript.LibNode: libnode built from deps/nodejs with the C
+# embedding API. Each platform job builds natively, runs Node.js's embedding
+# tests, checks the library (imports, exports, Stela manifest, BinSkim), and
+# stages it. The pack job makes the per-RID packages from the staged platforms,
+# and each smoke job builds a C consumer from its platform's package and runs
+# it. Every step is one scripts/libnode-build.ts invocation, so each one can be
+# reproduced locally.
+
+parameters:
+  # isPublish is `true` for CI builds and `false` for PR validation.
+- name: isPublish
+  type: boolean
+  default: false
+- name: platforms
+  type: object
+  default:
+  - Platform: x64
+    Rid: win-x64
+  - Platform: arm64
+    Rid: win-arm64
+
+jobs:
+- ${{ each p in parameters.platforms }}:
+  - job: LibNodeBuild_${{ p.Platform }}
+    displayName: Build LibNode (${{ p.Rid }})
+
+    # Wait for the computed config.json, which stamps the libnode version.
+    dependsOn: V8JsiComputeVersion
+
+    timeoutInMinutes: 300
+
+    # arm64 builds and tests natively on the ARM64 pool. The pool also has the
+    # Linux ARM64 image, and a job that names no image gets the first one, so
+    # the job names its image. hostArchitecture must be arm64: 1ES PT defaults
+    # it to amd64 and fails an amd64 host on an ARM VM SKU. x64 inherits the
+    # top-level pool and image.
+    ${{ if eq(p.Platform, 'arm64') }}:
+      pool:
+        name: windows-2025-1espt-arm64
+        image: windows-2025-1espt-arm64
+        os: windows
+        hostArchitecture: arm64
+
+    variables:
+    - name: Packaging.EnableSBOMSigning
+      value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+
+    templateContext:
+      outputs:
+      - output: pipelineArtifact
+        artifactName: libnode-${{ p.Rid }}
+        targetPath: $(Build.StagingDirectory)\libnode\${{ p.Rid }}
+
+    steps:
+      # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
+      # retention post-job still runs on the Node 10 handler.
+    - ${{ if eq(p.Platform, 'arm64') }}:
+      - template: /.ado/ensure-node10-shim.yml@self
+
+    - template: /.ado/overlay-version-config.yml@self
+
+    - task: UseNode@1
+      displayName: Use Node.js 24.x
+      inputs:
+        version: '24.x'
+
+      # BinSkim (run by --check) installs from the react-native-public ADO
+      # feed through nuget.exe.
+    - task: NuGetToolInstaller@1
+      displayName: Install NuGet tools
+      inputs:
+        versionSpec: ">=4.6.0"
+
+    - task: NuGetAuthenticate@1
+      displayName: Authenticate NuGet (BinSkim feed)
+
+    - pwsh: |
+        node scripts/libnode-build.ts --platform ${{ p.Platform }} --configuration release
+      displayName: Build libnode.dll
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - pwsh: |
+        node scripts/libnode-build.ts --no-build --test --platform ${{ p.Platform }} --configuration release
+      displayName: Embedding tests
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - pwsh: |
+        node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
+      displayName: Check imports, exports, Stela manifest, and BinSkim
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - pwsh: |
+        node scripts/libnode-build.ts --no-build --platform ${{ p.Platform }} --configuration release `
+            --stage "$(Build.StagingDirectory)\libnode\${{ p.Rid }}"
+      displayName: Stage libnode.dll, its import library, symbols, and headers
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - ${{ if parameters.isPublish }}:
+      - template: /.ado/templates/esrp-codesign-binaries.yml@self
+        parameters:
+          displayName: CodeSign libnode.dll
+          folderPath: $(Build.StagingDirectory)\libnode\${{ p.Rid }}
+          pattern: libnode.dll
+          keyCode: CP-231522
+
+  # The per-RID packages of the staged platforms. The meta package needs all
+  # six platforms, so it is not packed until the Linux and macOS jobs exist.
+- job: LibNodePack
+  displayName: Pack LibNode
+  dependsOn:
+  - V8JsiComputeVersion
+  - ${{ each p in parameters.platforms }}:
+    - LibNodeBuild_${{ p.Platform }}
+
+  templateContext:
+    outputs:
+    - output: pipelineArtifact
+      artifactName: libnode-packages
+      targetPath: $(Build.StagingDirectory)\libnode-packages
+
+  steps:
+    # The package version comes from the computed config.json.
+  - template: /.ado/overlay-version-config.yml@self
+
+  - task: UseNode@1
+    displayName: Use Node.js 24.x
+    inputs:
+      version: '24.x'
+
+  - task: NuGetToolInstaller@1
+    displayName: Install NuGet tools
+    inputs:
+      versionSpec: ">=4.6.0"
+
+  - ${{ each p in parameters.platforms }}:
+    - task: DownloadPipelineArtifact@2
+      displayName: Download libnode-${{ p.Rid }}
+      inputs:
+        artifact: libnode-${{ p.Rid }}
+        path: $(Build.StagingDirectory)\libnode-stage\${{ p.Rid }}
+
+    # --pack also leaves its staging folder in the output folder, so only the
+    # packages are copied to the published folder.
+  - pwsh: |
+      node scripts/libnode-build.ts --pack "$(Build.StagingDirectory)\libnode-stage" `
+          --output "$(Build.StagingDirectory)\libnode-pack"
+      if ($LASTEXITCODE -ne 0) { throw "libnode pack FAILED (exit $LASTEXITCODE)" }
+      $packages = "$(Build.StagingDirectory)\libnode-packages"
+      New-Item -ItemType Directory -Force -Path $packages | Out-Null
+      Copy-Item "$(Build.StagingDirectory)\libnode-pack\*.nupkg" $packages
+      Get-ChildItem $packages | ForEach-Object { Write-Host "$($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MB)" }
+    displayName: NuGet pack (per-RID packages)
+    workingDirectory: $(Build.SourcesDirectory)
+
+  - ${{ if parameters.isPublish }}:
+    - template: /.ado/templates/esrp-codesign-nuget.yml@self
+      parameters:
+        displayName: CodeSign LibNode NuGets
+        folderPath: $(Build.StagingDirectory)\libnode-packages
+        pattern: |
+          Microsoft.JavaScript.LibNode.*.nupkg
+
+  # Each platform's package as a consumer gets it: the smoke test compiles a C
+  # and C++ consumer against the package's headers and import library and runs
+  # tests/libnode/features.js with the package's libnode.dll.
+- ${{ each p in parameters.platforms }}:
+  - job: LibNodeSmoke_${{ p.Platform }}
+    displayName: Smoke test LibNode package (${{ p.Rid }})
+    dependsOn: LibNodePack
+
+    ${{ if eq(p.Platform, 'arm64') }}:
+      pool:
+        name: windows-2025-1espt-arm64
+        image: windows-2025-1espt-arm64
+        os: windows
+        hostArchitecture: arm64
+
+    steps:
+    - ${{ if eq(p.Platform, 'arm64') }}:
+      - template: /.ado/ensure-node10-shim.yml@self
+
+    - task: UseNode@1
+      displayName: Use Node.js 24.x
+      inputs:
+        version: '24.x'
+
+    - task: DownloadPipelineArtifact@2
+      displayName: Download libnode-packages
+      inputs:
+        artifact: libnode-packages
+        path: $(Build.StagingDirectory)\libnode-packages
+
+    - pwsh: |
+        node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)\libnode-packages" --platform ${{ p.Platform }}
+      displayName: Smoke test
+      workingDirectory: $(Build.SourcesDirectory)
+
+      # The smoke test extracted the package; its libnode.dll must carry a
+      # valid signature on publishing builds.
+    - ${{ if parameters.isPublish }}:
+      - pwsh: |
+          $dll = "$(Build.StagingDirectory)\libnode-packages\smoke\${{ p.Rid }}\package\runtimes\${{ p.Rid }}\native\libnode.dll"
+          $signature = Get-AuthenticodeSignature $dll
+          Write-Host "$($signature.Status): $($signature.SignerCertificate.Subject)"
+          if ($signature.Status -ne 'Valid') { throw "The packaged libnode.dll has no valid signature" }
+        displayName: Check the packaged libnode.dll signature

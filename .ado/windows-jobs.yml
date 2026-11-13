@@ -185,15 +185,16 @@ extends:
 
           # ARM64 cells build natively on the ARM64 managed-image pool so their
           # tests actually execute -- on an x64 agent build.ts can only cross-
-          # compile arm64 and skips the tests. windows-2025-1espt-arm64 is a
-          # single-image pool, so it takes no ImageOverride demand. x64/x86 cells
-          # inherit the top-level fabric-internal-pool-large pool, which pins the
-          # windows-2025-1espt image. hostArchitecture must be arm64: 1ES PT
-          # defaults it to amd64, and its pre-job fails an amd64 host on an ARM
-          # VM SKU.
+          # compile arm64 and skips the tests. The pool also has the Linux ARM64
+          # image, and a job that names no image gets the first one, so the
+          # cells name theirs. x64/x86 cells inherit the top-level
+          # fabric-internal-pool-large pool, which pins the windows-2025-1espt
+          # image. hostArchitecture must be arm64: 1ES PT defaults it to amd64,
+          # and its pre-job fails an amd64 host on an ARM VM SKU.
           ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
+              image: windows-2025-1espt-arm64
               os: windows
               hostArchitecture: arm64
 
@@ -288,12 +289,13 @@ extends:
 
           # ARM64 builds natively on the ARM64 managed-image pool so its Untrusted
           # lockdown tier can execute (AA64 binaries can't run on an x64 agent).
-          # It's a single-image pool, so no ImageOverride demand; hostArchitecture
-          # arm64 satisfies the 1ES PT host-architecture check. x64/x86 keep the
-          # existing image, unchanged.
+          # The pool also has the Linux ARM64 image, so the job names its image;
+          # hostArchitecture arm64 satisfies the 1ES PT host-architecture check.
+          # x64/x86 keep the existing image, unchanged.
           ${{ if eq(sb.BuildPlatform, 'arm64') }}:
             pool:
               name: windows-2025-1espt-arm64
+              image: windows-2025-1espt-arm64
               os: windows
               hostArchitecture: arm64
           ${{ else }}:
@@ -587,6 +589,14 @@ extends:
                   **\mkv8snapshot.exe
 
         # =====================================================================
+        # Microsoft.JavaScript.LibNode: build, test, check, sign, pack, and
+        # smoke-test libnode (.ado/libnode-jobs.yml).
+        # =====================================================================
+      - template: /.ado/libnode-jobs.yml@self
+        parameters:
+          isPublish: ${{ parameters.isPublish }}
+
+        # =====================================================================
         # Node.js-source NuGet aggregator: Microsoft.JavaScript.V8. Collects the
         # per-RID pkg-staging that each Release V8JsiBuildNew_* cell uploaded and
         # runs scripts/build.ts --pack to emit the 4-pack (3 per-RID
@@ -702,11 +712,13 @@ extends:
             dependsOn: V8JsiCreateNugetNew
             displayName: Acceptance signed pack ${{ matrix.Name }}
 
-            # arm64 runs natively on the ARM64 pool; x64/x86 inherit the top-
-            # level windows-2025-1espt image (x86 consumer runs via WOW64).
+            # arm64 runs natively on the ARM64 pool, naming its Windows image;
+            # x64/x86 inherit the top-level windows-2025-1espt image (x86
+            # consumer runs via WOW64).
             ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
               pool:
                 name: windows-2025-1espt-arm64
+                image: windows-2025-1espt-arm64
                 os: windows
                 hostArchitecture: arm64
 
