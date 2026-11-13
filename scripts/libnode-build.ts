@@ -9,7 +9,8 @@
 // Each platform builds, tests, checks, and stages on a machine of its own
 // architecture: cross-compiling would turn off Node's startup snapshot. --pack
 // then makes the packages from the staged platforms, and --smoke builds a C
-// consumer from a platform package and runs tests/libnode/features.js with it.
+// consumer and a .NET app from a platform package and runs
+// tests/libnode/features.js with each.
 //
 //   node scripts/libnode-build.ts [--platform x64|arm64] [--configuration release|debug]
 //        [--no-build] [--test] [--check] [--stage <dir>]
@@ -132,9 +133,9 @@ Package operations:
                              only when all of ${allRids.join(", ")} are staged
   --output <dir>             Package output folder (required with --pack)
   --semantic-version <v>     Package version (default: config.json v8jsi_version)
-  --smoke <package-dir>      Build the C consumer in tests/libnode from the
-                             --platform package in <package-dir> and run
-                             tests/libnode/features.js with it
+  --smoke <package-dir>      Build a C consumer and a .NET app (tests/libnode) from
+                             the --platform package in <package-dir> and run
+                             tests/libnode/features.js with each
 
   --tools-path <dir>         Tool cache for NASM and BinSkim (default: out\\tools)
   --help                     Show this help`);
@@ -587,13 +588,64 @@ function runSmoke(platform: string, packageDir: string): void {
     path.join(packageRoot, "runtimes", rid, "native", packageLibraryName(rid)),
     path.join(workDir, packageLibraryName(rid)),
   );
-  run(`"${exe}"`, [
+  const featuresArgs = [
     `"${path.join(smokeSourceDir, "features.js")}"`,
     "--expect-version",
     nodejsVersion(),
     "--expect-roots",
     String(rootCertificateCount()),
-  ], { cwd: workDir });
+  ];
+  run(`"${exe}"`, featuresArgs, { cwd: workDir });
+
+  // The same check from a .NET app that references the package. It restores
+  // only from <package-dir> into its own package cache, so it uses this package
+  // and nothing from the network or an earlier restore.
+  console.log(`\n=== .NET smoke test of ${packages[0]} ===\n`);
+  const version = packages[0].slice(`${packageId}.${rid}.`.length, -".nupkg".length);
+  const dotnetDir = path.join(workDir, "dotnet");
+  const dotnetOut = path.join(dotnetDir, "bin");
+  ensureDir(dotnetDir);
+  for (const file of ["LibNodeSmoke.csproj", "Program.cs"]) {
+    fs.copyFileSync(path.join(smokeSourceDir, "dotnet", file), path.join(dotnetDir, file));
+  }
+  fs.writeFileSync(
+    path.join(dotnetDir, "NuGet.config"),
+    [
+      `<?xml version="1.0" encoding="utf-8"?>`,
+      `<configuration>`,
+      `  <packageSources>`,
+      `    <clear />`,
+      `    <add key="libnode" value="${packageDir}" />`,
+      `  </packageSources>`,
+      `</configuration>`,
+      ``,
+    ].join("\n"),
+  );
+  const dotnetEnv = {
+    ...process.env,
+    NUGET_PACKAGES: path.join(workDir, "nuget-packages"),
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+    DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: "1",
+    DOTNET_NOLOGO: "1",
+  };
+  run(
+    "dotnet",
+    [
+      "build",
+      `"${path.join(dotnetDir, "LibNodeSmoke.csproj")}"`,
+      "--configuration",
+      "Release",
+      `-p:LibNodeRid=${rid}`,
+      `-p:LibNodeVersion=${version}`,
+      "--output",
+      `"${dotnetOut}"`,
+    ],
+    { cwd: dotnetDir, env: dotnetEnv },
+  );
+  run("dotnet", [`"${path.join(dotnetOut, "LibNodeSmoke.dll")}"`, ...featuresArgs], {
+    cwd: workDir,
+    env: dotnetEnv,
+  });
 }
 
 // =============================================================================
