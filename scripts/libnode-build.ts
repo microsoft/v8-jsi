@@ -68,6 +68,29 @@ const packageHeaders: Record<string, string[]> = {
 //            on v8jsi.dll.
 const acceptedBinSkimRules = new Set(["BA2014", "BA2025"]);
 
+// The DLLs libnode.dll may import, besides the UCRT API sets: Windows system
+// DLLs only, with no Visual C++ runtime DLLs (the Hybrid CRT). Any other DLL fails
+// the check so that a new dependency gets reviewed. ntdll, bcryptprimitives
+// (ProcessPrng), and api-ms-win-core-synch-l1-2-0 (WaitOnAddress) come from the
+// Rust standard library that the Temporal library links in.
+const allowedImports = new Set([
+  "advapi32.dll",
+  "api-ms-win-core-synch-l1-2-0.dll",
+  "bcrypt.dll",
+  "bcryptprimitives.dll",
+  "crypt32.dll",
+  "dbghelp.dll",
+  "iphlpapi.dll",
+  "kernel32.dll",
+  "ntdll.dll",
+  "ole32.dll",
+  "shell32.dll",
+  "user32.dll",
+  "userenv.dll",
+  "winmm.dll",
+  "ws2_32.dll",
+]);
+
 // =============================================================================
 // CLI
 // =============================================================================
@@ -345,13 +368,13 @@ async function runChecks(platform: string, configuration: string, toolsPath: str
   let failed = false;
 
   console.log(`\n=== Imports (${rid} ${configuration}) ===\n`);
-  // The Hybrid CRT: only Windows itself, no Visual C++ runtime DLLs.
-  const system32 = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32");
   for (const dll of dependentDlls(library)) {
-    const isSystem =
-      /^api-ms-win-/i.test(dll) || fs.existsSync(path.join(system32, dll));
-    const isVcRuntime = /^(vcruntime|msvcp|concrt|vccorlib)/i.test(dll);
-    const ok = isSystem && !isVcRuntime;
+    const name = dll.toLowerCase();
+    const ok =
+      allowedImports.has(name) ||
+      /^api-ms-win-crt-[a-z]+-l1-1-0\.dll$/.test(name) ||
+      // The Debug Hybrid CRT uses the debug UCRT from the Windows SDK.
+      (configuration === "debug" && name === "ucrtbased.dll");
     console.log(`  ${ok ? "ok  " : "FAIL"} ${dll}`);
     if (!ok) failed = true;
   }
