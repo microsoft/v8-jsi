@@ -12,10 +12,12 @@ parameters:
     PoolName: fabric-internal-pool-large
     Image: azurelinux3-1espt
     HostArchitecture: amd64
-  - Name: linux_arm64
-    PoolName: azurelinux3-1espt-arm64
-    Image: ''
-    HostArchitecture: arm64
+  # The arm64 cell returns once the ARM64 pool exists. That pool lists the
+  # Windows ARM64 image first, so the Linux job must name its image:
+  # - Name: linux_arm64
+  #   PoolName: <the ARM64 pool>
+  #   Image: azurelinux3-1espt-arm64
+  #   HostArchitecture: arm64
 
 resources:
   repositories:
