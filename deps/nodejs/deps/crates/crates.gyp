@@ -64,7 +64,9 @@
           ['OS=="win"', {
             'libraries': [
               '-lntdll',
-              '-luserenv'
+              '-luserenv',
+              # Rust's prebuilt std can leave its futex API imports unresolved.
+              '-lsynchronization',
             ],
           }],
         ],
