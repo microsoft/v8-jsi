@@ -5,9 +5,10 @@
 # each carry a copy. Callers pass the folder to search and the minimatch
 # pattern(s) selecting the files to sign; the ESRP account and the
 # SigntoolSign/Verify operations are fixed here. The signing key defaults to
-# CP-230012 (signer "Microsoft Corporation"); libnode.dll passes CP-231522
-# (signer "Microsoft 3rd Party Application Component"), the key its
-# Microsoft.JavaScript.LibNode 20.x packages were signed with.
+# CP-230012 (signer "Microsoft Corporation"). libnode.dll, which is Node.js built
+# here, passes CP-231522 (signer "Microsoft 3rd Party Application Component"),
+# the key for third-party and open-source components that Microsoft builds or
+# redistributes.
 #
 parameters:
 - name: displayName

@@ -132,7 +132,8 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
   (`allowedImports`); review a new dependency before adding it there.
 - CI runs these steps in `.ado/libnode-jobs.yml`: one job per platform (arm64 on
   the ARM64 pool), then pack, then a smoke job per platform. Publishing builds
-  sign libnode.dll with key CP-231522, as the 20.x packages were.
+  sign libnode.dll with key CP-231522, the key for third-party and open-source
+  components (libnode.dll is Node.js); v8jsi.dll uses CP-230012.
 - The embedding API has its own Stela configuration, `stela.libnode.config.json`,
   and baseline, `api/node_embedding.model.json`. The header predates Stela's
   conventions and can't change, so `header-check.ts` doesn't lint it.
