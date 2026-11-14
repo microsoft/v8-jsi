@@ -110,6 +110,17 @@
       "ruleId": "BA2014",
       "createdDate": "2026-11-13 00:00:00Z",
       "justification": "BA2014 on win-x64 libnode.dll lists the Rust standard library (std, core, alloc, compiler_builtins, panic_unwind) that Node.js links in for V8's Temporal support (deps/crates). The Rust project ships it precompiled without stack protection, and stable Rust has no /GS equivalent. The other three functions are the same compiler-generated, buffer-less V8 closure thunks as in the v8jsi.dll suppression. No stack protection is disabled in Node.js or v8-jsi C and C++ code. Per-binary and per-RID signature."
+    },
+    "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07": {
+      "signature": "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07",
+      "target": "libnode/win-arm64/libnode.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-11-13 00:00:00Z",
+      "justification": "BA2014 on win-arm64 libnode.dll -- the same 1,714 precompiled Rust standard-library functions without stack protection and three compiler-generated, buffer-less V8 closure thunks as in the win-x64 libnode.dll suppression. No stack protection is disabled in Node.js or v8-jsi C and C++ code. Per-binary and per-RID signature."
     }
   }
 }
