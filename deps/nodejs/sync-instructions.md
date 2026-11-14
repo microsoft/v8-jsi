@@ -99,13 +99,15 @@ the API, compiler phase, or default that our patch originally extended.
   header, `test/common`, `test/testpy`,
   `test/root.status`, and the four fixtures the embedding tests load are
   synced in full (see `.syncignore`), except the npm lockfiles in undici and
-  minimatch, which are not build inputs. They were copied in once from the
-  upstream commit, because `keepLocalDeletions` keeps a pruned path absent
-  even after its ignore rule is removed. Upstream marks a few of these files
-  executable, and Windows checkouts drop that bit, so stage new copies with
-  `git update-index --chmod=+x` where upstream has it. A few upstream files
-  also match Git ignore rules here (undici's `src/build/`, mbedtls's
-  `error.c` under LIEF); add those with `git add -f`.
+  minimatch and the sample keys, certificates, and requests in
+  `deps/openssl/openssl/apps/*.pem`, which are not build inputs. Never restore
+  key or certificate files that the build doesn't use. The inputs were copied
+  in once from the upstream commit, because `keepLocalDeletions` keeps a
+  pruned path absent even after its ignore rule is removed. Upstream marks a
+  few of these files executable, and Windows checkouts drop that bit, so stage
+  new copies with `git update-index --chmod=+x` where upstream has it. A few
+  upstream files also match Git ignore rules here (undici's `src/build/`,
+  mbedtls's `error.c` under LIEF); add those with `git add -f`.
 
 ## When to call human
 
