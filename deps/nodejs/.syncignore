@@ -215,3 +215,6 @@
 /deps/ngtcp2/ngtcp2/examples/sim.cc
 /deps/ngtcp2/ngtcp2/third-party/urlparse/http-parser/test.c
 /deps/ngtcp2/ngtcp2/third-party/http-parser/test.c
+
+# OpenSSL sample PEMs are not build inputs, even when CLI sources are needed.
+/deps/openssl/openssl/apps/*.pem
