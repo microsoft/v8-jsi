@@ -1526,6 +1526,12 @@ def get_openssl_macros(o):
           '-']
   if not options.shared_openssl:
     args = ['-I', 'deps/openssl/openssl/include'] + args
+    # v8-jsi: probe with the configuration the build uses. Without
+    # OPENSSL_NO_ASM the asm dispatch headers have no Windows ARM64 entry and
+    # fall back to linux-elf, which this tree prunes; the probe then fails and
+    # ncrypto is configured for a pre-3.0 OpenSSL.
+    if o['variables'].get('openssl_no_asm') == 1:
+      args = ['-DOPENSSL_NO_ASM'] + args
   elif options.shared_openssl_includes:
     args = ['-I', options.shared_openssl_includes] + args
   else:

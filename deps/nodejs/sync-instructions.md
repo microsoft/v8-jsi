@@ -87,6 +87,11 @@ the API, compiler phase, or default that our patch originally extended.
   `../../src/libnode_settings.gypi` (the Hybrid CRT and hardening); and
   node.gyp's include of `../../src/libnode.gyp` with the libnode target's
   `libnode_stela_gen` dependency (the embedded API manifest).
+- **OpenSSL version probe:** configure.py's `get_openssl_macros` adds
+  `-DOPENSSL_NO_ASM` when the build uses no-asm OpenSSL (`openssl_no_asm`,
+  which Windows ARM64 builds need). Otherwise, on a native Windows ARM64 host,
+  the asm dispatch headers fall back to the pruned `linux-elf` configuration,
+  the probe fails, and ncrypto is built for a pre-3.0 OpenSSL.
 - **Full-Node inputs for libnode:** ICU (`deps/icu-small`), LIEF, amaro,
   undici, acorn, minimatch, `deps/uv/src/unix`, the Linux and macOS OpenSSL
   configurations, the OpenSSL command-line sources (`deps/openssl/openssl/apps`,
