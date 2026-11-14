@@ -33,10 +33,124 @@ variables:
   - name: tags
     value: production,externalfacing
 
+# Temporary check of the Microsoft Rust toolchain on the Windows agent images.
+# Not for merging. Each job installs the toolchain with RustInstaller@1 and runs
+# .ado/msrust-check.ps1; no product is built.
+parameters:
+- name: rustVersion
+  displayName: Microsoft Rust toolchain
+  type: string
+  default: ms-prod-1.99
+- name: cells
+  type: object
+  default:
+  - Name: win_x64
+    Arch: x64
+    HostTriple: x86_64-pc-windows-msvc
+    VcArch: amd64
+    ExtraTargets: i686-pc-windows-msvc aarch64-pc-windows-msvc arm64ec-pc-windows-msvc
+  - Name: win_arm64
+    Arch: arm64
+    HostTriple: aarch64-pc-windows-msvc
+    VcArch: arm64
+    ExtraTargets: x86_64-pc-windows-msvc i686-pc-windows-msvc arm64ec-pc-windows-msvc
+
+resources:
+  repositories:
+  - repository: OfficePipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/OfficePipelineTemplates
+    ref: refs/tags/release
+
 extends:
-  template: windows-jobs.yml@self
+  template: v1/Office.Official.PipelineTemplate.yml@OfficePipelineTemplates
   parameters:
-    # CI builds must pass true.
-    isPublish: true
-    # It must be false for real builds. Use true only for the build pipeline debugging.
-    fakeBuild: false
+    featureFlags:
+      autoEnablePREfastWithNewRuleset: false
+    pool:
+      name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
+    sdl:
+      prefast:
+        enabled: false
+        justificationForDisabling: "Temporary toolchain check that builds no product code."
+      bandit:
+        excludedPaths: |
+          .gdn
+          deps\chromium
+      binskim:
+        analyzeTarget: |
+          $(Build.StagingDirectory)\out\pkg-staging\**\*.dll
+          $(Build.StagingDirectory)\out\pkg-staging\**\*.exe
+      eslint:
+        enableExclusions: true
+        exclusionPatterns: |
+          '**/*.*'
+      suppression:
+        suppressionFile: $(Build.SourcesDirectory)\.ado\guardian\SDL\.gdnsuppress
+      codeql:
+        compiled:
+          enabled: false
+          justificationForDisabling: "Temporary toolchain check that builds no product code."
+
+    stages:
+    - stage: msrust
+      jobs:
+      - ${{ each cell in parameters.cells }}:
+        - job: ${{ cell.Name }}
+          displayName: Microsoft Rust on ${{ cell.Arch }}
+          timeoutInMinutes: 90
+          # windows-2025-1espt-arm64 is a single-image pool; 1ES PT needs the arm64
+          # host architecture there. x64 uses the pool above.
+          ${{ if eq(cell.Arch, 'arm64') }}:
+            pool:
+              name: windows-2025-1espt-arm64
+              os: windows
+              hostArchitecture: arm64
+          templateContext:
+            outputs:
+            - output: pipelineArtifact
+              displayName: Publish the check report
+              targetPath: $(Build.ArtifactStagingDirectory)\msrust-check
+              artifactName: msrust-check-${{ cell.Name }}
+          steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - pwsh: ./.ado/msrust-check.ps1 -ReportOnly
+            displayName: Report Rust before the installation
+
+          - task: RustInstaller@1
+            displayName: Install Microsoft Rust ${{ parameters.rustVersion }}
+            retryCountOnTaskFailure: 2
+            inputs:
+              rustVersion: ${{ parameters.rustVersion }}
+              toolchainFeed: https://pkgs.dev.azure.com/office/_packaging/RustTools/nuget/v3/index.json
+
+            # A separate step, so that a missing cross target can't hide the host results.
+          - task: RustInstaller@1
+            displayName: Add the other Windows targets
+            continueOnError: true
+            inputs:
+              rustVersion: ${{ parameters.rustVersion }}
+              toolchainFeed: https://pkgs.dev.azure.com/office/_packaging/RustTools/nuget/v3/index.json
+              additionalTargets: ${{ cell.ExtraTargets }}
+
+            # BinSkim comes from the office Guardian feed: the internal build that
+            # Guardian runs, which has BA2030.
+          - task: NuGetToolInstaller@1
+            displayName: Install NuGet tools
+            inputs:
+              versionSpec: ">=4.6.0"
+
+          - task: NuGetAuthenticate@1
+            displayName: Authenticate NuGet (Guardian feed)
+
+          - pwsh: >-
+              ./.ado/msrust-check.ps1
+              -HostTriple ${{ cell.HostTriple }}
+              -ExtraTargets '${{ cell.ExtraTargets }}'
+              -VcArch ${{ cell.VcArch }}
+              -WorkDir '$(Agent.TempDirectory)\msrust-check'
+              -ReportDir '$(Build.ArtifactStagingDirectory)\msrust-check'
+            displayName: Check the Microsoft Rust toolchain
