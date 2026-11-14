@@ -98,7 +98,8 @@
             "name": "windows-dotnetcore-sdk",
             "parameters": {
                 "DotNetCoreVersion": "latest",
-                "Channel": "10.0"
+                "Channel": "10.0",
+                "Architecture": "arm64"
             }
         },
         {
