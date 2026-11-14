@@ -101,7 +101,10 @@ jobs:
           displayName: CodeSign libnode.dll
           folderPath: $(Build.StagingDirectory)\libnode\${{ p.Rid }}
           pattern: libnode.dll
-          keyCode: CP-231522
+          # Third-party and open-source components such as Node.js take
+          # CP-231522 ("Microsoft 3rd Party Application Component"). Switch to
+          # it once this pipeline's ESRP client can use that key.
+          keyCode: CP-230012
 
   # The per-RID packages of the staged platforms. The meta package needs all
   # six platforms, so it is not packed until the Linux and macOS jobs exist.
