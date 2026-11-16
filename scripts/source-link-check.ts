@@ -111,14 +111,17 @@ function readSourceLinkMap(pdbUtil: string, pdb: string): Record<string, string>
 
 // The source files of every module, from `llvm-pdbutil dump --files`: lines
 // such as "- (SHA-256: 0A1B...) D:\a\_work\1\s\src\v8_core.cpp" or "- (None: ) path".
+// Modules compiled at different times can record different checksums for the
+// same file, so each distinct (path, kind, checksum) record is kept.
 function readSources(pdbUtil: string, pdb: string): PdbSource[] {
   const out = execFileSync(pdbUtil, ["dump", "--files", pdb], { encoding: "utf-8", maxBuffer: 1 << 30 });
   const sources = new Map<string, PdbSource>();
   for (const line of out.split(/\r?\n/)) {
     const match = /^\s*- \(([^:)]*):\s*([0-9A-Fa-f]*)\) (.+)$/.exec(line);
     if (!match) continue;
-    const file = match[3].trim();
-    if (!sources.has(file)) sources.set(file, { path: file, kind: match[1], checksum: match[2].toLowerCase() });
+    const source = { path: match[3].trim(), kind: match[1], checksum: match[2].toLowerCase() };
+    const key = `${source.path}\0${source.kind}\0${source.checksum}`;
+    if (!sources.has(key)) sources.set(key, source);
   }
   return [...sources.values()];
 }
@@ -224,36 +227,37 @@ function checkPdb(pdbUtil: string, pdb: string, commit: string, strict: boolean)
   const tracked = trackedFiles(blobCommit);
 
   const own: { source: PdbSource; file: string }[] = [];
-  const notTracked: string[] = [];
-  const wrongCase: string[] = [];
-  const relativeChromium: string[] = [];
-  let generated = 0;
-  let foreign = 0;
+  const notTracked = new Set<string>();
+  const wrongCase = new Set<string>();
+  const relativeChromium = new Set<string>();
+  const generated = new Set<string>();
+  const foreign = new Set<string>();
   for (const source of readSources(pdbUtil, pdb)) {
     const lower = source.path.toLowerCase();
     if (lower.startsWith("o:\\")) {
-      relativeChromium.push(source.path);
+      relativeChromium.add(source.path);
       continue;
     }
     if (!lower.startsWith(rootRule.local)) {
-      foreign++;
+      foreign.add(lower);
       continue;
     }
     const relative = source.path.slice(rootRule.local.length);
     if (/^deps\\(nodejs|chromium)\\out\\/i.test(relative)) {
-      generated++;
+      generated.add(lower);
       continue;
     }
     const file = relative.replace(/\\/g, "/");
     const trackedFile = tracked.get(file.toLowerCase());
-    if (!trackedFile) notTracked.push(file);
-    else if (trackedFile !== file) wrongCase.push(`${file} (Git: ${trackedFile})`);
+    if (!trackedFile) notTracked.add(file);
+    else if (trackedFile !== file) wrongCase.add(`${file} (Git: ${trackedFile})`);
     else own.push({ source, file });
   }
 
-  const blobs = readBlobs(blobCommit, own.filter((o) => hashAlgorithms[o.source.kind]).map((o) => o.file));
-  const crlf: string[] = [];
-  const differs: string[] = [];
+  const ownFiles = new Set(own.map((o) => o.file));
+  const blobs = readBlobs(blobCommit, [...new Set(own.filter((o) => hashAlgorithms[o.source.kind]).map((o) => o.file))]);
+  const crlf = new Set<string>();
+  const differs = new Set<string>();
   let verified = 0;
   let unverifiable = 0;
   for (const { source, file } of own) {
@@ -264,19 +268,19 @@ function checkPdb(pdbUtil: string, pdb: string, commit: string, strict: boolean)
       continue;
     }
     if (hash(algorithm, blob) === source.checksum) verified++;
-    else if (hash(algorithm, toCrlf(blob)) === source.checksum) crlf.push(file);
-    else differs.push(file);
+    else if (hash(algorithm, toCrlf(blob)) === source.checksum) crlf.add(file);
+    else differs.add(file);
   }
 
   console.log(
-    `  sources: ${own.length + notTracked.length + wrongCase.length} ours (${verified} checksums match, ` +
-      `${unverifiable} without a checksum), ${generated} generated, ${foreign} not ours`,
+    `  sources: ${ownFiles.size + notTracked.size + wrongCase.size} ours (${verified} checksums match, ` +
+      `${unverifiable} without a checksum), ${generated.size} generated, ${foreign.size} not ours`,
   );
-  fail("relative Chromium source paths (o:\\...; build with gn symbol_level = 2)", relativeChromium);
-  fail("sources not tracked in Git", notTracked);
-  fail("sources whose case differs from Git", wrongCase);
-  strictOrWarn("sources built with CRLF line endings (Git has LF; check .gitattributes and core.autocrlf)", crlf);
-  strictOrWarn("sources that differ from Git", differs);
+  fail("relative Chromium source paths (o:\\...; build with gn symbol_level = 2)", [...relativeChromium]);
+  fail("sources not tracked in Git", [...notTracked]);
+  fail("sources whose case differs from Git", [...wrongCase]);
+  strictOrWarn("sources built with CRLF line endings (Git has LF; check .gitattributes and core.autocrlf)", [...crlf]);
+  strictOrWarn("sources that differ from Git", [...differs]);
   if (own.length === 0) fail("no sources under the repository root", [pdb]);
   if (!failed) console.log("  ok");
   return !failed;
