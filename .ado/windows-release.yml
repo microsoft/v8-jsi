@@ -103,15 +103,6 @@ extends:
           # the same bits the NuGet aggregator packs. Build once, sign once, reuse;
           # no dependence on a build.ts-staged symbols/ dir. Each artifact lands in
           # its own subfolder under a shared symbols/ root.
-          #
-          # TEMPORARY: the ARM64 artifacts (Desktop_ARM64_Release-new,
-          # sandbox-binaries-win-arm64) are intentionally omitted. Those cells build
-          # natively on the ARM64 pool, which has no x64 .NET yet, so they skip SBoM
-          # generation (sbomEnabled: false) — and this production release job forces
-          # SBoM validation on every consumed artifact, which then fails ("No SBOM
-          # found … \_manifest"). Restore both ARM64 inputs once the ARM64 image
-          # gains x64 .NET and the ARM64 build cells re-enable SBoM. (ARM64 PDBs
-          # still ship inside the NuGet package in the meantime.)
           inputs:
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci

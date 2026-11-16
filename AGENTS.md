@@ -103,6 +103,31 @@ in V8's DCHECKs).
 Run both test runners for the configuration being validated; test counts change
 as coverage is added or removed.
 
+## Symbols and Source Link
+
+Every shipped Windows binary (v8jsi.dll, v8jsisb.dll, mkv8snapshot.exe,
+sbox.exe, v8host.dll, libnode.dll) has a PDB with a GitHub Source Link map:
+`src/generate_source_link.ts` maps the repository root to
+`raw.githubusercontent.com/microsoft/v8-jsi/<commit>/`, and the link embeds it
+with lld-link `/pdbstream:sourcelink=` (`src/v8jsi.gyp`, `src/libnode.gyp`,
+the sandbox `BUILD.gn` files). Three things keep the sources resolvable:
+
+- The sandbox build uses gn `symbol_level = 2`, so Chromium records real source
+  paths instead of `o:\fake\prefix`-relative ones (and the PDBs carry full
+  debug information).
+- `.gitattributes` checks out text files with LF line endings, the bytes GitHub
+  serves; a debugger rejects a fetched file whose checksum differs from the PDB.
+  Build from a checkout made after that change (or re-check out the files).
+- `scripts/source-link-check.ts` fails a PDB whose map is missing, whose own
+  sources aren't tracked files with the same case, or (on CI, or with
+  `--strict`) whose map commit isn't HEAD or whose source checksums differ from
+  Git. `build.ts --test`, `sbox-build.ts --check`, and `libnode-build.ts --check`
+  run it; `node scripts/source-link-check.ts [--commit <sha>] <pdb>...` checks
+  any PDB, such as one from a package.
+
+The release pipeline publishes the PDBs to the internal symbol service
+(`.ado/templates/publish-symbols.yml`).
+
 ## LibNode
 
 `Microsoft.JavaScript.LibNode` packages Node.js from `deps/nodejs` built as a

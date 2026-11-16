@@ -168,7 +168,7 @@ jobs:
 
       - pwsh: |
           node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
-        displayName: Check imports, exports, Stela manifest, and BinSkim
+        displayName: Check imports, exports, Stela manifest, Source Link, and BinSkim
         workingDirectory: $(Build.SourcesDirectory)
 
       - pwsh: |

@@ -441,14 +441,14 @@ extends:
               displayName: Run JSI + Node-API gtests against v8jsisb.dll
               workingDirectory: $(Build.SourcesDirectory)
 
-              # Hygiene gates: export allowlist + Hybrid CRT + BinSkim, over this
-              # arch's out dir (--target-cpu resolves it). Exits non-zero on any
-              # unaccepted finding.
+              # Hygiene gates: export allowlist + Hybrid CRT + Source Link +
+              # BinSkim, over this arch's out dir (--target-cpu resolves it).
+              # Exits non-zero on any unaccepted finding.
             - pwsh: |
                 node scripts/sbox-build.ts --no-gen --no-build --check `
                     --target-cpu ${{ sb.BuildPlatform }} `
                     --output-path $(Build.StagingDirectory)\out
-              displayName: Sandbox hygiene gates (exports + Hybrid CRT + BinSkim)
+              displayName: Sandbox hygiene gates (exports + Hybrid CRT + Source Link + BinSkim)
               workingDirectory: $(Build.SourcesDirectory)
 
               # Stage the engine beside the plugin before the broker suites.

@@ -8,8 +8,10 @@
 # not just the PDB.
 #
 # NOTE: public MSDL publishing is intentionally not wired here yet — it needs a
-# symbol-project onboarding that isn't in place, and the shipped NuGet packages
-# already carry the PDBs. It can be added later via the SymbolRequestProd API.
+# symbol-project onboarding that isn't in place. The V8 packages carry their
+# PDBs; the LibNode packages don't (nuget.org's package size limit), so their
+# symbols are on the internal symbol service only. It can be added later via
+# the SymbolRequestProd API.
 #
 parameters:
   # Symbol request name (the org symbol service request).
@@ -24,7 +26,6 @@ parameters:
 steps:
 - task: PublishSymbols@2
   displayName: Publish Symbols to Microsoft Symbol Server
-  continueOnError: true
   inputs:
     # Publish with the pipeline's build identity (System.AccessToken); a
     # service connection whose identity lacks symbol rights fails (TF400813).

@@ -41,6 +41,7 @@ import {
   run,
   vswhereExe,
 } from "./build-common.ts";
+import { checkSourceLink } from "./source-link-check.ts";
 
 // =============================================================================
 // Constants
@@ -150,9 +151,9 @@ silicon Mac also builds and tests x64, under Rosetta 2):
   --no-build                 Skip the build; use the existing output
   --test                     Run Node.js's embedding tests (tools/test.py embedding)
   --check                    Check the library: Windows imports, exports, Stela
-                             manifest, and BinSkim; Linux needed libraries, glibc
-                             versions, and exports; macOS dependencies, install
-                             name, minimum macOS, and exports
+                             manifest, Source Link, and BinSkim; Linux needed
+                             libraries, glibc versions, and exports; macOS
+                             dependencies, install name, minimum macOS, and exports
   --stage <dir>              Copy the library (on Windows also its import library
                              and symbols) and the public headers into <dir> for --pack
 
@@ -515,6 +516,9 @@ async function runWindowsChecks(
   console.log(`\n=== Stela manifest (${rid} ${configuration}) ===\n`);
   runStela(["verify", library]);
   runStela(["check", library, "--config", stelaConfig]);
+
+  console.log(`\n=== Source Link (${rid} ${configuration}) ===\n`);
+  if (!checkSourceLink([path.join(buildOutputDir(configuration), "libnode.pdb")])) failed = true;
 
   console.log(`\n=== BinSkim (${rid} ${configuration}) ===\n`);
   const binskim = await ensureBinSkimExe(toolsPath);

@@ -23,6 +23,7 @@ import {
   ensureSupportedPython,
   prependToPath,
 } from "./build-common.ts";
+import { checkSourceLink, pdbOf } from "./source-link-check.ts";
 
 // =============================================================================
 // Constants
@@ -280,8 +281,9 @@ Usage: node scripts/build.ts [options]
 Boolean flags (all support --no- prefix):
   --help              Show this help message
   --build             Build v8jsi.dll (default: true)
-  --test              Run v8jsi_test.exe + node_api_tests.exe, and check the
-                      DLL's embedded Stela manifest (stela verify + check)
+  --test              Run v8jsi_test.exe + node_api_tests.exe, check the DLL's
+                      embedded Stela manifest (stela verify + check), and check
+                      Source Link in its and mkv8snapshot.exe's PDBs
   --pack              Create NuGet package
   --smoke             Run the real-consumer smoke (tests/run-smoke.ps1) against
                       the packed .nupkg (x64/x86/arm64; Release + Debug)
@@ -392,6 +394,16 @@ function runTests(platform: string, configuration: string): void {
   const engine = path.join(buildOutputDir(configuration), `${engineName}.dll`);
   runStela(["verify", engine]);
   runStela(["check", engine, "--config", stelaConfig]);
+
+  // Static too: the engine's and the snapshot tool's PDBs resolve our sources
+  // on GitHub through Source Link.
+  const pdbs = [pdbOf(engine)];
+  const snapshotTool = path.join(buildOutputDir(configuration), "mkv8snapshot.exe");
+  if (fs.existsSync(snapshotTool)) pdbs.push(pdbOf(snapshotTool));
+  if (!checkSourceLink(pdbs)) {
+    console.error("Source Link check FAILED.");
+    process.exit(1);
+  }
 
   if (isCrossPlatformBuild(platform)) {
     console.log(

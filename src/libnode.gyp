@@ -80,5 +80,40 @@
         ],
       },
     },  # libnode_stela_gen
+
+    {
+      # GitHub Source Link: the map src/generate_source_link.ts writes (the
+      # repository root -> raw.githubusercontent.com/microsoft/v8-jsi/<commit>)
+      # goes into libnode.pdb as its "sourcelink" stream, so a debugger fetches
+      # the exact sources. lld-link has no /SOURCELINK, only /pdbstream. MSBuild
+      # links from deps/nodejs, where <(SHARED_INTERMEDIATE_DIR) resolves.
+      'target_name': 'libnode_source_link_gen',
+      'type': 'none',
+      'actions': [
+        {
+          'action_name': 'generate_source_link',
+          'inputs': [
+            '<(libnode_root)/src/generate_source_link.ts',
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/libnode_source_link.json',
+          ],
+          'action': [
+            'node',
+            '<(libnode_root)/src/generate_source_link.ts',
+            '--output', '<(SHARED_INTERMEDIATE_DIR)/libnode_source_link.json',
+          ],
+        },
+      ],
+      'direct_dependent_settings': {
+        'msvs_settings': {
+          'VCLinkerTool': {
+            'AdditionalOptions': [
+              '/pdbstream:sourcelink=<(SHARED_INTERMEDIATE_DIR)/libnode_source_link.json',
+            ],
+          },
+        },
+      },
+    },  # libnode_source_link_gen
   ],
 }

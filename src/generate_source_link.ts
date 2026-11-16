@@ -1,17 +1,19 @@
-// Generate src/source_link_gen_gyp.json for the **new** Microsoft.JavaScript.V8
-// build (v8jsi.dll / v8jsisb.dll). SourceLink embeds, inside the PDB, a mapping
-// from the local build-time source paths to their raw GitHub URLs at the built
-// commit, so a debugger (WinDbg / Visual Studio) can fetch the exact sources
-// without them on disk.
+// Generate the GitHub Source Link map for the Windows PDBs of v8jsi.dll and
+// v8jsisb.dll (src/v8jsi.gyp), mkv8snapshot.exe, libnode.dll (src/libnode.gyp),
+// and sbox.exe and v8host.dll (scripts/sbox-build.ts). The linker embeds it in
+// each PDB as the "sourcelink" stream (lld-link /pdbstream:sourcelink=), and a
+// debugger (Visual Studio, WinDbg) uses it to fetch each source from
+// raw.githubusercontent.com/microsoft/v8-jsi/<commit>/ at the built commit.
 //
-// This must be embedded at LINK time: the PublishSymbols@2 task cannot srcsrv-
-// index GitHub sources ("Unsupported source provider 'GitHub'"), so the mapping
-// is fed to the linker via /SOURCELINK: (wired in src/v8jsi.gyp). This mirrors
-// what scripts/fetch_code.ps1 does for the legacy Google-V8 build
-// (src/source_link.json -> src/source_link_gen.json), but for the new build the
-// whole repo root maps to microsoft/v8-jsi/<commit> — that single rule covers
-// both the v8-jsi sources (src/) and the vendored V8/Node sources (deps/nodejs/).
-// A distinct filename (…_gyp) avoids clobbering the legacy build's map.
+// One rule maps the repository root, which covers the v8-jsi sources and the
+// vendored Node.js and Chromium trees. Files generated under out\ have no
+// GitHub copy. The debugger accepts a fetched file only if its checksum matches
+// the one in the PDB, so the build must compile the bytes Git stores (LF line
+// endings, .gitattributes). scripts/source-link-check.ts checks the result.
+//
+// PublishSymbols@2 can't source-index GitHub ("Unsupported source provider
+// 'GitHub'"), so the map must be embedded at link time. The default output name
+// (..._gyp) avoids clobbering the legacy Google-V8 build's source_link_gen.json.
 //
 // Usage: node generate_source_link.ts [--output <path>] [--repo-root <path>] [--commit <sha>]
 
