@@ -202,6 +202,11 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
   `.ado/libnode-jobs.yml` passes CP-230012, v8jsi.dll's key.
 - The release pipeline (`.ado/windows-release.yml`) pushes the packages to
   ms/react-native-public and the libnode.dll symbols to the Symbol Server.
+  nuget.org gets them only from a manual release run with
+  `publishLibNodeToNuGetOrg` set, for a CI run of main: ESRP Release
+  publishes the seven signed packages from that run, without approval.
+  nuget.org versions can't be replaced or deleted, so automatic runs never
+  publish there.
 - The packages share `Microsoft.JavaScript.V8`'s version (`docs/versioning.md`):
   `--pack` reads `v8jsi_version` from `config.json`, which CI computes, unless
   `--semantic-version` overrides it.
