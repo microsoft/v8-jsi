@@ -285,7 +285,10 @@ extends:
           # Wait for the computed config.json (overlaid below before building).
           dependsOn: V8JsiComputeVersion
 
-          timeoutInMinutes: 180
+          # On main, CodeQL traces the build at most once every 72 hours, which
+          # makes these jobs two to four times slower: a traced x86 job takes
+          # about 2.5 hours and a traced x64 job about 3.5.
+          timeoutInMinutes: 360
 
           # ARM64 builds natively on the ARM64 managed-image pool so its Untrusted
           # lockdown tier can execute (AA64 binaries can't run on an x64 agent).
