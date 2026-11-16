@@ -36,6 +36,7 @@ import {
   analyzeBinSkim,
   ensureSupportedPython,
 } from "./build-common.ts";
+import { checkSourceLink, pdbOf } from "./source-link-check.ts";
 
 // =============================================================================
 // Constants
@@ -134,8 +135,8 @@ Boolean flags (all support --no- prefix):
   --gen           Run 'gn gen' (writes args.gn) before building (default: true)
   --build         Run 'ninja' on the target (default: true)
   --check         Enforce the Stela-manifest (exact exports) + Hybrid-CRT +
-                  size-budget + BinSkim gates on the produced binaries
-                  (sbox.exe, v8host.dll)
+                  size-budget + Source Link + BinSkim gates on the produced
+                  binaries (sbox.exe, v8host.dll)
   --clean         Delete the out dir before generating
   --release-trust Build sbox.exe / v8host.dll with the release trust policy
                   (no SBOX_DEV_ALLOW_UNSIGNED): unsigned payloads and non-
@@ -377,7 +378,10 @@ function gnArgsContent(
       "clang_use_chrome_plugins = false",
       "use_sysroot = false",
       "use_remoteexec = false",
-      "symbol_level = 1",
+      // Full debug information (locals and types) for crash dumps. It also makes
+      // Chromium record real source paths in the PDBs (/PDBSourcePath: the out
+      // dir) instead of o:\fake\prefix\..., which the Source Link map resolves.
+      "symbol_level = 2",
       "treat_warnings_as_errors = false",
       "enable_rust = false",
       // Drop the JS protobuf generator (protoc-gen-js). base's tracing protos
@@ -798,6 +802,8 @@ async function runSandboxGates(outDir: string, toolsPath: string, releaseTrust: 
   const crtOk = checkSandboxCrt(outDir);
   const sizeOk = checkSandboxSize(outDir);
   const trustOk = !releaseTrust || checkReleaseTrust(outDir);
+  console.log("\n=== Sandbox Source Link ===\n");
+  const sourceLinkOk = checkSourceLink(sandboxBinaries.map((b) => pdbOf(path.join(outDir, b.file))));
   const binskimOk = await runSandboxBinSkim(outDir, toolsPath);
 
   console.log("\n=== Sandbox gate summary ===");
@@ -805,8 +811,9 @@ async function runSandboxGates(outDir: string, toolsPath: string, releaseTrust: 
   console.log(`  hybrid CRT:       ${crtOk ? "PASS" : "FAIL"}`);
   console.log(`  size budget:      ${sizeOk ? "PASS" : "FAIL"}`);
   if (releaseTrust) console.log(`  release trust:    ${trustOk ? "PASS" : "FAIL"}`);
+  console.log(`  source link:      ${sourceLinkOk ? "PASS" : "FAIL"}`);
   console.log(`  binskim:          ${binskimOk ? "PASS" : "FAIL"}`);
-  if (!stelaOk || !crtOk || !sizeOk || !trustOk || !binskimOk) {
+  if (!stelaOk || !crtOk || !sizeOk || !trustOk || !sourceLinkOk || !binskimOk) {
     process.exit(1);
   }
 }

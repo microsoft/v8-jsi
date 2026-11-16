@@ -1,3 +1,15 @@
+# Text files are LF in the repository and in every checkout, on every platform.
+# The Windows PDBs record a checksum of each source file, and Source Link fetches
+# the file from GitHub, which serves it as stored; a debugger shows the file only
+# when the two match, so the build must read the stored bytes.
+* text=auto eol=lf
+# cmd.exe misreads batch files with LF line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# Vendored files that upstream stores with CRLF line endings stay as upstream has them.
+deps/nodejs/deps/LIEF/third-party/spdlog/README.md -text
+deps/nodejs/deps/undici/src/lib/llhttp/wasm_build_env.txt -text
+
 # Vendored gn build tool for the Chromium sandbox build (sbox-build.ts).
 # VS never ships gn, so we vendor the pinned binary (~2.5 MB) via Git LFS.
 deps/gn/gn.exe filter=lfs diff=lfs merge=lfs -text

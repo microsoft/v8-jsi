@@ -1237,9 +1237,11 @@
           'sources': [
             'src/res/node.rc',
           ],
-          # v8-jsi: embeds the embedding API manifest (src/libnode.gyp).
+          # v8-jsi: embeds the embedding API manifest and the GitHub Source
+          # Link map (src/libnode.gyp).
           'dependencies': [
             'libnode_stela_gen',
+            'libnode_source_link_gen',
           ],
           'libraries': [
             'Dbghelp.lib',
@@ -1862,7 +1864,8 @@
         '../../src/node-api/test/node_api_tests.gyp',
       ],
     }],
-    # v8-jsi: the embedded API manifest of the Windows libnode.dll.
+    # v8-jsi: the embedded API manifest and the Source Link map of the
+    # Windows libnode.dll.
     ['OS=="win" and node_shared=="true"', {
       'includes': [
         '../../src/libnode.gyp',

@@ -85,8 +85,9 @@ the API, compiler phase, or default that our patch originally extended.
   neither, so `embedtest` can't link against libnode.dll); the static C++
   runtime for shared builds in common.gypi (`MSVC_runtimeType`) and
   configure.py (`force_dynamic_crt`); and node.gyp's include of
-  `../../src/libnode.gyp` with the libnode target's `libnode_stela_gen`
-  dependency (the embedded API manifest).
+  `../../src/libnode.gyp` with the libnode target's `libnode_stela_gen` and
+  `libnode_source_link_gen` dependencies (the embedded API manifest and the
+  GitHub Source Link map in libnode.pdb).
 - **libnode settings:** common.gypi's include of
   `../../src/libnode_settings.gypi` for every shared build. That file sets the
   Windows Hybrid CRT and hardening, links libstdc++, libgcc, and libatomic
