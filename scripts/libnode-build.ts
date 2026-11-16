@@ -1,0 +1,968 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+// Build script for the Microsoft.JavaScript.LibNode packages: Node.js from
+// deps/nodejs built as a shared library (libnode) with the embedding API
+// (deps/nodejs/src/node_embedding_api.h). Run with Node.js v24+ (TypeScript
+// strip-types).
+//
+// Each platform builds, tests, checks, and stages on a machine of its own
+// architecture: cross-compiling would turn off Node's startup snapshot. An
+// Apple silicon Mac also builds osx-x64 that way, running the x86_64 build
+// tools and tests under Rosetta 2. --pack then makes the packages from the
+// staged platforms, and --smoke builds a C consumer and a .NET app from a
+// platform package and runs tests/libnode/features.js with each. Windows and
+// macOS build with the tools on the machine; Linux builds in the Ubuntu 22.04
+// build container and smoke tests in the smoke-test container
+// (scripts/libnode-docker.sh).
+//
+//   node scripts/libnode-build.ts [--platform x64|arm64] [--configuration release|debug]
+//        [--no-build] [--test] [--check] [--stage <dir>]
+//   node scripts/libnode-build.ts --pack <stage-root> --output <dir> [--semantic-version <v>]
+//   node scripts/libnode-build.ts --smoke <package-dir> [--platform x64|arm64]
+
+import { parseArgs } from "node:util";
+import { execFileSync, execSync, spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+import {
+  repoRoot,
+  analyzeBinSkim,
+  deleteDir,
+  dumpbinExportNames,
+  ensureBinSkimExe,
+  ensureDir,
+  ensureNasm,
+  ensureSupportedPython,
+  findDumpbin,
+  prependToPath,
+  run,
+  vswhereExe,
+} from "./build-common.ts";
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const nodejsDir = path.join(repoRoot, "deps", "nodejs");
+const nodejsSrcDir = path.join(nodejsDir, "src");
+const templatesDir = path.join(repoRoot, "scripts", "nuget-libnode");
+const smokeSourceDir = path.join(repoRoot, "tests", "libnode");
+const stelaCli = path.join(repoRoot, "tools", "stela", "src", "stela.ts");
+const stelaConfig = path.join(repoRoot, "stela.libnode.config.json");
+const embeddingBaseline = path.join(repoRoot, "api", "node_embedding.model.json");
+
+const packageId = "Microsoft.JavaScript.LibNode";
+const allRids = ["win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64"];
+
+// The public headers, by package include folder. The package keeps the 20.x
+// layout: build/native/include/embedding and build/native/include/node-api.
+const packageHeaders: Record<string, string[]> = {
+  embedding: ["node_embedding_api.h", "node_embedding_api_cpp.h"],
+  "node-api": ["js_native_api.h", "js_native_api_types.h", "node_api.h", "node_api_types.h"],
+};
+
+// BinSkim rules accepted as residuals on libnode.dll. The gate fails on any
+// other finding.
+//   BA2014 - functions without stack protection: compiler-generated V8
+//            constructor closures, the same false positive as on v8jsi.dll.
+//            Built with public Rust (CI uses Microsoft Rust), the list also
+//            has Rust's precompiled standard library, which the Temporal
+//            library links in.
+//   BA2025 - CET shadow stack off: V8's heap snapshot code fails under it, as
+//            on v8jsi.dll.
+const acceptedBinSkimRules = new Set(["BA2014", "BA2025"]);
+
+// The DLLs libnode.dll may import, besides the UCRT API sets: Windows system
+// DLLs only, with no Visual C++ runtime DLLs (the Hybrid CRT). Any other DLL fails
+// the check so that a new dependency gets reviewed. ntdll, bcryptprimitives
+// (ProcessPrng), and api-ms-win-core-synch-l1-2-0 (WaitOnAddress) come from the
+// Rust standard library that the Temporal library links in.
+const allowedImports = new Set([
+  "advapi32.dll",
+  "api-ms-win-core-synch-l1-2-0.dll",
+  "bcrypt.dll",
+  "bcryptprimitives.dll",
+  "crypt32.dll",
+  "dbghelp.dll",
+  "iphlpapi.dll",
+  "kernel32.dll",
+  "ntdll.dll",
+  "ole32.dll",
+  "shell32.dll",
+  "user32.dll",
+  "userenv.dll",
+  "winmm.dll",
+  "ws2_32.dll",
+]);
+
+// The shared libraries libnode.so may need: glibc's, so that it loads on any
+// system with glibc 2.35 or newer (Ubuntu 22.04). The C++ runtime, libgcc, and
+// libatomic are linked in (src/libnode_settings.gypi).
+const allowedLinuxLibraries = new Set([
+  "ld-linux-aarch64.so.1",
+  "ld-linux-x86-64.so.2",
+  "libc.so.6",
+  "libdl.so.2",
+  "libm.so.6",
+  "libpthread.so.0",
+  "librt.so.1",
+]);
+const maxGlibcVersion = [2, 35];
+
+// The oldest macOS libnode.dylib supports: Node.js's MACOSX_DEPLOYMENT_TARGET
+// (deps/nodejs/common.gypi).
+const macMinimumOs = "13.5";
+
+// =============================================================================
+// CLI
+// =============================================================================
+
+const options = {
+  help: { type: "boolean" as const, default: false },
+  platform: { type: "string" as const, default: process.arch },
+  configuration: { type: "string" as const, default: "release" },
+  build: { type: "boolean" as const, default: true },
+  test: { type: "boolean" as const, default: false },
+  check: { type: "boolean" as const, default: false },
+  stage: { type: "string" as const },
+  pack: { type: "string" as const },
+  output: { type: "string" as const },
+  smoke: { type: "string" as const },
+  "semantic-version": { type: "string" as const },
+  "tools-path": { type: "string" as const, default: path.join(repoRoot, "out", "tools") },
+};
+
+const { values: args } = parseArgs({ options, allowNegative: true });
+
+function showHelp(): void {
+  console.log(`Usage: node scripts/libnode-build.ts [options]
+
+Builds libnode from deps/nodejs and makes the Microsoft.JavaScript.LibNode packages.
+
+Per-platform operations (run on a machine of that architecture; an Apple
+silicon Mac also builds and tests x64, under Rosetta 2):
+  --platform <x64|arm64>     Target architecture (default: this machine's)
+  --configuration <release|debug>
+                             Build configuration (default: release)
+  --no-build                 Skip the build; use the existing output
+  --test                     Run Node.js's embedding tests (tools/test.py embedding)
+  --check                    Check the library: Windows imports, exports, Stela
+                             manifest, and BinSkim; Linux needed libraries, glibc
+                             versions, and exports; macOS dependencies, install
+                             name, minimum macOS, and exports
+  --stage <dir>              Copy the library (on Windows also its import library
+                             and symbols) and the public headers into <dir> for --pack
+
+Package operations:
+  --pack <stage-root>        Pack every <stage-root>/<rid> folder; the meta package
+                             only when all of ${allRids.join(", ")} are staged
+  --output <dir>             Package output folder (required with --pack)
+  --semantic-version <v>     Package version (default: config.json v8jsi_version)
+  --smoke <package-dir>      Build a C consumer and a .NET app (tests/libnode) from
+                             the --platform package in <package-dir> and run
+                             tests/libnode/features.js with each
+
+  --tools-path <dir>         Tool cache for NASM and BinSkim (default: out\\tools)
+  --help                     Show this help`);
+}
+
+function fail(message: string): never {
+  console.error(`ERROR: ${message}`);
+  process.exit(1);
+}
+
+// =============================================================================
+// Platform helpers
+// =============================================================================
+
+function hostOs(): "win" | "linux" | "osx" {
+  switch (process.platform) {
+    case "win32":
+      return "win";
+    case "linux":
+      return "linux";
+    case "darwin":
+      return "osx";
+    default:
+      return fail(`Unsupported host platform: ${process.platform}`);
+  }
+}
+
+function ridFor(platform: string): string {
+  return `${hostOs()}-${platform}`;
+}
+
+// An Apple silicon Mac also builds osx-x64: clang compiles for x86_64, and
+// Rosetta 2 runs the build's own x86_64 tools and the tests.
+function buildsUnderRosetta(platform: string): boolean {
+  return hostOs() === "osx" && platform === "x64" && process.arch === "arm64";
+}
+
+function configDir(configuration: string): string {
+  return configuration === "debug" ? "Debug" : "Release";
+}
+
+function buildOutputDir(configuration: string): string {
+  return path.join(nodejsDir, "out", configDir(configuration));
+}
+
+// The library file name a package ships for a RID. The Linux and macOS builds
+// make the library under this name (src/libnode_settings.gypi).
+function packageLibraryName(rid: string): string {
+  if (rid.startsWith("win-")) return "libnode.dll";
+  if (rid.startsWith("linux-")) return "libnode.so";
+  return "libnode.dylib";
+}
+
+// The library the build made on this machine.
+function builtLibrary(platform: string, configuration: string): string {
+  const library = path.join(buildOutputDir(configuration), packageLibraryName(ridFor(platform)));
+  if (!fs.existsSync(library)) fail(`Not found: ${library}`);
+  return library;
+}
+
+// Runs a tool and returns its output. Its warnings are left out: binutils'
+// readelf warns about every DWARF 5 form it doesn't know, for example.
+function toolOutput(tool: string, toolArgs: string[]): string {
+  return execFileSync(tool, toolArgs, {
+    encoding: "utf-8",
+    maxBuffer: 1024 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function readJson<T>(file: string): T {
+  return JSON.parse(fs.readFileSync(file, "utf-8")) as T;
+}
+
+function nodejsVersion(): string {
+  const header = fs.readFileSync(path.join(nodejsSrcDir, "node_version.h"), "utf-8");
+  const part = (name: string): string => {
+    const match = new RegExp(`#define ${name} (\\d+)`).exec(header);
+    if (!match) fail(`${name} not found in node_version.h`);
+    return match[1];
+  };
+  return `${part("NODE_MAJOR_VERSION")}.${part("NODE_MINOR_VERSION")}.${part("NODE_PATCH_VERSION")}`;
+}
+
+function rootCertificateCount(): number {
+  const header = fs.readFileSync(path.join(nodejsSrcDir, "node_root_certs.h"), "utf-8");
+  return header.split("-----BEGIN CERTIFICATE-----").length - 1;
+}
+
+// The functions of embedding API version 1, from the committed Stela baseline.
+function embeddingFunctions(): string[] {
+  interface Model {
+    libraries: { declarations: { kind: string; name: string }[] }[];
+  }
+  return readJson<Model>(embeddingBaseline)
+    .libraries.flatMap((library) => library.declarations)
+    .filter((declaration) => declaration.kind === "function")
+    .map((declaration) => declaration.name);
+}
+
+function runStela(stelaArgs: string[]): void {
+  run(`"${process.execPath}"`, [stelaCli, ...stelaArgs].map((a) => `"${a}"`), { cwd: repoRoot });
+}
+
+// Runs a command line in a Visual Studio developer environment for this host.
+function runInVsEnvironment(commandLine: string, cwd: string): void {
+  const vswhere = vswhereExe();
+  if (!vswhere) fail("vswhere.exe not found; install Visual Studio with the C++ tools.");
+  const installation = execSync(`"${vswhere}" -latest -products * -property installationPath`, {
+    encoding: "utf-8",
+  }).trim().split(/\r?\n/)[0];
+  const vcvarsall = path.join(installation, "VC", "Auxiliary", "Build", "vcvarsall.bat");
+  if (!fs.existsSync(vcvarsall)) fail(`vcvarsall.bat not found: ${vcvarsall}`);
+  const hostArch = process.arch === "arm64" ? "arm64" : "x64";
+  run(`call "${vcvarsall}" ${hostArch} >nul &&`, [commandLine], { cwd });
+}
+
+// =============================================================================
+// Build
+// =============================================================================
+
+// Runs a command, echoing its output, and returns the lines that match pattern.
+function runAndCollect(
+  command: string,
+  commandArgs: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  pattern: RegExp,
+): Promise<string[]> {
+  console.log(`> ${[command, ...commandArgs].join(" ")}`);
+  return new Promise((resolve) => {
+    const child = spawn(command, commandArgs, { cwd, env, stdio: ["inherit", "pipe", "pipe"] });
+    const matches: string[] = [];
+    const scan = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) => {
+      let pending = "";
+      stream.setEncoding("utf-8");
+      stream.on("data", (chunk: string) => {
+        sink.write(chunk);
+        const lines = (pending + chunk).split(/\r?\n/);
+        pending = lines.pop() ?? "";
+        for (const line of lines) if (pattern.test(line)) matches.push(line.trim());
+      });
+      stream.on("end", () => {
+        if (pattern.test(pending)) matches.push(pending.trim());
+      });
+    };
+    scan(child.stdout, process.stdout);
+    scan(child.stderr, process.stderr);
+    child.on("close", (code) => {
+      if (code !== 0) fail(`${command} failed with exit code ${code}`);
+      resolve(matches);
+    });
+  });
+}
+
+async function runBuild(platform: string, configuration: string, toolsPath: string): Promise<void> {
+  console.log(`\n=== Building libnode (${ridFor(platform)} ${configuration}) ===\n`);
+  if (hostOs() === "win") {
+    await runWindowsBuild(platform, configuration, toolsPath);
+  } else {
+    runPosixBuild(platform, configuration);
+  }
+}
+
+async function runWindowsBuild(platform: string, configuration: string, toolsPath: string): Promise<void> {
+  // libnode with everything a full Node.js build has (full ICU, Temporal, and
+  // Node's defaults), plus node.exe and embedtest.exe, which only the tests
+  // use. The no-* flags skip the binaries nothing here needs.
+  const vcbuildArgs = [
+    ".\\vcbuild.bat",
+    configuration,
+    platform,
+    "dll",
+    "cfg",
+    "full-icu",
+    "v8temporal",
+    "no-cctest",
+    "no-fuzzers",
+    "no-openssl-cli",
+    "no-nop",
+    "no-overlapped-checker",
+    // OpenSSL has no assembly for Windows ARM64, and openssl.gyp builds the
+    // library without it. The targets that include OpenSSL's headers (ncrypto,
+    // openssl-cli, node) get OPENSSL_NO_ASM only from this option; without it
+    // they pick the assembly configuration headers, which have no Windows
+    // ARM64 entry.
+    ...(platform === "arm64" ? ["openssl-no-asm"] : []),
+  ];
+
+  const env = { ...process.env };
+  ensureSupportedPython(env);
+  if (platform !== "arm64") {
+    prependToPath(env, await ensureNasm(toolsPath));
+  }
+  // The gyp action that embeds the Stela manifest runs `node`; use this one.
+  prependToPath(env, path.dirname(process.execPath));
+
+  // clang-cl warns and goes on when it ignores an option it does not support
+  // (it did for /Qspectre), so such a warning fails the build.
+  const ignoredOptions = await runAndCollect(
+    process.env.ComSpec ?? "cmd.exe",
+    ["/d", "/c", ...vcbuildArgs],
+    nodejsDir,
+    env,
+    /argument unused during compilation/,
+  );
+  if (ignoredOptions.length > 0) {
+    for (const line of new Set(ignoredOptions)) console.error(`  ${line}`);
+    fail("The compiler ignored the options above.");
+  }
+
+  const outDir = buildOutputDir(configuration);
+  for (const file of ["libnode.dll", "libnode.lib", "libnode.pdb", "node.exe", "embedtest.exe"]) {
+    if (!fs.existsSync(path.join(outDir, file))) fail(`Build output not found: ${path.join(outDir, file)}`);
+  }
+}
+
+// Linux (in the build container) and macOS: configure and make. libnode has
+// everything a full Node.js build has: full ICU, Temporal (on by default; it
+// needs Rust), and Node's other defaults. Only the targets the tests use are
+// built: node runs them, embedtest and shared_embedtest are what they test,
+// and each of them depends on libnode.
+function runPosixBuild(platform: string, configuration: string): void {
+  // The vendored tree doesn't keep upstream's executable bits, so configure
+  // runs through sh, which then runs it with a supported Python. configure
+  // turns off the startup snapshot and the code cache in a cross build;
+  // --no-cross-compiling keeps them, because Rosetta 2 runs the x86_64 tools
+  // that make them.
+  const configureArgs = [
+    "--shared",
+    "--with-intl=full-icu",
+    ...(buildsUnderRosetta(platform) ? ["--dest-cpu=x64", "--no-cross-compiling"] : []),
+    ...(configuration === "debug" ? ["--debug"] : []),
+  ];
+  run("sh", ["./configure", ...configureArgs], { cwd: nodejsDir });
+  run(
+    "make",
+    [
+      "-C",
+      "out",
+      `BUILDTYPE=${configDir(configuration)}`,
+      `-j${os.availableParallelism()}`,
+      "node",
+      "embedtest",
+      "shared_embedtest",
+    ],
+    { cwd: nodejsDir },
+  );
+
+  const outDir = buildOutputDir(configuration);
+  for (const file of [packageLibraryName(ridFor(platform)), "node", "embedtest"]) {
+    if (!fs.existsSync(path.join(outDir, file))) fail(`Build output not found: ${path.join(outDir, file)}`);
+  }
+}
+
+// =============================================================================
+// Test
+// =============================================================================
+
+function runTests(configuration: string): void {
+  console.log(`\n=== Embedding tests (${configuration}) ===\n`);
+  const env = { ...process.env };
+  let python = "python3";
+  if (hostOs() === "win") {
+    ensureSupportedPython(env);
+    python = "python";
+  }
+  run(python, [path.join("tools", "test.py"), "-J", "-p", "tap", `--mode=${configuration}`, "embedding"], {
+    cwd: nodejsDir,
+    env,
+  });
+}
+
+// =============================================================================
+// Check
+// =============================================================================
+
+// The DLLs a PE file imports, from `dumpbin /DEPENDENTS`.
+function dependentDlls(file: string): string[] {
+  const out = execSync(`"${findDumpbin()}" /DEPENDENTS "${file}"`, { encoding: "utf-8" });
+  const names: string[] = [];
+  let inList = false;
+  for (const line of out.split(/\r?\n/)) {
+    if (/Image has the following dependencies:/.test(line)) {
+      inList = true;
+      continue;
+    }
+    if (!inList) continue;
+    const name = line.trim();
+    if (/\.dll$/i.test(name)) names.push(name);
+    else if (names.length > 0 && name === "") break;
+  }
+  return names;
+}
+
+async function runChecks(platform: string, configuration: string, toolsPath: string): Promise<void> {
+  const rid = ridFor(platform);
+  const library = builtLibrary(platform, configuration);
+  let ok: boolean;
+  switch (hostOs()) {
+    case "win":
+      ok = await runWindowsChecks(library, rid, configuration, toolsPath);
+      break;
+    case "linux":
+      ok = runLinuxChecks(library, rid, configuration);
+      break;
+    default:
+      ok = runMacChecks(library, rid, configuration);
+      break;
+  }
+  if (!ok) fail(`libnode ${rid} ${configuration} failed its checks.`);
+  console.log(`\nlibnode ${rid} ${configuration} passed its checks.`);
+}
+
+// Reports which embedding API functions the library exports.
+function checkEmbeddingExports(exported: Set<string>): boolean {
+  const functions = embeddingFunctions();
+  const missing = functions.filter((name) => !exported.has(name));
+  const count = (prefix: string) => [...exported].filter((name) => name.startsWith(prefix)).length;
+  console.log(`  embedding API: ${functions.length - missing.length} of ${functions.length} functions exported`);
+  console.log(`  napi_*: ${count("napi_")}, node_api_*: ${count("node_api_")}, total: ${exported.size}`);
+  for (const name of missing) console.error(`  missing: ${name}`);
+  return missing.length === 0;
+}
+
+async function runWindowsChecks(
+  library: string,
+  rid: string,
+  configuration: string,
+  toolsPath: string,
+): Promise<boolean> {
+  let failed = false;
+
+  console.log(`\n=== Imports (${rid} ${configuration}) ===\n`);
+  for (const dll of dependentDlls(library)) {
+    const name = dll.toLowerCase();
+    const ok =
+      allowedImports.has(name) ||
+      /^api-ms-win-crt-[a-z]+-l1-1-0\.dll$/.test(name) ||
+      // The Debug Hybrid CRT uses the debug UCRT from the Windows SDK.
+      (configuration === "debug" && name === "ucrtbased.dll");
+    console.log(`  ${ok ? "ok  " : "FAIL"} ${dll}`);
+    if (!ok) failed = true;
+  }
+
+  console.log(`\n=== Exports (${rid} ${configuration}) ===\n`);
+  if (!checkEmbeddingExports(new Set(dumpbinExportNames(library)))) failed = true;
+
+  console.log(`\n=== Stela manifest (${rid} ${configuration}) ===\n`);
+  runStela(["verify", library]);
+  runStela(["check", library, "--config", stelaConfig]);
+
+  console.log(`\n=== BinSkim (${rid} ${configuration}) ===\n`);
+  const binskim = await ensureBinSkimExe(toolsPath);
+  const binskimOk = analyzeBinSkim(
+    binskim,
+    [library],
+    path.join(buildOutputDir(configuration), "libnode.binskim.sarif"),
+    `libnode ${rid} ${configuration}`,
+    acceptedBinSkimRules,
+  );
+  if (!binskimOk) failed = true;
+  return !failed;
+}
+
+function compareVersions(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const difference = (a[i] ?? 0) - (b[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+// The ELF checks: the library runs on any Linux with glibc 2.35 or newer and
+// keeps its own C++ runtime private (src/libnode_settings.gypi).
+function runLinuxChecks(library: string, rid: string, configuration: string): boolean {
+  let failed = false;
+  const report = (ok: boolean, text: string) => {
+    console.log(`  ${ok ? "ok  " : "FAIL"} ${text}`);
+    if (!ok) failed = true;
+  };
+
+  console.log(`\n=== Dynamic section (${rid} ${configuration}) ===\n`);
+  const dynamic = toolOutput("readelf", ["--dynamic", "--wide", library]);
+  const soname = /\(SONAME\)\s+Library soname: \[(.+?)\]/.exec(dynamic)?.[1];
+  report(soname === "libnode.so", `SONAME ${soname ?? "(none)"}`);
+  for (const match of dynamic.matchAll(/\(NEEDED\)\s+Shared library: \[(.+?)\]/g)) {
+    report(allowedLinuxLibraries.has(match[1]), `needs ${match[1]}`);
+  }
+  report(/\bBIND_NOW\b|\bFLAGS_1\)\s+Flags:.*\bNOW\b/.test(dynamic), "binds at load time (BIND_NOW)");
+  const segments = toolOutput("readelf", ["--program-headers", "--wide", library]);
+  report(/^\s*GNU_RELRO\s/m.test(segments), "read-only relocations (GNU_RELRO)");
+  // GNU_STACK's flags are the next to last column: RW, or RWE for an executable stack.
+  const stackFlags = segments
+    .split("\n")
+    .find((line) => line.trim().startsWith("GNU_STACK"))
+    ?.trim()
+    .split(/\s+/)
+    .at(-2);
+  report(
+    stackFlags !== undefined && !stackFlags.includes("E"),
+    `non-executable stack (GNU_STACK ${stackFlags ?? "missing"})`,
+  );
+
+  console.log(`\n=== Required symbol versions (${rid} ${configuration}) ===\n`);
+  const versionInfo = toolOutput("readelf", ["--version-info", "--wide", library]);
+  const needs = versionInfo.slice(versionInfo.indexOf("Version needs section"));
+  const required = new Set([...needs.matchAll(/Name: (\S+)/g)].map((match) => match[1]));
+  const glibc = [...required]
+    .filter((name) => name.startsWith("GLIBC_"))
+    .map((name) => name.slice("GLIBC_".length).split(".").map(Number))
+    .sort(compareVersions);
+  const newest = glibc.at(-1) ?? [];
+  report(
+    compareVersions(newest, maxGlibcVersion) <= 0,
+    `newest glibc version: ${newest.join(".")} (at most ${maxGlibcVersion.join(".")})`,
+  );
+  const other = [...required].filter((name) => !name.startsWith("GLIBC_"));
+  report(other.length === 0, `other required versions: ${other.length === 0 ? "none" : other.join(", ")}`);
+
+  console.log(`\n=== Exports (${rid} ${configuration}) ===\n`);
+  const symbols = (demangle: boolean) =>
+    toolOutput("nm", [
+      "--dynamic",
+      "--defined-only",
+      "--extern-only",
+      ...(demangle ? ["--demangle"] : []),
+      library,
+    ])
+      .split("\n")
+      .map((line) => /^[0-9a-f]+ [A-Za-z] (.+)$/.exec(line)?.[1])
+      .filter((name): name is string => name !== undefined);
+  if (!checkEmbeddingExports(new Set(symbols(false)))) failed = true;
+  const cxxRuntime = symbols(true).filter((name) =>
+    /^((typeinfo|typeinfo name|vtable|VTT) for )?(std|__gnu_cxx)::/.test(name),
+  );
+  report(cxxRuntime.length === 0, `C++ runtime symbols exported: ${cxxRuntime.length}`);
+  for (const name of cxxRuntime.slice(0, 20)) console.error(`    ${name}`);
+  return !failed;
+}
+
+// The Mach-O checks: the architecture, the install name the package's
+// consumers link against, the oldest macOS, and system libraries only.
+function runMacChecks(library: string, rid: string, configuration: string): boolean {
+  let failed = false;
+  const report = (ok: boolean, text: string) => {
+    console.log(`  ${ok ? "ok  " : "FAIL"} ${text}`);
+    if (!ok) failed = true;
+  };
+
+  console.log(`\n=== Load commands (${rid} ${configuration}) ===\n`);
+  const archs = toolOutput("lipo", ["-archs", library]).trim();
+  report(archs === (rid === "osx-arm64" ? "arm64" : "x86_64"), `architecture ${archs}`);
+  const installName = toolOutput("otool", ["-D", library]).trim().split("\n").at(-1)?.trim();
+  report(installName === "@rpath/libnode.dylib", `install name ${installName}`);
+  const loadCommands = toolOutput("otool", ["-l", library]);
+  const minos =
+    /cmd LC_BUILD_VERSION[\s\S]*?\n\s*minos (\S+)/.exec(loadCommands)?.[1] ??
+    /cmd LC_VERSION_MIN_MACOSX[\s\S]*?\n\s*version (\S+)/.exec(loadCommands)?.[1];
+  report(minos === macMinimumOs, `minimum macOS ${minos ?? "(none)"} (expected ${macMinimumOs})`);
+  for (const line of toolOutput("otool", ["-L", library]).split("\n").slice(1)) {
+    const dependency = /^\s+(\S+)/.exec(line)?.[1];
+    if (!dependency || dependency === "@rpath/libnode.dylib") continue;
+    report(/^\/(usr\/lib|System\/Library)\//.test(dependency), `needs ${dependency}`);
+  }
+
+  console.log(`\n=== Exports (${rid} ${configuration}) ===\n`);
+  const exported = toolOutput("nm", ["-gU", library])
+    .split("\n")
+    .map((line) => /^[0-9a-f]+ [A-Za-z] _(.+)$/.exec(line)?.[1])
+    .filter((name): name is string => name !== undefined);
+  if (!checkEmbeddingExports(new Set(exported))) failed = true;
+  return !failed;
+}
+
+// =============================================================================
+// Stage
+// =============================================================================
+
+function stage(platform: string, configuration: string, stageDir: string): void {
+  const rid = ridFor(platform);
+  console.log(`\n=== Staging ${rid} into ${stageDir} ===\n`);
+  const outDir = buildOutputDir(configuration);
+  deleteDir(stageDir);
+  ensureDir(stageDir);
+  const files = hostOs() === "win" ? ["libnode.dll", "libnode.lib", "libnode.pdb"] : [packageLibraryName(rid)];
+  for (const file of files) {
+    fs.copyFileSync(path.join(outDir, file), path.join(stageDir, file));
+  }
+  for (const [folder, headers] of Object.entries(packageHeaders)) {
+    const includeDir = path.join(stageDir, "include", folder);
+    ensureDir(includeDir);
+    for (const header of headers) {
+      fs.copyFileSync(path.join(nodejsSrcDir, header), path.join(includeDir, header));
+    }
+  }
+  console.log(`Staged ${rid}: ${fs.readdirSync(stageDir).join(", ")}`);
+}
+
+// =============================================================================
+// Pack
+// =============================================================================
+
+function gitValue(gitArgs: string): string {
+  try {
+    return execSync(`git ${gitArgs}`, { encoding: "utf-8", cwd: repoRoot }).trim();
+  } catch {
+    console.log(`Warning: git ${gitArgs} failed`);
+    return "unknown";
+  }
+}
+
+function textWithLf(file: string): string {
+  return fs.readFileSync(file, "utf-8").replaceAll("\r\n", "\n");
+}
+
+function pack(stageRoot: string, outputDir: string): void {
+  if (hostOs() !== "win") fail("Packing uses nuget.exe and runs on Windows.");
+  const rids = allRids.filter((rid) => fs.existsSync(path.join(stageRoot, rid)));
+  if (rids.length === 0) fail(`No staged platforms in ${stageRoot} (expected ${allRids.join(", ")})`);
+  console.log(`\n=== Packing ${rids.join(", ")} ===\n`);
+
+  interface ConfigJson {
+    v8jsi_version?: string;
+  }
+  const version =
+    args["semantic-version"] ?? readJson<ConfigJson>(path.join(repoRoot, "config.json")).v8jsi_version;
+  if (!version) fail("No package version: pass --semantic-version or set config.json v8jsi_version.");
+
+  const staging = path.join(outputDir, "staging");
+  deleteDir(staging);
+  ensureDir(staging);
+
+  // Templates, NOTICE.txt (scripts/gen-notice.ts), the license, and the
+  // per-RID props and targets.
+  for (const file of fs.readdirSync(templatesDir)) {
+    if (!file.includes(".rid.") || file.endsWith(".nuspec")) {
+      fs.copyFileSync(path.join(templatesDir, file), path.join(staging, file));
+    }
+  }
+  fs.copyFileSync(path.join(nodejsDir, "LICENSE"), path.join(staging, "LICENSE"));
+  for (const rid of rids) {
+    for (const file of fs.readdirSync(templatesDir)) {
+      if (!file.includes(".rid.") || file.endsWith(".nuspec")) continue;
+      const text = fs
+        .readFileSync(path.join(templatesDir, file), "utf-8")
+        .replaceAll("$rid$", rid)
+        .replaceAll("$libnodeName$", packageLibraryName(rid));
+      fs.writeFileSync(path.join(staging, file.replace(".rid.", `.${rid}.`)), text);
+    }
+  }
+
+  // The headers are the same for every platform; a difference means the
+  // platforms were built from different sources. Windows checkouts stage them
+  // with CRLF line endings, so they are compared, and packed, with LF.
+  const firstInclude = path.join(stageRoot, rids[0], "include");
+  for (const [folder, headers] of Object.entries(packageHeaders)) {
+    const includeDir = path.join(staging, "build", "native", "include", folder);
+    ensureDir(includeDir);
+    for (const header of headers) {
+      const text = textWithLf(path.join(firstInclude, folder, header));
+      for (const rid of rids.slice(1)) {
+        if (textWithLf(path.join(stageRoot, rid, "include", folder, header)) !== text) {
+          fail(`${folder}/${header} differs between ${rids[0]} and ${rid}`);
+        }
+      }
+      fs.writeFileSync(path.join(includeDir, header), text);
+    }
+  }
+
+  for (const rid of rids) {
+    const ridDir = path.join(staging, "build", "native", rid);
+    ensureDir(ridDir);
+    const stageDir = path.join(stageRoot, rid);
+    const libraryName = packageLibraryName(rid);
+    fs.copyFileSync(path.join(stageDir, libraryName), path.join(ridDir, libraryName));
+    if (rid.startsWith("win-")) {
+      fs.copyFileSync(path.join(stageDir, "libnode.lib"), path.join(ridDir, "libnode.lib"));
+    }
+  }
+
+  const nuget = execSync("where nuget.exe", { encoding: "utf-8" }).trim().split(/\r?\n/)[0].trim();
+  const baseProperties = [
+    `nugetroot=${staging}`,
+    `version=${version}`,
+    `repoUrl=https://github.com/microsoft/v8-jsi`,
+    `repoBranch=${gitValue("rev-parse --abbrev-ref HEAD")}`,
+    `repoCommit=${gitValue("rev-parse HEAD")}`,
+  ];
+  const packOne = (nuspec: string, extraProperties: string[] = []) => {
+    run(`"${nuget}"`, [
+      "pack",
+      `"${path.join(staging, nuspec)}"`,
+      "-Properties",
+      `"${[...baseProperties, ...extraProperties].join(";")}"`,
+      "-OutputDirectory",
+      `"${outputDir}"`,
+      "-NonInteractive",
+    ]);
+  };
+
+  for (const rid of rids) {
+    packOne(`${packageId}.rid.nuspec`, [`rid=${rid}`, `libnodeName=${packageLibraryName(rid)}`]);
+  }
+  // The meta package depends on all platform packages; without all of them,
+  // restoring it would fail.
+  const missing = allRids.filter((rid) => !rids.includes(rid));
+  if (missing.length === 0) {
+    packOne(`${packageId}.nuspec`);
+  } else {
+    console.log(`\nSkipping the ${packageId} meta package: not staged: ${missing.join(", ")}.`);
+  }
+  console.log(`\nPackages ${version} are in ${outputDir}`);
+}
+
+// =============================================================================
+// Smoke test
+// =============================================================================
+
+// Builds the C and C++ consumer with MSVC against the package's import library.
+function buildWindowsSmokeConsumer(include: string, libDir: string, workDir: string): string {
+  const exe = path.join(workDir, "libnode_smoke.exe");
+  runInVsEnvironment(
+    [
+      "cl /nologo /W4 /WX /MT /EHsc /std:c++17",
+      `/I "${path.join(include, "embedding")}"`,
+      `/I "${path.join(include, "node-api")}"`,
+      `"${path.join(smokeSourceDir, "smoke.c")}"`,
+      `"${path.join(smokeSourceDir, "smoke_cpp.cc")}"`,
+      `/Fe"${exe}"`,
+      `/link /LIBPATH:"${libDir}" libnode.lib`,
+    ].join(" "),
+    workDir,
+  );
+  return exe;
+}
+
+// Builds the C and C++ consumer with the system compilers, linked against the
+// package's library and finding it next to the executable at run time.
+function buildPosixSmokeConsumer(include: string, nativeDir: string, workDir: string): string {
+  const exe = path.join(workDir, "libnode_smoke");
+  const includes = [`-I"${path.join(include, "embedding")}"`, `-I"${path.join(include, "node-api")}"`];
+  const warnings = ["-Wall", "-Wextra", "-Werror"];
+  const cObject = path.join(workDir, "smoke.o");
+  const cppObject = path.join(workDir, "smoke_cpp.o");
+  run("cc", [
+    "-std=c11",
+    ...warnings,
+    ...includes,
+    "-c",
+    `"${path.join(smokeSourceDir, "smoke.c")}"`,
+    "-o",
+    `"${cObject}"`,
+  ]);
+  run("c++", [
+    "-std=c++17",
+    ...warnings,
+    ...includes,
+    "-c",
+    `"${path.join(smokeSourceDir, "smoke_cpp.cc")}"`,
+    "-o",
+    `"${cppObject}"`,
+  ]);
+  // Single quotes keep the shell from expanding $ORIGIN.
+  const rpath = hostOs() === "osx" ? "-Wl,-rpath,@loader_path" : "'-Wl,-rpath,$ORIGIN'";
+  run("c++", [`"${cObject}"`, `"${cppObject}"`, "-o", `"${exe}"`, `-L"${nativeDir}"`, "-lnode", rpath]);
+  return exe;
+}
+
+function runSmoke(platform: string, packageDir: string): void {
+  const rid = ridFor(platform);
+  const pattern = new RegExp(`^${packageId.replaceAll(".", "\\.")}\\.${rid}\\.\\d.*\\.nupkg$`);
+  const packages = fs.readdirSync(packageDir).filter((file) => pattern.test(file));
+  if (packages.length !== 1) {
+    fail(`Expected one ${packageId}.${rid} package in ${packageDir}, found ${packages.length}`);
+  }
+  console.log(`\n=== Smoke test of ${packages[0]} ===\n`);
+
+  const workDir = path.join(packageDir, "smoke", rid);
+  const packageRoot = path.join(workDir, "package");
+  deleteDir(workDir);
+  ensureDir(packageRoot);
+  const nupkg = path.join(packageDir, packages[0]);
+  if (hostOs() === "win") {
+    run("tar", ["-xf", `"${nupkg}"`, "-C", `"${packageRoot}"`]);
+  } else {
+    run("unzip", ["-q", `"${nupkg}"`, "-d", `"${packageRoot}"`]);
+  }
+
+  // The consumer is built only from the package's headers and libraries, and
+  // runs with the package's library next to it.
+  const include = path.join(packageRoot, "build", "native", "include");
+  const nativeDir = path.join(packageRoot, "runtimes", rid, "native");
+  const exe =
+    hostOs() === "win"
+      ? buildWindowsSmokeConsumer(include, path.join(packageRoot, "build", "native", rid), workDir)
+      : buildPosixSmokeConsumer(include, nativeDir, workDir);
+  fs.copyFileSync(path.join(nativeDir, packageLibraryName(rid)), path.join(workDir, packageLibraryName(rid)));
+  const featuresArgs = [
+    `"${path.join(smokeSourceDir, "features.js")}"`,
+    "--expect-version",
+    nodejsVersion(),
+    "--expect-roots",
+    String(rootCertificateCount()),
+  ];
+  run(`"${exe}"`, featuresArgs, { cwd: workDir });
+
+  // The same check from a .NET app that references the package. It restores
+  // only from <package-dir> into its own package cache, so it uses this package
+  // and nothing from the network or an earlier restore.
+  console.log(`\n=== .NET smoke test of ${packages[0]} ===\n`);
+  const version = packages[0].slice(`${packageId}.${rid}.`.length, -".nupkg".length);
+  const dotnetDir = path.join(workDir, "dotnet");
+  const dotnetOut = path.join(dotnetDir, "bin");
+  ensureDir(dotnetDir);
+  for (const file of ["LibNodeSmoke.csproj", "Program.cs"]) {
+    fs.copyFileSync(path.join(smokeSourceDir, "dotnet", file), path.join(dotnetDir, file));
+  }
+  fs.writeFileSync(
+    path.join(dotnetDir, "NuGet.config"),
+    [
+      `<?xml version="1.0" encoding="utf-8"?>`,
+      `<configuration>`,
+      `  <packageSources>`,
+      `    <clear />`,
+      `    <add key="libnode" value="${packageDir}" />`,
+      `  </packageSources>`,
+      `</configuration>`,
+      ``,
+    ].join("\n"),
+  );
+  const dotnetEnv = {
+    ...process.env,
+    NUGET_PACKAGES: path.join(workDir, "nuget-packages"),
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+    DOTNET_CLI_WORKLOAD_UPDATE_NOTIFY_DISABLE: "1",
+    DOTNET_NOLOGO: "1",
+  };
+  run(
+    "dotnet",
+    [
+      "build",
+      `"${path.join(dotnetDir, "LibNodeSmoke.csproj")}"`,
+      "--configuration",
+      "Release",
+      `-p:LibNodeRid=${rid}`,
+      `-p:LibNodeVersion=${version}`,
+      "--output",
+      `"${dotnetOut}"`,
+    ],
+    { cwd: dotnetDir, env: dotnetEnv },
+  );
+  run("dotnet", [`"${path.join(dotnetOut, "LibNodeSmoke.dll")}"`, ...featuresArgs], {
+    cwd: workDir,
+    env: dotnetEnv,
+  });
+}
+
+// =============================================================================
+// Main
+// =============================================================================
+
+async function main(): Promise<void> {
+  const startTime = Date.now();
+  if (args.help) {
+    showHelp();
+    return;
+  }
+
+  const platform = (args.platform ?? process.arch).toLowerCase();
+  if (!["x64", "arm64"].includes(platform)) fail(`Invalid --platform ${platform}: use x64 or arm64.`);
+  const buildsHere = !args.pack && !args.smoke && (args.build || args.test);
+  if (platform !== process.arch && ((buildsHere && !buildsUnderRosetta(platform)) || args.smoke)) {
+    fail(`Build and test ${platform} on an ${platform} machine; this one is ${process.arch}.`);
+  }
+  const configuration = (args.configuration ?? "release").toLowerCase();
+  if (!["release", "debug"].includes(configuration)) {
+    fail(`Invalid --configuration ${configuration}: use release or debug.`);
+  }
+  const toolsPath = path.resolve(args["tools-path"]);
+
+  if (args.pack || args.smoke) {
+    if (args.pack) {
+      if (!args.output) fail("--pack needs --output <dir>.");
+      pack(path.resolve(args.pack), path.resolve(args.output));
+    }
+    if (args.smoke) runSmoke(platform, path.resolve(args.smoke));
+  } else {
+    if (args.build) await runBuild(platform, configuration, toolsPath);
+    if (args.test) runTests(configuration);
+    if (args.check) await runChecks(platform, configuration, toolsPath);
+    if (args.stage) stage(platform, configuration, path.resolve(args.stage));
+  }
+
+  const seconds = Math.floor((Date.now() - startTime) / 1000);
+  console.log(`\nlibnode-build took ${Math.floor(seconds / 60)}m ${seconds % 60}s`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

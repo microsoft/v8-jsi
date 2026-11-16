@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Built by the smoke test in scripts/libnode-build.ts with the LibNodeRid and
+       LibNodeVersion properties, restoring only from the folder with the packed
+       packages. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.JavaScript.LibNode.$(LibNodeRid)" Version="$(LibNodeVersion)" />
+  </ItemGroup>
+
+</Project>

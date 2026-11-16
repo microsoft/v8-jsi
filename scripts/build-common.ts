@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Shared helpers for the v8-jsi build scripts. Imported by both build.ts (the
-// v8jsi/v8jsisb engine build over vcbuild.bat) and sbox-build.ts (the Chromium
-// sandbox binaries over gn/ninja). Run with Node.js v24+ (TypeScript
-// strip-types); import with the explicit ".ts" extension.
+// Shared helpers for the v8-jsi build scripts. Imported by build.ts (the
+// v8jsi/v8jsisb engine build over vcbuild.bat), sbox-build.ts (the Chromium
+// sandbox binaries over gn/ninja), and libnode-build.ts (the libnode build and
+// packages). Run with Node.js v24+ (TypeScript strip-types); import with the
+// explicit ".ts" extension.
 //
 // This module is side-effect-free: no CLI parsing and no top-level execution, so
-// either script can import it without triggering the other's behavior.
+// any script can import it without triggering another's behavior.
 
 import {
   execFileSync,
@@ -420,6 +421,58 @@ export async function ensureNuGet(toolsPath: string): Promise<string> {
   return localNuget;
 }
 
+const nasmVersion = "2.16.03";
+const nasmDownloadUrl = `https://www.nasm.us/pub/nasm/releasebuilds/${nasmVersion}/win64/nasm-${nasmVersion}-win64.zip`;
+
+// Ensure NASM is available and return the directory containing nasm.exe.
+// The Node.js OpenSSL build assembles its crypto with NASM on x86/x64 (the
+// arm64 build skips that asm path). Mirrors ensureNuGet: prefer PATH, else a
+// cached copy under toolsPath, else download + extract the official zip.
+export async function ensureNasm(toolsPath: string): Promise<string> {
+  try {
+    const onPath = execSync("where nasm.exe", { encoding: "utf-8" })
+      .split(/\r?\n/)
+      .find((l: string) => l.trim().length > 0)
+      ?.trim();
+    if (onPath) return path.dirname(onPath);
+  } catch {
+    // Not on PATH; fall through to the known-dir/cached/download path.
+  }
+
+  // The Chocolatey `nasm` package (used to bake NASM into the CI image) runs the
+  // NASM installer, which lands in Program Files but does not add itself to PATH.
+  // Probe that install dir before downloading.
+  for (const base of [
+    process.env["ProgramFiles"],
+    process.env["ProgramFiles(x86)"],
+  ]) {
+    if (base && fs.existsSync(path.join(base, "NASM", "nasm.exe"))) {
+      return path.join(base, "NASM");
+    }
+  }
+
+  const nasmDir = path.join(toolsPath, "nasm", `nasm-${nasmVersion}`);
+  if (fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
+    return nasmDir;
+  }
+
+  console.log(`Downloading NASM ${nasmVersion}...`);
+  const zipPath = path.join(toolsPath, `nasm-${nasmVersion}-win64.zip`);
+  await downloadFile(nasmDownloadUrl, zipPath);
+  const extractDir = path.join(toolsPath, "nasm");
+  ensureDir(extractDir);
+  run("pwsh", [
+    "-NoProfile",
+    "-Command",
+    `"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`,
+  ]);
+  if (!fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
+    throw new Error(`NASM not found after extraction at ${nasmDir}`);
+  }
+  console.log(`NASM ready at ${nasmDir}`);
+  return nasmDir;
+}
+
 // =============================================================================
 // Visual Studio toolchain discovery (vswhere / dumpbin)
 // =============================================================================
@@ -489,8 +542,10 @@ export function findDumpbin(): string {
 // ("... date stamp", "number of functions/names").
 export function dumpbinExportNames(filePath: string): string[] {
   const dumpbin = findDumpbin();
+  // libnode.dll exports V8, OpenSSL, and ICU too: tens of megabytes of text.
   const out = execSync(`"${dumpbin}" /EXPORTS "${filePath}"`, {
     encoding: "utf-8",
+    maxBuffer: 512 * 1024 * 1024,
   });
   const rowRe = /^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)/;
   const names: string[] = [];

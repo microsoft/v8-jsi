@@ -1526,6 +1526,12 @@ def get_openssl_macros(o):
           '-']
   if not options.shared_openssl:
     args = ['-I', 'deps/openssl/openssl/include'] + args
+    # v8-jsi: probe with the configuration the build uses. Without
+    # OPENSSL_NO_ASM the asm dispatch headers have no Windows ARM64 entry and
+    # fall back to linux-elf, which this tree prunes; the probe then fails and
+    # ncrypto is configured for a pre-3.0 OpenSSL.
+    if o['variables'].get('openssl_no_asm') == 1:
+      args = ['-DOPENSSL_NO_ASM'] + args
   elif options.shared_openssl_includes:
     args = ['-I', options.shared_openssl_includes] + args
   else:
@@ -2335,7 +2341,9 @@ def configure_v8(o, configs):
   o['variables']['v8_use_perfetto'] = 1 if options.with_perfetto else 0
   o['variables']['node_use_v8_platform'] = b(not options.without_v8_platform)
   o['variables']['node_use_bundled_v8'] = b(not options.without_bundled_v8)
-  o['variables']['force_dynamic_crt'] = 1 if options.shared else 0
+  # v8-jsi: Windows shared builds (libnode.dll) keep V8 on the static C++
+  # runtime, matching common.gypi (the Hybrid CRT).
+  o['variables']['force_dynamic_crt'] = 1 if options.shared and flavor != 'win' else 0
   o['variables']['node_enable_d8'] = b(options.enable_d8)
   o['variables']['node_enable_v8windbg'] = b(options.enable_v8windbg)
   o['variables']['node_enable_v8debughelper'] = b(options.enable_v8debughelper)

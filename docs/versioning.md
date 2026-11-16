@@ -3,7 +3,8 @@
 The `Microsoft.JavaScript.V8` NuGet uses a Node.js-aligned
 `MAJOR.MINOR.PATCH` scheme distinct from the legacy
 `ReactNative.V8Jsi.Windows` scheme (which tracks React Native Windows
-releases).
+releases). The `Microsoft.JavaScript.LibNode` packages, built from the same
+tree in the same CI run, share its version.
 
 ## Format
 
@@ -36,7 +37,8 @@ The computed configuration is a build artifact, not a new committed floor.
 ## Fields in `config.json`
 
 - `v8jsi_version` — the `MAJOR.MINOR.PATCH` value consumed by
-  `scripts/build.ts` and the `Microsoft.JavaScript.V8.nuspec` template.
+  `scripts/build.ts`, the `Microsoft.JavaScript.V8.nuspec` template, and
+  `scripts/libnode-build.ts --pack`.
   CI computes it from the committed version floor and Git history.
 - `nodejs_version` — the upstream Node.js version that `deps/nodejs/`
   is currently synced to. Authoritative source of the actual vendored

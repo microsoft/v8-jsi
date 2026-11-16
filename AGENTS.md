@@ -103,6 +103,92 @@ in V8's DCHECKs).
 Run both test runners for the configuration being validated; test counts change
 as coverage is added or removed.
 
+## LibNode
+
+`Microsoft.JavaScript.LibNode` packages Node.js from `deps/nodejs` built as a
+shared library (libnode), with the C embedding API
+(`deps/nodejs/src/node_embedding_api.h`, version 1) that node-api-dotnet uses.
+`scripts/libnode-build.ts` builds, tests, checks, stages, packs, and
+smoke-tests it for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, and
+osx-arm64, each on a machine of its own architecture (an Apple silicon Mac also
+builds and tests osx-x64, under Rosetta 2):
+
+```powershell
+node scripts\libnode-build.ts --platform x64 --configuration release --test --check --stage out\libnode\stage\win-x64
+node scripts\libnode-build.ts --pack out\libnode\stage --output out\libnode\packages
+node scripts\libnode-build.ts --smoke out\libnode\packages
+```
+
+- Windows runs `vcbuild.bat <config> <arch> dll cfg full-icu v8temporal` with
+  the `no-*` flags; Linux and macOS run `configure --shared
+  --with-intl=full-icu` and make the `node`, `embedtest`, and
+  `shared_embedtest` targets. Each builds full ICU, Temporal (it needs Rust),
+  and Node's other defaults. The build shares `deps\nodejs\out\<Config>` with
+  the v8jsi build: use a separate worktree, or build again until nearly a
+  no-op after switching.
+- An Apple silicon Mac builds osx-x64 with `--dest-cpu=x64
+  --no-cross-compiling`: clang targets x86_64 and Rosetta 2 runs the build's
+  own x86_64 tools and the tests, so the startup snapshot and code cache stay
+  on (configure turns them off in a cross build). It needs Rosetta 2
+  (`softwareupdate --install-rosetta --agree-to-license`) and Rust's
+  `x86_64-apple-darwin` target (`rustup target add x86_64-apple-darwin`).
+- CI's Windows jobs build with Microsoft Rust, which BinSkim's BA2030 requires
+  for Windows binaries: `RustInstaller@1` installs it from the office
+  `RustTools` feed ahead of the image's public Rust on PATH. Builds of pull
+  requests from forks skip that install and use the image's public Rust: their
+  restricted token may lack access to that feed, and they skip Guardian. Linux
+  and macOS use public Rust (the build container and the hosted Macs).
+- `src/libnode_settings.gypi`, which `common.gypi` includes for shared builds,
+  gives Windows the Hybrid CRT and v8jsi's hardening. On Linux it links
+  libstdc++, libgcc, and libatomic into libnode.so and hides their symbols
+  (with `src/libnode.version`), so the library needs only glibc 2.35 (Ubuntu
+  22.04). Linux and macOS build the library as `libnode.so` and
+  `libnode.dylib` (SONAME and install name), the names the packages ship.
+- Linux runs every step in the Ubuntu 22.04 containers that the Linux agent
+  images provide: `bash scripts/libnode-docker.sh build node scripts/libnode-build.ts ...`
+  for the build, tests, checks, and staging, and `... smoke ...` for
+  `--smoke`. CI's network isolation blocks installing anything, so the agent
+  images build both containers (`.ado/image/linux-image-provision.sh`) from
+  `.ado/image/libnode-linux-build.Dockerfile` and
+  `libnode-linux-smoke.Dockerfile`, tagged with each Dockerfile's hash; a job
+  fails early when its agent image is older than the Dockerfile. After
+  changing a Dockerfile or the provisioning script, run
+  `node scripts/linux-image-recipe.ts`, which rewrites
+  `.ado/image/azurelinux3-1espt-*.json`, and rebuild both Linux images.
+- `--test` runs `tools/test.py embedding`: Node's embedding tests plus the C and
+  C++ API tests in `deps/nodejs/test/embedding`. `--smoke` builds the C consumer
+  and the .NET app in `tests/libnode/` from a packed package and runs
+  `tests/libnode/features.js` with each; the .NET app restores only from the
+  package folder.
+- `--check` fails on any dependency outside the system libraries: on Windows
+  any imported DLL outside `allowedImports`, on Linux any needed library
+  outside glibc's (`allowedLinuxLibraries`), a glibc symbol newer than 2.35,
+  or an exported C++ runtime symbol, and on macOS anything outside
+  `/usr/lib` and `/System/Library`. Review a new dependency before allowing it.
+- CI runs these steps in `.ado/libnode-jobs.yml`: one job per platform
+  (Windows arm64 and Linux arm64 on the ARM64 pool, Linux x64 on
+  `fabric-internal-pool-large`, both macOS builds on the hosted
+  `macos-15-arm64`), then pack, which makes the six per-RID packages and the
+  `Microsoft.JavaScript.LibNode` meta package, then a smoke job per platform
+  (osx-x64 on the hosted Intel `macos-15`).
+  Publishing builds sign libnode.dll and the packages. Its key should be
+  CP-231522, the key for third-party and open-source components (libnode.dll
+  is Node.js); until the pipeline's ESRP client can use it,
+  `.ado/libnode-jobs.yml` passes CP-230012, v8jsi.dll's key.
+- The release pipeline (`.ado/windows-release.yml`) pushes the packages to
+  ms/react-native-public and the libnode.dll symbols to the Symbol Server.
+- The packages share `Microsoft.JavaScript.V8`'s version (`docs/versioning.md`):
+  `--pack` reads `v8jsi_version` from `config.json`, which CI computes, unless
+  `--semantic-version` overrides it.
+- The packages' NOTICE is `scripts/nuget-libnode/NOTICE.txt`. Regenerate it
+  with `node scripts/gen-notice.ts` after a fork-sync, and update the script's
+  Rust standard library entry when the Rust toolchain links other crates into
+  libnode.
+- The embedding API has its own Stela configuration, `stela.libnode.config.json`,
+  and baseline, `api/node_embedding.model.json`. The header predates Stela's
+  conventions and can't change, so `header-check.ts` doesn't lint it.
+  libnode.dll embeds its manifest through `src/libnode.gyp`.
+
 ## Source layout
 
 ### Core (`src/`)

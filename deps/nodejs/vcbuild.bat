@@ -491,7 +491,9 @@ set use_target_list=
 
 if defined no_node               (set use_target_list=1) else (set "target_list=%target_list%;node")
 if defined no_cctest             (set use_target_list=1) else (set "target_list=%target_list%;cctest")
-if defined no_embedtest          (set use_target_list=1) else (set "target_list=%target_list%;embedtest")
+@rem shared_embedtest builds only in shared (dll) builds; it is an empty
+@rem project otherwise.
+if defined no_embedtest          (set use_target_list=1) else (set "target_list=%target_list%;embedtest;shared_embedtest")
 if defined no_openssl_cli        (set use_target_list=1) else (set "target_list=%target_list%;openssl-cli")
 if defined no_fuzzers            (set use_target_list=1) else (set "target_list=%target_list%;fuzz_env;fuzz_ClientHelloParser;fuzz_strings")
 if defined no_nop                (set use_target_list=1) else (set "target_list=%target_list%;nop")

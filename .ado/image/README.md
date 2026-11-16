@@ -1,16 +1,18 @@
 # v8-jsi CI/Release VM images
 
-This folder holds the **1ES managed-image definitions** used by the v8-jsi
-Azure DevOps pipelines. Each JSON is an ordered list of provisioning *artifacts*
-(tools/features) applied to a base Windows Server 2025 image to produce the VM
-image the build agents run on.
+This folder holds the **1ES managed-image definitions** used by the v8-jsi and
+LibNode Azure DevOps pipelines. Each JSON is an ordered list of provisioning
+*artifacts* (tools/features) applied to a base Windows Server 2025 or Azure Linux 3
+image to produce the VM image the build agents run on.
 
 | File | Architecture | Built image name |
 |------|--------------|------------------|
 | [`windows-2025-1espt-x64.json`](./windows-2025-1espt-x64.json) | x64 (also runs x86) | `windows-2025-1espt` |
 | [`windows-2025-1espt-arm64.json`](./windows-2025-1espt-arm64.json) | ARM64 (native) | `windows-2025-1espt-arm64` |
+| [`azurelinux3-1espt-x64.json`](./azurelinux3-1espt-x64.json) | x64 | `azurelinux3-1espt` |
+| [`azurelinux3-1espt-arm64.json`](./azurelinux3-1espt-arm64.json) | ARM64 (native) | `azurelinux3-1espt-arm64` |
 
-Both definitions request one toolchain — **Visual Studio 2026 Enterprise + Clang,
+Both Windows definitions request one toolchain — **Visual Studio 2026 Enterprise + Clang,
 Windows SDK 28000 (with 26100 and 22621 retained), Node.js 24, Python 3.13 in the Azure Pipelines tool cache,
 the latest Python on `PATH`, a native Python 3.14 off `PATH`, and .NET 10** —
 so x64, x86, and ARM64 all build and test with the same tools once the images
@@ -18,11 +20,15 @@ are rebuilt. The two JSONs are intentionally kept as close to
 identical as possible; they differ only where the architecture forces it (see
 [Per-architecture differences](#per-architecture-differences)).
 
+The Linux images provide Docker and prebuilt Ubuntu 22.04 containers for
+LibNode's build and package smoke tests; see [Linux images](#linux-images-and-libnode-containers).
+
 ## Pool ↔ image mapping (how pipelines select an image)
 
-The build/test jobs run in two different ways depending on target architecture:
+Both pools contain Windows and Linux images, so jobs must select their image
+explicitly. Windows build/test jobs select images as follows:
 
-- **x64 / x86** → pool **`fabric-internal-pool-large`**, image **`windows-2025-1espt`**,
+- **Windows x64 / x86** → pool **`fabric-internal-pool-large`**, image **`windows-2025-1espt`**,
   selected with an explicit image demand:
   ```yaml
   pool:
@@ -30,25 +36,33 @@ The build/test jobs run in two different ways depending on target architecture:
     demands: ImageOverride -equals windows-2025-1espt
   ```
   `fabric-internal-pool-large` hosts multiple images, so the image **must** be
-  named via `ImageOverride`. This is set once on the top-level pool in
-  `.ado/windows-jobs.yml`, and every x64/x86 job inherits it (the x64 sandbox job
-  also states it explicitly in its non-ARM64 branch).
+  named via `ImageOverride`. The V8 jobs inherit this from the top-level pool in
+  [`windows-jobs.yml`](../windows-jobs.yml); the sandbox jobs also state it
+  explicitly in their non-ARM64 branch. LibNode declares the same demand in
+  [`libnode-jobs.yml`](../libnode-jobs.yml).
 
-- **ARM64** → pool **`windows-2025-1espt-arm64`**, image **`windows-2025-1espt-arm64`**,
-  with **no** image demand:
+- **Windows ARM64** → pool **`windows-2025-1espt-arm64`**, image **`windows-2025-1espt-arm64`**:
   ```yaml
   pool:
     name: windows-2025-1espt-arm64
+    image: windows-2025-1espt-arm64
     os: windows
     hostArchitecture: arm64
   ```
-  `windows-2025-1espt-arm64` is a **single-image pool** — `windows-2025-1espt-arm64`
-  is its one default image — so **no `ImageOverride` demand is used (or needed)**.
-  ARM64 binaries can't execute on an x64 agent, so ARM64 cells build *and run their
-  tests* natively on this pool. `hostArchitecture: arm64` is required: 1ES Pipeline
+  The pool also contains `azurelinux3-1espt-arm64`, so omitting `image` can select
+  the wrong operating system. ARM64 cells build *and run their tests* natively
+  on this pool. `hostArchitecture: arm64` is required: 1ES Pipeline
   Templates default it to `amd64`, and the 1ES PT pre-job fails an `amd64` host on
   an ARM VM SKU (`An amd64 architecture has been specified, but this is an arm64
   pool`).
+
+The Linux build and smoke jobs in [`libnode-jobs.yml`](../libnode-jobs.yml)
+use the following selections, both with `os: linux`:
+
+| Target | Pool | `image` | `hostArchitecture` |
+|--------|------|---------|--------------------|
+| Linux x64 | `fabric-internal-pool-large` | `azurelinux3-1espt` | default (`amd64`) |
+| Linux ARM64 | `windows-2025-1espt-arm64` | `azurelinux3-1espt-arm64` | `arm64` |
 
 > The `windows-release.yml` pipeline runs its publish/download jobs on the hosted
 > `Azure-Pipelines-1ESPT-ExDShared` pool (it does not build v8-jsi), so it does not
@@ -64,16 +78,16 @@ so a pipeline run always uses the *currently published* image, not the JSON on t
 branch. **After editing a JSON, the image must be rebuilt** before pipelines see
 the change.
 
-Both images are currently rebuilt every Sunday. Windows security servicing
+All four images are currently rebuilt every Sunday. Windows security servicing
 relies on refreshed, patched base images and successful image publication;
 automatic Windows updates are disabled on the resulting build agents.
 
 Most artifacts accept parameters; the managed-image build passes each JSON
 `parameters` entry to the artifact **by name**.
 
-## Visual Studio toolset (shared by both images)
+## Visual Studio toolset (shared by both Windows images)
 
-Both images install VS 2026 Enterprise via `windows-visualstudio-bootstrapper`
+Both Windows images install VS 2026 Enterprise via `windows-visualstudio-bootstrapper`
 (`VSBootstrapperURL: https://aka.ms/vs/18/stable/vs_Enterprise.exe` — VS "18" is
 the 2026 product line), with the **same** workload string ending in
 `--includeRecommended --includeOptional`:
@@ -95,7 +109,7 @@ the 2026 product line), with the **same** workload string ending in
 
 ## Artifacts (in provisioning order)
 
-Shared by both images unless marked. Ordering matters — helper/runtime artifacts
+Shared by both Windows images unless marked. Ordering matters — helper/runtime artifacts
 come before the artifacts that depend on them.
 
 | Artifact | Purpose |
@@ -131,7 +145,7 @@ come before the artifacts that depend on them.
 
 ## Per-architecture differences
 
-Everything else is identical; only these entries differ between the two JSONs:
+Everything else is identical; only these entries differ between the two Windows JSONs:
 
 | Aspect | x64 image | ARM64 image |
 |--------|-----------|-------------|
@@ -143,7 +157,7 @@ Everything else is identical; only these entries differ between the two JSONs:
 | Tool-cache Python 3.13 | x64 | x64 (runs under emulation) |
 | Latest Python on `PATH` | `Architecture: x64` | `Architecture: arm64` (native) |
 | Native Python `3.14.x` off `PATH` | tool cache, through a second `windows-1es-starter-install-python` (`versions: 3.14.*`) | through winget ([`install-winget-packages.ps1`](./install-winget-packages.ps1)); the tool-cache artifact installs only x64 builds |
-| `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — native arm64 **plus** an x64 SDK under `%ProgramFiles%\dotnet\x64` + `DOTNET_ROOT_X64` |
+| `.NET` | one `windows-dotnetcore-sdk` (native) | **two** — explicit `Architecture: arm64` **plus** an x64 SDK under `%ProgramFiles%\dotnet\x64` + `DOTNET_ROOT_X64` |
 
 ## Key decisions
 
@@ -229,6 +243,12 @@ required for the channel to take effect.
 
 ### x64 .NET on the ARM64 image
 
+The first SDK installation explicitly sets `Architecture: arm64` for native
+builds and LibNode's .NET package smoke test. ImageFactory provisions the ARM64
+image through an emulated x64 PowerShell process, so automatic architecture
+detection can install an x64 SDK in the native SDK's location instead. Keep
+the explicit native architecture as well as the separate x64 installation.
+
 The ARM64 image installs a **second, x64** .NET SDK side-by-side with the native
 arm64 SDK (`Architecture: x64`, `InstallDir:
 $env:ProgramFiles\dotnet\x64`) and sets the machine variable `DOTNET_ROOT_X64`
@@ -243,11 +263,11 @@ OS) lets SBoM run on the ARM64 cells.
 
 ### Rust
 
-V8 implements Temporal with the Rust `temporal_rs` crates, which the vendored
-Node.js build compiles with Cargo into a static library that MSVC links. Both
-images install the same Rust toolchain so Temporal can be enabled for
-`v8jsi.dll` and `v8jsisb.dll`. The Chromium sandbox build (`sbox-build.ts`)
-does not use it.
+LibNode enables V8's Temporal implementation, which the vendored Node.js build
+compiles from the Rust `temporal_rs` crates with Cargo. Both Windows images
+provide public Rust; Microsoft Rust is installed separately by the Windows
+LibNode jobs as described below. `v8jsi.dll` and `v8jsisb.dll` disable Temporal
+and do not need Rust. The Chromium sandbox build does not use it either.
 
 The factory artifact `windows-install-public-rust-toolchain` installs the
 floating `stable` toolchain with the `minimal` profile (rustc, Cargo, the host
@@ -255,12 +275,12 @@ standard library) through the official rustup under `%SystemDrive%\Rust`. It
 persists `RUSTUP_HOME=%SystemDrive%\Rust\.rustup` and adds the rustup proxies
 in `%SystemDrive%\Rust\.image-cargo\bin` to the machine `PATH`. It does not
 persist `CARGO_HOME`, so Cargo caches stay per user. The toolchain is
-read-only for agents, so they cannot add targets themselves. Both images
-therefore install every engine target's standard library at image build time,
+read-only for agents, so they cannot add targets themselves. Both Windows images
+therefore preinstall the following target standard libraries at image build time,
 as the `rust-std-<target>` entries of the artifact's `Components` parameter
 (the same as `rustup target add <target>`):
 
-| Rust target | Used for |
+| Rust target | Architecture |
 |-------------|----------|
 | `x86_64-pc-windows-msvc` | x64 |
 | `i686-pc-windows-msvc` | x86, which builds as Win32 on the x64 image |
@@ -282,6 +302,15 @@ standard library and there is no ARM64EC MSI. `Rustlang.Rustup` runs the same
 
 The vendored Node.js crates require Rust 1.86 or later (`rust-version` in
 `deps/nodejs/deps/crates/Cargo.toml`); `stable` follows the weekly rebuilds.
+
+Windows LibNode jobs in [`libnode-jobs.yml`](../libnode-jobs.yml) install
+Microsoft's production Rust SDK with `RustInstaller@1`, using the
+`ms-prod-1.99` channel. Its tools precede the image's public Rust on the job's
+`PATH`; a subsequent check fails unless `rustc -vV` includes `codegen-utc-hash`.
+Fork pull-request builds skip both steps because their restricted token may
+lack toolchain-feed access, and use the image's public Rust instead. Microsoft
+Rust is a per-job dependency, not an image component; changing that job's SDK
+channel does not require rebuilding the VM images.
 
 ### 7-zip
 
@@ -393,14 +422,52 @@ images. After rebuilding both images, verify the installed 28000 servicing level
 headers, libraries, and tools for x64/x86 and native ARM64, then run real sandbox
 builds on the updated agents.
 
+## Linux images and LibNode containers
+
+The Azure Linux 3 images are Docker hosts. LibNode builds and tests run
+natively for each host architecture inside Ubuntu 22.04 containers, not
+directly on Azure Linux. This keeps the shipped `libnode.so` compatible with
+glibc 2.35 and later. Its C++ runtime is linked into the library with hidden
+symbols, so consumers do not need the build container's newer C++ runtime.
+
+| Source | Container | Contents and purpose |
+|--------|-----------|----------------------|
+| [`libnode-linux-build.Dockerfile`](./libnode-linux-build.Dockerfile) | `v8jsi-libnode-linux-build` | Clang 20, libstdc++ 13, public Rust 1.100.0, and Node.js 24; builds, embedding tests, binary checks, and staging |
+| [`libnode-linux-smoke.Dockerfile`](./libnode-linux-smoke.Dockerfile) | `v8jsi-libnode-linux-smoke` | Ubuntu 22.04's own C/C++ toolchain and runtime, .NET 10, and Node.js 24; builds and runs consumers of the packed packages without the build container's newer toolchain |
+
+[`linux-image-provision.sh`](./linux-image-provision.sh) builds both containers
+while the managed-image build still has network access. Each container is
+tagged with the first 16 hex digits of its Dockerfile's SHA-256, with LF line
+endings. The provisioning log is also saved in the image at
+`/opt/v8jsi/image-build-report.txt`. A provisioning failure fails the image
+build, leaving the previous published image in use.
+
+[`libnode-docker.sh`](../../scripts/libnode-docker.sh) runs the matching
+container as the agent user with `--network=none`. It fails immediately if
+the Dockerfile's tag is missing from the agent; it does not pull or rebuild
+containers during CI.
+
+Both Linux JSON recipes embed the provisioning script and both Dockerfiles,
+compressed and base64-encoded for the factory's `linux-bash-command` artifact.
+Do not edit that payload by hand: regenerate it with
+[`linux-image-recipe.ts`](../../scripts/linux-image-recipe.ts), then rebuild
+both Linux VM images.
+
 ## Updating an image
 
-1. Edit the relevant JSON (and keep the two in sync where the change is not
-   architecture-specific).
+1. For Windows, edit the relevant JSON (and keep both Windows definitions in
+   sync where the change is not architecture-specific). For Linux, edit the
+   Dockerfiles or provisioning script, then regenerate both Linux JSON recipes
+   from the repository root:
+   ```powershell
+   node scripts\linux-image-recipe.ts
+   ```
 2. Trigger a managed-image rebuild for the affected image(s).
 3. Once the new image is published, the pools serve it automatically — pipelines
-   need no change (they select by pool + `ImageOverride`, not by image version).
+   need no change (they select by pool + `ImageOverride` or `image`, not by
+   image version).
 
 When changing anything that a build step depends on at runtime (a tool version, a
 new SDK, an environment variable), rebuild the image **before** relying on it in
-the pipeline; a branch edit to the JSON alone does not change the running agents.
+the pipeline; a branch edit to the JSON, Dockerfiles, or provisioning script alone
+does not change the running agents.

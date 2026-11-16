@@ -4,7 +4,11 @@ This Node.js tree is vendored. The hunks below are v8-jsi-side additions
 that the fork-sync must keep when upstream Node.js diverges around them.
 Defaults are unchanged: every patch is gated on opt-in (`--build-v8jsi`,
 `v8jsi` / `no-*` keywords, `target_arch=="ia32"`, etc.), so upstream
-behavior is preserved when the new options aren't requested.
+behavior is preserved when the new options aren't requested. Two exceptions:
+the libnode embedding API and its tests are part of every Node.js build of
+this tree, and shared builds (`--shared`, vcbuild `dll`), which here are
+always libnode, get libnode's settings: the Windows Hybrid CRT and hardening,
+the Linux private C++ runtime, and the Linux and macOS library names.
 
 ## Rule of thumb
 
@@ -59,18 +63,66 @@ the API, compiler phase, or default that our patch originally extended.
   `scripts/check-root-certs.ts` fails CI if an eMudhra root returns or Node's
   `kBlockedSPKIs` list loses an entry. Drop this contract once upstream
   removes the root.
+- **libnode embedding API (version 1):** the local-only files
+  `src/node_embedding_api.h`, `src/node_embedding_api.cc`, and
+  `src/node_embedding_api_cpp.h`, listed in node.gyp's `node_sources` and
+  headers. The header is a published ABI: `api/node_embedding.model.json` and
+  `stela.libnode.config.json` (repository root) fail the build on any change.
+  The `.cc` uses Node's embedder API and internals (`CommonEnvironmentSetup`,
+  `LoadEnvironment`, `node_napi_env__::New`, `napi_env__`'s scope counters, the
+  event loop, cppgc setup); adapt it when upstream changes them.
+- **libnode embedding tests:** the local-only `test/embedding` files
+  (`embedtest_c_api*`, `embedtest_c_cpp_api*`, `embedtest_main.cc`,
+  `embedding-api-test-cases.js`, `test-embedding-c-api.js`,
+  `test-embedding-c-cpp-api.js`, `preload-with-worker.js`,
+  `use-linked-modules.js`); in `embedtest.cc`, `test_main_cpp_api` instead of
+  `NODE_MAIN` and the `uv.h` include, because `embedtest_main.cc` owns `main`;
+  and in node.gyp, those sources in `embedtest`, which is also built for the
+  Windows shared library. vcbuild.bat's target list builds `shared_embedtest`
+  with `embedtest`.
+- **libnode on Windows:** `class NODE_EXTERN EmbedderSnapshotData` and its
+  `struct NODE_EXTERN DeleteSnapshotData` in `src/node.h` (upstream exports
+  neither, so `embedtest` can't link against libnode.dll); the static C++
+  runtime for shared builds in common.gypi (`MSVC_runtimeType`) and
+  configure.py (`force_dynamic_crt`); and node.gyp's include of
+  `../../src/libnode.gyp` with the libnode target's `libnode_stela_gen`
+  dependency (the embedded API manifest).
+- **libnode settings:** common.gypi's include of
+  `../../src/libnode_settings.gypi` for every shared build. That file sets the
+  Windows Hybrid CRT and hardening, links libstdc++, libgcc, and libatomic
+  privately into the Linux libnode.so (replacing node.gyp's `-latomic` for
+  it), and names the Linux and macOS libraries `libnode.so` and
+  `libnode.dylib`. Its `target_conditions` match node.gyp's `libnode` target
+  by name and override the versioned `product_extension` that node.gyp's
+  conditions set.
+- **Windows Temporal:** `deps/crates/crates.gyp` links `synchronization.lib` for
+  Rust's `WaitOnAddress` and `WakeByAddress*` imports. Keep this link setting
+  for both host tools (including `mksnapshot`) and the target library. Since
+  Rust 1.100 the standard library gets these imports from synchronization.lib
+  (`rustc --print native-static-libs`) instead of embedding them in the static
+  library, as Rust 1.99 did. Drop this contract once upstream links the library.
+- **OpenSSL version probe:** configure.py's `get_openssl_macros` adds
+  `-DOPENSSL_NO_ASM` when the build uses no-asm OpenSSL (`openssl_no_asm`,
+  which Windows ARM64 builds need). Otherwise, on a native Windows ARM64 host,
+  the asm dispatch headers fall back to the pruned `linux-elf` configuration,
+  the probe fails, and ncrypto is built for a pre-3.0 OpenSSL.
 - **Full-Node inputs for libnode:** ICU (`deps/icu-small`), LIEF, amaro,
   undici, acorn, minimatch, `deps/uv/src/unix`, the Linux and macOS OpenSSL
-  configurations, the V8 valgrind header, `test/common`, `test/testpy`,
+  configurations, the OpenSSL command-line sources (`deps/openssl/openssl/apps`,
+  which `node.gypi` makes every Node.js target depend on), the V8 valgrind
+  header, `test/common`, `test/testpy`,
   `test/root.status`, and the four fixtures the embedding tests load are
   synced in full (see `.syncignore`), except the npm lockfiles in undici and
-  minimatch, which are not build inputs. They were copied in once from the
-  upstream commit, because `keepLocalDeletions` keeps a pruned path absent
-  even after its ignore rule is removed. Upstream marks a few of these files
-  executable, and Windows checkouts drop that bit, so stage new copies with
-  `git update-index --chmod=+x` where upstream has it. A few upstream files
-  also match Git ignore rules here (undici's `src/build/`, mbedtls's
-  `error.c` under LIEF); add those with `git add -f`.
+  minimatch and everything in `deps/openssl/openssl/apps` other than its C
+  sources and headers (sample keys, certificates, SRP verifiers,
+  configuration files, and scripts), which are not build inputs. Never restore
+  key or certificate files that the build doesn't use. The inputs were copied
+  in once from the upstream commit, because `keepLocalDeletions` keeps a
+  pruned path absent even after its ignore rule is removed. Upstream marks a
+  few of these files executable, and Windows checkouts drop that bit, so stage
+  new copies with `git update-index --chmod=+x` where upstream has it. A few
+  upstream files also match Git ignore rules here (undici's `src/build/`,
+  mbedtls's `error.c` under LIEF); add those with `git add -f`.
 
 ## When to call human
 

@@ -64,7 +64,12 @@
           ['OS=="win"', {
             'libraries': [
               '-lntdll',
-              '-luserenv'
+              '-luserenv',
+              # v8-jsi: since Rust 1.100 the standard library gets
+              # WaitOnAddress and WakeByAddress* from synchronization.lib
+              # (`rustc --print native-static-libs`) instead of embedding
+              # their imports in the static library.
+              '-lsynchronization',
             ],
           }],
         ],
