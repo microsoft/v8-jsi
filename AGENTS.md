@@ -205,7 +205,8 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
   publishes the packages to nuget.org through ESRP Release, as hermes-windows
   does. It runs after every successful CI run of main, so each main commit
   publishes a new LibNode version there; nuget.org versions can't be replaced
-  or deleted.
+  or deleted. Its Gate stage releases only CI runs of main: a manual run that
+  picks another branch's CI run succeeds as "Skipped" and publishes nothing.
 - The packages share `Microsoft.JavaScript.V8`'s version (`docs/versioning.md`):
   `--pack` reads `v8jsi_version` from `config.json`, which CI computes, unless
   `--semantic-version` overrides it.
