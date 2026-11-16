@@ -455,6 +455,11 @@ extends:
                 Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxOut -Force
                 node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target v8host_all_tests --no-gen
                 if ($LASTEXITCODE -ne 0) { throw "Sandbox test build FAILED (exit $LASTEXITCODE)" }
+                # On main, CodeQL can trace this job, and its tracer follows the
+                # processes the job starts. LPAC workers can't load it and exit with
+                # 0xc0000022. Clearing CodeQL's variables, as its end-tracing script
+                # does, keeps the tracer out of the processes this step starts next.
+                Get-ChildItem env:CODEQL_* | Where-Object Name -notin 'CODEQL_DIST', 'CODEQL_PLATFORM' | Remove-Item
                 $suites = @(
                   'v8host_protocol_tests', 'v8host_run_envelope_tests',
                   'v8host_dispatcher_tests', 'v8host_config_tests',
@@ -476,6 +481,8 @@ extends:
 
             - ${{ if eq(sb.BuildPlatform, 'x64') }}:
               - pwsh: |
+                  # Untraced, as the suites above: this step starts sandbox workers too.
+                  Get-ChildItem env:CODEQL_* | Where-Object Name -notin 'CODEQL_DIST', 'CODEQL_PLATFORM' | Remove-Item
                   .\tests\run-worker.ps1
                 displayName: Sandbox worker coverage (unsigned build outputs)
                 workingDirectory: $(Build.SourcesDirectory)
