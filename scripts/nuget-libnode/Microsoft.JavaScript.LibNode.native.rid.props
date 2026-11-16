@@ -1,0 +1,33 @@
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- if LibNodeIncludeEmbeddingApiHeaders == False then don't add include directories for the Node.js embedding API. -->
+    <LibNodeIncludeEmbeddingApiHeaders Condition=" '$(LibNodeIncludeEmbeddingApiHeaders)' == '' ">True</LibNodeIncludeEmbeddingApiHeaders>
+
+    <!-- if LibNodeIncludeNodeApiHeaders == False then don't add include directories for the Node.js Node-API. -->
+    <LibNodeIncludeNodeApiHeaders Condition=" '$(LibNodeIncludeNodeApiHeaders)' == '' ">True</LibNodeIncludeNodeApiHeaders>
+
+    <!-- if LibNodeAddLibDependency == False then don't add linker dependency on libnode.lib. -->
+    <LibNodeAddLibDependency Condition=" '$(LibNodeAddLibDependency)' == '' ">True</LibNodeAddLibDependency>
+
+    <!-- if LibNodeCopyDLL == False then don't copy the native libnode.dll to the target output folder. -->
+    <LibNodeCopyDLL Condition=" '$(LibNodeCopyDLL)' == '' ">True</LibNodeCopyDLL>
+  </PropertyGroup>
+
+  <!-- Detect the runtime identifier (RID) for the current platform, if none was specified. -->
+  <PropertyGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '' AND $([MSBuild]::IsOsPlatform('Windows'))">
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'X64' ">win-x64</LibNodeRuntimeIdentifier>
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'X86' ">win-x86</LibNodeRuntimeIdentifier>
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'Win32' ">win-x86</LibNodeRuntimeIdentifier>
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'Arm64' ">win-arm64</LibNodeRuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '' AND $([MSBuild]::IsOsPlatform('OSX'))">
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'X64' ">osx-x64</LibNodeRuntimeIdentifier>
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'Arm64' ">osx-arm64</LibNodeRuntimeIdentifier>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(LibNodeRuntimeIdentifier)' == '' AND $([MSBuild]::IsOsPlatform('Linux'))">
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'X64' ">linux-x64</LibNodeRuntimeIdentifier>
+    <LibNodeRuntimeIdentifier Condition=" '$(Platform)' == 'Arm64' ">linux-arm64</LibNodeRuntimeIdentifier>
+  </PropertyGroup>
+
+</Project>

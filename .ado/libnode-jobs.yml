@@ -1,0 +1,364 @@
+# Microsoft.JavaScript.LibNode: libnode built from deps/nodejs with the C
+# embedding API, for win-x64, win-arm64, linux-x64, linux-arm64, osx-x64, and
+# osx-arm64. Each platform job builds the library, runs Node.js's embedding
+# tests, checks the library, and stages it; publishing builds also sign
+# libnode.dll.
+# The pack job makes the six per-RID packages and the meta package, and each
+# smoke job builds a C consumer and a .NET app from its platform's package and
+# runs them. Every step is one scripts/libnode-build.ts invocation, so each one
+# can be reproduced locally.
+#
+# The Linux jobs run under network isolation, which blocks installing tools, so
+# they build and smoke-test in the containers that the Linux agent images
+# provide (scripts/libnode-docker.sh). The macOS jobs run on Microsoft-hosted
+# agents with their preinstalled tools. Both macOS builds run on the Apple
+# silicon agent, which builds osx-x64 under Rosetta 2 about five times faster
+# than the Intel agent.
+
+parameters:
+  # isPublish is `true` for CI builds and `false` for PR validation.
+- name: isPublish
+  type: boolean
+  default: false
+  # Os selects the steps and Pool the agents. The ARM64 pool also has the Linux
+  # ARM64 image, and a job that names no image gets the first one, so the jobs
+  # name their images. hostArchitecture must be arm64 on ARM64 agents: 1ES PT
+  # defaults it to amd64 and fails an amd64 host on an ARM VM SKU. BuildPool,
+  # when set, runs the build job instead of Pool: osx-x64 builds on the Apple
+  # silicon Mac, under Rosetta 2, and is smoke-tested on the Intel Mac, which
+  # runs it without Rosetta.
+- name: platforms
+  type: object
+  default:
+  - Rid: win-x64
+    Os: win
+    Platform: x64
+    Pool:
+      name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
+  - Rid: win-arm64
+    Os: win
+    Platform: arm64
+    Pool:
+      name: windows-2025-1espt-arm64
+      image: windows-2025-1espt-arm64
+      os: windows
+      hostArchitecture: arm64
+  - Rid: linux-x64
+    Os: linux
+    Platform: x64
+    Pool:
+      name: fabric-internal-pool-large
+      image: azurelinux3-1espt
+      os: linux
+  - Rid: linux-arm64
+    Os: linux
+    Platform: arm64
+    Pool:
+      name: windows-2025-1espt-arm64
+      image: azurelinux3-1espt-arm64
+      os: linux
+      hostArchitecture: arm64
+  - Rid: osx-x64
+    Os: osx
+    Platform: x64
+    Pool:
+      name: Azure Pipelines
+      image: macos-15
+      os: macOS
+    BuildPool:
+      name: Azure Pipelines
+      image: macos-15-arm64
+      os: macOS
+  - Rid: osx-arm64
+    Os: osx
+    Platform: arm64
+    Pool:
+      name: Azure Pipelines
+      image: macos-15-arm64
+      os: macOS
+
+jobs:
+- ${{ each p in parameters.platforms }}:
+  - job: LibNodeBuild_${{ replace(p.Rid, '-', '_') }}
+    displayName: Build LibNode (${{ p.Rid }})
+    ${{ if p.BuildPool }}:
+      pool: ${{ p.BuildPool }}
+    ${{ else }}:
+      pool: ${{ p.Pool }}
+
+    timeoutInMinutes: 300
+    ${{ if eq(p.Os, 'win') }}:
+      # Wait for the computed config.json, which stamps the libnode version.
+      dependsOn: V8JsiComputeVersion
+
+    variables:
+    - name: Packaging.EnableSBOMSigning
+      value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+
+    templateContext:
+      # CodeQL runs only on main. The Windows LibNode jobs analyze the same
+      # sources; CodeQL can't trace the Linux build in its container, and a
+      # traced build would take too long on the hosted Macs.
+      ${{ if ne(p.Os, 'win') }}:
+        sdl:
+          codeql:
+            compiled:
+              enabled: false
+      outputs:
+      - output: pipelineArtifact
+        artifactName: libnode-${{ p.Rid }}
+        targetPath: $(Build.StagingDirectory)/libnode/${{ p.Rid }}
+
+    steps:
+    - ${{ if eq(p.Os, 'win') }}:
+        # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
+        # retention post-job still runs on the Node 10 handler.
+      - ${{ if eq(p.Platform, 'arm64') }}:
+        - template: /.ado/ensure-node10-shim.yml@self
+
+      - template: /.ado/overlay-version-config.yml@self
+
+      - task: UseNode@1
+        displayName: Use Node.js 24.x
+        inputs:
+          version: '24.x'
+
+        # BinSkim (run by --check) installs from the react-native-public ADO
+        # feed through nuget.exe.
+      - task: NuGetToolInstaller@1
+        displayName: Install NuGet tools
+        inputs:
+          versionSpec: ">=4.6.0"
+
+      - task: NuGetAuthenticate@1
+        displayName: Authenticate NuGet (BinSkim feed)
+
+        # Temporal's Rust code and the Rust standard library in libnode.dll
+        # must come from Microsoft Rust: BinSkim's BA2030 requires it for
+        # Windows binaries. Its multiplexers come first on PATH, ahead of the
+        # image's public Rust; the next step fails if they don't. Builds of
+        # pull requests from forks run with a restricted token, which may lack
+        # access to the RustTools feed, and skip Guardian, so they skip both
+        # steps and build with the image's public Rust.
+      - task: RustInstaller@1
+        displayName: Install Microsoft Rust
+        condition: and(succeeded(), ne(variables['System.PullRequest.IsFork'], 'True'))
+        retryCountOnTaskFailure: 2
+        inputs:
+          rustVersion: ms-prod-1.99
+          toolchainFeed: https://pkgs.dev.azure.com/office/_packaging/RustTools/nuget/v3/index.json
+
+      - pwsh: |
+          $info = rustc -vV
+          $info
+          if (-not ($info -match '^codegen-utc-hash:')) { throw 'rustc on PATH is not Microsoft Rust.' }
+        displayName: Check the Rust toolchain
+        condition: and(succeeded(), ne(variables['System.PullRequest.IsFork'], 'True'))
+
+      - pwsh: |
+          node scripts/libnode-build.ts --platform ${{ p.Platform }} --configuration release
+        displayName: Build libnode.dll
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - pwsh: |
+          node scripts/libnode-build.ts --no-build --test --platform ${{ p.Platform }} --configuration release
+        displayName: Embedding tests
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - pwsh: |
+          node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
+        displayName: Check imports, exports, Stela manifest, and BinSkim
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - pwsh: |
+          node scripts/libnode-build.ts --no-build --platform ${{ p.Platform }} --configuration release `
+              --stage "$(Build.StagingDirectory)\libnode\${{ p.Rid }}"
+        displayName: Stage libnode.dll, its import library, symbols, and headers
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - ${{ if parameters.isPublish }}:
+        - template: /.ado/templates/esrp-codesign-binaries.yml@self
+          parameters:
+            displayName: CodeSign libnode.dll
+            folderPath: $(Build.StagingDirectory)\libnode\${{ p.Rid }}
+            pattern: libnode.dll
+            # Third-party and open-source components such as Node.js take
+            # CP-231522 ("Microsoft 3rd Party Application Component"). Switch to
+            # it once this pipeline's ESRP client can use that key.
+            keyCode: CP-230012
+
+    - ${{ if eq(p.Os, 'linux') }}:
+      - bash: |
+          bash scripts/libnode-docker.sh build node scripts/libnode-build.ts --platform ${{ p.Platform }} --configuration release
+        displayName: Build libnode.so
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          bash scripts/libnode-docker.sh build node scripts/libnode-build.ts --no-build --test --platform ${{ p.Platform }} --configuration release
+        displayName: Embedding tests
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          bash scripts/libnode-docker.sh build node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
+        displayName: Check needed libraries, glibc versions, and exports
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          bash scripts/libnode-docker.sh build node scripts/libnode-build.ts --no-build --platform ${{ p.Platform }} --configuration release \
+              --stage "$(Build.StagingDirectory)/libnode/${{ p.Rid }}"
+        displayName: Stage libnode.so and headers
+        workingDirectory: $(Build.SourcesDirectory)
+        env:
+          LIBNODE_DOCKER_MOUNTS: $(Build.StagingDirectory)
+
+    - ${{ if eq(p.Os, 'osx') }}:
+      - task: UseNode@1
+        displayName: Use Node.js 24.x
+        inputs:
+          version: '24.x'
+
+        # The Apple silicon Mac that builds osx-x64 needs Rust's x86_64
+        # standard library for Temporal.
+      - ${{ if eq(p.Platform, 'x64') }}:
+        - bash: rustup target add x86_64-apple-darwin
+          displayName: Add the x86_64 Rust target
+
+      - bash: |
+          node scripts/libnode-build.ts --platform ${{ p.Platform }} --configuration release
+        displayName: Build libnode.dylib
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          node scripts/libnode-build.ts --no-build --test --platform ${{ p.Platform }} --configuration release
+        displayName: Embedding tests
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
+        displayName: Check dependencies, install name, minimum macOS, and exports
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          node scripts/libnode-build.ts --no-build --platform ${{ p.Platform }} --configuration release \
+              --stage "$(Build.StagingDirectory)/libnode/${{ p.Rid }}"
+        displayName: Stage libnode.dylib and headers
+        workingDirectory: $(Build.SourcesDirectory)
+
+  # The six per-RID packages and the meta package, which depends on all six.
+- job: LibNodePack
+  displayName: Pack LibNode
+  dependsOn:
+  - V8JsiComputeVersion
+  - ${{ each p in parameters.platforms }}:
+    - LibNodeBuild_${{ replace(p.Rid, '-', '_') }}
+
+  templateContext:
+    outputs:
+    - output: pipelineArtifact
+      artifactName: libnode-packages
+      targetPath: $(Build.StagingDirectory)\libnode-packages
+
+  steps:
+    # The package version comes from the computed config.json.
+  - template: /.ado/overlay-version-config.yml@self
+
+  - task: UseNode@1
+    displayName: Use Node.js 24.x
+    inputs:
+      version: '24.x'
+
+  - task: NuGetToolInstaller@1
+    displayName: Install NuGet tools
+    inputs:
+      versionSpec: ">=4.6.0"
+
+  - ${{ each p in parameters.platforms }}:
+    - task: DownloadPipelineArtifact@2
+      displayName: Download libnode-${{ p.Rid }}
+      inputs:
+        artifact: libnode-${{ p.Rid }}
+        path: $(Build.StagingDirectory)\libnode-stage\${{ p.Rid }}
+
+    # --pack also leaves its staging folder in the output folder, so only the
+    # packages are copied to the published folder.
+  - pwsh: |
+      node scripts/libnode-build.ts --pack "$(Build.StagingDirectory)\libnode-stage" `
+          --output "$(Build.StagingDirectory)\libnode-pack"
+      if ($LASTEXITCODE -ne 0) { throw "libnode pack FAILED (exit $LASTEXITCODE)" }
+      $packages = "$(Build.StagingDirectory)\libnode-packages"
+      New-Item -ItemType Directory -Force -Path $packages | Out-Null
+      Copy-Item "$(Build.StagingDirectory)\libnode-pack\*.nupkg" $packages
+      Get-ChildItem $packages | ForEach-Object { Write-Host "$($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MB)" }
+    displayName: NuGet pack
+    workingDirectory: $(Build.SourcesDirectory)
+
+  - ${{ if parameters.isPublish }}:
+    - template: /.ado/templates/esrp-codesign-nuget.yml@self
+      parameters:
+        displayName: CodeSign LibNode NuGets
+        folderPath: $(Build.StagingDirectory)\libnode-packages
+        pattern: |
+          Microsoft.JavaScript.LibNode.*.nupkg
+
+  # Each platform's package as a consumer gets it: the smoke test compiles a C
+  # and C++ consumer against the package's headers and library, and a .NET app
+  # that references the package, and runs tests/libnode/features.js with each.
+- ${{ each p in parameters.platforms }}:
+  - job: LibNodeSmoke_${{ replace(p.Rid, '-', '_') }}
+    displayName: Smoke test LibNode package (${{ p.Rid }})
+    dependsOn: LibNodePack
+    pool: ${{ p.Pool }}
+
+    ${{ if ne(p.Os, 'win') }}:
+      templateContext:
+        sdl:
+          codeql:
+            compiled:
+              enabled: false
+
+    steps:
+    - ${{ if and(eq(p.Os, 'win'), eq(p.Platform, 'arm64')) }}:
+      - template: /.ado/ensure-node10-shim.yml@self
+
+    - ${{ if ne(p.Os, 'linux') }}:
+      - task: UseNode@1
+        displayName: Use Node.js 24.x
+        inputs:
+          version: '24.x'
+
+    - task: DownloadPipelineArtifact@2
+      displayName: Download libnode-packages
+      inputs:
+        artifact: libnode-packages
+        path: $(Build.StagingDirectory)/libnode-packages
+
+    - ${{ if eq(p.Os, 'win') }}:
+      - pwsh: |
+          node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)\libnode-packages" --platform ${{ p.Platform }}
+        displayName: Smoke test
+        workingDirectory: $(Build.SourcesDirectory)
+
+        # The smoke test extracted the package; its libnode.dll must carry a
+        # valid signature on publishing builds.
+      - ${{ if parameters.isPublish }}:
+        - pwsh: |
+            $dll = "$(Build.StagingDirectory)\libnode-packages\smoke\${{ p.Rid }}\package\runtimes\${{ p.Rid }}\native\libnode.dll"
+            $signature = Get-AuthenticodeSignature $dll
+            Write-Host "$($signature.Status): $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne 'Valid') { throw "The packaged libnode.dll has no valid signature" }
+          displayName: Check the packaged libnode.dll signature
+
+    - ${{ if eq(p.Os, 'linux') }}:
+      - bash: |
+          bash scripts/libnode-docker.sh smoke node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)/libnode-packages" --platform ${{ p.Platform }}
+        displayName: Smoke test (Ubuntu 22.04 container)
+        workingDirectory: $(Build.SourcesDirectory)
+        env:
+          LIBNODE_DOCKER_MOUNTS: $(Build.StagingDirectory)
+
+    - ${{ if eq(p.Os, 'osx') }}:
+      - bash: |
+          node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)/libnode-packages" --platform ${{ p.Platform }}
+        displayName: Smoke test
+        workingDirectory: $(Build.SourcesDirectory)

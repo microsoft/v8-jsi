@@ -99,6 +99,28 @@
       "ruleId": "BA2014",
       "createdDate": "2026-07-10 00:00:00Z",
       "justification": "BA2014 on win-arm64 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
+    },
+    "726720bdcd4df574e06156a2ca86b964b70baf771cc39efab8c0ee54863273c4": {
+      "signature": "726720bdcd4df574e06156a2ca86b964b70baf771cc39efab8c0ee54863273c4",
+      "target": "libnode/win-x64/libnode.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-11-13 00:00:00Z",
+      "justification": "BA2014 on win-x64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
+    },
+    "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07": {
+      "signature": "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07",
+      "target": "libnode/win-arm64/libnode.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2014",
+      "createdDate": "2026-11-13 00:00:00Z",
+      "justification": "BA2014 on win-arm64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
     }
   }
 }

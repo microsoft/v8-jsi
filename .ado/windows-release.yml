@@ -154,3 +154,58 @@ extends:
         - template: .ado/templates/publish-symbols.yml@self
           parameters:
             symbolsArtifactName: V8Jsi-Symbols-New-$(Build.BuildId)
+
+      # =====================================================================
+      # Microsoft.JavaScript.LibNode. Consumes the libnode-packages artifact
+      # (the LibNodePack CI job) and pushes the meta package and the six
+      # per-RID packages to ms/react-native-public, plus the symbols of the
+      # signed win-x64 and win-arm64 libnode.dll (the per-RID CI build
+      # artifacts) to the Symbol Server.
+      # =====================================================================
+      - job: ms_react_native_nuget_job_libnode
+        displayName: Publish Nuget (Microsoft.JavaScript.LibNode) to ms/react-native-public
+        condition: succeeded()
+        timeoutInMinutes: 30
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: libnode-packages
+            targetPath: $(Pipeline.Workspace)\libnode-packages
+
+        steps:
+        - template: .ado/templates/publish-nuget-to-ado-feed.yml@self
+          parameters:
+            endpointId: '29e4c04c-ae69-4453-b9f3-bfef7a4c8d32'
+            nugetFeedUrl: 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
+            packageParentPath: '$(Pipeline.Workspace)/libnode-packages'
+            packagesToPush: '$(Pipeline.Workspace)/libnode-packages/Microsoft.JavaScript.LibNode.*.nupkg'
+            publishFeedCredentials: 'Nuget - ms/react-native-public'
+            feedDisplayName: 'ms/react-native-public'
+
+      - job: publish_symbols_job_libnode
+        displayName: Publish PDB Symbols (Microsoft.JavaScript.LibNode) to Symbol Server
+        condition: succeeded()
+        timeoutInMinutes: 30
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: libnode-win-x64
+            targetPath: $(Pipeline.Workspace)\libnode-symbols\libnode-win-x64
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: libnode-win-arm64
+            targetPath: $(Pipeline.Workspace)\libnode-symbols\libnode-win-arm64
+
+        steps:
+        - template: .ado/templates/publish-symbols.yml@self
+          parameters:
+            symbolsArtifactName: LibNode-Symbols-$(Build.BuildId)
+            symbolsFolder: $(Pipeline.Workspace)/libnode-symbols

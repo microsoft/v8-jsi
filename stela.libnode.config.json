@@ -1,0 +1,22 @@
+{
+  "schema": "stela.config/1",
+  "targets": ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"],
+  "diff": {
+    "baselines": {
+      "node_embedding": "api/node_embedding.model.json"
+    }
+  },
+  "libraries": [
+    {
+      "name": "node_embedding",
+      "prefix": "node_embedding",
+      "macroPrefix": "NODE_EMBEDDING",
+      "headers": ["deps/nodejs/src/node_embedding_api.h"],
+      "includeDirs": ["deps/nodejs/src"],
+      "stelaHeader": false
+    }
+  ],
+  "binaries": [
+    { "name": "libnode.dll", "libraries": ["node_embedding"] }
+  ]
+}

@@ -1,0 +1,22 @@
+/* Linker version script of the Linux libnode.so (src/libnode_settings.gypi).
+
+   libnode.so links its own copy of the C++ runtime (libstdc++), which is
+   newer than the one the system has. libstdc++'s headers give namespace std
+   default visibility, so the code Node.js instantiates from them would be
+   exported, and calls to it inside libnode.so could bind to another copy in
+   the process, such as the system libstdc++ that a .NET process loads. This
+   keeps that code, and the type information and virtual tables of those
+   types, local. Every other symbol keeps the visibility its source gives it:
+   the embedding API, Node-API, V8, libuv, and OpenSSL stay exported. */
+{
+  global:
+    *;
+  local:
+    extern "C++" {
+      std::*;
+      __gnu_cxx::*;
+    };
+    _ZT[ISTV]St*;
+    _ZT[ISTV]NSt*;
+    _ZT[ISTV]N9__gnu_cxx*;
+};

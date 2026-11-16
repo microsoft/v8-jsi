@@ -40,8 +40,11 @@
 # -----------------------------
 # v8jsi.dll must pass BinSkim with CFG +
 # Spectre verified. PR #233's `:win_msvc_cfg` GN config gives the
-# canonical flag set: `/guard:cf` (compile + link), `/Qspectre` (compile),
-# `/W3` (already common.gypi default).
+# canonical flag set: `/guard:cf` (compile + link) and `/W3` (already
+# common.gypi default). Its `/Qspectre` is not used: clang-cl ignores it
+# (warning "argument unused during compilation") and inserts no Spectre
+# barriers. Spectre mitigation (BA2024) comes from the Spectre-mitigated
+# runtime libraries linked below, as in Hermes.
 #
 # We extend that with two defensive additions for BinSkim coverage:
 #   - `/CETCOMPAT` (link) -- BA2025 EnableShadowStack. Arch-independent
@@ -56,9 +59,6 @@
 # `AdditionalOptions` if BinSkim ever flags it missing.
 # `BufferSecurityCheck` (/GS) is already set globally by Node.js's
 # common.gypi at line 326; we pin it here for clarity.
-# `/Qspectre` automatically links Spectre-mitigated runtime libraries when
-# the VS "Spectre Mitigations" component is installed (CI image has it),
-# so we don't need a separate `-vcvars_spectre_libs=spectre` step.
 #
 # GYP key notes
 # -------------
@@ -89,13 +89,10 @@
     'msvs_settings': {
       'VCCLCompilerTool': {
         # /guard:cf -- Control Flow Guard (BA2008).
-        # /Qspectre  -- Spectre v1 mitigation (BA2024). Auto-pulls
-        #               Spectre-mitigated runtime libs when the VS
-        #               "Spectre Mitigations" component is installed.
         # /ZH:SHA_256 -- secure source hashing (BA2004). clang-cl defaults to
         #               MD5 in CodeView; this switches to SHA-256. (Vendored V8
         #               libs stay MD5 -- a sub-threshold BA2004 Note, not error.)
-        'AdditionalOptions': [ '/guard:cf', '/Qspectre', '/ZH:SHA_256' ],
+        'AdditionalOptions': [ '/guard:cf', '/ZH:SHA_256' ],
         # /GS -- buffer security cookies (BA2011). Already true via
         # common.gypi globally; pinned here for clarity.
         'BufferSecurityCheck': 'true',
@@ -111,10 +108,11 @@
         # BA2025 (EnableShadowStack) accepted as a residual finding --
         # blocked by V8 upstream; see impl-b3-results.md.
         'AdditionalOptions': [ '/guard:cf' ],
-        # /DYNAMICBASE -- ASLR opt-in (BA2009).
-        'RandomizedBaseAddress': 'true',
+        # /DYNAMICBASE -- ASLR opt-in (BA2009). GYP takes the MSVS
+        # enumeration index here: 2 is "true".
+        'RandomizedBaseAddress': 2,
         # /NXCOMPAT -- DEP opt-in (BA2016).
-        'DataExecutionPrevention': 'true',
+        'DataExecutionPrevention': 2,
       },
     },
     'configurations': {
