@@ -1,7 +1,7 @@
 #
 # The v8-jsi Release pipeline entry point.
 # It releases NuGet packages to the public ms/react-native ADO feed and to the Office feed,
-# and, only when a manual run asks for it, the LibNode packages to nuget.org.
+# and the LibNode packages to nuget.org.
 #
 
 name: v8jsi_release_0.0.$(Date:yyMM.d)$(Rev:rrr)
@@ -10,15 +10,6 @@ name: v8jsi_release_0.0.$(Date:yyMM.d)$(Rev:rrr)
 # triggers are defined here, not in the ADO pipeline UI.
 trigger: none
 pr: none
-
-parameters:
-# nuget.org versions are permanent, so the LibNode nuget.org job exists only in
-# a manual run that sets this; the automatic runs after each CI never have it.
-# Pick the CI run to publish under Resources when queuing the run.
-- name: publishLibNodeToNuGetOrg
-  displayName: Publish LibNode to nuget.org
-  type: boolean
-  default: false
 
 resources:
   pipelines:
@@ -211,83 +202,52 @@ extends:
             symbolsArtifactName: LibNode-Symbols-$(Build.BuildId)
             symbolsFolder: $(Pipeline.Workspace)/libnode-symbols
 
-      # The seven signed LibNode packages to nuget.org through ESRP Release,
-      # after they reach ms/react-native-public. Only a manual run with
-      # publishLibNodeToNuGetOrg set has this job, and it runs only for a CI
-      # run of main. ESRP publishes them without approval.
-      - ${{ if eq(parameters.publishLibNodeToNuGetOrg, true) }}:
-        - job: nuget_org_job_libnode
-          displayName: Publish Nuget (Microsoft.JavaScript.LibNode) to nuget.org
-          dependsOn: ms_react_native_nuget_job_libnode
-          condition: >-
-            and(succeeded(),
-            eq(variables['Build.Reason'], 'Manual'),
-            eq(variables['resources.pipeline.microsoft.v8-jsi.ci.sourceBranch'], 'refs/heads/main'))
-          timeoutInMinutes: 120
+      - job: nuget_org_job_libnode
+        displayName: Publish Nuget (Microsoft.JavaScript.LibNode) to nuget.org
 
-          templateContext:
-            type: releaseJob
-            isProduction: true
-            inputs:
-            # Its own download: the ms/react-native-public job deletes the
-            # packages already on that feed from its copy.
-            - input: pipelineArtifact
-              pipeline: microsoft.v8-jsi.ci
-              artifactName: libnode-packages
-              targetPath: $(Pipeline.Workspace)\libnode-packages-esrp
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: libnode-packages
+            targetPath: '$(Pipeline.Workspace)\libnode-packages'
 
-          steps:
-          # ESRP uploads the whole folder; stage only the LibNode packages.
-          - task: CopyFiles@2
-            displayName: Stage LibNode packages for ESRP Release
-            inputs:
-              SourceFolder: '$(Pipeline.Workspace)\libnode-packages-esrp'
-              Contents: 'Microsoft.JavaScript.LibNode.*.nupkg'
-              TargetFolder: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
-              CleanTargetFolder: true
+        steps:
+        - pwsh: |
+            Get-ChildItem -LiteralPath '$(Pipeline.Workspace)\libnode-packages' -Recurse
+          displayName: Show directory contents
 
-          # CopyFiles succeeds with no match, so check the folder holds exactly
-          # the meta package and the six per-RID packages of one release version.
-          - pwsh: |
-              $ErrorActionPreference = 'Stop'
-              $entries = @(Get-ChildItem -LiteralPath $env:SUBMISSION_DIR -Force)
-              foreach ($entry in $entries) { Write-Host "  $($entry.Name) ($([math]::Round($entry.Length / 1MB, 1)) MB)" }
-              $names = @($entries | ForEach-Object Name)
-              $meta = @($names | Where-Object { $_ -match '^Microsoft\.JavaScript\.LibNode\.\d+\.\d+\.\d+\.nupkg$' })
-              if ($meta.Count -ne 1) {
-                throw "Expected one Microsoft.JavaScript.LibNode package with a release version (N.N.N), found $($meta.Count)."
-              }
-              $version = $meta[0] -replace '^Microsoft\.JavaScript\.LibNode\.(.+)\.nupkg$', '$1'
-              $expected = @("Microsoft.JavaScript.LibNode.$version.nupkg") +
-                @('win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-x64', 'osx-arm64' |
-                  ForEach-Object { "Microsoft.JavaScript.LibNode.$_.$version.nupkg" })
-              $missing = @($expected | Where-Object { $_ -notin $names })
-              $unexpected = @($names | Where-Object { $_ -notin $expected })
-              if ($missing.Count -gt 0 -or $unexpected.Count -gt 0) {
-                throw "The ESRP submission must be the seven LibNode $version packages. Missing: $($missing -join ', '). Unexpected: $($unexpected -join ', ')."
-              }
-              Write-Host "Submitting the seven Microsoft.JavaScript.LibNode $version packages."
-            displayName: Check the ESRP submission
-            env:
-              SUBMISSION_DIR: $(Agent.TempDirectory)\esrp-nuget\react-native-windows
+        # ESRP uploads the whole folder; stage only the NuGet packages.
+        - task: CopyFiles@2
+          displayName: Stage NuGet packages for ESRP Release
+          inputs:
+            SourceFolder: '$(Pipeline.Workspace)\libnode-packages'
+            Contents: 'Microsoft.JavaScript.LibNode.*.nupkg'
+            TargetFolder: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
 
-          - task: EsrpRelease@14
-            displayName: ESRP Release to nuget.org
-            inputs:
-              connectedservicename: 'ESRP-JSHost3'
-              usemanagedidentity: false
-              keyvaultname: 'OGX-JSHost-KV'
-              authcertname: 'OGX-JSHost-Auth4'
-              signcertname: 'OGX-JSHost-Sign3'
-              clientid: '0a35e01f-eadf-420a-a2bf-def002ba898d'
-              domaintenantid: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
-              intent: 'PackageDistribution'
-              contenttype: 'NuGet'
-              organizationname: 'react-native-windows'
-              contentsource: 'Folder'
-              folderlocation: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
-              waitforreleasecompletion: true
-              owners: 'vmorozov@microsoft.com'
-              approvers: 'khosany@microsoft.com'
-              serviceendpointurl: 'https://api.esrp.microsoft.com'
-              mainpublisher: 'ESRPRELPACMAN'
+        - pwsh: |
+            Get-ChildItem -LiteralPath '$(Agent.TempDirectory)\esrp-nuget\react-native-windows' -Recurse
+          displayName: Show ESRP submission directory contents
+
+        - task: EsrpRelease@14
+          displayName: ESRP Release to NuGet.org
+          inputs:
+            connectedservicename: 'ESRP-JSHost3'
+            usemanagedidentity: false
+            keyvaultname: 'OGX-JSHost-KV'
+            authcertname: 'OGX-JSHost-Auth4'
+            signcertname: 'OGX-JSHost-Sign3'
+            clientid: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+            domaintenantid: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+            intent: 'PackageDistribution'
+            contenttype: 'NuGet'
+            organizationname: 'react-native-windows'
+            contentsource: 'Folder'
+            folderlocation: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
+            waitforreleasecompletion: true
+            owners: 'vmorozov@microsoft.com'
+            approvers: 'khosany@microsoft.com'
+            serviceendpointurl: 'https://api.esrp.microsoft.com'
+            mainpublisher: 'ESRPRELPACMAN'
