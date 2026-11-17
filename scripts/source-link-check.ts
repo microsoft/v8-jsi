@@ -16,6 +16,9 @@
 // copy and are skipped.
 // Sources outside the repository root (Visual Studio, the Windows SDK, the
 // Microsoft C runtime, the Rust standard library) aren't ours and are skipped.
+// So is the "no source file" placeholder that Microsoft Rust's prebuilt standard
+// library objects record without a checksum: the linker makes it absolute
+// against the build's working directory, so it lands under the repository root.
 // A relative Chromium path (o:\...; gn's symbol_level below 2) fails: no map
 // entry can resolve it.
 //
@@ -238,7 +241,7 @@ function checkPdb(pdbUtil: string, pdb: string, commit: string, strict: boolean)
       relativeChromium.add(source.path);
       continue;
     }
-    if (!lower.startsWith(rootRule.local)) {
+    if (!lower.startsWith(rootRule.local) || /\\<?no source file>?$/.test(lower)) {
       foreign.add(lower);
       continue;
     }
