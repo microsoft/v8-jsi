@@ -67,7 +67,7 @@ namespace inspector {
 class TcpHolder : public std::enable_shared_from_this<TcpHolder> {
  public:
   void SetHandler(ProtocolHandler* handler);
-  int WriteRaw(const char* data, size_t size);
+  void WriteRaw(const char* data, size_t size);
 
   void read_loop();
 
@@ -106,7 +106,7 @@ class ProtocolHandler {
   }
 
  protected:
-  int WriteRaw(const char* data, size_t size);
+  void WriteRaw(const char* data, size_t size);
   InspectorSocket::Delegate* delegate();
 
   InspectorSocket* const inspector_;
@@ -366,7 +366,10 @@ class WsHandler : public ProtocolHandler {
 
   void Write(const char* data, size_t size) override {
     // Nonempty WS sends use InspectorSocket::WriteEncoded, not the HTTP writer.
-    CHECK_EQ(size, 0);
+    if (size != 0) {
+      inspector_->Abort(); // Defer EOF; this call may hold the session lock.
+      return;
+    }
     WriteRaw(data, size);
   }
 
@@ -461,11 +464,8 @@ class HttpHandler : public ProtocolHandler {
     auto end = std::copy_n(accept_ws_prefix, sizeof(accept_ws_prefix) - 1, reply);
     end = std::copy_n(accept_string, sizeof(accept_string), end);
     std::copy_n(accept_ws_suffix, sizeof(accept_ws_suffix) - 1, end);
-    if (WriteRaw(reply, sizeof(reply)) >= 0) {
-      inspector_->SwitchProtocol(std::make_unique<WsHandler>(inspector_, std::move(tcp_)));
-    } else {
-      tcp_.reset();
-    }
+    WriteRaw(reply, sizeof(reply));
+    inspector_->SwitchProtocol(std::make_unique<WsHandler>(inspector_, std::move(tcp_)));
   }
 
   void CancelHandshake() override {
@@ -634,8 +634,8 @@ ProtocolHandler::ProtocolHandler(InspectorSocket* inspector,
   tcp_->SetHandler(this);
 }
 
-int ProtocolHandler::WriteRaw(const char* data, size_t size) {
-  return tcp_ ? tcp_->WriteRaw(data, size) : 0;
+void ProtocolHandler::WriteRaw(const char* data, size_t size) {
+  if (tcp_) tcp_->WriteRaw(data, size);
 }
 
 InspectorSocket::Delegate* ProtocolHandler::delegate() {
@@ -669,7 +669,7 @@ void TcpHolder::SetHandler(ProtocolHandler* handler) {
   handler_ = handler;
 }
 
-int TcpHolder::WriteRaw(const char* data, size_t size) {
+void TcpHolder::WriteRaw(const char* data, size_t size) {
 #if DUMP_WRITES
   printf("%s (%zu bytes):\n", __FUNCTION__, size);
   dump_hex(data, size);
@@ -677,7 +677,6 @@ int TcpHolder::WriteRaw(const char* data, size_t size) {
 #endif
 
   connection_->write_raw(data, size);
-  return 0;
 }
 
 InspectorSocket::Delegate* TcpHolder::delegate() {

@@ -1329,11 +1329,7 @@ void runBoundedInspectorTransportScenario(Scenario scenario) {
   // Create, use and destroy the runtime on one thread. Bound the whole scenario,
   // including synchronous pumps, socket reads and assertion-failure cleanup.
   auto completion = std::async(std::launch::async, std::move(scenario));
-  if (completion.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
-    ADD_FAILURE() << "Inspector transport scenario exceeded 30 seconds";
-    // Like waitForFuture: unwinding an unfinished async future would hang.
-    std::abort();
-  }
+  waitForFuture(completion, 30, "Inspector transport scenario exceeded 30 seconds");
   completion.get();
 }
 template<class Predicate>
@@ -1660,8 +1656,12 @@ TEST(JsiAbiInspectorTransport, ConnectionCapIncludesHandshakeAndClosingTransport
   EXPECT_EQ(budget->Stats().admitted, 0u);
 }
 
-TEST(JsiAbiInspectorTransport, NonReadingDebuggerOverflowsClosesAndAllowsFreshEvaluation) {
-  runBoundedInspectorTransportScenario([] {
+namespace {
+enum class InspectorOverflowCase { RepeatedFourMiB, SingleOversizedReply };
+
+void checkInspectorOverflowRecovery(InspectorOverflowCase scenario) {
+  runBoundedInspectorTransportScenario([scenario] {
+    const bool oversized = scenario == InspectorOverflowCase::SingleOversizedReply;
     DeferredHostQueue queue;
     int port = freeInspectorPort();
     auto runtime = queue.runtime(port);
@@ -1671,46 +1671,43 @@ TEST(JsiAbiInspectorTransport, NonReadingDebuggerOverflowsClosesAndAllowsFreshEv
     int receiveBuffer = 1024;
     setsockopt(client.socket, SOL_SOCKET, SO_RCVBUF,
         reinterpret_cast<char*>(&receiveBuffer), sizeof(receiveBuffer));
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    for (int i = 0; i < 24 && runtimeTransportStats(port).overflows == 0; ++i) {
+    if (oversized) {
+      ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }));
+      ASSERT_EQ(runtimeTransportStats(port).overflows, 0u);
+    }
+    // One 64 MiB + 1 value is rejected before allocating an outbound frame;
+    // repeated 4 MiB replies instead fill the non-reading connection's budget.
+    const char* message = oversized
+        ? R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(67108865)","returnByValue":true}})json"
+        : R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(4*1024*1024)","returnByValue":true}})json";
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::seconds(30);
+    const int attempts = oversized ? 1 : 24;
+    for (int i = 0; i < attempts && runtimeTransportStats(port).overflows == 0; ++i) {
       ASSERT_LT(std::chrono::steady_clock::now(), deadline);
-      ASSERT_TRUE(sendInspectorMessage(client.socket,
-          R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(4*1024*1024)","returnByValue":true}})json"));
+      ASSERT_TRUE(sendInspectorMessage(client.socket, message));
       ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
     }
+    const int recoverySeconds = oversized ? 10 : 5;
     EXPECT_EQ(runtimeTransportStats(port).overflows, 1u);
-    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }));
+    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }, recoverySeconds));
     EXPECT_LT(std::chrono::steady_clock::now(), deadline);
-    EXPECT_TRUE(drainInspectorToEof(client.socket));
-    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }));
-    checkInspectorEvaluation(*runtime, queue, port);
-  });
-}
-
-TEST(JsiAbiInspectorTransport, SingleOversizedReplyClosesAndAllowsFreshEvaluation) {
-  runBoundedInspectorTransportScenario([] {
-    DeferredHostQueue queue;
-    int port = freeInspectorPort();
-    auto runtime = queue.runtime(port);
-    InspectorClient client;
-    ASSERT_NE(connectInspector(port, &client).find("101 Switching"), std::string::npos);
-    ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
-    ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }));
-    ASSERT_EQ(runtimeTransportStats(port).overflows, 0u);
-    // The real-Send fixture has fixed inputs; one 64 MiB + 1 value exercises Send
-    // without a new seam, and is rejected before allocating an outbound frame.
-    auto start = std::chrono::steady_clock::now();
-    ASSERT_TRUE(sendInspectorMessage(client.socket,
-        R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(67108865)","returnByValue":true}})json"));
-    ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
-    EXPECT_EQ(runtimeTransportStats(port).overflows, 1u);
-    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }, 10));
-    EXPECT_TRUE(drainInspectorToEof(client.socket, 10));
-    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }, 10));
-    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(30));
+    EXPECT_TRUE(drainInspectorToEof(client.socket, recoverySeconds));
+    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }, recoverySeconds));
+    if (oversized)
+      EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(30));
     checkInspectorEvaluation(*runtime, queue, port);
     EXPECT_EQ(runtimeTransportStats(port).overflows, 1u); // Diagnostic counted once.
   });
+}
+} // namespace
+
+TEST(JsiAbiInspectorTransport, NonReadingDebuggerOverflowsClosesAndAllowsFreshEvaluation) {
+  checkInspectorOverflowRecovery(InspectorOverflowCase::RepeatedFourMiB);
+}
+
+TEST(JsiAbiInspectorTransport, SingleOversizedReplyClosesAndAllowsFreshEvaluation) {
+  checkInspectorOverflowRecovery(InspectorOverflowCase::SingleOversizedReply);
 }
 
 TEST(JsiAbiInspectorTransport, IdleConnectionCapRejectsUpgradeAndReusesReleasedSlot) {
