@@ -117,8 +117,9 @@ function Invoke-WinGet([string[]]$Arguments) {
         return @{ ExitCode = $LASTEXITCODE; Output = $output.Trim() }
     }
     # Keep agreement/installer prompts visible while WinGet is running.
-    & winget.exe @Arguments | Out-Host
-    return @{ ExitCode = $LASTEXITCODE; Output = '' }
+    $winget = (Get-Command winget.exe -CommandType Application -ErrorAction Stop).Source
+    $process = Start-Process -FilePath $winget -ArgumentList $Arguments -NoNewWindow -Wait -PassThru
+    return @{ ExitCode = $process.ExitCode; Output = '' }
 }
 
 function Get-RegistryPath([string]$Scope) {

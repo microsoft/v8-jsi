@@ -115,6 +115,23 @@ test("the installer contains no policy bypass, self-elevation, downloader or PS7
   }
 });
 
+test("WinGet installs inherit console output and return the exact process exit code", () => {
+  // Real child processes cover success, failure and a signed WinGet failure code.
+  for (const exitCode of [0, 1, -1978335189]) {
+    const command = Buffer.from(`[Console]::Write('agreement prompt without newline'); exit ${exitCode}`,
+      "utf16le").toString("base64");
+    const result = powershell(`
+$wingetPath = (Get-Command powershell.exe -CommandType Application).Source
+function Get-Command { return @{ Source = $wingetPath } }
+$result = Invoke-WinGet @('-NoProfile', '-EncodedCommand', '${command}')
+if ($result.ExitCode -ne ${exitCode}) { throw "Unexpected exit: $($result.ExitCode)" }
+if ($result.Output -ne '') { throw 'Console output must not be captured' }
+Write-Host 'EXIT VERIFIED'`);
+    assert.equal(result.code, 0, result.output + result.stderr);
+    assert.match(result.output, /agreement prompt without newlineEXIT VERIFIED/);
+  }
+});
+
 test("the elevation warning appears only when user-scope Python is planned", () => {
   // Elevated runs cover no installs, machine-only installs, and user-scope Python.
   for (const missing of [[], ["NASM.NASM", "OpenJS.NodeJS.LTS"], ["Python.Python.3.14"]]) {
