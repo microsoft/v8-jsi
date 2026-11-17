@@ -1,11 +1,20 @@
 #
 # The v8-jsi Release pipeline entry point.
-# It releases NuGet packages to the public ms/react-native ADO feed and to the Office feed.
+# It releases NuGet packages to the public ms/react-native ADO feed and to the Office feed,
+# and the LibNode packages to nuget.org.
+#
+# It releases only CI runs of main. The CI resource trigger below starts it
+# only for those, but a manual run can pick any CI run, including a test
+# branch's prerelease (-g<sha>) packages, and nuget.org versions can't be
+# replaced or deleted. So the Gate stage checks the CI run's branch first: for
+# main it names the run after the version it releases and lets the Publish
+# stage run; for any other branch the run succeeds as "Skipped - ..." and
+# publishes nothing.
 #
 
 name: v8jsi_release_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-# Runs only when microsoft.v8-jsi.ci completes on main (see resources below);
+# Runs when microsoft.v8-jsi.ci completes on main (see resources below);
 # triggers are defined here, not in the ADO pipeline UI.
 trigger: none
 pr: none
@@ -35,8 +44,57 @@ extends:
       os: windows
 
     stages:
+    - stage: gate
+      displayName: Evaluate release
+
+      jobs:
+      - job: evaluate
+        displayName: Check that the CI run is from main
+        steps:
+        - checkout: none
+
+        # The CI run name is "<CI build number> - <version>" (set by the
+        # V8JsiComputeVersion CI job). An unresolved variable reads as another
+        # branch, so the run is skipped rather than released.
+        - pwsh: |
+            $branch = $env:CI_SOURCE_BRANCH
+            $ciRunName = $env:CI_RUN_NAME
+            $stamp = $env:BUILD_BUILDNUMBER -replace '^v8jsi_release_0\.0\.', ''
+            $version = if ($ciRunName -match ' - (.+)$') { $Matches[1] } else { $ciRunName }
+            Write-Host "CI run:    $ciRunName"
+            Write-Host "CI branch: $branch"
+            if ($branch -eq 'refs/heads/main') {
+              $shouldRelease = 'True'
+              $buildNumber = "Release $version - $stamp"
+              Write-Host "Releasing $version."
+            } else {
+              $shouldRelease = 'False'
+              $buildNumber = "Skipped - $ciRunName ($($branch -replace '^refs/heads/', '')) - $stamp"
+              Write-Host "Skipping: only CI runs of main are released; this one is from '$branch'. Nothing is published."
+            }
+            # Build numbers can't contain " / : < > \ | ? @ * or end with '.'.
+            $buildNumber = ($buildNumber -replace '["/:<>\\|?@*]', '_').TrimEnd('.')
+            Write-Host "##vso[build.updatebuildnumber]$buildNumber"
+            Write-Host "##vso[task.setvariable variable=shouldRelease;isOutput=true]$shouldRelease"
+          name: gate
+          displayName: Decide whether to release
+          env:
+            CI_SOURCE_BRANCH: $(resources.pipeline.microsoft.v8-jsi.ci.sourceBranch)
+            CI_RUN_NAME: $(resources.pipeline.microsoft.v8-jsi.ci.runName)
+            BUILD_BUILDNUMBER: $(Build.BuildNumber)
+
+        - pwsh: Write-Host 'Releasing'
+          displayName: RELEASING - the CI run is from main
+          condition: eq(variables['gate.shouldRelease'], 'True')
+
+        - pwsh: Write-Host 'Skipping'
+          displayName: SKIPPED - the CI run is not from main, nothing is published
+          condition: eq(variables['gate.shouldRelease'], 'False')
+
     - stage: publish_nugets
       displayName: Publish V8Jsi NuGets
+      dependsOn: gate
+      condition: and(succeeded(), eq(dependencies.gate.outputs['evaluate.gate.shouldRelease'], 'True'))
 
       jobs:
       # =====================================================================
@@ -200,3 +258,53 @@ extends:
           parameters:
             symbolsArtifactName: LibNode-Symbols-$(Build.BuildId)
             symbolsFolder: $(Pipeline.Workspace)/libnode-symbols
+
+      - job: nuget_org_job_libnode
+        displayName: Publish Nuget (Microsoft.JavaScript.LibNode) to nuget.org
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: libnode-packages
+            targetPath: '$(Pipeline.Workspace)\libnode-packages'
+
+        steps:
+        - pwsh: |
+            Get-ChildItem -LiteralPath '$(Pipeline.Workspace)\libnode-packages' -Recurse
+          displayName: Show directory contents
+
+        # ESRP uploads the whole folder; stage only the NuGet packages.
+        - task: CopyFiles@2
+          displayName: Stage NuGet packages for ESRP Release
+          inputs:
+            SourceFolder: '$(Pipeline.Workspace)\libnode-packages'
+            Contents: 'Microsoft.JavaScript.LibNode.*.nupkg'
+            TargetFolder: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
+
+        - pwsh: |
+            Get-ChildItem -LiteralPath '$(Agent.TempDirectory)\esrp-nuget\react-native-windows' -Recurse
+          displayName: Show ESRP submission directory contents
+
+        - task: EsrpRelease@14
+          displayName: ESRP Release to NuGet.org
+          inputs:
+            connectedservicename: 'ESRP-JSHost3'
+            usemanagedidentity: false
+            keyvaultname: 'OGX-JSHost-KV'
+            authcertname: 'OGX-JSHost-Auth4'
+            signcertname: 'OGX-JSHost-Sign3'
+            clientid: '0a35e01f-eadf-420a-a2bf-def002ba898d'
+            domaintenantid: 'cdc5aeea-15c5-4db6-b079-fcadd2505dc2'
+            intent: 'PackageDistribution'
+            contenttype: 'NuGet'
+            organizationname: 'react-native-windows'
+            contentsource: 'Folder'
+            folderlocation: '$(Agent.TempDirectory)\esrp-nuget\react-native-windows'
+            waitforreleasecompletion: true
+            owners: 'vmorozov@microsoft.com'
+            approvers: 'khosany@microsoft.com'
+            serviceendpointurl: 'https://api.esrp.microsoft.com'
+            mainpublisher: 'ESRPRELPACMAN'
