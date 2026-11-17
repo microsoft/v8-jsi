@@ -71,6 +71,9 @@ public:
   SocketSession* Session(int session_id);
 
   static void SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_);
+#ifdef JSI_TESTING_ONLY
+  static SendDispatchObservations TestSendBeforeDispatch();
+#endif
 
 private:
   static void CloseServerSocket(ServerSocket*);
@@ -85,6 +88,8 @@ private:
   int port_;
 
   std::mutex mutex_tcp_server_;
+  std::mutex mutex_session_accounts_;
+  std::map<int, std::weak_ptr<ConnectionAccount>> session_accounts_;
   std::shared_ptr<tcp_server> tcp_server_;
   bool tcp_server_stopped_{false};
   

@@ -5,19 +5,126 @@
 
 #include <memory>
 #include <algorithm>
+#include <map>
 #include "V8Windows.h"
 #include <asio.hpp>
 
 namespace inspector {
 
-tcp_server::tcp_server(int port, ConnectionCallback callback, void* data)
-  : io_context_(), acceptor_(io_context_), socket_(io_context_), callbackData_(data), connectioncallback_(callback)
+std::shared_ptr<ConnectionAccount> TransportBudget::TryAdmitConnection() {
+  // Allocate before taking the leaf lock; allocation failure can destroy an account.
+  auto account = std::shared_ptr<ConnectionAccount>(new ConnectionAccount(shared_from_this()));
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (stats_.admitted == limits_.connections) {
+    ++stats_.rejected_connections;
+    return {};
+  }
+  ++stats_.admitted;
+  account->admitted_ = true;
+  return account;
+}
+
+TransportStats TransportBudget::Stats() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return stats_;
+}
+
+ConnectionAccount::~ConnectionAccount() {
+  if (!admitted_) return;
+  std::lock_guard<std::mutex> lock(budget_->mutex_);
+  --budget_->stats_.admitted;
+}
+
+bool ConnectionAccount::TryReserve(size_t bytes) {
+  TransportStats stats;
+  size_t retained;
+  const char* reason;
+  {
+    std::lock_guard<std::mutex> lock(budget_->mutex_);
+    if (failed_) return false;
+    const auto& limits = budget_->limits_;
+    reason = bytes > limits.connection_bytes - retained_ ? "connection" :
+        bytes > limits.listener_bytes - budget_->stats_.retained ? "listener" : nullptr;
+    if (!reason) {
+      retained_ += bytes;
+      auto& s = budget_->stats_;
+      s.retained += bytes;
+      s.peak = (std::max)(s.peak, s.retained);
+      s.connection_peak = (std::max)(s.connection_peak, retained_);
+      return true;
+    }
+    failed_ = true;
+    ++budget_->stats_.overflows;
+    stats = budget_->stats_;
+    retained = retained_;
+  }
+  TRACEV8INSPECTOR_ERROR("Inspector transport overflow",
+      TraceLoggingUInt64(bytes, "requested"), TraceLoggingUInt64(retained, "connectionRetained"),
+      TraceLoggingUInt64(stats.retained, "listenerRetained"),
+      TraceLoggingUInt64(budget_->limits_.connection_bytes, "connectionLimit"),
+      TraceLoggingUInt64(budget_->limits_.listener_bytes, "listenerLimit"), TraceLoggingString(reason, "reason"));
+  return false;
+}
+
+void ConnectionAccount::Release(size_t bytes) {
+  std::lock_guard<std::mutex> lock(budget_->mutex_);
+  retained_ -= bytes;
+  budget_->stats_.retained -= bytes;
+}
+
+bool ConnectionAccount::Failed() {
+  std::lock_guard<std::mutex> lock(budget_->mutex_);
+  return failed_;
+}
+
+std::shared_ptr<OutboundBuffer> OutboundBuffer::Create(std::shared_ptr<ConnectionAccount> account, size_t bytes) {
+  auto buffer = std::make_shared<OutboundBuffer>(ConstructionKey{}, std::move(account));
+  // Saturation rejects unrepresentable payload + overhead against either budget.
+  size_t charge = bytes > SIZE_MAX - kOverhead ? SIZE_MAX : bytes + kOverhead;
+  if (!buffer->account_->TryReserve(charge)) return {};
+  buffer->charge_ = charge; // Armed before storage allocation, including allocation failure.
+  buffer->data.resize(bytes);
+  return buffer;
+}
+
+OutboundBuffer::~OutboundBuffer() {
+  std::vector<char>().swap(data);
+  account_->Release(charge_);
+}
+
+#ifdef JSI_TESTING_ONLY
+namespace {
+std::mutex stats_mutex;
+std::map<int, std::weak_ptr<TransportBudget>> port_budgets;
+}
+bool tcp_server::StatsForPort(int port, TransportStats& stats) {
+  std::shared_ptr<TransportBudget> budget;
+  {
+    std::lock_guard<std::mutex> lock(stats_mutex);
+    auto it = port_budgets.find(port);
+    if (it != port_budgets.end()) budget = it->second.lock();
+  }
+  if (!budget) return false;
+  stats = budget->Stats();
+  return true;
+}
+#endif
+
+tcp_server::tcp_server(int port, ConnectionCallback callback, void* data, TransportLimits limits)
+  : budget_(std::make_shared<TransportBudget>(limits)),
+    io_context_(), acceptor_(io_context_), socket_(io_context_), callbackData_(data), connectioncallback_(callback)
 {
-  asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
+  asio::ip::tcp::endpoint endpoint(asio::ip::address_v4::loopback(), port);
   acceptor_.open(endpoint.protocol());
   acceptor_.set_option(asio::ip::tcp::acceptor::reuse_address(true));
   acceptor_.bind(endpoint);
   acceptor_.listen();
+#ifdef JSI_TESTING_ONLY
+  {
+    std::lock_guard<std::mutex> lock(stats_mutex);
+    port_budgets[port] = budget_;
+  }
+#endif
   do_accept();
 }
 
@@ -45,6 +152,9 @@ void tcp_server::run() {
 }
 
 void tcp_server::post(std::function<void()> callback) {
+#ifdef JSI_TESTING_ONLY
+  ++posted_for_testing_;
+#endif
   asio::post(strand_, [this, callback = std::move(callback)] {
     callback();
     ++completed_posts_;
@@ -98,7 +208,15 @@ void tcp_server::do_accept()
   {
     if (!ec)
     {
-      auto connection = std::make_shared<tcp_connection>(std::move(socket_));
+      auto account = budget_->TryAdmitConnection();
+      if (!account) {
+        TRACEV8INSPECTOR_WARNING("Inspector connection limit reached");
+        socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+        socket_.close(ec);
+        if (acceptor_.is_open()) do_accept();
+        return;
+      }
+      auto connection = std::make_shared<tcp_connection>(std::move(socket_), std::move(account));
       connections_.erase(std::remove_if(connections_.begin(), connections_.end(),
           [](const auto &weak) { return weak.expired(); }), connections_.end());
       connections_.push_back(connection);
@@ -115,6 +233,9 @@ asio::ip::tcp::socket& tcp_connection::socket()
 {
   return socket_;
 }
+
+tcp_connection::tcp_connection(asio::ip::tcp::socket socket, std::shared_ptr<ConnectionAccount> account)
+    : socket_(std::move(socket)), account_(std::move(account)) {}
 
 void tcp_connection::read_loop_async() {
   auto self(shared_from_this());
@@ -141,10 +262,26 @@ void tcp_connection::read_loop_async() {
   });
 }
 
-void tcp_connection::write_async(std::vector<char>&& message_) {
+void tcp_connection::write_raw(const char* data, size_t size) {
+  auto buffer = OutboundBuffer::Create(account_, size);
+  if (!buffer) { abort_async(); return; }
+  if (size) std::copy_n(data, size, buffer->data.data());
+  write_async(std::move(buffer));
+}
+
+void tcp_connection::abort_async() {
+  if (aborting_ || eof_) return;
+  aborting_ = true;
+  outQueue = {};
+  // Never re-enter an HTTP callback holding the socket server's session lock.
+  asio::post(socket_.get_executor(), [self = shared_from_this()] { self->eof(); });
+}
+
+void tcp_connection::write_async(std::shared_ptr<OutboundBuffer> message_) {
   auto self = shared_from_this(); // eof() can release the connection's owner.
-  if (eof_) return;
-  if (message_.empty()) {
+  if (eof_ || aborting_) return;
+  if (account_->Failed()) { abort_async(); return; }
+  if (!message_ || message_->data.empty()) {
     if (!writing_ && outQueue.empty()) {
       eof();
       return;
@@ -167,29 +304,25 @@ void tcp_connection::do_write(bool cont) {
     writing_ = false;
     return;
   }
-  messageToWrite_ = std::move(outQueue.front());
+  auto message = std::move(outQueue.front());
   outQueue.pop();
   writing_ = true;
 
   auto self(shared_from_this());
 
-  if (messageToWrite_.empty()) {
+  if (!message || message->data.empty()) {
     writing_ = false;
     eof();
     return;
   }
 
-  std::string str;
-  std::transform(messageToWrite_.begin(), messageToWrite_.end(), std::back_inserter(str), [](char c) { return c; });
-
-  socket_.async_send(asio::buffer(messageToWrite_),
-    [self](asio::error_code ec, std::size_t bytes_transferred)
+  asio::async_write(socket_, asio::buffer(message->data),
+    [self, message](asio::error_code ec, std::size_t)
   {
+    if (self->eof_ || self->aborting_) return;
+    if (self->account_->Failed()) { self->abort_async(); return; }
     if (!ec)
     {
-      std::ostringstream stream;
-      stream << "Writing completed .. " << bytes_transferred << " bytes.";
-
       self->do_write(true);
     }
 
@@ -204,6 +337,7 @@ void tcp_connection::do_write(bool cont) {
 void tcp_connection::eof() {
   if (eof_) return;
   eof_ = true;
+  outQueue = {};
   close();
   std::vector<char> data;
   if (readcallback_) readcallback_(data, true, callbackData_);

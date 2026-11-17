@@ -98,6 +98,11 @@ different versions in separate install roots rather than mixing files.
 A cross-architecture client DLL belongs in its own architecture directory,
 beside the native payload directory.
 
+Snapshots are trusted deployment artifacts produced at the client application's
+build. The snapshot compatibility check is not an authenticity check and does
+not make an untrusted payload safe to deserialize. Payload-directory snapshots
+must be writable only by the installer/administrator.
+
 NuGet stages the payload and import library under `build\native\<rid>` before
 packing. The per-RID `Microsoft.JavaScript.V8.<rid>` package puts the binaries in
 `runtimes\<rid>\native` and keeps import libraries in `build\native\<rid>`. The

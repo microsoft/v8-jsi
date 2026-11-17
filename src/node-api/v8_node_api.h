@@ -210,6 +210,9 @@ typedef napi_status(
     jsi_runtime **out_runtime);
 
 /* Factory-owned config setters. A config is valid only in configure. */
+/* Enable the V8 inspector. Default: false.
+ * Listens on 127.0.0.1; any local process can attach. Enable only for
+ * development. Reach a remote device through a port-forwarding tunnel. */
 V8_NODE_API_API napi_status V8_NODE_API_CDECL
 v8_node_api_config_set_inspector_enabled(
     v8_node_api_config config,
@@ -230,6 +233,7 @@ typedef napi_status(
     const char *value,
     size_t length);
 
+/* Inspector TCP port on 127.0.0.1. Use a port-forwarding tunnel for remote devices. */
 V8_NODE_API_API napi_status V8_NODE_API_CDECL
 v8_node_api_config_set_inspector_port(
     v8_node_api_config config,

@@ -82,6 +82,7 @@ v8::Isolate* createIsolate(const IsolateConfig& config) {
     if (compat == v8rt_snapshot::kOk) {
       isolate_data->snapshot_blob_.data = reinterpret_cast<const char*>(
           v8rt_snapshot::blobData(config.startup_snapshot_blob));
+      // validate() guarantees the payload fits V8's signed int raw_size.
       isolate_data->snapshot_blob_.raw_size = static_cast<int>(
           v8rt_snapshot::blobSize(config.startup_snapshot_blob_size));
       create_params.snapshot_blob = &isolate_data->snapshot_blob_;

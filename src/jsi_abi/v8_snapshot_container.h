@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <climits>
 
 #include "v8.h"
 
@@ -82,7 +83,7 @@ enum Compat {
   kBadFormat = 3,       // unknown container format version
   kVersionMismatch = 4, // CachedDataVersionTag differs
   kFlagsMismatch = 5,   // engine build flags differ (cage / ptr-compression)
-  kSizeMismatch = 6,    // header blob_size != actual trailing bytes
+  kSizeMismatch = 6,    // header blob_size != trailing bytes, or payload > INT_MAX
 };
 
 inline uint32_t readU32(const uint8_t *p) {
@@ -122,7 +123,8 @@ inline int validate(const uint8_t *data, size_t size) {
     return kVersionMismatch;
   if (readU32(data + 12) != currentEngineFlags())
     return kFlagsMismatch;
-  if (readU64(data + 16) != static_cast<uint64_t>(size - kHeaderSize))
+  if (size - kHeaderSize > static_cast<size_t>(INT_MAX) ||
+      readU64(data + 16) != static_cast<uint64_t>(size - kHeaderSize))
     return kSizeMismatch;
   return kOk;
 }

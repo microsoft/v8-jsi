@@ -12,6 +12,9 @@
 namespace inspector {
 
 class ProtocolHandler;
+size_t WsFrameSize(size_t payload_size);
+std::shared_ptr<OutboundBuffer> EncodeWsFrame(std::shared_ptr<ConnectionAccount> account,
+                                            const char* data, size_t size);
 
 class InspectorSocket {
  public:
@@ -34,11 +37,15 @@ class InspectorSocket {
   void AcceptUpgrade(const std::string& accept_key);
   void CancelHandshake();
   void Write(const char* data, size_t len);
+  void WriteEncoded(std::shared_ptr<OutboundBuffer> buffer);
+  void Abort();
   void SwitchProtocol(std::unique_ptr<ProtocolHandler>&& handler);
   std::string GetHost();
 
  private:
   std::unique_ptr<ProtocolHandler> protocol_handler_;
+  std::weak_ptr<tcp_connection> connection_;
+  bool upgraded_{false};
 
   InspectorSocket(const InspectorSocket&) = delete;
   InspectorSocket& operator=(const InspectorSocket&) = delete;

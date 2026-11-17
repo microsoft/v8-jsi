@@ -372,6 +372,8 @@ V8HOST_API v8host_status V8HOST_CDECL v8host_run_config_set_engine_dll_utf16(
     const v8host_char16* value,
     size_t length);
 /// A non-empty payload-relative path, read before lockdown. Unset: none.
+/// Snapshots must be trusted deployment artifacts produced at the client
+/// application's build; compatibility validation is not an authenticity check.
 V8HOST_API v8host_status V8HOST_CDECL
 v8host_run_config_set_startup_snapshot_path_utf8(v8host_run_config config,
                                                  const char* value,
@@ -463,6 +465,8 @@ v8host_worker_config_set_engine_dll_utf16(v8host_worker_config config,
 /// A non-empty payload-relative startup snapshot the worker reads before
 /// lockdown, for its runtimes to choose by index (the order added, from 0). At
 /// most 8 (v8host_status_quota_exceeded beyond that).
+/// Snapshots must be trusted deployment artifacts produced at the client
+/// application's build; compatibility validation is not an authenticity check.
 V8HOST_API v8host_status V8HOST_CDECL
 v8host_worker_config_add_startup_snapshot_path_utf8(v8host_worker_config config,
                                                     const char* value,
