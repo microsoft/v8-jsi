@@ -696,6 +696,7 @@ function pack(stageRoot: string, outputDir: string): void {
   const version =
     args["semantic-version"] ?? readJson<ConfigJson>(path.join(repoRoot, "config.json")).v8jsi_version;
   if (!version) fail("No package version: pass --semantic-version or set config.json v8jsi_version.");
+  const nodeVersion = nodejsVersion();
 
   const staging = path.join(outputDir, "staging");
   deleteDir(staging);
@@ -708,6 +709,10 @@ function pack(stageRoot: string, outputDir: string): void {
       fs.copyFileSync(path.join(templatesDir, file), path.join(staging, file));
     }
   }
+  fs.writeFileSync(
+    path.join(staging, "README.md"),
+    fs.readFileSync(path.join(templatesDir, "README.md"), "utf-8").replaceAll("$nodeVersion$", nodeVersion),
+  );
   fs.copyFileSync(path.join(nodejsDir, "LICENSE"), path.join(staging, "LICENSE"));
   for (const rid of rids) {
     for (const file of fs.readdirSync(templatesDir)) {
@@ -753,6 +758,7 @@ function pack(stageRoot: string, outputDir: string): void {
   const baseProperties = [
     `nugetroot=${staging}`,
     `version=${version}`,
+    `nodeVersion=${nodeVersion}`,
     `repoUrl=https://github.com/microsoft/v8-jsi`,
     `repoBranch=${gitValue("rev-parse --abbrev-ref HEAD")}`,
     `repoCommit=${gitValue("rev-parse HEAD")}`,
