@@ -5,8 +5,7 @@
 //
 // The version comes from config.json.v8jsi_version (the Node.js-aligned 26.x
 // scheme the new package ships on), NOT config.json.version (the legacy
-// ReactNative.V8Jsi.Windows scheme). The legacy build keeps its own resource via
-// src/version.rc + scripts/fetch_code.ps1 and is intentionally left untouched.
+// ReactNative.V8Jsi.Windows scheme).
 //
 // Usage: node generate_version_info.ts [--config <path>] [--output <path>]
 

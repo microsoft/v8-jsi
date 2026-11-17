@@ -23,65 +23,36 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
    In Visual Studio Setup, Select the following **Individual Components**:
    * MSVC v143 - VS 2022 C++ x64/x86 Spectre-mitigated libs (Latest)
    * C++ ATL for latest v143 build tools with Spectre Mitigations (x86 & x64)
-1. Enable PowerShell script execution  
-   Launch Cmd as **Administrator**
-   ```Cmd
-   powershell Set-ExecutionPolicy RemoteSigned
-   ```
-1. Perform Initial Build  
-   Launch Cmd as **Standard** user, NOT **Administrator**  
-   From V8-Jsi Repo directory:
-   ```
-   powershell ./localbuild.ps1
-   ```
-
-##### Windows Build
-
-To build Win32 X64 Debug:
-
-Launch Cmd as **Standard** user, NOT **Administrator**  
-From V8-Jsi Repo Directory:
-```Cmd
-powershell ./localbuild.ps1 -NoSetup
-```
-
-To build the specific platform and flavor, use appropriate build flags: 
-```Cmd
-powershell ./localbuild.ps1 -NoSetup -Platform x86 -Configuration Release 
-```
-
-##### Building v8jsi.dll from Node.js sources (new build, in development)
-
-A second build path is being developed that compiles v8jsi.dll from a
-vendored copy of Node.js 26.x (under [`deps/nodejs/`](deps/nodejs/)) without
-`depot_tools` / `gclient`. It produces its own `v8jsi.dll`,
-`v8jsi_test.exe`, and `node_api_tests.exe` into
-`deps/nodejs/out/{Release,Debug}/` — the legacy build's outputs in
-`out/{Release,Debug}/` are unaffected and continue to be the canonical
-artifacts shipped in the `ReactNative.V8Jsi.Windows` NuGet today.
-
-The two builds will coexist until downstream consumers migrate to the
-new `Microsoft.JavaScript.V8` NuGet, at which point the legacy build
-above is removed.
-
-###### Additional prerequisites
-
-In addition to the prerequisites listed under *Initial Windows Build
-Setup*, the new build also needs:
-
-1. **Python 3.x** on PATH (required by the Node.js `configure` step).
-1. **Node.js 24.x** on PATH for tooling (required by [`scripts/build.ts`](scripts/build.ts));
-   the vendored Node.js 26.x sources do not require a Node 26 tooling runtime.
 1. The Visual Studio **C++ Clang Compiler for Windows** component
    (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`). The build uses its
    libclang to embed the API manifest in `v8jsi.dll` (see
    [`tools/stela/README.md`](tools/stela/README.md)), and the sandbox build
    ([`scripts/sbox-build.ts`](scripts/sbox-build.ts)) compiles with its clang.
 
+From the repo root, check and install NASM, an accepted Python, and Node.js 24+:
+```PowerShell
+powershell.exe -NoProfile -File .\scripts\install-prerequisites.ps1
+```
+The script asks once before installing missing tools through WinGet; `-CheckOnly`
+reports without installing, and `-Yes` consents and accepts WinGet agreements
+(installer/UAC prompts may remain). Existing accepted tools are kept.
+WinGet is needed only to install missing tools.
+If PowerShell blocks execution, consult Microsoft's
+[execution-policy documentation](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_execution_policies)
+and your organization's policy. The script does not change policy.
+It does not install Visual Studio C++/Clang, the Windows SDK, or Git.
+
+##### Building v8jsi.dll from Node.js sources
+
+The supported build uses vendored [Node.js 26.x sources](deps/nodejs/) through
+[`dev.ps1`](dev.ps1) / [`scripts/build.ts`](scripts/build.ts). Outputs are
+`v8jsi.dll`, `v8jsi_test.exe`, and `node_api_tests.exe` in
+`deps/nodejs/out/{Release,Debug}/`, packaged as `Microsoft.JavaScript.V8`.
+
 ###### Developer task runner: `dev.ps1`
 
 [`dev.ps1`](dev.ps1) at the repo root is the canonical entry point for
-the new build. Run `.\dev` with no arguments to see available commands.
+the supported build. Run `.\dev` with no arguments to see available commands.
 
 **Build** (Release x64 by default):
 ```PowerShell
@@ -126,29 +97,8 @@ flags (skips `node.exe`, `cctest`, `embedtest`, etc.). See
 `deps/nodejs/src/node_version.h`, and fails fast on mismatch. See
 [`docs/versioning.md`](docs/versioning.md) for the `26.x.y` policy.
 
-##### [EXPERIMENTAL!] Building with WSL2 on Windows 10/11
-* [Enable](https://docs.microsoft.com/en-us/windows/wsl/install) Windows Subsystem for Linux
-* Install debian: `wsl --install -d Debian`
-* [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/install-debian?view=powershell-7.2) in the Debian VM
-* Install minimal dependencies on the Debian VM: `sudo apt install lsb-release`
-* Make sure you have at least 15Gb of disk space on the drive where the WSL image lives (usually C:)
-* Build with `pwsh ./localbuild.ps1 -AppPlatform android`
-* If setup is completed successfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform android -NoSetup`
-
-##### [EXPERIMENTAL!] Building on macOS
-* [Install PowerShell](https://docs.microsoft.com/en-us/powershell/scripting/install/installing-powershell-on-macos?view=powershell-7.3) by running `brew install --cask powershell`
-* Build with `pwsh ./localbuild.ps1 -AppPlatform mac`
-* If setup is completed successfully, build incrementally with `pwsh ./localbuild.ps1 -AppPlatform mac -NoSetup`
-* **Note**: there are several test failures on macOS currently
-
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
-
-### Build script patches
-To regenerate after manual fix-ups, run:
-* `git diff --output=..\..\..\scripts\patch\build.diff --ignore-cr-at-eol` from `\build\v8\build\`.
-* `git diff --output=..\..\scripts\patch\src.diff --ignore-cr-at-eol` from `\build\v8\`.
-* `git diff --output=..\..\..\..\scripts\patch\zlib.diff --ignore-cr-at-eol` from `\build\v8\third_party\zlib\`.
 
 For the experimental Windows sandbox client API, see
 [Sandboxed JavaScript through v8host.dll](docs/v8host-sandbox.md).
