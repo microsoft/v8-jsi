@@ -31,15 +31,16 @@ CI uses only the build image's NASM. Developers can run
 `scripts/install-prerequisites.ps1` or
 `winget install --id NASM.NASM --exact --source winget`.
 
+Run each example from the repository root.
+
 Canonical entry point:
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\scripts'
-node build.ts --platform x64 --configuration release   # or: debug
+node scripts\build.ts --platform x64 --configuration release   # or: debug
 ```
 
 Raw `vcbuild.bat` (narrow-build flags spelled out):
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\deps\nodejs'
+Set-Location .\deps\nodejs
 .\vcbuild.bat release v8jsi without-intl no-node no-cctest no-embedtest no-openssl-cli no-fuzzers no-nop no-overlapped-checker
 ```
 
@@ -51,7 +52,7 @@ through to the legacy whole-solution build.
 
 Clean build (for stale-artifact issues):
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\deps\nodejs'; .\vcbuild.bat clean
+Set-Location .\deps\nodejs; .\vcbuild.bat clean
 ```
 
 **Outputs** (`Release` or `Debug` per configuration):
@@ -95,8 +96,8 @@ architectures or variants concurrently in the same Node output directory.
 ## Testing
 
 ```powershell
-& 'e:\GitHub\microsoft\v8-jsi\deps\nodejs\out\Release\v8jsi_test.exe' --gtest_brief=1
-& 'e:\GitHub\microsoft\v8-jsi\deps\nodejs\out\Release\node_api_tests.exe' --gtest_brief=1
+& '.\deps\nodejs\out\Release\v8jsi_test.exe' --gtest_brief=1
+& '.\deps\nodejs\out\Release\node_api_tests.exe' --gtest_brief=1
 ```
 
 `v8jsi_test.exe` runs each JSI test against two runtime parameterizations,
