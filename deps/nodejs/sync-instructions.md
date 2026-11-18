@@ -92,8 +92,10 @@ the API, compiler phase, or default that our patch originally extended.
   `process._linkedBinding()` returns the exports instead of throwing, and so
   does `require()` of a Node-API addon whose init throws and returns new
   exports. The embedding API's `RegisterModule` has the same check. The
-  embedding tests' `failing_module` and `unsupported_module` cover it. Drop
-  this contract once upstream Node.js has an equivalent fix.
+  embedding tests' `failing_module`, `failing_napi_module` (registered with
+  `napi_module_register`, so it loads through `napi_module_register_by_symbol`),
+  and `unsupported_module` cover it. Drop this contract once upstream Node.js
+  has an equivalent fix.
 - **libnode on Windows:** `class NODE_EXTERN EmbedderSnapshotData` and its
   `struct NODE_EXTERN DeleteSnapshotData` in `src/node.h` (upstream exports
   neither, so `embedtest` can't link against libnode.dll); the static C++

@@ -18,6 +18,7 @@ function getLoadError(moduleName) {
   return 'no error';
 }
 const failingModuleError = getLoadError('failing_module');
+const failingNapiModuleError = getLoadError('failing_napi_module');
 const unsupportedModuleError = getLoadError('unsupported_module');
 
 // Use the greeter and replicator modules in the worker thread.
@@ -39,5 +40,6 @@ worker.on('message', (message) => messages.push(message));
 process.on('beforeExit', () => {
   console.log(`main=${greeting}; worker=${messages[0].greeting}`);
   console.log(`failing_module: ${failingModuleError}`);
+  console.log(`failing_napi_module: ${failingNapiModuleError}`);
   console.log(`unsupported_module: ${unsupportedModuleError}`);
 });

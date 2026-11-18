@@ -136,6 +136,35 @@ class UnsupportedModule {
   std::atomic<int32_t>* counter_ptr_;
 };
 
+// Registered before Node.js initializes, so Node.js treats it as a linked
+// module and loads it through napi_module_register_by_symbol, which also loads
+// Node-API addons for require(). Its init throws after creating new exports.
+std::atomic<int32_t> failing_napi_module_init_call_count{0};
+
+napi_value NAPI_CDECL InitFailingNapiModule(napi_env env, napi_value exports) {
+  failing_napi_module_init_call_count.fetch_add(1);
+  napi_value new_exports{};
+  if (napi_create_object(env, &new_exports) != napi_ok) return nullptr;
+  napi_throw_error(env, nullptr, "failing_napi_module init failed");
+  return new_exports;
+}
+
+napi_module failing_napi_module = {
+    NAPI_MODULE_VERSION,
+    0,
+    __FILE__,
+    InitFailingNapiModule,
+    "failing_napi_module",
+    nullptr,
+    {nullptr},
+};
+
+struct FailingNapiModuleRegistration {
+  FailingNapiModuleRegistration() {
+    napi_module_register(&failing_napi_module);
+  }
+} failing_napi_module_registration;
+
 }  // namespace
 
 int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
@@ -198,6 +227,7 @@ int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
   // use-linked-modules.js loads each failing module once, in the main thread.
   NODE_ASSERT(failingModuleInitCallCount == 1);
   NODE_ASSERT(unsupportedModuleInitCallCount == 0);
+  NODE_ASSERT(failing_napi_module_init_call_count == 1);
 
   return error_handler.ReportResult();
 }
