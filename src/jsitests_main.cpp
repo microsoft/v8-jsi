@@ -1710,6 +1710,105 @@ TEST(JsiAbiInspectorTransport, SingleOversizedReplyClosesAndAllowsFreshEvaluatio
   checkInspectorOverflowRecovery(InspectorOverflowCase::SingleOversizedReply);
 }
 
+namespace {
+enum class InspectorRejectionCase {
+  DiscoveryOrigin, UpgradeOrigin, UnknownTargetUpgrade, UnknownDiscoveryPath, MalformedRequest
+};
+
+void checkInspectorRejectionRecovery(InspectorRejectionCase scenario) {
+  runBoundedInspectorTransportScenario([scenario] {
+    DeferredHostQueue queue;
+    int port = freeInspectorPort();
+    auto runtime = queue.runtime(port);
+    auto listing = inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    auto url = listing.find("ws://");
+    ASSERT_NE(url, std::string::npos) << listing;
+    auto path = listing.find('/', url + 5), end = listing.find('"', path);
+    ASSERT_NE(path, std::string::npos); ASSERT_NE(end, std::string::npos);
+    const bool origin = scenario == InspectorRejectionCase::DiscoveryOrigin ||
+        scenario == InspectorRejectionCase::UpgradeOrigin;
+    const bool upgrade = scenario == InspectorRejectionCase::UpgradeOrigin ||
+        scenario == InspectorRejectionCase::UnknownTargetUpgrade;
+    // Target ids are UUIDs; this cannot match the runtime's target.
+    std::string requestPath = scenario == InspectorRejectionCase::UnknownTargetUpgrade
+        ? "/nonexistent-target" : upgrade ? listing.substr(path, end - path) :
+        scenario == InspectorRejectionCase::UnknownDiscoveryPath ? "/json/unknown" : "/json/list";
+    std::string request = "GET " + requestPath + " HTTP/1.1\r\nHost: localhost\r\n";
+    if (origin) request += "Origin: http://example.com\r\n";
+    if (upgrade) request += "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
+    request += "\r\n";
+    // Invalid at the first byte, with no trailing bytes left unread at close.
+    if (scenario == InspectorRejectionCase::MalformedRequest) request = "!";
+    const std::string expected = "HTTP/1.0 400 Bad Request\r\n"
+        "Content-Type: text/html; charset=UTF-8\r\n\r\n"
+        "WebSockets request was expected\r\n";
+    ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }));
+    std::vector<std::unique_ptr<InspectorClient>> clients;
+    // Origin cases exceed the 32-slot cap; other paths repeat three times for speed.
+    // Never close a client socket, even after server EOF.
+    const int attempts = origin ? 33 : 3;
+    for (int i = 0; i < attempts; ++i) {
+      SCOPED_TRACE(i);
+      auto client = std::make_unique<InspectorClient>();
+      ASSERT_TRUE(openInspectorTcp(*client, port)); // The scenario watchdog bounds connect.
+      SOCKET socket = client->socket;
+      clients.push_back(std::move(client));
+      ASSERT_EQ(send(socket, request.data(), static_cast<int>(request.size()), 0),
+          static_cast<int>(request.size()));
+      u_long nonblocking = 1;
+      ASSERT_EQ(ioctlsocket(socket, FIONBIO, &nonblocking), 0);
+      std::string response;
+      bool closed = false;
+      int error = 0;
+      ASSERT_TRUE(awaitTransport([&] {
+        char bytes[512];
+        int n = recv(socket, bytes, sizeof(bytes), 0);
+        if (n > 0) {
+          response.append(bytes, n);
+          return response.size() > expected.size();
+        }
+        if (!n) return closed = true;
+        error = WSAGetLastError();
+        if (error == WSAECONNRESET || error == WSAECONNABORTED) {
+          closed = response == expected; // Reset counts only after the full body.
+          return true;
+        }
+        return error != WSAEWOULDBLOCK;
+      })) << "Server did not close the rejected connection within 5 seconds";
+      ASSERT_EQ(response, expected);
+      ASSERT_TRUE(closed) << "Unexpected receive error: " << error;
+    }
+    ASSERT_TRUE(awaitTransport([&] {
+      auto stats = runtimeTransportStats(port);
+      return stats.admitted == 0 && stats.retained == 0;
+    }));
+    EXPECT_EQ(runtimeTransportStats(port).rejected_connections, 0u);
+    checkInspectorEvaluation(*runtime, queue, port); // All rejected client sockets remain open.
+  });
+}
+} // namespace
+
+TEST(JsiAbiInspectorTransport, RejectedDiscoveryOriginFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::DiscoveryOrigin);
+}
+
+TEST(JsiAbiInspectorTransport, RejectedUpgradeOriginFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UpgradeOrigin);
+}
+
+TEST(JsiAbiInspectorTransport, UnknownTargetUpgradeFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UnknownTargetUpgrade);
+}
+
+TEST(JsiAbiInspectorTransport, UnknownDiscoveryPathFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UnknownDiscoveryPath);
+}
+
+TEST(JsiAbiInspectorTransport, MalformedRequestFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::MalformedRequest);
+}
+
 TEST(JsiAbiInspectorTransport, IdleConnectionCapRejectsUpgradeAndReusesReleasedSlot) {
   DeferredHostQueue queue;
   int port = freeInspectorPort();

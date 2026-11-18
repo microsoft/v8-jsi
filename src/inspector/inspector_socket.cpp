@@ -474,6 +474,8 @@ class HttpHandler : public ProtocolHandler {
         "Content-Type: text/html; charset=UTF-8\r\n\r\n"
         "WebSockets request was expected\r\n";
     WriteRaw(HANDSHAKE_FAILED_RESPONSE, sizeof(HANDSHAKE_FAILED_RESPONSE) - 1);
+    // The response write is pending (or aborting), so EOF cannot re-enter inline.
+    WriteRaw(nullptr, 0); // Flush the response, then close within the existing deadline.
   }
 
 
@@ -492,6 +494,7 @@ class HttpHandler : public ProtocolHandler {
     data->clear();
     if (err != HPE_OK) {
       CancelHandshake();
+      return;
     }
     // Event handling may delete *this
     std::vector<HttpEvent> events;
