@@ -5,7 +5,9 @@
 
 #ifdef _WIN32
 #include <winsock2.h>
+#include <iphlpapi.h>
 #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "iphlpapi.lib")
 #endif
 #include <gtest/gtest.h>
 #include <condition_variable>
@@ -14,6 +16,8 @@
 #include <mutex>
 #include <jsi/jsi.h>
 #include <algorithm>
+#include <climits>
+#include <cstring>
 #include <cstdlib>
 #include <string>
 #include <stdexcept>
@@ -31,6 +35,10 @@
 #include "jsi_abi/v8_node_api_attach.h"
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
 #include "inspector/inspector_tcp.h"
+extern "C" JSI_ABI_API bool JSI_ABI_CDECL v8_jsi_test_inspector_transport_stats(
+    int port, inspector::TransportStats* stats);
+extern "C" JSI_ABI_API void JSI_ABI_CDECL v8_jsi_test_inspector_send_dispatch(
+    inspector::SendDispatchObservations* observations);
 #endif
 
 // test-only hook (declared in jsi_abi_v8.cpp). Posts a task to the
@@ -656,7 +664,8 @@ void waitForFuture(Future&& future, int seconds, const char* message = "Inspecto
 #ifdef _WIN32
 // Minimal bounded loopback client: discover a target, upgrade, then disconnect.
 // Connect/disconnect themselves enqueue real inspector backend dispatch tasks.
-std::string inspectorRequest(int port, const std::string &request, SOCKET *keepOpen = nullptr) {
+std::string inspectorRequest(int port, const std::string &request, SOCKET *keepOpen = nullptr,
+                             size_t splitAt = 0) {
   WSADATA data{};
   if (WSAStartup(MAKEWORD(2, 2), &data)) return {};
   SOCKET socket = INVALID_SOCKET;
@@ -690,7 +699,12 @@ std::string inspectorRequest(int port, const std::string &request, SOCKET *keepO
   setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char *>(&timeout), sizeof(timeout));
   setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<char *>(&timeout), sizeof(timeout));
   if (connected == 0) {
-    send(socket, request.data(), static_cast<int>(request.size()), 0);
+    if (splitAt) {
+      EXPECT_EQ(send(socket, request.data(), static_cast<int>(splitAt), 0), static_cast<int>(splitAt));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    EXPECT_EQ(send(socket, request.data() + splitAt, static_cast<int>(request.size() - splitAt), 0),
+        static_cast<int>(request.size() - splitAt));
     char buffer[8192];
     while (response.size() < sizeof(buffer)) {
       int size = recv(socket, buffer, sizeof(buffer), 0);
@@ -699,6 +713,8 @@ std::string inspectorRequest(int port, const std::string &request, SOCKET *keepO
       auto headers = response.find("\r\n\r\n"), length = response.find("Content-Length: ");
       if (headers != std::string::npos &&
           (response.find("101 Switching") != std::string::npos ||
+           (response.find("HTTP/1.0 400 Bad Request") == 0 &&
+            response.find("\r\n", headers + 4) != std::string::npos) ||
            (length != std::string::npos && response.size() >= headers + 4 +
             std::strtoul(response.c_str() + length + 16, nullptr, 10)))) break;
     }
@@ -758,7 +774,7 @@ std::string readInspectorMessage(SOCKET socket) {
     size = 0;
     for (int i = 0; i < bytes; ++i) size = (size << 8) | length[i];
   }
-  if (size > 65536) return {}; // Bound unexpected CDP payloads.
+  if (size > 4 * 1024 * 1024 + 65536) return {}; // Allow a 4 MiB value plus CDP metadata.
   std::string message(static_cast<size_t>(size), '\0');
   return read(message.data(), message.size()) ? message : std::string{};
 }
@@ -973,6 +989,178 @@ void checkQueuedInspectorDispatch(bool run) {
 TEST(JsiAbiInspector, DeletesQueuedDispatchAfterDestroy) { checkQueuedInspectorDispatch(false); }
 TEST(JsiAbiInspector, SkipsQueuedDispatchAfterDestroy) { checkQueuedInspectorDispatch(true); }
 
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+namespace {
+void expectInspectorListener(int port, bool enabled) {
+  ULONG size = 0;
+  std::vector<BYTE> storage;
+  ULONG status;
+  do {
+    storage.resize(size);
+    status = GetTcpTable(storage.empty() ? nullptr :
+        reinterpret_cast<MIB_TCPTABLE *>(storage.data()), &size, FALSE);
+  } while (status == ERROR_INSUFFICIENT_BUFFER);
+  ASSERT_EQ(status, NO_ERROR);
+  auto table = reinterpret_cast<MIB_TCPTABLE *>(storage.data());
+  unsigned listeners = 0;
+  for (DWORD i = 0; i < table->dwNumEntries; ++i) {
+    const auto &row = table->table[i];
+    if (row.dwState == MIB_TCP_STATE_LISTEN &&
+        ntohs(static_cast<u_short>(row.dwLocalPort)) == port) {
+      ++listeners;
+      EXPECT_EQ(row.dwLocalAddr, htonl(INADDR_LOOPBACK));
+    }
+  }
+  EXPECT_EQ(listeners, enabled ? 1u : 0u);
+}
+void expectInspectorConnectionRefused(ULONG address, int port) {
+  WSADATA data{};
+  ASSERT_EQ(WSAStartup(MAKEWORD(2, 2), &data), 0);
+  InspectorClient client{::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)};
+  ASSERT_NE(client.socket, INVALID_SOCKET);
+  sockaddr_in target{}; target.sin_family = AF_INET;
+  target.sin_addr.s_addr = address; target.sin_port = htons(static_cast<u_short>(port));
+  u_long nonblocking = 1;
+  ASSERT_EQ(ioctlsocket(client.socket, FIONBIO, &nonblocking), 0);
+  ASSERT_EQ(connect(client.socket, reinterpret_cast<sockaddr *>(&target), sizeof(target)), SOCKET_ERROR);
+  auto error = WSAGetLastError();
+  if (error == WSAEWOULDBLOCK) {
+    fd_set writable, errors;
+    FD_ZERO(&writable); FD_SET(client.socket, &writable); errors = writable;
+    timeval timeout{10, 0};
+    ASSERT_GT(select(0, nullptr, &writable, &errors, &timeout), 0);
+    int size = sizeof(error);
+    ASSERT_EQ(getsockopt(client.socket, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&error), &size), 0);
+  }
+  EXPECT_EQ(error, WSAECONNREFUSED);
+}
+void checkInspectorOrigins(bool upgrade) {
+  DeferredHostQueue queue;
+  auto port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  auto listing = inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  auto url = listing.find("ws://");
+  ASSERT_NE(url, std::string::npos) << listing;
+  auto path = listing.find('/', url + 5), end = listing.find('"', path);
+  ASSERT_NE(path, std::string::npos); ASSERT_NE(end, std::string::npos);
+  auto targetId = listing.substr(path + 1, end - path - 1);
+  ASSERT_FALSE(targetId.empty());
+  struct Case { const char *headers; bool allowed; bool split = false; };
+  // Every discovery route and upgrade must enforce the same allowlist and duplicate handling.
+  const Case cases[] = {
+      {"", true}, {"Origin: devtools://devtools\r\n", true},
+      {"oRiGiN: DEVTOOLS://DevTools\r\n", true}, {"Origin-Extra: null\r\n", true},
+      {"Origin: https://example.com\r\n", false}, {"Origin: http://localhost\r\n", false},
+      {"Origin: null\r\n", false}, {"Origin:\r\n", false}, {"Origin: \r\n", false},
+      {"Origin: file://devtools\r\n", false}, {"Origin: chrome-extension://devtools\r\n", false},
+      {"Origin: unknown://devtools\r\n", false}, {"Origin: devtools:/devtools\r\n", false},
+      {"Origin: devtools://devtools:9223\r\n", false}, {"Origin: devtools://devtools/\r\n", false},
+      {"Origin: devtools://devtools?query\r\n", false}, {"Origin: devtools://devtools#fragment\r\n", false},
+      {"Origin: devtools://devtools.evil\r\n", false}, {"Origin: devtools://devtools junk\r\n", false},
+      {"Origin: devtools://devtools,devtools://devtools\r\n", false},
+      {"Origin: devtools://devtools\r\n x\r\n", false},
+      {"Origin: devtools://devtools\r\n", true, true},
+      {"Origin: devtools://devtools\r\nOrigin: devtools://devtools\r\n", false},
+      {"Origin: devtools://devtools\r\noRiGiN: devtools://devtools\r\n", false},
+      {"Origin:\r\nOrigin: devtools://devtools\r\n", false},
+      {"Origin: devtools://devtools\r\nOrigin:\r\n", false},
+  };
+  const std::vector<std::string> paths = upgrade ? std::vector<std::string>{listing.substr(path, end - path)} :
+      std::vector<std::string>{"/json/list", "/json", "/json/version"};
+  for (const auto &requestPath : paths) {
+    SCOPED_TRACE(requestPath);
+    std::string request = "GET " + requestPath + " HTTP/1.1\r\nHost: localhost\r\n";
+    if (upgrade) request += "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
+    for (const auto &test : cases) {
+      SCOPED_TRACE(test.headers);
+      {
+        InspectorClient client;
+        auto response = inspectorRequest(port, request + test.headers + "\r\n", &client.socket,
+            test.split && upgrade ? request.size() + sizeof("Origin: devtools://") - 1 : 0);
+        if (test.allowed) {
+          EXPECT_NE(response.find(upgrade ? "101 Switching" : "200 OK"), std::string::npos) << response;
+          if (upgrade) {
+            ASSERT_TRUE(queue.wait());
+            pumpInspector(*runtime, queue);
+          } else {
+            EXPECT_NE(response.find(requestPath == "/json/version" ? "Protocol-Version" : "webSocketDebuggerUrl"),
+                std::string::npos) << response;
+          }
+        } else {
+          EXPECT_EQ(response.find("101 Switching"), std::string::npos) << response;
+          EXPECT_EQ(response.find("webSocketDebuggerUrl"), std::string::npos) << response;
+          EXPECT_EQ(response.find("application/json"), std::string::npos) << response;
+          EXPECT_EQ(response.find("200 OK"), std::string::npos) << response;
+          auto body = response.find("\r\n\r\n");
+          ASSERT_NE(body, std::string::npos) << response;
+          EXPECT_GT(response.size(), body + 4); // Read the rejection body, not just its headers.
+          EXPECT_EQ(response.substr(body + 4).find(targetId), std::string::npos) << response;
+        }
+      }
+      if (test.allowed && upgrade) {
+        ASSERT_TRUE(queue.wait());
+        pumpInspector(*runtime, queue);
+      }
+    }
+  }
+}
+} // namespace
+
+TEST(JsiAbiInspectorAccess, ListenerIsLoopbackAndRefusesNonLoopbackInterfaces) {
+  DeferredHostQueue queue;
+  auto port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  ASSERT_NE(inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n")
+      .find("200 OK"), std::string::npos);
+  expectInspectorListener(port, true);
+  ULONG size = 0;
+  std::vector<BYTE> storage;
+  ULONG status;
+  do {
+    storage.resize(size);
+    status = GetAdaptersAddresses(AF_INET, 0, nullptr, storage.empty() ? nullptr :
+        reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data()), &size);
+  } while (status == ERROR_BUFFER_OVERFLOW);
+  ASSERT_EQ(status, NO_ERROR);
+  auto adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+  unsigned checked = 0;
+  for (auto adapter = adapters; adapter; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp) continue;
+    for (auto unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next) {
+      if (unicast->Address.lpSockaddr->sa_family != AF_INET) continue;
+      auto address = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr)->sin_addr.s_addr;
+      if (!address || (ntohl(address) >> 24) == 127) continue;
+      SCOPED_TRACE(ntohl(address));
+      expectInspectorConnectionRefused(address, port);
+      ++checked;
+    }
+  }
+  EXPECT_GT(checked, 0u) << "An operational non-loopback IPv4 interface is required";
+}
+
+TEST(JsiAbiInspectorAccess, UpgradeAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(true); }
+TEST(JsiAbiInspectorAccess, DiscoveryAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(false); }
+
+TEST(JsiAbiInspectorAccess, LoopbackDiscoversAttachesAndEvaluates) {
+  DeferredHostQueue queue;
+  auto port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  checkInspectorEvaluation(*runtime, queue, port);
+}
+
+TEST(JsiAbiInspectorAccess, DisabledInspectorDoesNotListen) {
+  auto port = freeInspectorPort();
+  v8runtime::V8RuntimeArgs args;
+  args.inspectorPort = static_cast<uint16_t>(port);
+  args.flags.enableInspector = false;
+  auto runtime = v8runtime::makeV8Runtime(std::move(args));
+  EXPECT_EQ(runtime->evaluateJavaScript(std::make_shared<StringBuffer>("1+1"), "disabled.js").getNumber(), 2);
+  expectInspectorListener(port, false);
+  expectInspectorConnectionRefused(htonl(INADDR_LOOPBACK), port);
+}
+#endif
+
 TEST(JsiAbiInspector, ConnectedTeardown) {
 #ifdef _WIN32
   DeferredHostQueue queue;
@@ -1104,16 +1292,20 @@ TEST(JsiAbiInspector, QueuedMessagesFlushBeforeClose) {
   asio::ip::tcp::acceptor listener(context, {asio::ip::tcp::v4(), 0});
   asio::ip::tcp::socket reader(context);
   reader.connect({asio::ip::address_v4::loopback(), listener.local_endpoint().port()});
-  auto writer = std::make_shared<inspector::tcp_connection>(listener.accept());
+  auto budget = std::make_shared<inspector::TransportBudget>();
+  auto writer = std::make_shared<inspector::tcp_connection>(listener.accept(), budget->TryAdmitConnection());
   std::string expected;
   // One handler queues every send and the close before any write can complete.
   asio::post(context, [writer, &expected] {
     for (int i = 0; i < 16; ++i) {
       auto message = std::to_string(i) + " queued inspector message\n";
       expected += message;
-      writer->write_async(std::vector<char>(message.begin(), message.end()));
+      auto buffer = inspector::OutboundBuffer::Create(writer->account(), message.size());
+      ASSERT_TRUE(buffer);
+      std::copy(message.begin(), message.end(), buffer->data.begin());
+      writer->write_async(std::move(buffer));
     }
-    writer->write_async({});
+    writer->write_async(inspector::OutboundBuffer::Create(writer->account(), 0));
   });
   auto io = std::async(std::launch::async, [&] { context.run(); });
   DWORD timeout = 5000;
@@ -1127,6 +1319,559 @@ TEST(JsiAbiInspector, QueuedMessagesFlushBeforeClose) {
   waitForFuture(io, 5);
   io.get();
   EXPECT_EQ(received, expected);
+}
+#endif
+
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+namespace {
+template<class Scenario>
+void runBoundedInspectorTransportScenario(Scenario scenario) {
+  // Create, use and destroy the runtime on one thread. Bound the whole scenario,
+  // including synchronous pumps, socket reads and assertion-failure cleanup.
+  auto completion = std::async(std::launch::async, std::move(scenario));
+  waitForFuture(completion, 30, "Inspector transport scenario exceeded 30 seconds");
+  completion.get();
+}
+template<class Predicate>
+bool awaitTransport(Predicate predicate, int seconds = 5) {
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+  do {
+    if (predicate()) return true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  } while (std::chrono::steady_clock::now() < deadline);
+  return predicate();
+}
+bool openInspectorTcp(InspectorClient& client, int port) {
+  WSADATA data{};
+  if (WSAStartup(MAKEWORD(2, 2), &data)) return false;
+  client.socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (client.socket == INVALID_SOCKET) { WSACleanup(); return false; }
+  int receiveBuffer = 1024;
+  setsockopt(client.socket, SOL_SOCKET, SO_RCVBUF,
+      reinterpret_cast<char*>(&receiveBuffer), sizeof(receiveBuffer));
+  sockaddr_in address{}; address.sin_family = AF_INET;
+  address.sin_port = htons(static_cast<u_short>(port));
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  return connect(client.socket, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+}
+void closeInspectorTcp(InspectorClient& client) {
+  if (client.socket == INVALID_SOCKET) return;
+  closesocket(client.socket); WSACleanup(); client.socket = INVALID_SOCKET;
+}
+bool drainInspectorToEof(SOCKET socket, int seconds = 5) {
+  int receiveBuffer = 4 * 1024 * 1024;
+  setsockopt(socket, SOL_SOCKET, SO_RCVBUF,
+      reinterpret_cast<char*>(&receiveBuffer), sizeof(receiveBuffer));
+  u_long nonblocking = 1;
+  ioctlsocket(socket, FIONBIO, &nonblocking);
+  bool closed = false, unexpected = false;
+  bool done = awaitTransport([&] {
+    char bytes[65536];
+    int n = recv(socket, bytes, sizeof(bytes), 0);
+    if (!n) return closed = true;
+    if (n > 0) return false;
+    auto error = WSAGetLastError();
+    if (error == WSAECONNRESET || error == WSAECONNABORTED) return closed = true;
+    if (error != WSAEWOULDBLOCK) return unexpected = true;
+    return false;
+  }, seconds);
+  return done && closed && !unexpected;
+}
+struct LimitedInspectorTransport {
+  const int port{freeInspectorPort()};
+  std::mutex mutex;
+  std::vector<std::weak_ptr<inspector::tcp_connection>> accepted;
+  std::shared_ptr<inspector::tcp_server> server;
+  std::future<void> io;
+  explicit LimitedInspectorTransport(inspector::TransportLimits limits) {
+    server = std::make_shared<inspector::tcp_server>(port, [](auto connection, void* data) {
+      auto& self = *static_cast<LimitedInspectorTransport*>(data);
+      connection->socket().set_option(asio::socket_base::send_buffer_size(1024));
+      connection->registerReadCallback([](auto&, bool, void*) {}, nullptr);
+      connection->read_loop_async();
+      std::lock_guard<std::mutex> lock(self.mutex);
+      self.accepted.push_back(connection);
+    }, this, limits);
+    io = std::async(std::launch::async, [s = server] { s->run(); });
+  }
+  std::shared_ptr<inspector::tcp_connection> connection(size_t index = 0) {
+    std::shared_ptr<inspector::tcp_connection> result;
+    EXPECT_TRUE(awaitTransport([&] {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (accepted.size() > index) result = accepted[index].lock();
+      return result != nullptr;
+    }));
+    return result;
+  }
+  void destroy() {
+    if (!server) return;
+    server->stop(); waitForFuture(io, 5); io.get(); server.reset();
+  }
+  ~LimitedInspectorTransport() { destroy(); }
+};
+inspector::TransportStats runtimeTransportStats(int port) {
+  inspector::TransportStats stats;
+  EXPECT_TRUE(v8_jsi_test_inspector_transport_stats(port, &stats));
+  return stats;
+}
+} // namespace
+
+TEST(JsiAbiInspectorTransport, ProductionBudgetsHaveExactInclusiveBoundaries) {
+  constexpr size_t limit = 64 * 1024 * 1024;
+  auto budget = std::make_shared<inspector::TransportBudget>();
+  auto first = budget->TryAdmitConnection(), second = budget->TryAdmitConnection();
+  ASSERT_TRUE(first->TryReserve(limit - 1));
+  ASSERT_TRUE(first->TryReserve(1));
+  EXPECT_EQ(budget->Stats().retained, limit);
+  EXPECT_FALSE(first->TryReserve(1));
+  first->Release(limit);
+  EXPECT_FALSE(first->TryReserve(1)); // A refund cannot revive a failed session.
+  EXPECT_EQ(budget->Stats().overflows, 1u);
+  EXPECT_FALSE(second->TryReserve(limit + 1)); // No exemption on an idle account.
+  first.reset(); second.reset();
+  first = budget->TryAdmitConnection(); second = budget->TryAdmitConnection();
+  auto third = budget->TryAdmitConnection();
+  ASSERT_TRUE(first->TryReserve(limit));
+  ASSERT_TRUE(second->TryReserve(limit - 1));
+  ASSERT_TRUE(third->TryReserve(1)); // Aggregate just below, at, and above its limit.
+  EXPECT_FALSE(third->TryReserve(1));
+  EXPECT_EQ(budget->Stats().peak, 2 * limit);
+  third->Release(1);
+  second->Release(limit - 1); first->Release(limit);
+  second.reset(); first.reset(); third.reset();
+  EXPECT_EQ(budget->Stats().retained, 0u);
+  EXPECT_EQ(budget->Stats().admitted, 0u);
+  // Two full accounts must also reject the first byte on a third, idle account.
+  first = budget->TryAdmitConnection(); second = budget->TryAdmitConnection();
+  third = budget->TryAdmitConnection();
+  ASSERT_TRUE(first->TryReserve(limit)); ASSERT_TRUE(second->TryReserve(limit));
+  EXPECT_FALSE(third->TryReserve(1));
+  EXPECT_EQ(budget->Stats().overflows, 4u);
+  first->Release(limit); second->Release(limit);
+  first.reset(); second.reset(); third.reset();
+  std::vector<std::shared_ptr<inspector::ConnectionAccount>> accounts;
+  for (int i = 0; i < 32; ++i) accounts.push_back(budget->TryAdmitConnection());
+  EXPECT_EQ(budget->Stats().admitted, 32u);
+  EXPECT_FALSE(budget->TryAdmitConnection());
+  EXPECT_EQ(budget->Stats().rejected_connections, 1u);
+  auto buffer = inspector::OutboundBuffer::Create(accounts.back(), 7);
+  ASSERT_TRUE(buffer);
+  accounts.pop_back();
+  EXPECT_FALSE(budget->TryAdmitConnection()); // Buffer retains the admitted slot.
+  buffer.reset();
+  EXPECT_TRUE(budget->TryAdmitConnection());
+  accounts.clear();
+  EXPECT_EQ(budget->Stats().retained, 0u);
+  EXPECT_EQ(budget->Stats().admitted, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, BufferAdmissionIncludesMetadataAndStillFitsFourMiB) {
+  constexpr size_t limit = 1024, overhead = inspector::OutboundBuffer::kOverhead;
+  auto budget = std::make_shared<inspector::TransportBudget>(inspector::TransportLimits{limit, 2 * limit, 2});
+  // Fresh accounts isolate inclusive payload+metadata boundaries and size_t overflow.
+  for (size_t bytes : {limit - overhead - 1, limit - overhead, limit - overhead + 1, SIZE_MAX}) {
+    auto account = budget->TryAdmitConnection();
+    auto buffer = inspector::OutboundBuffer::Create(account, bytes);
+    EXPECT_EQ(buffer != nullptr, bytes <= limit - overhead);
+    EXPECT_EQ(budget->Stats().retained, buffer ? bytes + overhead : 0u);
+    buffer.reset();
+    EXPECT_EQ(budget->Stats().retained, 0u);
+  }
+  budget = std::make_shared<inspector::TransportBudget>();
+  auto buffer = inspector::OutboundBuffer::Create(budget->TryAdmitConnection(), 4 * 1024 * 1024);
+  ASSERT_TRUE(buffer);
+  EXPECT_EQ(budget->Stats().retained, 4 * 1024 * 1024 + overhead);
+  buffer.reset();
+  EXPECT_EQ(budget->Stats().retained, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, TinyBuffersConsumeBothBudgetsIncludingMetadata) {
+  constexpr size_t charge = 1 + inspector::OutboundBuffer::kOverhead;
+  auto budget = std::make_shared<inspector::TransportBudget>(inspector::TransportLimits{2 * charge, 3 * charge, 2});
+  auto first = budget->TryAdmitConnection(), second = budget->TryAdmitConnection();
+  auto one = inspector::OutboundBuffer::Create(first, 1);
+  auto two = inspector::OutboundBuffer::Create(first, 1);
+  auto three = inspector::OutboundBuffer::Create(second, 1);
+  ASSERT_TRUE(one && two && three);
+  EXPECT_EQ(budget->Stats().retained, 3 * charge);
+  EXPECT_FALSE(inspector::OutboundBuffer::Create(first, 0)); // Metadata alone exceeds the connection budget.
+  EXPECT_FALSE(inspector::OutboundBuffer::Create(second, 1)); // Listener budget is also full.
+  EXPECT_EQ(budget->Stats().overflows, 2u);
+  one.reset(); two.reset(); three.reset();
+  EXPECT_EQ(budget->Stats().retained, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, InFlightAndQueuedBuffersRemainChargedUntilCancellation) {
+  constexpr size_t chunk = 512 * 1024;
+  constexpr size_t charge = chunk + inspector::OutboundBuffer::kOverhead;
+  LimitedInspectorTransport transport({2 * charge, 4 * charge, 2});
+  InspectorClient client;
+  ASSERT_TRUE(openInspectorTcp(client, transport.port));
+  auto connection = transport.connection();
+  ASSERT_TRUE(connection);
+  auto budget = transport.server->budget();
+  std::promise<void> queued;
+  transport.server->post([connection, budget, &queued, charge] {
+    auto buffer = inspector::OutboundBuffer::Create(connection->account(), chunk);
+    std::weak_ptr<inspector::OutboundBuffer> first = buffer;
+    connection->write_async(std::move(buffer));
+    connection->write_async(inspector::OutboundBuffer::Create(connection->account(), chunk));
+    EXPECT_FALSE(first.expired()); // The active async_write owns the first buffer.
+    EXPECT_EQ(budget->Stats().retained, 2 * charge);
+    connection->write_raw("x", 1);
+    connection->write_raw("x", 1); // Sticky failure logs/counts only once.
+    EXPECT_EQ(budget->Stats().overflows, 1u);
+    EXPECT_EQ(budget->Stats().retained, charge); // Queue refunded, active send still owned.
+    queued.set_value();
+  });
+  auto ready = queued.get_future(); waitForFuture(ready, 5);
+  EXPECT_TRUE(drainInspectorToEof(client.socket));
+  EXPECT_TRUE(awaitTransport([&] { return budget->Stats().retained == 0; }));
+  EXPECT_EQ(budget->Stats().peak, 2 * charge);
+  connection.reset();
+  transport.destroy();
+  EXPECT_EQ(budget->Stats().admitted, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, PeerEofRefundsQueuedBuffersBeforeConnectionDestruction) {
+  runBoundedInspectorTransportScenario([] {
+    constexpr size_t chunk = 512 * 1024;
+    constexpr size_t charge = chunk + inspector::OutboundBuffer::kOverhead;
+    struct EofObservation {
+      std::shared_ptr<inspector::TransportBudget> budget;
+      std::promise<size_t> retained;
+    } eof; // Outlives transport teardown, including assertion-failure cleanup.
+    LimitedInspectorTransport transport({2 * charge, 4 * charge, 2});
+    InspectorClient client;
+    ASSERT_TRUE(openInspectorTcp(client, transport.port));
+    auto connection = transport.connection();
+    ASSERT_TRUE(connection);
+    auto budget = transport.server->budget();
+    eof.budget = budget;
+    std::promise<void> queued;
+    transport.server->post([connection, budget, &eof, &queued, charge] {
+      connection->registerReadCallback([](auto&, bool isEof, void* data) {
+        auto& observation = *static_cast<EofObservation*>(data);
+        if (isEof) observation.retained.set_value(observation.budget->Stats().retained);
+      }, &eof);
+      auto buffer = inspector::OutboundBuffer::Create(connection->account(), chunk);
+      std::weak_ptr<inspector::OutboundBuffer> active = buffer;
+      connection->write_async(std::move(buffer));
+      connection->write_async(inspector::OutboundBuffer::Create(connection->account(), chunk));
+      EXPECT_FALSE(active.expired());
+      EXPECT_EQ(budget->Stats().retained, 2 * charge);
+      queued.set_value();
+    });
+    auto ready = queued.get_future(); waitForFuture(ready, 5);
+    // Half-close only the peer's send side; it never reads the queued output.
+    ASSERT_EQ(shutdown(client.socket, SD_SEND), 0);
+    auto closed = eof.retained.get_future(); waitForFuture(closed, 5);
+    EXPECT_LE(closed.get(), charge); // EOF refunds the queue, not the active write.
+    EXPECT_TRUE(awaitTransport([&] { return budget->Stats().retained == 0; }));
+    EXPECT_EQ(budget->Stats().overflows, 0u); // No overflow/abort_async cleanup.
+    EXPECT_EQ(budget->Stats().admitted, 1u); // Owner is still alive at both assertions.
+    EXPECT_EQ(budget->Stats().peak, 2 * charge);
+    connection.reset(); transport.destroy();
+    EXPECT_EQ(budget->Stats().admitted, 0u);
+  });
+}
+
+TEST(JsiAbiInspectorTransport, PostedBufferKeepsItsChargeThroughSuccessfulWrite) {
+  constexpr size_t charge = 5 + inspector::OutboundBuffer::kOverhead;
+  LimitedInspectorTransport transport({charge, 2 * charge, 2});
+  InspectorClient client;
+  ASSERT_TRUE(openInspectorTcp(client, transport.port));
+  auto connection = transport.connection();
+  ASSERT_TRUE(connection);
+  auto budget = transport.server->budget();
+  std::promise<void> entered, resume;
+  auto resumed = resume.get_future();
+  transport.server->post([&] { entered.set_value(); resumed.wait(); });
+  auto blocked = entered.get_future(); waitForFuture(blocked, 5);
+  auto buffer = inspector::OutboundBuffer::Create(connection->account(), 5);
+  ASSERT_TRUE(buffer);
+  std::fill(buffer->data.begin(), buffer->data.end(), 'x');
+  std::weak_ptr<inspector::OutboundBuffer> retained = buffer;
+  transport.server->post([connection, buffer = std::move(buffer), budget, charge] {
+    EXPECT_EQ(budget->Stats().retained, charge);
+    connection->write_async(buffer);
+    EXPECT_EQ(budget->Stats().retained, charge);
+  });
+  EXPECT_EQ(budget->Stats().retained, charge);
+  resume.set_value();
+  char received[5]{};
+  DWORD timeout = 5000;
+  setsockopt(client.socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char*>(&timeout), sizeof(timeout));
+  ASSERT_EQ(recv(client.socket, received, sizeof(received), MSG_WAITALL), sizeof(received));
+  EXPECT_EQ(std::string(received, sizeof(received)), "xxxxx");
+  EXPECT_TRUE(awaitTransport([&] { return budget->Stats().retained == 0; }));
+  EXPECT_TRUE(retained.expired());
+  EXPECT_EQ(budget->Stats().peak, charge);
+  connection.reset(); transport.destroy();
+  EXPECT_EQ(budget->Stats().admitted, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, SendReservesBeforeDispatchAndRejectsBeforePosting) {
+  inspector::SendDispatchObservations observed;
+  v8_jsi_test_inspector_send_dispatch(&observed);
+  ASSERT_TRUE(observed.strand_blocked);
+  EXPECT_EQ(observed.before_send.retained, 0u);
+  EXPECT_EQ(observed.after_send.retained, 42 + inspector::OutboundBuffer::kOverhead);
+  EXPECT_EQ(observed.posted_after_send, observed.posted_before + 1);
+  EXPECT_EQ(observed.after_overflow.retained, observed.after_send.retained);
+  EXPECT_EQ(observed.after_overflow.overflows, 1u);
+  EXPECT_EQ(observed.posted_after_overflow, observed.posted_after_send + 1); // Abort only, no data dispatch.
+  EXPECT_EQ(observed.posted_after_failure, observed.posted_after_overflow);
+  EXPECT_EQ(observed.completed, 1u); // Only the blocked handler ran, not either posted Send action.
+  EXPECT_EQ(observed.after_release.retained, 0u);
+  EXPECT_EQ(observed.after_release.admitted, 0u);
+}
+
+TEST(JsiAbiInspectorTransport, ConnectionCapIncludesHandshakeAndClosingTransports) {
+  LimitedInspectorTransport transport({1024 * 1024, 2 * 1024 * 1024, 2});
+  InspectorClient pending, closing, excess;
+  ASSERT_TRUE(openInspectorTcp(pending, transport.port)); // No HTTP handshake yet.
+  ASSERT_TRUE(openInspectorTcp(closing, transport.port));
+  auto connection = transport.connection(1);
+  ASSERT_TRUE(connection);
+  auto budget = transport.server->budget();
+  std::promise<void> queued;
+  transport.server->post([connection, &queued] {
+    connection->write_async(inspector::OutboundBuffer::Create(connection->account(), 512 * 1024));
+    connection->write_async(inspector::OutboundBuffer::Create(connection->account(), 0));
+    queued.set_value();
+  });
+  auto ready = queued.get_future(); waitForFuture(ready, 5);
+  connection.reset();
+  EXPECT_EQ(budget->Stats().admitted, 2u);
+  ASSERT_TRUE(openInspectorTcp(excess, transport.port));
+  EXPECT_TRUE(drainInspectorToEof(excess.socket));
+  EXPECT_EQ(budget->Stats().rejected_connections, 1u);
+  EXPECT_TRUE(awaitTransport([&] { return budget->Stats().admitted == 1; })); // 2 s closing deadline.
+  InspectorClient replacement;
+  ASSERT_TRUE(openInspectorTcp(replacement, transport.port));
+  EXPECT_TRUE(awaitTransport([&] { return budget->Stats().admitted == 2; }));
+  transport.destroy();
+  EXPECT_EQ(budget->Stats().retained, 0u);
+  EXPECT_EQ(budget->Stats().admitted, 0u);
+}
+
+namespace {
+enum class InspectorOverflowCase { RepeatedFourMiB, SingleOversizedReply };
+
+void checkInspectorOverflowRecovery(InspectorOverflowCase scenario) {
+  runBoundedInspectorTransportScenario([scenario] {
+    const bool oversized = scenario == InspectorOverflowCase::SingleOversizedReply;
+    DeferredHostQueue queue;
+    int port = freeInspectorPort();
+    auto runtime = queue.runtime(port);
+    InspectorClient client;
+    ASSERT_NE(connectInspector(port, &client).find("101 Switching"), std::string::npos);
+    ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+    int receiveBuffer = 1024;
+    setsockopt(client.socket, SOL_SOCKET, SO_RCVBUF,
+        reinterpret_cast<char*>(&receiveBuffer), sizeof(receiveBuffer));
+    if (oversized) {
+      ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }));
+      ASSERT_EQ(runtimeTransportStats(port).overflows, 0u);
+    }
+    // One 64 MiB + 1 value is rejected before allocating an outbound frame;
+    // repeated 4 MiB replies instead fill the non-reading connection's budget.
+    const char* message = oversized
+        ? R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(67108865)","returnByValue":true}})json"
+        : R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(4*1024*1024)","returnByValue":true}})json";
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::seconds(30);
+    const int attempts = oversized ? 1 : 24;
+    for (int i = 0; i < attempts && runtimeTransportStats(port).overflows == 0; ++i) {
+      ASSERT_LT(std::chrono::steady_clock::now(), deadline);
+      ASSERT_TRUE(sendInspectorMessage(client.socket, message));
+      ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+    }
+    const int recoverySeconds = oversized ? 10 : 5;
+    EXPECT_EQ(runtimeTransportStats(port).overflows, 1u);
+    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).retained == 0; }, recoverySeconds));
+    EXPECT_LT(std::chrono::steady_clock::now(), deadline);
+    EXPECT_TRUE(drainInspectorToEof(client.socket, recoverySeconds));
+    EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }, recoverySeconds));
+    if (oversized)
+      EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(30));
+    checkInspectorEvaluation(*runtime, queue, port);
+    EXPECT_EQ(runtimeTransportStats(port).overflows, 1u); // Diagnostic counted once.
+  });
+}
+} // namespace
+
+TEST(JsiAbiInspectorTransport, NonReadingDebuggerOverflowsClosesAndAllowsFreshEvaluation) {
+  checkInspectorOverflowRecovery(InspectorOverflowCase::RepeatedFourMiB);
+}
+
+TEST(JsiAbiInspectorTransport, SingleOversizedReplyClosesAndAllowsFreshEvaluation) {
+  checkInspectorOverflowRecovery(InspectorOverflowCase::SingleOversizedReply);
+}
+
+namespace {
+enum class InspectorRejectionCase {
+  DiscoveryOrigin, UpgradeOrigin, UnknownTargetUpgrade, UnknownDiscoveryPath, MalformedRequest
+};
+
+void checkInspectorRejectionRecovery(InspectorRejectionCase scenario) {
+  runBoundedInspectorTransportScenario([scenario] {
+    DeferredHostQueue queue;
+    int port = freeInspectorPort();
+    auto runtime = queue.runtime(port);
+    auto listing = inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    auto url = listing.find("ws://");
+    ASSERT_NE(url, std::string::npos) << listing;
+    auto path = listing.find('/', url + 5), end = listing.find('"', path);
+    ASSERT_NE(path, std::string::npos); ASSERT_NE(end, std::string::npos);
+    const bool origin = scenario == InspectorRejectionCase::DiscoveryOrigin ||
+        scenario == InspectorRejectionCase::UpgradeOrigin;
+    const bool upgrade = scenario == InspectorRejectionCase::UpgradeOrigin ||
+        scenario == InspectorRejectionCase::UnknownTargetUpgrade;
+    // Target ids are UUIDs; this cannot match the runtime's target.
+    std::string requestPath = scenario == InspectorRejectionCase::UnknownTargetUpgrade
+        ? "/nonexistent-target" : upgrade ? listing.substr(path, end - path) :
+        scenario == InspectorRejectionCase::UnknownDiscoveryPath ? "/json/unknown" : "/json/list";
+    std::string request = "GET " + requestPath + " HTTP/1.1\r\nHost: localhost\r\n";
+    if (origin) request += "Origin: http://example.com\r\n";
+    if (upgrade) request += "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
+    request += "\r\n";
+    // Invalid at the first byte, with no trailing bytes left unread at close.
+    if (scenario == InspectorRejectionCase::MalformedRequest) request = "!";
+    const std::string expected = "HTTP/1.0 400 Bad Request\r\n"
+        "Content-Type: text/html; charset=UTF-8\r\n\r\n"
+        "WebSockets request was expected\r\n";
+    ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }));
+    std::vector<std::unique_ptr<InspectorClient>> clients;
+    // Origin cases exceed the 32-slot cap; other paths repeat three times for speed.
+    // Never close a client socket, even after server EOF.
+    const int attempts = origin ? 33 : 3;
+    for (int i = 0; i < attempts; ++i) {
+      SCOPED_TRACE(i);
+      auto client = std::make_unique<InspectorClient>();
+      ASSERT_TRUE(openInspectorTcp(*client, port)); // The scenario watchdog bounds connect.
+      SOCKET socket = client->socket;
+      clients.push_back(std::move(client));
+      ASSERT_EQ(send(socket, request.data(), static_cast<int>(request.size()), 0),
+          static_cast<int>(request.size()));
+      u_long nonblocking = 1;
+      ASSERT_EQ(ioctlsocket(socket, FIONBIO, &nonblocking), 0);
+      std::string response;
+      bool closed = false;
+      int error = 0;
+      ASSERT_TRUE(awaitTransport([&] {
+        char bytes[512];
+        int n = recv(socket, bytes, sizeof(bytes), 0);
+        if (n > 0) {
+          response.append(bytes, n);
+          return response.size() > expected.size();
+        }
+        if (!n) return closed = true;
+        error = WSAGetLastError();
+        if (error == WSAECONNRESET || error == WSAECONNABORTED) {
+          closed = response == expected; // Reset counts only after the full body.
+          return true;
+        }
+        return error != WSAEWOULDBLOCK;
+      })) << "Server did not close the rejected connection within 5 seconds";
+      ASSERT_EQ(response, expected);
+      ASSERT_TRUE(closed) << "Unexpected receive error: " << error;
+    }
+    ASSERT_TRUE(awaitTransport([&] {
+      auto stats = runtimeTransportStats(port);
+      return stats.admitted == 0 && stats.retained == 0;
+    }));
+    EXPECT_EQ(runtimeTransportStats(port).rejected_connections, 0u);
+    checkInspectorEvaluation(*runtime, queue, port); // All rejected client sockets remain open.
+  });
+}
+} // namespace
+
+TEST(JsiAbiInspectorTransport, RejectedDiscoveryOriginFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::DiscoveryOrigin);
+}
+
+TEST(JsiAbiInspectorTransport, RejectedUpgradeOriginFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UpgradeOrigin);
+}
+
+TEST(JsiAbiInspectorTransport, UnknownTargetUpgradeFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UnknownTargetUpgrade);
+}
+
+TEST(JsiAbiInspectorTransport, UnknownDiscoveryPathFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::UnknownDiscoveryPath);
+}
+
+TEST(JsiAbiInspectorTransport, MalformedRequestFlushesResponseClosesAndReleasesSlots) {
+  checkInspectorRejectionRecovery(InspectorRejectionCase::MalformedRequest);
+}
+
+TEST(JsiAbiInspectorTransport, IdleConnectionCapRejectsUpgradeAndReusesReleasedSlot) {
+  DeferredHostQueue queue;
+  int port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  auto listing = inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  auto url = listing.find("ws://");
+  ASSERT_NE(url, std::string::npos);
+  auto path = listing.find('/', url + 5), end = listing.find('"', path);
+  ASSERT_NE(path, std::string::npos); ASSERT_NE(end, std::string::npos);
+  auto id = listing.substr(path + 1, end - path - 1);
+  ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }));
+  std::vector<std::unique_ptr<InspectorClient>> idle;
+  for (int i = 0; i < 32; ++i) {
+    auto client = std::make_unique<InspectorClient>();
+    ASSERT_TRUE(openInspectorTcp(*client, port));
+    idle.push_back(std::move(client));
+  }
+  ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 32; }));
+  InspectorClient excess;
+  ASSERT_TRUE(openInspectorTcp(excess, port));
+  auto request = "GET /" + id + " HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n"
+      "Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "Sec-WebSocket-Version: 13\r\n\r\n";
+  send(excess.socket, request.data(), static_cast<int>(request.size()), 0);
+  char response[512];
+  DWORD timeout = 5000;
+  setsockopt(excess.socket, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char*>(&timeout), sizeof(timeout));
+  int n = recv(excess.socket, response, sizeof(response), 0);
+  EXPECT_LE(n, 0); // In particular, no 101 or debugger session.
+  EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).rejected_connections == 1; }));
+  idle.pop_back();
+  ASSERT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 31; }));
+  InspectorClient replacement;
+  ASSERT_TRUE(awaitTransport([&] {
+    return attachInspector(port, id, &replacement).find("101 Switching") != std::string::npos;
+  }));
+  ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+  ASSERT_TRUE(sendInspectorMessage(replacement.socket,
+      R"({"id":1,"method":"Runtime.evaluate","params":{"expression":"6*7","returnByValue":true}})"));
+  ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+  EXPECT_NE(readInspectorMessage(replacement.socket).find(R"("value":42)"), std::string::npos);
+  closeInspectorTcp(replacement); idle.clear();
+  EXPECT_TRUE(awaitTransport([&] { return runtimeTransportStats(port).admitted == 0; }));
+}
+
+TEST(JsiAbiInspectorTransport, FourMiBReplyArrivesIntact) {
+  DeferredHostQueue queue;
+  int port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  InspectorClient client;
+  ASSERT_NE(connectInspector(port, &client).find("101 Switching"), std::string::npos);
+  ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+  ASSERT_TRUE(sendInspectorMessage(client.socket,
+      R"json({"id":1,"method":"Runtime.evaluate","params":{"expression":"'x'.repeat(4*1024*1024)","returnByValue":true}})json"));
+  ASSERT_TRUE(queue.wait()); pumpInspector(*runtime, queue);
+  auto reply = readInspectorMessage(client.socket);
+  auto value = reply.find(R"("value":")");
+  ASSERT_NE(value, std::string::npos);
+  value += sizeof("\"value\":\"") - 1;
+  ASSERT_GE(reply.size(), value + 4 * 1024 * 1024 + 1);
+  EXPECT_EQ(reply.substr(value, 4 * 1024 * 1024), std::string(4 * 1024 * 1024, 'x'));
+  EXPECT_EQ(reply[value + 4 * 1024 * 1024], '"');
+  EXPECT_EQ(runtimeTransportStats(port).overflows, 0u);
 }
 #endif
 
@@ -2493,6 +3238,83 @@ TEST(JsiAbiSnapshot, CheckAndCreateArgs) {
   EXPECT_EQ(blob, nullptr);
   EXPECT_EQ(blobSize, 0u);
   v8_jsi_abi_snapshot_destroy(nullptr);
+}
+
+namespace {
+std::vector<uint8_t> emptySnapshotHeader() {
+  uint8_t *blob = nullptr;
+  size_t size = 0;
+  EXPECT_EQ(v8_jsi_abi_snapshot_create("", 0, "header.js", false, &blob, &size), jsi_status_ok);
+  std::unique_ptr<uint8_t, decltype(&v8_jsi_abi_snapshot_destroy)> owner(blob, v8_jsi_abi_snapshot_destroy);
+  if (!blob || size < 24) return {};
+  std::vector<uint8_t> header(blob, blob + 24);
+  std::fill(header.begin() + 16, header.end(), 0); // Declare an empty payload.
+  return header;
+}
+} // namespace
+
+TEST(JsiAbiSnapshot, HeaderFieldsAndBoundaries) {
+  auto header = emptySnapshotHeader();
+  ASSERT_EQ(header.size(), 24u);
+  EXPECT_EQ(v8_jsi_abi_snapshot_check(nullptr, header.size()), v8_jsi_abi_snapshot_compat_truncated);
+  struct Case { size_t size; int changedByte; v8_jsi_abi_snapshot_compat code; };
+  // Isolate each header field and the boundaries without passing payload bytes to V8.
+  const Case cases[] = {
+      {0, -1, v8_jsi_abi_snapshot_compat_truncated},
+      {23, -1, v8_jsi_abi_snapshot_compat_truncated},
+      {24, -1, v8_jsi_abi_snapshot_compat_ok},
+      {25, -1, v8_jsi_abi_snapshot_compat_size_mismatch},
+      {24, 0, v8_jsi_abi_snapshot_compat_bad_magic},
+      {24, 4, v8_jsi_abi_snapshot_compat_bad_format},
+      {24, 8, v8_jsi_abi_snapshot_compat_version_mismatch},
+      {24, 12, v8_jsi_abi_snapshot_compat_flags_mismatch},
+      {24, 16, v8_jsi_abi_snapshot_compat_size_mismatch},
+  };
+  for (const auto &test : cases) {
+    SCOPED_TRACE(::testing::Message() << "changedByte=" << test.changedByte << ", size=" << test.size);
+    auto bytes = header;
+    bytes.resize(25);
+    if (test.changedByte >= 0) bytes[test.changedByte] ^= 1;
+    EXPECT_EQ(v8_jsi_abi_snapshot_check(bytes.data(), test.size), test.code);
+  }
+}
+
+TEST(JsiAbiSnapshot, OversizedPayloadFallsBackAndDeletesOnce) {
+#if !defined(_WIN32) || !(defined(_M_X64) || defined(_M_ARM64))
+  GTEST_SKIP() << "Reserving an INT_MAX+1 payload requires Windows x64 or ARM64";
+#else
+  auto header = emptySnapshotHeader();
+  ASSERT_EQ(header.size(), 24u);
+  const size_t size = header.size() + static_cast<size_t>(INT_MAX) + 1;
+  auto bytes = static_cast<uint8_t *>(VirtualAlloc(nullptr, size, MEM_RESERVE, PAGE_NOACCESS));
+  auto release = [](uint8_t *p) { if (p) VirtualFree(p, 0, MEM_RELEASE); };
+  std::unique_ptr<uint8_t, decltype(release)> reservation(bytes, release);
+  ASSERT_NE(bytes, nullptr);
+  ASSERT_EQ(VirtualAlloc(bytes, header.size(), MEM_COMMIT, PAGE_READWRITE), bytes);
+  std::memcpy(bytes, header.data(), header.size());
+  uint64_t payload = INT_MAX;
+  std::memcpy(bytes + 16, &payload, sizeof(payload));
+  EXPECT_EQ(v8_jsi_abi_snapshot_check(bytes, size - 1), v8_jsi_abi_snapshot_compat_ok);
+  ++payload;
+  std::memcpy(bytes + 16, &payload, sizeof(payload));
+  ASSERT_EQ(v8_jsi_abi_snapshot_check(bytes, size), v8_jsi_abi_snapshot_compat_size_mismatch);
+  struct Blob { uint8_t *bytes; size_t size; int deleted = 0; } blob{bytes, size};
+  {
+    auto runtime = ::jsi::abi::makeJsiAbiRuntime(&v8_jsi_abi_runtime_create,
+        [](void *data, jsi_config cfg) -> jsi_status {
+          auto *b = static_cast<Blob *>(data);
+          return v8_jsi_abi_config_set_startup_snapshot(cfg, b->bytes, b->size,
+              [](void *p, void *bytes) {
+                auto *b = static_cast<Blob *>(p);
+                EXPECT_EQ(bytes, b->bytes); ++b->deleted;
+              }, b);
+        }, &blob);
+    ASSERT_NE(runtime, nullptr);
+    EXPECT_EQ(runtime->evaluateJavaScript(std::make_shared<StringBuffer>("6 * 7"), "fallback.js").getNumber(), 42);
+    EXPECT_EQ(blob.deleted, 0);
+  }
+  EXPECT_EQ(blob.deleted, 1);
+#endif
 }
 
 namespace {

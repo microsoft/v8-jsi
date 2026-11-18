@@ -35,6 +35,7 @@ import {
   ensureBinSkimExe,
   ensureDir,
   ensureNasm,
+  nasmRequiredForTarget,
   ensureSupportedPython,
   findDumpbin,
   prependToPath,
@@ -166,7 +167,7 @@ Package operations:
                              the --platform package in <package-dir> and run
                              tests/libnode/features.js with each
 
-  --tools-path <dir>         Tool cache for NASM and BinSkim (default: out\\tools)
+  --tools-path <dir>         Tool cache for BinSkim (default: out\\tools)
   --help                     Show this help`);
 }
 
@@ -320,16 +321,16 @@ function runAndCollect(
   });
 }
 
-async function runBuild(platform: string, configuration: string, toolsPath: string): Promise<void> {
+async function runBuild(platform: string, configuration: string): Promise<void> {
   console.log(`\n=== Building libnode (${ridFor(platform)} ${configuration}) ===\n`);
   if (hostOs() === "win") {
-    await runWindowsBuild(platform, configuration, toolsPath);
+    await runWindowsBuild(platform, configuration);
   } else {
     runPosixBuild(platform, configuration);
   }
 }
 
-async function runWindowsBuild(platform: string, configuration: string, toolsPath: string): Promise<void> {
+async function runWindowsBuild(platform: string, configuration: string): Promise<void> {
   // libnode with everything a full Node.js build has (full ICU, Temporal, and
   // Node's defaults), plus node.exe and embedtest.exe, which only the tests
   // use. The no-* flags skip the binaries nothing here needs.
@@ -356,8 +357,8 @@ async function runWindowsBuild(platform: string, configuration: string, toolsPat
 
   const env = { ...process.env };
   ensureSupportedPython(env);
-  if (platform !== "arm64") {
-    prependToPath(env, await ensureNasm(toolsPath));
+  if (nasmRequiredForTarget(platform)) {
+    prependToPath(env, ensureNasm(env));
   }
   // The gyp action that embeds the Stela manifest runs `node`; use this one.
   prependToPath(env, path.dirname(process.execPath));
@@ -962,7 +963,7 @@ async function main(): Promise<void> {
     }
     if (args.smoke) runSmoke(platform, path.resolve(args.smoke));
   } else {
-    if (args.build) await runBuild(platform, configuration, toolsPath);
+    if (args.build) await runBuild(platform, configuration);
     if (args.test) runTests(configuration);
     if (args.check) await runChecks(platform, configuration, toolsPath);
     if (args.stage) stage(platform, configuration, path.resolve(args.stage));

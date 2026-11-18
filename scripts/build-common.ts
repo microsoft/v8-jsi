@@ -324,7 +324,8 @@ export function ensureSupportedPython(env: NodeJS.ProcessEnv): void {
     throw new Error(
       `${reason}, and no other installed Python is accepted by Node.js ` +
         `configure (accepted: ${acceptedList}). Install one of those versions ` +
-        `(python.org, or the Azure Pipelines tool cache) or put it first on PATH.`,
+        `(scripts\\install-prerequisites.ps1, python.org, or the Azure Pipelines ` +
+        `tool cache) or put it first on PATH.`,
     );
   }
   console.log(
@@ -421,56 +422,47 @@ export async function ensureNuGet(toolsPath: string): Promise<string> {
   return localNuget;
 }
 
-const nasmVersion = "2.16.03";
-const nasmDownloadUrl = `https://www.nasm.us/pub/nasm/releasebuilds/${nasmVersion}/win64/nasm-${nasmVersion}-win64.zip`;
+export function nasmRequiredForTarget(targetArch: string): boolean {
+  return targetArch === "x64" || targetArch === "x86";
+}
 
 // Ensure NASM is available and return the directory containing nasm.exe.
-// The Node.js OpenSSL build assembles its crypto with NASM on x86/x64 (the
-// arm64 build skips that asm path). Mirrors ensureNuGet: prefer PATH, else a
-// cached copy under toolsPath, else download + extract the official zip.
-export async function ensureNasm(toolsPath: string): Promise<string> {
+// CI uses only the image's installation; developers follow find_nasm.cmd's order.
+// Callers skip this only for ARM64 targets, regardless of the host architecture.
+export function ensureNasm(
+  env: NodeJS.ProcessEnv,
+  exists: (exe: string) => boolean = fs.existsSync,
+  probe: (exe: string) => string = (exe) => execFileSync(exe, ["-v"], {
+    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
+  }),
+): string {
+  const envValue = (name: string): string | undefined =>
+    env[Object.keys(env).find((key) => key.toLowerCase() === name.toLowerCase()) ?? name];
+  const ci = /^true$/i.test(envValue("TF_BUILD") ?? "");
+  const localAppData = envValue("LOCALAPPDATA");
+  const folders = [
+    ...(!ci ? (envValue("PATH") ?? "").split(";").filter(Boolean) : []),
+    ...[envValue("ProgramFiles"), envValue("ProgramFiles(x86)")]
+      .filter((p): p is string => !!p).map((p) => path.join(p, "NASM")),
+    ...(!ci && localAppData ? [path.join(localAppData, "bin", "NASM")] : []),
+  ];
+  const exe = folders.map((p) => path.join(p.replace(/^"(.*)"$/, "$1"), "nasm.exe"))
+    .find(exists);
+  if (!exe) {
+    throw new Error(ci
+      ? "NASM is missing from the CI image; check .ado/image/windows-2025-1espt-x64.json."
+      : "NASM is missing. Run scripts\\install-prerequisites.ps1 or " +
+        "winget install --id NASM.NASM --exact --source winget.");
+  }
+  let version: string;
   try {
-    const onPath = execSync("where nasm.exe", { encoding: "utf-8" })
-      .split(/\r?\n/)
-      .find((l: string) => l.trim().length > 0)
-      ?.trim();
-    if (onPath) return path.dirname(onPath);
-  } catch {
-    // Not on PATH; fall through to the known-dir/cached/download path.
+    version = probe(exe).trim();
+    if (!version) throw new Error("empty version output");
+  } catch (error) {
+    throw new Error(`NASM version probe failed (${exe} -v): ${error}`);
   }
-
-  // The Chocolatey `nasm` package (used to bake NASM into the CI image) runs the
-  // NASM installer, which lands in Program Files but does not add itself to PATH.
-  // Probe that install dir before downloading.
-  for (const base of [
-    process.env["ProgramFiles"],
-    process.env["ProgramFiles(x86)"],
-  ]) {
-    if (base && fs.existsSync(path.join(base, "NASM", "nasm.exe"))) {
-      return path.join(base, "NASM");
-    }
-  }
-
-  const nasmDir = path.join(toolsPath, "nasm", `nasm-${nasmVersion}`);
-  if (fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
-    return nasmDir;
-  }
-
-  console.log(`Downloading NASM ${nasmVersion}...`);
-  const zipPath = path.join(toolsPath, `nasm-${nasmVersion}-win64.zip`);
-  await downloadFile(nasmDownloadUrl, zipPath);
-  const extractDir = path.join(toolsPath, "nasm");
-  ensureDir(extractDir);
-  run("pwsh", [
-    "-NoProfile",
-    "-Command",
-    `"Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force"`,
-  ]);
-  if (!fs.existsSync(path.join(nasmDir, "nasm.exe"))) {
-    throw new Error(`NASM not found after extraction at ${nasmDir}`);
-  }
-  console.log(`NASM ready at ${nasmDir}`);
-  return nasmDir;
+  console.log(`Using NASM at ${exe}: ${version}`);
+  return path.dirname(exe);
 }
 
 // =============================================================================

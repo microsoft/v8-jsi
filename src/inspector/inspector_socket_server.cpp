@@ -13,6 +13,9 @@
 #include <map>
 #include <set>
 #include <sstream>
+#ifdef JSI_TESTING_ONLY
+#include <future>
+#endif
 
 namespace inspector {
 
@@ -120,7 +123,6 @@ public:
   void Close() {
     ws_socket_.reset();
   }
-  void Send(const std::string& message);
   void Own(std::unique_ptr<InspectorSocket> ws_socket) {
     ws_socket_ = std::move(ws_socket);
   }
@@ -181,6 +183,10 @@ InspectorSocketServer::~InspectorSocketServer() {
   // run() has returned; callbacks see an empty map during destruction.
   auto sessions = std::move(connected_sessions_);
   sessions.clear();
+  {
+    std::lock_guard<std::mutex> lock(mutex_session_accounts_);
+    session_accounts_.clear();
+  }
 }
 
 SocketSession* InspectorSocketServer::Session(int session_id) {
@@ -210,6 +216,10 @@ void InspectorSocketServer::SessionStarted(int session_id,
 }
 
 void InspectorSocketServer::SessionTerminated(int session_id) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_session_accounts_);
+    session_accounts_.erase(session_id);
+  }
   auto session = connected_sessions_.extract(session_id);
   std::shared_ptr<AgentImpl> agent;
   {
@@ -382,6 +392,10 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
   if (state_ == ServerState::kStopped || !delegate_) return;
   std::unique_ptr<SocketSession> session(
     new SocketSession(this, next_session_id_++, server_port));
+  {
+    std::lock_guard<std::mutex> lock(mutex_session_accounts_);
+    session_accounts_[session->id()] = connection->account();
+  }
 
   auto delegate = std::make_unique<SocketSession::Delegate>(this, session->id());
 
@@ -396,20 +410,77 @@ void InspectorSocketServer::Accept(std::shared_ptr<tcp_connection> connection, i
 void InspectorSocketServer::Send(int session_id, const std::string& message) {
   std::lock_guard<std::mutex> lock(mutex_tcp_server_);
   if (!tcp_server_) return;
+  std::shared_ptr<ConnectionAccount> account;
+  {
+    std::lock_guard<std::mutex> lock(mutex_session_accounts_);
+    auto it = session_accounts_.find(session_id);
+    if (it != session_accounts_.end()) account = it->second.lock();
+  }
+  if (!account || account->Failed()) return;
+  auto buffer = message.empty() ? OutboundBuffer::Create(account, 0) :
+      EncodeWsFrame(account, message.data(), message.size());
+  if (!buffer) {
+    tcp_server_->post([this, session_id] {
+      if (auto* session = Session(session_id)) session->ws_socket()->Abort();
+    });
+    return;
+  }
   // The io thread owns sessions, including empty-message close and destruction.
-  tcp_server_->post([this, session_id, message] {
-    if (auto *session = Session(session_id)) session->Send(message);
+  tcp_server_->post([this, session_id, buffer = std::move(buffer)] {
+    if (auto *session = Session(session_id)) session->ws_socket()->WriteEncoded(buffer);
   });
 }
+
+#ifdef JSI_TESTING_ONLY
+SendDispatchObservations InspectorSocketServer::TestSendBeforeDispatch() {
+  SendDispatchObservations observed;
+  auto server = std::make_shared<InspectorSocketServer>(
+      std::make_unique<InspectorAgentDelegate>(), 0, nullptr);
+  auto tcp = std::make_shared<tcp_server>(0, nullptr, nullptr,
+      TransportLimits{OutboundBuffer::kOverhead + 64, 2 * (OutboundBuffer::kOverhead + 64), 2});
+  auto budget = tcp->budget();
+  auto account = budget->TryAdmitConnection();
+  // Only install the session's admission state: Send itself must do all framing,
+  // reservation and posting. No debugger/V8 response generation is simulated.
+  server->tcp_server_ = tcp;
+  server->session_accounts_[0] = account;
+  std::promise<void> entered, resume;
+  auto resumed = resume.get_future();
+  tcp->post([&] {
+    entered.set_value();
+    resumed.wait();
+    tcp->stop(); // Cancel pending dispatches before the next strand batch.
+  });
+  auto io = std::async(std::launch::async, [tcp] { tcp->run(); });
+  observed.strand_blocked = entered.get_future().wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  if (observed.strand_blocked) {
+    observed.before_send = budget->Stats();
+    observed.posted_before = tcp->PostedForTesting();
+    server->Send(0, std::string(40, 'x'));
+    observed.after_send = budget->Stats();
+    observed.posted_after_send = tcp->PostedForTesting();
+    server->Send(0, std::string(25, 'x'));
+    observed.after_overflow = budget->Stats();
+    observed.posted_after_overflow = tcp->PostedForTesting();
+    server->Send(0, "x");
+    server->Send(0, ""); // Failed sessions must not even post a close sentinel.
+    observed.posted_after_failure = tcp->PostedForTesting();
+  }
+  resume.set_value();
+  io.get();
+  observed.completed = tcp->CompletedForTesting();
+  server->tcp_server_.reset();
+  tcp.reset(); // Destroy the undelivered handlers and their buffer reservations.
+  account.reset();
+  observed.after_release = budget->Stats();
+  return observed;
+}
+#endif
 
 // InspectorSession tracking
 SocketSession::SocketSession(InspectorSocketServer* server, int id,
   int server_port)
   : id_(id), server_port_(server_port) {}
-
-void SocketSession::Send(const std::string& message) {
-  ws_socket_->Write(message.data(), message.length());
-}
 
 void SocketSession::Delegate::OnHttpGet(const std::string& host,
   const std::string& path) {

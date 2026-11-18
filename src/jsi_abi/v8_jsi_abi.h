@@ -151,12 +151,14 @@ typedef jsi_status(
     size_t length);
 
 /// Enable the V8 inspector. Default: false.
+/// Listens on 127.0.0.1; any local process can attach. Enable only for
+/// development. Reach a remote device through a port-forwarding tunnel.
 V8_JSI_ABI_API jsi_status JSI_ABI_CDECL
 v8_jsi_abi_config_set_inspector_enabled(jsi_config config, bool value);
 typedef jsi_status(JSI_ABI_CDECL *v8_jsi_abi_config_set_inspector_enabled_fn)(
     jsi_config config, bool value);
 
-/// Inspector TCP port.
+/// Inspector TCP port on 127.0.0.1. Use a port-forwarding tunnel for remote devices.
 V8_JSI_ABI_API jsi_status JSI_ABI_CDECL
 v8_jsi_abi_config_set_inspector_port(jsi_config config, uint16_t port);
 typedef jsi_status(JSI_ABI_CDECL *v8_jsi_abi_config_set_inspector_port_fn)(
@@ -336,6 +338,9 @@ typedef void(JSI_ABI_CDECL *v8_jsi_abi_snapshot_destroy_fn)(
  * (Isolate::CreateParams::snapshot_blob) so the embedded script's heap is
  * pre-materialized — neither parsed nor run.
  *
+ * Snapshots must be trusted deployment artifacts produced at the client
+ * application's build. Compatibility validation is not an authenticity check.
+ *
  * Lifetime: the config takes ownership of data when the setter is called; on
  * v8_jsi_abi_runtime_create the runtime takes over. The runtime keeps the
  * bytes alive for the isolate's lifetime and calls
@@ -369,9 +374,12 @@ typedef jsi_status(
  * to check whether THIS engine can load it. Use this before handing a blob
  * read from disk to a runtime, and on a non-ok result skip the snapshot
  * (create a normal runtime) rather than apply a mismatched blob. The runtime
- * ALSO validates internally as a safety net, so a bad blob never reaches V8
- * even if this check is skipped; this export just lets the consumer choose
- * its fallback up front.
+ * ALSO checks compatibility internally as a safety net; this export just
+ * lets the consumer choose its fallback up front.
+ *
+ * Snapshots must be trusted deployment artifacts produced at the client
+ * application's build. This compatibility check is not an authenticity
+ * check and does not make an untrusted payload safe to deserialize.
  *
  * Ordering: the version check folds in V8's flag hash, so call this only
  * AFTER any process-global engine flags are set (v8_jsi_abi_set_v8_flags) —
@@ -392,10 +400,13 @@ JSI_ABI_ENUM(int32_t, v8_jsi_abi_snapshot_compat){
     v8_jsi_abi_snapshot_compat_version_mismatch = 4, ///< V8 CachedDataVersionTag differs
     /// engine build flags differ (cage, pointer compression, lite mode)
     v8_jsi_abi_snapshot_compat_flags_mismatch = 5,
-    v8_jsi_abi_snapshot_compat_size_mismatch = 6, ///< header raw size != actual bytes
+    /// header raw size != actual bytes, or payload exceeds INT_MAX
+    v8_jsi_abi_snapshot_compat_size_mismatch = 6,
 };
 
 /// Checks whether this engine can load a snapshot container. See above.
+/// Only for trusted deployment artifacts produced at the client application's
+/// build; checks compatibility, not authenticity.
 V8_JSI_ABI_API v8_jsi_abi_snapshot_compat JSI_ABI_CDECL
 v8_jsi_abi_snapshot_check(const uint8_t *data, size_t size);
 typedef v8_jsi_abi_snapshot_compat(

@@ -17,6 +17,7 @@ import {
   copyFile,
   ensureBinSkimExe,
   ensureNasm,
+  nasmRequiredForTarget,
   analyzeBinSkim,
   dumpbinExportNames,
   crtDependencyLines,
@@ -336,7 +337,6 @@ by a separate gn/ninja toolchain — see: node scripts/sbox-build.ts --help
 async function runBuild(
   platform: string,
   configuration: string,
-  toolsPath: string,
 ): Promise<void> {
   console.log(`\n=== Building v8jsi (${platform} ${configuration}) ===\n`);
 
@@ -373,8 +373,8 @@ async function runBuild(
   // arm64 skips the asm path.
   const env = { ...process.env };
   ensureSupportedPython(env);
-  if (!platform.startsWith("arm")) {
-    prependToPath(env, await ensureNasm(toolsPath));
+  if (nasmRequiredForTarget(platform)) {
+    prependToPath(env, ensureNasm(env));
   }
 
   run("cmd.exe", ["/c", ...vcbuildArgs], { cwd: nodejsDir, env });
@@ -1106,7 +1106,7 @@ async function main(): Promise<void> {
         cleanBuild(configuration);
       }
       if (args.build) {
-        await runBuild(platform, configuration, toolsPath);
+        await runBuild(platform, configuration);
       }
       if (args.test) {
         runTests(platform, configuration);

@@ -51,8 +51,12 @@ struct V8RuntimeArgs {
   // with v8jsi_create_snapshot(). Note: V8's shared read-only heap requires that,
   // within a single process, all isolates use the same snapshot — so a custom
   // snapshot must be the only snapshot used in its process.
+  // Snapshots must be trusted deployment artifacts produced at the client
+  // application's build. Compatibility validation is not an authenticity check.
   std::shared_ptr<const facebook::jsi::Buffer> startupSnapshotBlob;
 
+  // Inspector TCP port on 127.0.0.1. Any local process can attach; enable only
+  // for development. Reach a remote device through a port-forwarding tunnel.
   // To debug using vscode-node-adapter create a blank vscode workspace with the following launch.config and attach to
   // the runtime.
   // {
@@ -86,7 +90,7 @@ struct V8RuntimeArgs {
       bool enableJitTracing : 1;
       bool enableMessageTracing : 1;
       bool enableGCTracing : 1;
-      bool enableInspector : 1;
+      bool enableInspector : 1; // Development only; see inspectorPort's loopback and local-access notes.
       bool waitForDebugger : 1;
       bool enableGCApi : 1;
       bool ignoreUnhandledPromises : 1;

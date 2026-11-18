@@ -13,8 +13,10 @@ targets the Node.js-based build.
 This is a Windows project. Builds and tooling run on Windows with **PowerShell
 7.x (`pwsh`)**, not Windows PowerShell 5.1. Use `pwsh` YAML tasks and invoke
 PowerShell scripts directly inside them. Paths use backslashes and `$null`/`$env:`
-rather than POSIX equivalents. The
-TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
+rather than POSIX equivalents. Exception: `scripts/install-prerequisites.ps1`
+targets Windows PowerShell 5.1 so it runs on a new machine:
+`powershell.exe -NoProfile -File .\scripts\install-prerequisites.ps1`.
+The TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 `--strip-types`, so there is no separate transpile step — run `node script.ts`).
 
 ## Build
@@ -24,15 +26,21 @@ TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 Node.js v24 remains the tooling runtime. Both engine variants disable Temporal
 and Node-only LIEF tooling, so Rust is not a build prerequisite.
 
+NASM must be preinstalled for x64/x86 targets; the build no longer downloads it.
+CI uses only the build image's NASM. Developers can run
+`scripts/install-prerequisites.ps1` or
+`winget install --id NASM.NASM --exact --source winget`.
+
+Run each example from the repository root.
+
 Canonical entry point:
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\scripts'
-node build.ts --platform x64 --configuration release   # or: debug
+node scripts\build.ts --platform x64 --configuration release   # or: debug
 ```
 
 Raw `vcbuild.bat` (narrow-build flags spelled out):
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\deps\nodejs'
+Set-Location .\deps\nodejs
 .\vcbuild.bat release v8jsi without-intl no-node no-cctest no-embedtest no-openssl-cli no-fuzzers no-nop no-overlapped-checker
 ```
 
@@ -44,7 +52,7 @@ through to the legacy whole-solution build.
 
 Clean build (for stale-artifact issues):
 ```powershell
-Set-Location 'e:\GitHub\microsoft\v8-jsi\deps\nodejs'; .\vcbuild.bat clean
+Set-Location .\deps\nodejs; .\vcbuild.bat clean
 ```
 
 **Outputs** (`Release` or `Debug` per configuration):
@@ -88,8 +96,8 @@ architectures or variants concurrently in the same Node output directory.
 ## Testing
 
 ```powershell
-& 'e:\GitHub\microsoft\v8-jsi\deps\nodejs\out\Release\v8jsi_test.exe' --gtest_brief=1
-& 'e:\GitHub\microsoft\v8-jsi\deps\nodejs\out\Release\node_api_tests.exe' --gtest_brief=1
+& '.\deps\nodejs\out\Release\v8jsi_test.exe' --gtest_brief=1
+& '.\deps\nodejs\out\Release\node_api_tests.exe' --gtest_brief=1
 ```
 
 `v8jsi_test.exe` runs each JSI test against two runtime parameterizations,
@@ -281,6 +289,11 @@ The binary-stable C ABI for JSI (see "ABI architecture" below).
 - `src/jsi/jsilib-windows.cpp`, `src/etw/` — Windows + ETW
 - `src/inspector/` — V8 inspector integration (enabled)
 
+The inspector listens only on `127.0.0.1`. Discovery and WebSocket upgrades accept
+no Origin or exactly `devtools://devtools` and reject every other Origin.
+Outbound limits are 64 MiB per connection, 128 MiB per listener, and 32
+connections; overflow closes the connection.
+
 ## ABI architecture
 
 > The JSI ABI, Node-API hosting, and sandbox surfaces (`src/jsi_abi/*.h`,
@@ -354,7 +367,8 @@ The `scripts/` folder holds the TypeScript build tooling (`build.ts`,
 type-checks it and `npm run header-check` runs the header gate below.
 `npm run native-rid-test` (or `node --test scripts/native-rid.test.ts` from the
 repo root) tests native package RID selection. Stela's own tests are `npm test`
-in `tools/stela/`. Run TypeScript with
+in `tools/stela/`. Run `node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts`
+from the repo root to test NASM discovery and prerequisite setup. Run TypeScript with
 `node <script>.ts` directly.
 
 The public C ABI headers have a compile gate: `node --test

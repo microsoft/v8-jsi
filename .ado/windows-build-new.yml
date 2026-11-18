@@ -25,7 +25,7 @@ steps:
 
 - ${{ if eq(parameters.fakeBuild, false) }}:
     # Every step is a single scripts/build.ts invocation so the whole flow is
-    # reproducible locally. build.ts provisions NASM itself (needed for the
+    # reproducible locally. The image provides NASM (needed for the
     # x86/x64 OpenSSL asm), so there is no separate NASM step. The pwsh task
     # propagates build.ts's exit code, so each step fails on its own.
   - pwsh: |

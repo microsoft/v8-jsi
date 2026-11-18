@@ -5,9 +5,6 @@
 // are selected by VER_BINARY, a small integer each build target passes:
 //   GYP -> VCResourceCompilerTool PreprocessorDefinitions ['VER_BINARY=N']
 //   GN  -> defines = [ "VER_BINARY=N" ]
-//
-// The legacy ReactNative.V8Jsi.Windows build uses src/version.rc (+ version_gen.rc,
-// fetch_code.ps1, config.json.version) instead and is intentionally untouched.
 
 #include <verrsrc.h>
 #include "version_info_gen.h"

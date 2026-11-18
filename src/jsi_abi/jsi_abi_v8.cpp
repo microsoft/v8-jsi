@@ -37,6 +37,10 @@
 
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
 #include "../inspector/inspector_agent.h"
+#ifdef JSI_TESTING_ONLY
+#include "../inspector/inspector_tcp.h"
+#include "../inspector/inspector_socket_server.h"
+#endif
 #endif
 
 #include <atomic>
@@ -3330,6 +3334,16 @@ v8_jsi_abi_runtime_open_inspector(jsi_runtime *runtime) {
 // release builds can drop it. Not declared in any public header; the test
 // forward-declares it inline.
 #ifdef JSI_TESTING_ONLY
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+JSI_ABI_API bool JSI_ABI_CDECL v8_jsi_test_inspector_transport_stats(
+    int port, inspector::TransportStats* stats) {
+  return stats && inspector::tcp_server::StatsForPort(port, *stats);
+}
+JSI_ABI_API void JSI_ABI_CDECL v8_jsi_test_inspector_send_dispatch(
+    inspector::SendDispatchObservations* observations) {
+  if (observations) *observations = inspector::InspectorSocketServer::TestSendBeforeDispatch();
+}
+#endif
 JSI_ABI_API void JSI_ABI_CDECL v8_jsi_test_post_foreground_task(
     jsi_runtime *runtime,
     void (JSI_ABI_CDECL *task_run_cb)(void *),
