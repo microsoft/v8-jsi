@@ -8,7 +8,9 @@ behavior is preserved when the new options aren't requested. Two exceptions:
 the libnode embedding API and its tests are part of every Node.js build of
 this tree, and shared builds (`--shared`, vcbuild `dll`), which here are
 always libnode, get libnode's settings: the Windows Hybrid CRT and hardening,
-the Linux private C++ runtime, and the Linux and macOS library names.
+the Linux private C++ runtime, and the Linux and macOS library names. Fixes to
+upstream code, such as the linked-binding error fix below, apply to every build
+too.
 
 ## Rule of thumb
 
@@ -80,6 +82,18 @@ the API, compiler phase, or default that our patch originally extended.
   and in node.gyp, those sources in `embedtest`, which is also built for the
   Windows shared library. vcbuild.bat's target list builds `shared_embedtest`
   with `embedtest`.
+- **Linked-binding initializer errors:** in `src/node_binding.cc`,
+  `binding::GetLinkedBinding` returns right after the register function when
+  it left an exception pending (`HasPendingException()`, marked `v8-jsi:`),
+  and `napi_module_register_by_symbol` in `src/node_api.cc` returns before it
+  overrides `module.exports` when the init function threw (also marked).
+  V8 API calls such as `Object::Get()` and `Object::Set()` clear a pending
+  exception (V8 12.1 and later), so without these checks
+  `process._linkedBinding()` returns the exports instead of throwing, and so
+  does `require()` of a Node-API addon whose init throws and returns new
+  exports. The embedding API's `RegisterModule` has the same check. The
+  embedding tests' `failing_module` and `unsupported_module` cover it. Drop
+  this contract once upstream Node.js has an equivalent fix.
 - **libnode on Windows:** `class NODE_EXTERN EmbedderSnapshotData` and its
   `struct NODE_EXTERN DeleteSnapshotData` in `src/node.h` (upstream exports
   neither, so `embedtest` can't link against libnode.dll); the static C++

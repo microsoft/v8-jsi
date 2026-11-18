@@ -5,7 +5,12 @@ typedef struct {
   uv_mutex_t mutex;
   int32_t greeter_module_init_call_count;
   int32_t replicator_module_init_call_count;
+  int32_t failing_module_init_call_count;
+  int32_t unsupported_module_init_call_count;
 } test_data_t;
+
+// Above NODE_API_SUPPORTED_VERSION_MAX, so Node.js rejects the module.
+#define UNSUPPORTED_NODE_API_VERSION 9999
 
 static napi_value GreeterFunction(napi_env env, napi_callback_info info) {
   napi_status status = napi_ok;
@@ -94,6 +99,36 @@ on_exit:
   return exports;
 }
 
+// Throws from its initializer: process._linkedBinding() must throw the error
+// instead of returning the exports.
+static napi_value InitFailingModule(void* cb_data,
+                                    node_embedding_runtime runtime,
+                                    napi_env env,
+                                    const char* module_name,
+                                    napi_value exports) {
+  test_data_t* test_data = (test_data_t*)cb_data;
+  uv_mutex_lock(&test_data->mutex);
+  ++test_data->failing_module_init_call_count;
+  uv_mutex_unlock(&test_data->mutex);
+
+  napi_throw_error(env, NULL, "failing_module init failed");
+  return exports;
+}
+
+// Registered with an unsupported Node-API version: Node.js throws before the
+// initializer can run.
+static napi_value InitUnsupportedModule(void* cb_data,
+                                        node_embedding_runtime runtime,
+                                        napi_env env,
+                                        const char* module_name,
+                                        napi_value exports) {
+  test_data_t* test_data = (test_data_t*)cb_data;
+  uv_mutex_lock(&test_data->mutex);
+  ++test_data->unsupported_module_init_call_count;
+  uv_mutex_unlock(&test_data->mutex);
+  return exports;
+}
+
 static void OnPreload(void* cb_data,
                       node_embedding_runtime runtime,
                       napi_env env,
@@ -128,6 +163,20 @@ static node_embedding_status ConfigureRuntime(
                                                cb_data,
                                                NULL,
                                                NAPI_VERSION));
+  NODE_EMBEDDING_CALL(
+      node_embedding_runtime_config_add_module(runtime_config,
+                                               "failing_module",
+                                               InitFailingModule,
+                                               cb_data,
+                                               NULL,
+                                               NAPI_VERSION));
+  NODE_EMBEDDING_CALL(
+      node_embedding_runtime_config_add_module(runtime_config,
+                                               "unsupported_module",
+                                               InitUnsupportedModule,
+                                               cb_data,
+                                               NULL,
+                                               UNSUPPORTED_NODE_API_VERSION));
   NODE_EMBEDDING_CALL(LoadUtf8Script(runtime_config, main_script));
 on_exit:
   return embedding_status;
@@ -155,6 +204,9 @@ int32_t test_main_c_api_linked_modules(int32_t argc, const char* argv[]) {
                         expected_greeter_module_init_call_count);
   NODE_EMBEDDING_ASSERT(test_data.replicator_module_init_call_count ==
                         expected_replicator_module_init_call_count);
+  // use-linked-modules.js loads each failing module once, in the main thread.
+  NODE_EMBEDDING_ASSERT(test_data.failing_module_init_call_count == 1);
+  NODE_EMBEDDING_ASSERT(test_data.unsupported_module_init_call_count == 0);
 
 on_exit:
   uv_mutex_destroy(&test_data.mutex);

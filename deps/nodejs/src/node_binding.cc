@@ -1064,6 +1064,11 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
         env, "Linked binding has no declared entry point.");
   }
 
+  // v8-jsi: Object::Get() clears a pending exception (V8 12.1 and later).
+  // Return if the register function threw, so that the exception reaches the
+  // caller.
+  if (env->isolate()->HasPendingException()) return;
+
   Local<Value> effective_exports;
   if (module->Get(env->context(), env->exports_string())
           .ToLocal(&effective_exports)) {

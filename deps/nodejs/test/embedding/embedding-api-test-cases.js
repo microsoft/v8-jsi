@@ -194,7 +194,12 @@ function runRuntimeTests(api) {
     { cwd: __dirname },
     {
       trim: true,
-      stdout: 'main=Hello, World World; worker=Hello, Node Node',
+      // The version error ends with the Node-API versions Node.js supports.
+      stdout: new RegExp(
+        '^main=Hello, World World; worker=Hello, Node Node\\r?\\n' +
+        'failing_module: failing_module init failed\\r?\\n' +
+        'unsupported_module: unsupported_module requires Node-API version ' +
+        '9999, '),
     });
 }
 
