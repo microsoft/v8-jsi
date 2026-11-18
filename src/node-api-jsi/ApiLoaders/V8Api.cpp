@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "V8Api.h"
+#include "v8jsi_names.h"
 
 namespace Microsoft::NodeApiJsi {
 
@@ -24,7 +25,7 @@ V8Api::V8Api(IFuncResolver *funcResolver)
 }
 
 V8Api *V8Api::fromLib() {
-  static LibFuncResolver funcResolver("v8jsi");
+  static LibFuncResolver funcResolver(V8JSI_DLL_NAME);
   static V8Api *libV8Api = new V8Api(&funcResolver);
   return libV8Api;
 }
