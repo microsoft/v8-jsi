@@ -208,6 +208,60 @@ struct Client {
     return initialize(V8SBHOST_ABI_VERSION) == v8sbhost_status_ok || Fail("initialize");
   }
 };
+std::string Hex(int32_t value) {
+  char text[16];
+  std::snprintf(text, sizeof(text), "0x%08x", static_cast<unsigned int>(value));
+  return text;
+}
+std::string StatusName(v8sbhost_status status) {
+  switch (status) {
+#define STATUS(name) case v8sbhost_status_##name: return #name
+    STATUS(ok);
+    STATUS(invalid_arg);
+    STATUS(invalid_struct_size);
+    STATUS(version_mismatch);
+    STATUS(quota_exceeded);
+    STATUS(not_initialized);
+    STATUS(invalid_state);
+    STATUS(no_memory);
+    STATUS(connect_failed);
+    STATUS(protocol_error);
+    STATUS(broker_lost);
+    STATUS(run_terminal);
+    STATUS(callback_backpressure);
+    STATUS(profile_already_bound);
+    STATUS(worker_exited);
+    STATUS(runtime_failed);
+    STATUS(internal_error);
+#undef STATUS
+    default: return Hex(status);
+  }
+}
+std::string StateName(int state) {
+  switch (state) {
+#define STATE(name) case v8sbhost_session_state_##name: return #name
+    STATE(creating);
+    STATE(ready);
+    STATE(worker_startup_ready);
+    STATE(worker_security_ready);
+    STATE(closed);
+#undef STATE
+    default: return Hex(state);
+  }
+}
+std::string EventName(int event) {
+  switch (event) {
+#define EVENT(name) case v8sbhost_run_event_##name: return #name
+    EVENT(started);
+    EVENT(completed);
+    EVENT(failed);
+    EVENT(cancelled);
+    EVENT(worker_exited);
+    EVENT(broker_lost);
+#undef EVENT
+    default: return Hex(event);
+  }
+}
 struct Capture {
   Client* client;
   v8sbhost_session session = nullptr;
@@ -216,17 +270,44 @@ struct Capture {
   std::vector<int> states, events, kinds;
   std::vector<v8sbhost_status> statuses;
   std::vector<std::string> messages;
+  int failed_state = v8sbhost_session_state_creating;
+  v8sbhost_status failed_status = v8sbhost_status_ok;
+  size_t accepted = 0;
   int terminals = 0, disconnects = 0;
   bool valid = true;
   explicit Capture(Client* c) : client(c) {}
   ~Capture() { Close(); }
   void Close() { if (session) { client->close(session); session = nullptr; } }
+  bool SessionFailed() const { return failed_status != v8sbhost_status_ok; }
+  std::string Describe() const {
+    std::string text = "states=[";
+    for (size_t i = 0; i < states.size(); ++i) {
+      if (i) text += ",";
+      text += StateName(states[i]);
+    }
+    text += "] first_failure=";
+    text += SessionFailed() ? StateName(failed_state) + "/" + StatusName(failed_status) : "none";
+    text += " runs=[";
+    for (size_t i = 0; i < events.size(); ++i) {
+      if (i) text += ",";
+      text += EventName(events[i]) + "/" +
+          (i < statuses.size() ? StatusName(statuses[i]) : "missing");
+    }
+    return text + "] replies=" + std::to_string(messages.size()) +
+        " accepted=" + std::to_string(accepted) + " terminals=" + std::to_string(terminals) +
+        " disconnects=" + std::to_string(disconnects) + " valid=" + (valid ? "1" : "0");
+  }
+  bool Fail(const std::string& reason) const { return ::Fail(reason + " " + Describe()); }
   static void V8SBHOST_CDECL State(void* data, v8sbhost_session session,
                                 v8sbhost_session_state state, v8sbhost_status status) {
     auto& c = *static_cast<Capture*>(data);
     c.valid &= c.thread == ::GetCurrentThreadId() && session == c.session &&
                status == v8sbhost_status_ok;
     c.states.push_back(state);
+    if (status != v8sbhost_status_ok && !c.SessionFailed()) {
+      c.failed_state = state;
+      c.failed_status = status;
+    }
   }
   static void V8SBHOST_CDECL Run(void* data, v8sbhost_run run,
                               v8sbhost_run_event event, v8sbhost_status status) {
@@ -264,9 +345,9 @@ bool WorkerCoverage(Client& client, const Options& o) {
   config.prohibit_dynamic_code = true;
   v8sbhost::test::SessionConfigure session{&client.config, &config};
   if (client.open(&v8sbhost::test::ConfigureSession, &session, &c.session) != v8sbhost_status_ok)
-    return Fail("coverage session_open");
+    return c.Fail("coverage session_open");
   auto table = c.Table();
-  if (client.callbacks(c.session, &table) != v8sbhost_status_ok) return Fail("coverage callbacks");
+  if (client.callbacks(c.session, &table) != v8sbhost_status_ok) return c.Fail("coverage callbacks");
   const bool snapshot = o.scenario == L"worker-snapshot";
   const bool closing = o.scenario == L"queued-close";
   const bool pressure = o.scenario == L"guest-pressure";
@@ -281,103 +362,126 @@ bool WorkerCoverage(Client& client, const Options& o) {
   if (snapshot) input.startup_snapshot_path = o.snapshot.c_str();
   v8sbhost::test::RunConfigure run{&client.config, &input};
   if (client.start(c.session, &v8sbhost::test::ConfigureRun, &run, &c.run) != v8sbhost_status_ok)
-    return Fail("coverage start_run");
+    return c.Fail("coverage start_run");
   if (snapshot && o.missing) {
-    if (!Pump([&] { return c.terminals || c.disconnects; }, 20000)) return Fail("snapshot failure timeout");
+    if (!Pump([&] { return c.terminals || c.disconnects || c.SessionFailed(); }, 20000))
+      return c.Fail("snapshot failure timeout");
+    if (c.terminals < 1 && c.SessionFailed())
+      return c.Fail("session failed before snapshot failure terminal");
     const bool ready = std::find(c.states.begin(), c.states.end(),
         v8sbhost_session_state_worker_security_ready) != c.states.end();
     std::printf("[snapshot] terminal=%d status=%d messages=%zu security_ready=%d\n",
         c.terminals, c.statuses.empty() ? -1 : c.statuses.back(), c.messages.size(), ready);
     return (!ready && c.terminals == 1 && !c.statuses.empty() &&
-        c.statuses.back() != v8sbhost_status_ok && c.messages.empty()) || Fail("snapshot did not fail closed");
+        c.statuses.back() != v8sbhost_status_ok && c.messages.empty()) || c.Fail("snapshot did not fail closed");
   }
   if (!snapshot) {
     // Avoid the separate pre-activation bridge quota: pressure the active relay.
     if (!Pump([&] {
           return (!c.events.empty() && std::find(c.states.begin(), c.states.end(),
-              v8sbhost_session_state_worker_security_ready) != c.states.end()) || c.terminals || c.disconnects;
-        }, 20000) || c.terminals || c.disconnects ||
-        c.events != std::vector<int>{v8sbhost_run_event_started}) return Fail("run start timeout");
+              v8sbhost_session_state_worker_security_ready) != c.states.end()) ||
+              c.terminals || c.disconnects || c.SessionFailed();
+        }, 20000) || c.SessionFailed() || c.terminals || c.disconnects ||
+        c.events != std::vector<int>{v8sbhost_run_event_started}) return c.Fail("run start timeout");
     // The client rejects this above its 65,528-byte message cap, before transport admission.
     const std::string oversized(1u << 20, 'x');
     if (client.post(c.run, v8sbhost_message_kind_string, oversized.data(), oversized.size()) !=
-        v8sbhost_status_quota_exceeded) return Fail("oversized relay quota");
+        v8sbhost_status_quota_exceeded) return c.Fail("oversized relay quota");
     if (pressure) {
-      // Legal, padded frames pressure the live transport's 1 MiB per-run queue.
-      // Replies omit padding so non-pumping cannot overflow the callback byte cap.
-      constexpr size_t limit = 4096, payload_size = 60000;
-      count = 0;
-      for (; count < limit; ++count) {
-        std::string message = std::to_string(count) + ":";
-        message.resize(payload_size, 'x');
+      // The client charges 32+4+body per frame against 1 MiB/run; the broker
+      // charges 16+body against the same quota and caps 256 frames/run.
+      // The unpumped burst is 17 frames x (32+4+60000) = 1,020,612 < 1 MiB/run.
+      // The session FIFO caps callbacks, not bytes: burst replies plus
+      // startup/run events and recovery/done replies stay well below 256.
+      constexpr size_t kRunQuota = 1 << 20, kPayload = 60000;
+      constexpr size_t kBurst = kRunQuota / (32 + 4 + kPayload);
+      constexpr size_t kStartupRunEvents = 8, kFollowupReplies = 2;
+      static_assert(kBurst + kStartupRunEvents + kFollowupReplies < 256);
+      count = kBurst;
+      for (size_t i = 0; i < kBurst; ++i) {
+        std::string message = std::to_string(i) + ":";
+        message.resize(kPayload, 'x');
         const auto status = client.post(c.run, v8sbhost_message_kind_string, message.data(), message.size());
-        if (status == v8sbhost_status_quota_exceeded) break;
-        if (status != v8sbhost_status_ok) return Fail("pressure admission status");
+        if (status != v8sbhost_status_ok) {
+          // Drain the cause of the rejected post, without admitting more frames.
+          Pump([&] { return c.terminals || c.disconnects || c.SessionFailed(); }, 2000);
+          return c.Fail("pressure admission status=" + StatusName(status) +
+              " at post " + std::to_string(i));
+        }
+        ++c.accepted;
       }
-      std::printf("[pressure] accepted=%zu quota=%d\n", count, count < limit);
-      if (count < (1u << 20) / (payload_size + 36) || count == limit)
-        return Fail("live queue did not saturate within bound");
+      std::printf("[pressure] burst=%zu frame=%zu\n", kBurst, kPayload);
     } else {
       for (size_t i = 0; i < count; ++i) {
         const std::string message = std::to_string(i);
         if (client.post(c.run, v8sbhost_message_kind_string, message.data(), message.size()) != v8sbhost_status_ok)
-          return Fail("queued message admission");
+          return c.Fail("queued message admission");
+        ++c.accepted;
       }
     }
     if (closing) {
       // Let the worker and I/O thread queue replies without dispatching callbacks.
       ::Sleep(300);
-      if (!c.messages.empty() || c.terminals || c.disconnects) return Fail("non-pumping wait dispatched");
+      if (!c.messages.empty() || c.terminals || c.disconnects) return c.Fail("non-pumping wait dispatched");
       const auto begin = ::GetTickCount64();
       c.Close();
       const auto elapsed = ::GetTickCount64() - begin;
       std::printf("[close] duration_ms=%llu queued_posts=%zu\n", elapsed, count);
-      if (elapsed > 1000) return Fail("close blocked");
+      if (elapsed > 1000) return c.Fail("close blocked");
       const auto callbacks = c.states.size() + c.events.size() + c.messages.size() + c.disconnects;
       const auto until = ::GetTickCount64() + 1000;
       Pump([&] { return ::GetTickCount64() >= until; }, 2000);
       return callbacks == c.states.size() + c.events.size() + c.messages.size() + c.disconnects ||
-          Fail("callback after close");
+          c.Fail("callback after close");
     }
     if (pressure) {
-      if (!Pump([&] { return c.messages.size() >= count || c.terminals || c.disconnects; }, 20000) ||
-          !c.valid || c.terminals || c.disconnects || c.messages.size() != count)
-        return Fail("accepted pressure replies/run liveness");
+      if (!Pump([&] { return c.messages.size() >= count || c.terminals || c.disconnects || c.SessionFailed(); }, 20000) ||
+          c.SessionFailed() || !c.valid || c.terminals || c.disconnects || c.messages.size() != count)
+        return c.Fail("accepted pressure replies/run liveness");
       for (size_t i = 0; i < count; ++i)
         if (c.messages[i] != "async: " + std::to_string(i) || c.kinds[i] != v8sbhost_message_kind_string)
-          return Fail("accepted pressure FIFO");
-      if (client.post(c.run, v8sbhost_message_kind_string, "recovery", 8) != v8sbhost_status_ok ||
-          !Pump([&] { return c.messages.size() > count || c.terminals || c.disconnects; }, 20000) ||
-          c.terminals || c.disconnects || c.messages.size() != count + 1 ||
+          return c.Fail("accepted pressure FIFO");
+      if (client.post(c.run, v8sbhost_message_kind_string, "recovery", 8) != v8sbhost_status_ok)
+        return c.Fail("pressure recovery");
+      ++c.accepted;
+      if (!Pump([&] { return c.messages.size() > count || c.terminals || c.disconnects || c.SessionFailed(); }, 20000) ||
+          c.SessionFailed() || c.terminals || c.disconnects || c.messages.size() != count + 1 ||
           c.messages.back() != "async: recovery" || c.kinds.back() != v8sbhost_message_kind_string)
-        return Fail("pressure recovery");
+        return c.Fail("pressure recovery");
     }
     if (client.post(c.run, v8sbhost_message_kind_string, "done", 4) != v8sbhost_status_ok)
-      return Fail("completion message admission");
+      return c.Fail("completion message admission");
+    ++c.accepted;
   }
-  if (!Pump([&] { return c.terminals || c.disconnects; }, 20000)) return Fail("async reply timeout");
-  if (!c.valid || c.disconnects || c.terminals != 1 || c.statuses.back() != v8sbhost_status_ok ||
+  if (!Pump([&] { return c.terminals || c.disconnects || c.SessionFailed(); }, 20000))
+    return c.Fail("async reply timeout");
+  if (c.SessionFailed() || !c.valid || c.disconnects || c.terminals != 1 ||
+      c.statuses.empty() || c.events.empty() || c.statuses.back() != v8sbhost_status_ok ||
       c.events.back() != v8sbhost_run_event_completed) {
     std::printf("[relay] valid=%d disconnects=%d terminals=%d status=%d replies=%zu\n",
         c.valid, c.disconnects, c.terminals, c.statuses.empty() ? -1 : c.statuses.back(), c.messages.size());
-    return Fail("async terminal/readiness");
+    return c.Fail("async terminal/readiness");
   }
   if (snapshot) {
-    if (c.messages != std::vector<std::string>{"restored"}) return Fail("snapshot marker reply");
+    if (c.messages != std::vector<std::string>{"restored"}) return c.Fail("snapshot marker reply");
     input.startup_snapshot_path = L"different.bin";
     const auto status = client.start(c.session, &v8sbhost::test::ConfigureRun, &run, &c.run);
     // Session start accepts inputs synchronously; broker admission reports failure asynchronously.
-    if (status != v8sbhost_status_ok || !Pump([&] { return c.terminals == 2 || c.disconnects; }, 20000))
-      return Fail("profile conflict timeout");
-    std::printf("[snapshot] conflicting profile terminal_status=%d\n", c.statuses.back());
+    if (status != v8sbhost_status_ok ||
+        !Pump([&] { return c.terminals == 2 || c.disconnects || c.SessionFailed(); }, 20000))
+      return c.Fail("profile conflict timeout");
+    if (c.terminals < 2 && c.SessionFailed())
+      return c.Fail("session failed before profile conflict terminal");
+    std::printf("[snapshot] conflicting profile terminal_status=%d\n",
+        c.statuses.empty() ? -1 : c.statuses.back());
     return (c.valid && !c.disconnects && c.terminals == 2 &&
-        c.events.back() == v8sbhost_run_event_failed &&
+        !c.events.empty() && !c.statuses.empty() && c.events.back() == v8sbhost_run_event_failed &&
         c.statuses.back() == v8sbhost_status_profile_already_bound && c.messages.size() == 1) ||
-        Fail("profile conflict executed guest");
+        c.Fail("profile conflict executed guest");
   }
-  if (c.messages.size() != count + (pressure ? 2 : 1) || c.messages.back() != "async: done") return Fail("async reply count");
+  if (c.messages.size() != count + (pressure ? 2 : 1) || c.messages.back() != "async: done") return c.Fail("async reply count");
   for (size_t i = 0; i < count; ++i)
-    if (c.messages[i] != "async: " + std::to_string(i)) return Fail("async reply FIFO");
+    if (c.messages[i] != "async: " + std::to_string(i)) return c.Fail("async reply FIFO");
   return true;
 }
 
@@ -407,20 +511,21 @@ bool WrongSnapshotIndex(Client& client) {
 }
 
 bool ClientStep(const Options& o) {
+  // An empty capture also describes validation failures before a session exists.
+  Client client;
+  Capture capture(&client);
   if (o.client_dll.empty() || (o.mode != L"shared" && o.mode != L"dedicated"))
-    return Fail("client requires --client-dll and shared/dedicated mode");
+    return capture.Fail("client requires --client-dll and shared/dedicated mode");
   if (o.no_console) {
-    if (::GetConsoleWindow() || ::GetConsoleCP() != 0) return Fail("console allocated");
+    if (::GetConsoleWindow() || ::GetConsoleCP() != 0) return capture.Fail("console allocated");
     for (DWORD id : {STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE}) {
       HANDLE handle = ::GetStdHandle(id);
-      if (handle && handle != INVALID_HANDLE_VALUE) return Fail("standard handle present");
+      if (handle && handle != INVALID_HANDLE_VALUE) return capture.Fail("standard handle present");
     }
   }
-  Client client;
   if (!client.Load(o.client_dll)) return false;
   if (o.scenario == L"wrong-snapshot-index") return WrongSnapshotIndex(client);
   if (!o.scenario.empty()) return WorkerCoverage(client, o);
-  Capture capture(&client);
   v8sbhost::test::TestSessionConfig config;
   config.broker_mode = o.mode == L"shared" ? v8sbhost_broker_mode_shared : v8sbhost_broker_mode_dedicated;
   config.tier = v8sbhost_tier_untrusted;
@@ -431,22 +536,24 @@ bool ClientStep(const Options& o) {
   const auto begin = ::GetTickCount64();
   auto status = client.open(&v8sbhost::test::ConfigureSession, &session_args, &capture.session);
   std::printf("[xa] session_open status=%d duration_ms=%llu\n", status, ::GetTickCount64() - begin);
-  if (status != v8sbhost_status_ok) return o.missing || Fail("session_open");
-  if (!capture.session) return Fail("null session");
+  if (status != v8sbhost_status_ok) return o.missing || capture.Fail("session_open");
+  if (!capture.session) return capture.Fail("null session");
   auto table = capture.Table();
-  if (client.callbacks(capture.session, &table) != v8sbhost_status_ok) return Fail("set_callbacks");
+  if (client.callbacks(capture.session, &table) != v8sbhost_status_ok) return capture.Fail("set_callbacks");
   const std::string js =
       "host.onmessage=function(m){host.postMessage('js echo: '+m);host.complete();};";
   v8sbhost::test::TestRunInputs input;
   input.payload = js.data(); input.payload_len = js.size();
   v8sbhost::test::RunConfigure run_args{&client.config, &input};
   status = client.start(capture.session, &v8sbhost::test::ConfigureRun, &run_args, &capture.run);
-  if (status != v8sbhost_status_ok) return o.missing || Fail("start_run");
-  if (!capture.run) return Fail("null run");
+  if (status != v8sbhost_status_ok) return o.missing || capture.Fail("start_run");
+  if (!capture.run) return capture.Fail("null run");
   if (client.post(capture.run, v8sbhost_message_kind_string, "alpha", 5) != v8sbhost_status_ok)
-    return o.missing || Fail("post_message");
-  if (!Pump([&] { return capture.terminals || capture.disconnects; }, o.missing ? 14000 : 15000))
-    return Fail("terminal/disconnect timeout");
+    return o.missing || capture.Fail("post_message");
+  ++capture.accepted;
+  if (!Pump([&] { return capture.terminals || capture.disconnects || capture.SessionFailed(); },
+            o.missing ? 14000 : 15000))
+    return capture.Fail("terminal/disconnect timeout");
   if (o.missing) {
     // No worker came up: no readiness, no completed run, no message.
     const bool failed = capture.disconnects || (!capture.statuses.empty() &&
@@ -455,23 +562,24 @@ bool ClientStep(const Options& o) {
     for (int event : capture.events) completed |= event == v8sbhost_run_event_completed;
     for (int state : capture.states)
       completed |= state == v8sbhost_session_state_worker_security_ready;
-    return (failed && !completed && capture.messages.empty()) || Fail("missing native payload succeeded");
+    return (failed && !completed && capture.messages.empty()) || capture.Fail("missing native payload succeeded");
   }
-  if (!capture.valid || capture.disconnects || capture.terminals != 1 ||
+  if (capture.SessionFailed() || !capture.valid || capture.disconnects || capture.terminals != 1 ||
       capture.states != std::vector<int>{v8sbhost_session_state_ready,
           v8sbhost_session_state_worker_startup_ready, v8sbhost_session_state_worker_security_ready} ||
       capture.events != std::vector<int>{v8sbhost_run_event_started, v8sbhost_run_event_completed} ||
       capture.statuses != std::vector<v8sbhost_status>(2, v8sbhost_status_ok) ||
       capture.kinds != std::vector<int>{v8sbhost_message_kind_string} ||
       capture.messages != std::vector<std::string>{"js echo: alpha"})
-    return Fail("readiness/FIFO/echo/sole-terminal oracle");
+    return capture.Fail("readiness/FIFO/echo/sole-terminal oracle");
   Dedicated dedicated;
   if (o.native && !dedicated.Observe(o)) return false;
   std::printf("[client] result=OK pid=%lu duration_ms=%llu\n", ::GetCurrentProcessId(),
               ::GetTickCount64() - begin);
   std::fflush(stdout);
   const auto until = ::GetTickCount64() + o.hold_ms;
-  Pump([&] { return ::GetTickCount64() >= until; }, o.hold_ms + 1000);
+  Pump([&] { return ::GetTickCount64() >= until || capture.SessionFailed(); }, o.hold_ms + 1000);
+  if (capture.SessionFailed()) return capture.Fail("session failed during hold");
   capture.Close();
   return dedicated.Reaped();
 }
