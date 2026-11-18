@@ -210,6 +210,7 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
 - The packages share `Microsoft.JavaScript.V8`'s version (`docs/versioning.md`):
   `--pack` reads `v8jsi_version` from `config.json`, which CI computes, unless
   `--semantic-version` overrides it.
+- Package metadata takes the Node.js version from `deps/nodejs/src/node_version.h`.
 - The packages' NOTICE is `scripts/nuget-libnode/NOTICE.txt`. Regenerate it
   with `node scripts/gen-notice.ts` after a fork-sync, and update the script's
   Rust standard library entry when the Rust toolchain links other crates into

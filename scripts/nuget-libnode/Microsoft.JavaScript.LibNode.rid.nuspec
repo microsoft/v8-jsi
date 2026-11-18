@@ -3,8 +3,8 @@
   <metadata>
     <id>Microsoft.JavaScript.LibNode.$rid$</id>
     <version>$version$</version>
-    <description>Node.js library</description>
-    <title>Node.js library</title>
+    <description>Node.js $nodeVersion$ built as a shared library (libnode) with Node-API and the Node.js embedding API for $rid$.</description>
+    <title>Node.js $nodeVersion$ library (libnode) for $rid$</title>
     <authors>Microsoft</authors>
     <projectUrl>https://nodejs.org/</projectUrl>
     <license type="expression">MIT</license>
