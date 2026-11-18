@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 #
 # v8jsi.gyp - Build configuration for v8jsi shared library
-# This builds v8jsi.dll using V8 from Node.js
+# This builds v8jsi2.dll using V8 from Node.js
 #
 # Note: When this file is included via node.gyp's 'includes' directive,
 # all relative paths are resolved from node.gyp's directory (deps/nodejs),
@@ -30,10 +30,10 @@
     'v8jsi_source_link_json%': '<(v8jsi_root)/src/source_link_gen_gyp.json',
 
     # The sandbox build variant (--build-v8jsisb / configure.py). When 1, the
-    # v8jsi target is emitted as v8jsisb.dll and is compiled with the V8
+    # v8jsi target is emitted as v8jsi2sb.dll and is compiled with the V8
     # in-process sandbox + pointer-compression shared cage + jitless/lite mode
     # (the v8_enable_* variables are set in configure.py). Defaulted here so the
-    # condition below is valid even on a mainline (v8jsi.dll) build.
+    # condition below is valid even on a mainline (v8jsi2.dll) build.
     'build_v8jsisb%': 0,
 
     # Enable inspector support (sets V8JSI_ENABLE_INSPECTOR).
@@ -43,7 +43,7 @@
     'v8jsi_enable_inspector%': 1,
 
     # Enable test-only ABI hooks (sets JSI_TESTING_ONLY). When 1 (default),
-    # v8jsi.dll exports `v8_jsi_test_post_foreground_task` and any other
+    # v8jsi2.dll exports `v8_jsi_test_post_foreground_task` and any other
     # symbols guarded by `#ifdef JSI_TESTING_ONLY`. Production / release
     # builds can flip this to 0 to drop those exports. Note: with this 0,
     # the v8jsi_test target will fail to link any test that references a
@@ -94,7 +94,7 @@
     ],
 
     # Node-API sources — restored to the GYP build after being lost in the
-    # GN→GYP migration. Always-on; v8jsi.dll ships with Node-API support.
+    # GN→GYP migration. Always-on; v8jsi2.dll ships with Node-API support.
     # Office, RNW, and other consumers depend on the napi_* /
     # v8_node_api_* exports.
     'v8jsi_node_api_sources': [
@@ -206,9 +206,9 @@
       'variables': {
         'conditions': [
           ['build_v8jsisb==1', {
-            'v8jsi_stela_binary': 'v8jsisb.dll',
+            'v8jsi_stela_binary': 'v8jsi2sb.dll',
           }, {
-            'v8jsi_stela_binary': 'v8jsi.dll',
+            'v8jsi_stela_binary': 'v8jsi2.dll',
           }],
           ['target_arch=="ia32"', {
             'v8jsi_stela_target': 'i686-pc-windows-msvc',
@@ -227,6 +227,7 @@
               'action_name': 'generate_stela_manifest',
               'inputs': [
                 '<(v8jsi_root)/stela.config.json',
+                '<(v8jsi_root)/src/public/v8jsi_names.h',
                 '<(v8jsi_root)/src/jsi_abi/jsi_abi.h',
                 '<(v8jsi_root)/src/jsi_abi/jsi_abi_stela.h',
                 '<(v8jsi_root)/src/jsi_abi/v8_jsi_abi.h',
@@ -323,21 +324,22 @@
       ],
 
       'conditions': [
-        # Sandbox variant: emit v8jsisb.dll instead of v8jsi.dll. The gyp target
+        # Sandbox variant: emit v8jsi2sb.dll instead of v8jsi2.dll. The gyp target
         # name stays 'v8jsi' so v8jsi_test / node_api_tests keep depending on it
         # (gyp links them against the renamed import library automatically); only
         # the output product name changes. The V8 sandbox/lite preprocessor
         # defines (V8_ENABLE_SANDBOX, V8_COMPRESS_POINTERS, ...) reach these
         # sources via common.gypi from configure.py's v8_enable_* variables.
         ['build_v8jsisb==1', {
-          'product_name': 'v8jsisb',
+          'product_name': 'v8jsi2sb',
           # VER_BINARY selects the per-binary strings in version_info.rc.
           'msvs_settings': {
             'VCResourceCompilerTool': {
               'PreprocessorDefinitions': ['VER_BINARY=2'],
             },
           },
-        }, {  # build_v8jsisb==0 -> mainline v8jsi.dll
+        }, {  # build_v8jsisb==0 -> mainline v8jsi2.dll
+          'product_name': 'v8jsi2',
           'msvs_settings': {
             'VCResourceCompilerTool': {
               'PreprocessorDefinitions': ['VER_BINARY=1'],
@@ -359,6 +361,8 @@
               'ExceptionHandling': 1,
             },
             'VCLinkerTool': {
+              'ImportLibrary': '$(OutDir)$(TargetName)$(TargetExt).lib',
+              'ProgramDatabaseFile': '$(OutDir)$(TargetName)$(TargetExt).pdb',
               'GenerateManifest': 'false',
               'AdditionalDependencies': [
                 'dbghelp.lib',
@@ -549,7 +553,7 @@
       'type': 'executable',
 
       # Offline startup-snapshot builder. It LoadLibrary's the engine DLL
-      # (v8jsi.dll / v8jsisb.dll) and resolves v8_jsi_abi_snapshot_create at
+      # (v8jsi2.dll / v8jsi2sb.dll) and resolves v8_jsi_abi_snapshot_create at
       # runtime, so it links NO V8 and has NO build dependency on the v8jsi
       # target: the SAME exe drives either engine, and using the actual shipped
       # DLL guarantees the blob matches that engine's V8 build flags. Built

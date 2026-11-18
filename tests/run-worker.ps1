@@ -12,10 +12,10 @@ if (-not $SandboxOut) { $SandboxOut = Join-Path $harnessDir '..\deps\chromium\ou
 if (-not $EngineOut) { $EngineOut = Join-Path $harnessDir '..\deps\nodejs\out\Release' }
 $SandboxOut = (Resolve-Path $SandboxOut).Path
 $EngineOut = (Resolve-Path $EngineOut).Path
-$exe = Join-Path $SandboxOut 'v8host_cross_arch_tests.exe'
-$dll = Join-Path $SandboxOut 'v8host.dll'
-foreach ($file in @($exe, $dll, (Join-Path $SandboxOut 'v8jsisb.dll'),
-                    (Join-Path $SandboxOut 'v8jsi.dll'),
+$exe = Join-Path $SandboxOut 'v8sbhost_cross_arch_tests.exe'
+$dll = Join-Path $SandboxOut 'v8sbhost.dll'
+foreach ($file in @($exe, $dll, (Join-Path $SandboxOut 'v8jsi2sb.dll'),
+                    (Join-Path $SandboxOut 'v8jsi2.dll'),
                     (Join-Path $EngineOut 'mkv8snapshot.exe'))) {
     if (-not (Test-Path $file)) { throw "Required build output missing: $file" }
 }
@@ -69,7 +69,7 @@ try {
         Invoke-WorkerCase @('--role=client', '--client-dll', $dll, "--scenario=$case")
     }
     Set-Content -Path $builder -Value 'globalThis.snapshotMarker = 42;' -Encoding ascii
-    foreach ($pair in @(@('v8jsisb.dll', $matched), @('v8jsi.dll', $mismatched))) {
+    foreach ($pair in @(@('v8jsi2sb.dll', $matched), @('v8jsi2.dll', $mismatched))) {
         Invoke-WorkerProcess (Join-Path $EngineOut 'mkv8snapshot.exe') @(
             '--engine', $pair[0], '--engine-dir', $SandboxOut, '--builder', $builder, '--out', $pair[1])
     }

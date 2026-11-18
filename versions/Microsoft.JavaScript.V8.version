@@ -10,4 +10,4 @@
 # To start a new version line, edit the value below (any component). Set it at
 # or above the latest already-published patch so versions never overlap. On
 # non-release branches the build appends "-g<8-char commit sha>" (prerelease).
-26.0.0
+26.1.0

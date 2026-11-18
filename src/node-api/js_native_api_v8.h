@@ -4,7 +4,7 @@
 #include "js_native_api_types.h"
 
 #ifdef JSI_ABI_BUILDING
-// New v8jsi.dll build (no legacy V8Runtime class). PR 3 collapses the fork by
+// New v8jsi2.dll build (no legacy V8Runtime class). PR 3 collapses the fork by
 // deleting js_native_api_v8_internals.h and renaming the _abi.h file in.
 #include "js_native_api_v8_internals_abi.h"
 #else

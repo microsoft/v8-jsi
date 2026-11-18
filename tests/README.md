@@ -17,17 +17,17 @@ node scripts/build.ts --no-build --pack --test-e2e --platform x64 --configuratio
 harness supports native x64, x86, and ARM64; pass `--platform x86` or
 `--platform arm64` to target those (x86 builds the 32-bit Win32 consumer, which
 runs via WOW64 on an x64 host). It needs `nuget.exe` + Visual Studio (MSBuild via
-vswhere) on the machine. The sandbox-engine (`v8jsisb.dll`) and cross-engine legs
+vswhere) on the machine. The sandbox-engine (`v8jsi2sb.dll`) and cross-engine legs
 run only when the pack actually carries the sandbox binaries; otherwise they
 auto-skip.
 
 ## Layout
 
 - `consumer.vcxproj` / `main.cpp` — one consumer exe (`v8jsi_smoke.exe`) that
-  serves every scenario. It links `v8jsi.dll.lib` and consumes the public JSI C++
+  serves every scenario. It links `v8jsi2.dll.lib` and consumes the public JSI C++
   API (`makeV8Runtime`, `jsi::Runtime`). Built with `/p:UseV8Sandbox=true` it
-  delay-load-redirects to `v8jsisb.dll` and normally imports `v8host.dll` through
-  `v8host_client.h` and `v8host.dll.lib` (no client delay-load). Scenario
+  delay-load-redirects to `v8jsi2sb.dll` and normally imports `v8sbhost.dll` through
+  `v8sbhost_client.h` and `v8sbhost.dll.lib` (no client delay-load). Scenario
   is chosen by argv (see `main.cpp`).
 - `test-helpers.ps1` — shared helpers: restore the per-RID `.nupkg`, locate MSBuild,
   build the consumer. Dot-sourced by every driver.
@@ -35,11 +35,11 @@ auto-skip.
   exercises (utf8 round-trip, global set/get, HostFunction, JSError) through the
   JSI ABI; with `-UseV8Sandbox` also initializes the client API, opens a dedicated
   broker/session, runs a guest assertion, pumps callbacks with a bounded timeout,
-  and closes the session. Requires `sbox.exe`, `v8host.dll`, and `v8jsisb.dll`
+  and closes the session. Requires `sbox.exe`, `v8sbhost.dll`, and `v8jsi2sb.dll`
   beside the consumer in `bin\<Configuration>\<arch>\` (`x64` or
   `arm64`, case-insensitive); signed payloads are required by production
   verification. The smoke first checks, with MSBuild only, that an output
-  directory not named for the architecture fails with `V8HOST001`.
+  directory not named for the architecture fails with `V8SBHOST001`.
   x86 consumers require an installed native payload layout (x64 on x64 Windows),
   not an x86 worker; this package-surface smoke does not qualify cross-arch pairs.
   With `-UseV8Sandbox` on x86 it only asserts that the package rejects

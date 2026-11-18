@@ -21,7 +21,7 @@
 #include "sbox_harden.h"
 #include "sbox.h"
 #include "sbox_config.h"
-#include "v8host_file_identity.h"
+#include "v8sbhost_file_identity.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -88,7 +88,7 @@ enum WorkerExit {
   kLowerTokenFailed = 15,
   kPingPostFailed = 16,
   kRunFailed = 17,  // plugin.run returned non-sbox_status_ok (see worker log; e.g. ACG not enforced)
-  kDelayLoadRefused = 19,  // the worker reached a delay-loaded import (see below); 18 is v8host's runaway exit
+  kDelayLoadRefused = 19,  // the worker reached a delay-loaded import (see below); 18 is v8sbhost's runaway exit
 };
 
 // user32/shell32/ole32 are delay-loaded for the broker role only. An
@@ -146,7 +146,7 @@ bool ParseBrokerMode(int argc, char** argv, sbox_broker_mode* mode) {
 
 bool ParsePipeName(int argc, char** argv, std::wstring* pipe) {
   const std::wstring value = ParseValue(argc, argv, "--pipe");
-  constexpr wchar_t kPrefix[] = L"\\\\.\\pipe\\v8host-rv2-";
+  constexpr wchar_t kPrefix[] = L"\\\\.\\pipe\\v8sbhost-rv2-";
   if (value.size() != (sizeof(kPrefix) / sizeof(kPrefix[0]) - 1) + 64 ||
       value.compare(0, sizeof(kPrefix) / sizeof(kPrefix[0]) - 1, kPrefix) != 0)
     return false;
@@ -289,30 +289,30 @@ sbox_worker_api MakeWorkerApi() {
 // bypass).
 bool LoadPlugin(const std::wstring& plugin_name, bool verify, const char* tag,
                 HMODULE* out_mod, const sbox_plugin_api** out_vtable,
-                v8host::HeldFile* out_file) {
+                v8sbhost::HeldFile* out_file) {
   if (!IsBareFilename(plugin_name)) {
     printf("[sbox] %s: invalid --plugin name (bare app-dir filename only)\n",
            tag);
     return false;
   }
   const std::wstring full = sbox_harden::ExeDir() + plugin_name;
-  v8host::HeldFile held;
+  v8sbhost::HeldFile held;
   DWORD error = ERROR_SUCCESS;
-  if (!v8host::OpenImmutableFile(full, &held, &error,
-      verify ? v8host::FinalPathMode::kRequired : v8host::FinalPathMode::kOmitForWorkerHold)) {
+  if (!v8sbhost::OpenImmutableFile(full, &held, &error,
+      verify ? v8sbhost::FinalPathMode::kRequired : v8sbhost::FinalPathMode::kOmitForWorkerHold)) {
     printf("[sbox] %s: immutable open failed: %lu\n", tag, error);
     return false;
   }
-  if (verify && !v8host::TrustAllowed(v8host::VerifyTrust(held))) {
+  if (verify && !v8sbhost::TrustAllowed(v8sbhost::VerifyTrust(held))) {
     printf("[sbox] %s: signature verification failed\n", tag);
     return false;
   }
 #if !defined(SBOX_DEV_ALLOW_UNSIGNED)
   if (verify) {
-    v8host::HeldFile container;
-    if (!v8host::OpenImmutableFile(SelfPath(), &container, &error) ||
-        !v8host::IsPayloadFileAllowed(
-            v8host::ParentPath(v8host::ParentPath(container.final_path())), held)) {
+    v8sbhost::HeldFile container;
+    if (!v8sbhost::OpenImmutableFile(SelfPath(), &container, &error) ||
+        !v8sbhost::IsPayloadFileAllowed(
+            v8sbhost::ParentPath(v8sbhost::ParentPath(container.final_path())), held)) {
       printf("[sbox] %s: plugin escaped install root\n", tag);
       return false;
     }
@@ -359,9 +359,9 @@ struct PreparedSandbox {
   HMODULE plugin_mod = nullptr;
   const sbox_plugin_api* plugin = nullptr;
   std::wstring plugin_name;
-  v8host::HeldFile plugin_file;
+  v8sbhost::HeldFile plugin_file;
 #if !defined(SBOX_DEV_ALLOW_UNSIGNED)
-  std::vector<v8host::HeldFile> engine_files;
+  std::vector<v8sbhost::HeldFile> engine_files;
 #endif
   sbox_config_s cfg;          // collected by configure()
   SboxConfigMarshal marshal;  // the SboxPolicy + the storage its pointers alias
@@ -401,13 +401,13 @@ bool PrepareSandbox(const std::wstring& plugin_name,
   const std::wstring dir = sbox_harden::ExeDir();
   for (const std::wstring& dll : out.cfg.engine_dlls) {
 #if !defined(SBOX_DEV_ALLOW_UNSIGNED)
-    v8host::HeldFile engine;
+    v8sbhost::HeldFile engine;
     DWORD error = ERROR_SUCCESS;
     if (!IsBareFilename(dll) ||
-        !v8host::OpenImmutableFile(dir + dll, &engine, &error) ||
-        !v8host::IsPayloadFileAllowed(
-            v8host::ParentPath(v8host::ParentPath(out.plugin_file.final_path())), engine) ||
-        !v8host::TrustAllowed(v8host::VerifyTrust(engine))) {
+        !v8sbhost::OpenImmutableFile(dir + dll, &engine, &error) ||
+        !v8sbhost::IsPayloadFileAllowed(
+            v8sbhost::ParentPath(v8sbhost::ParentPath(out.plugin_file.final_path())), engine) ||
+        !v8sbhost::TrustAllowed(v8sbhost::VerifyTrust(engine))) {
       printf("[sbox] engine DLL verification failed: %ls\n", dll.c_str());
       return false;
     }
@@ -930,10 +930,10 @@ int RunBrokerPlugin(int argc,
   sbox_broker_s broker;
   broker.self_path = SelfPath();
   broker.plugin_name = plugin_name;
-  v8host::HeldFile container_file;
-  v8host::HeldFile plugin_file;
+  v8sbhost::HeldFile container_file;
+  v8sbhost::HeldFile plugin_file;
   DWORD error = ERROR_SUCCESS;
-  if (!v8host::OpenImmutableFile(broker.self_path, &container_file, &error) ||
+  if (!v8sbhost::OpenImmutableFile(broker.self_path, &container_file, &error) ||
       !LoadPlugin(plugin_name, true, "broker-plugin", &broker.plugin_module,
                   &broker.plugin, &plugin_file)) {
     printf("[sbox] broker: immutable payload verification failed\n");

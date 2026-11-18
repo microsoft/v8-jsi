@@ -37,7 +37,7 @@ parameters:
         AppPlatform: win32
     # Matrix with target platforms for the sandbox binaries. A separate list
     # from BuildMatrix because the sandbox cells carry extra per-arch knobs: the
-    # gn out dir (sbox.exe/v8host.dll land in out/sandbox-<cpu>).
+    # gn out dir (sbox.exe/v8sbhost.dll land in out/sandbox-<cpu>).
     # x64/x86 run on the x64 agent (x86 via WOW64); arm64 runs natively on the
     # ARM64 managed-image pool. The trust-transition suite is x64-only.
   - name: SandboxMatrix
@@ -243,7 +243,7 @@ extends:
               isPublish: ${{ parameters.isPublish }}
               fakeBuild: ${{ parameters.fakeBuild }}
 
-            # Sign v8jsi.dll before the per-RID artifact is published, so the
+            # Sign v8jsi2.dll before the per-RID artifact is published, so the
             # aggregated NuGet and the symbol-server image are both signed (the
             # legacy and sandbox jobs already sign their binaries; this closes the
             # gap for the Node.js-source build). Release-only: only Release cells
@@ -253,7 +253,7 @@ extends:
               parameters:
                 folderPath: $(Build.StagingDirectory)\out-new\pkg-staging
                 pattern: |
-                  **\v8jsi.dll
+                  **\v8jsi2.dll
 
         # =====================================================================
         # Sandbox binaries. One job PER RID (x64/x86/arm64) builds that arch's
@@ -266,16 +266,16 @@ extends:
         # always writes deps/nodejs/out/Release regardless of arch) and the
         # lite-flag stale-snapshot gotcha (toggling the sandbox-engine flags needs
         # a clean engine out dir) do not apply. Each builds TWO toolchains:
-        #   * v8jsisb.dll      -- the jitless sandbox engine (MSVC/vcbuild, via
-        #                         scripts/build.ts --build-v8jsisb). x64/arm64
-        #                         carry the V8 cage; x86 is the degraded no-cage
-        #                         variant (the cage is 64-bit-only).
-        #   * sbox.exe/v8host.dll -- the Chromium sandbox (gn + VS clang/ninja, via
-        #                         scripts/sbox-build.ts --target-cpu). x64/x86
-        #                         build on the x64 agent; arm64 builds natively on
-        #                         the ARM64 pool. Test suites are NOT shipped.
+        #   * v8jsi2sb.dll          -- the jitless sandbox engine (MSVC/vcbuild, via
+        #                              scripts/build.ts --build-v8jsisb). x64/arm64
+        #                              carry the V8 cage; x86 is the degraded no-cage
+        #                              variant (the cage is 64-bit-only).
+        #   * sbox.exe/v8sbhost.dll -- the Chromium sandbox (gn + VS clang/ninja, via
+        #                              scripts/sbox-build.ts --target-cpu). x64/x86
+        #                              build on the x64 agent; arm64 builds natively on
+        #                              the ARM64 pool. Test suites are NOT shipped.
         # Hygiene gates (export allowlist + Hybrid CRT + BinSkim) run via --check.
-        # The v8host suites run on every arch; trust-transition runs on x64.
+        # The v8sbhost suites run on every arch; trust-transition runs on x64.
         # The three shipped binaries are signed on the publishing build.
         # =====================================================================
       - ${{ each sb in parameters.SandboxMatrix }}:
@@ -408,7 +408,7 @@ extends:
             - pwsh: |
                 node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target generic
                 if ($LASTEXITCODE -ne 0) { throw "Sandbox build FAILED (exit $LASTEXITCODE)" }
-              displayName: Build sbox.exe + v8host.dll (gn/ninja, VS clang)
+              displayName: Build sbox.exe + v8sbhost.dll (gn/ninja, VS clang)
               workingDirectory: $(Build.SourcesDirectory)
 
               # The normal engine (trusted tier). Built before v8jsisb because both
@@ -418,8 +418,8 @@ extends:
                 if ($LASTEXITCODE -ne 0) { throw "v8jsi build FAILED (exit $LASTEXITCODE)" }
                 $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
                 New-Item -ItemType Directory -Force -Path $sandboxOut | Out-Null
-                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsi.dll" $sandboxOut -Force
-              displayName: Build v8jsi.dll (trusted-tier engine, MSVC)
+                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsi2.dll" $sandboxOut -Force
+              displayName: Build v8jsi2.dll (trusted-tier engine, MSVC)
               workingDirectory: $(Build.SourcesDirectory)
 
               # The jitless sandbox engine (MSVC/vcbuild). Same output folder as
@@ -431,18 +431,18 @@ extends:
                       --build-v8jsisb --no-test
                   if ($LASTEXITCODE -ne 0) { throw "v8jsisb build FAILED (exit $LASTEXITCODE)" }
                 }
-              displayName: Build v8jsisb.dll (jitless sandbox engine, MSVC)
+              displayName: Build v8jsi2sb.dll (jitless sandbox engine, MSVC)
               workingDirectory: $(Build.SourcesDirectory)
 
               # The sandbox GYP build keeps the v8jsi target name but changes
               # its product name, so v8jsi_test.exe and the Node-API suite's
-              # node_lite.exe child import v8jsisb.dll. Run both suites on every
+              # node_lite.exe child import v8jsi2sb.dll. Run both suites on every
               # architecture (ARM64 natively, x86 via WOW64). Both suites pass
               # unfiltered under jitless, so no JIT-specific exclusions apply.
             - pwsh: |
                 node scripts/build.ts --no-build --test --build-v8jsisb `
                     --platform ${{ sb.BuildPlatform }} --configuration release
-              displayName: Run JSI + Node-API gtests against v8jsisb.dll
+              displayName: Run JSI + Node-API gtests against v8jsi2sb.dll
               workingDirectory: $(Build.SourcesDirectory)
 
               # Hygiene gates: export allowlist + Hybrid CRT + Source Link +
@@ -459,8 +459,8 @@ extends:
               # The all-tests group includes trust-transition only on x64.
             - pwsh: |
                 $sandboxOut = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
-                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsisb.dll" $sandboxOut -Force
-                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target v8host_all_tests --no-gen
+                Copy-Item "$(Build.SourcesDirectory)\deps\nodejs\out\Release\v8jsi2sb.dll" $sandboxOut -Force
+                node scripts/sbox-build.ts --target-cpu ${{ sb.BuildPlatform }} --target v8sbhost_all_tests --no-gen
                 if ($LASTEXITCODE -ne 0) { throw "Sandbox test build FAILED (exit $LASTEXITCODE)" }
                 # On main, CodeQL can trace this job, and its tracer follows the
                 # processes the job starts. LPAC workers can't load it and exit with
@@ -468,21 +468,21 @@ extends:
                 # does, keeps the tracer out of the processes this step starts next.
                 Get-ChildItem env:CODEQL_* | Where-Object Name -notin 'CODEQL_DIST', 'CODEQL_PLATFORM' | Remove-Item
                 $suites = @(
-                  'v8host_protocol_tests', 'v8host_run_envelope_tests',
-                  'v8host_dispatcher_tests', 'v8host_config_tests',
-                  'v8host_spawn_config_tests', 'v8host_layout_release_tests'
+                  'v8sbhost_protocol_tests', 'v8sbhost_run_envelope_tests',
+                  'v8sbhost_dispatcher_tests', 'v8sbhost_config_tests',
+                  'v8sbhost_spawn_config_tests', 'v8sbhost_layout_release_tests'
                 )
                 # The real-broker suites use the client's own architecture as the
                 # native payload; an x86 client's native payload is x64, which the
                 # cross-architecture step below covers.
-                if ('${{ sb.BuildPlatform }}' -ne 'x86') { $suites += 'v8host_client_tests', 'v8host_broker_tests' }
+                if ('${{ sb.BuildPlatform }}' -ne 'x86') { $suites += 'v8sbhost_client_tests', 'v8sbhost_broker_tests' }
                 if ('${{ sb.BuildPlatform }}' -eq 'x64') { $suites += 'sbox_trust_transition_test' }
                 foreach ($suite in $suites) {
                   & "$sandboxOut\$suite.exe" --all
                   if ($LASTEXITCODE -ne 0) { throw "$suite FAILED (exit $LASTEXITCODE)" }
                 }
-                & "$sandboxOut\v8host_protocol_fuzz.exe" -runs=200000 "$(Build.SourcesDirectory)\deps\chromium\v8host\protocol\corpus"
-                if ($LASTEXITCODE -ne 0) { throw "v8host_protocol_fuzz FAILED (exit $LASTEXITCODE)" }
+                & "$sandboxOut\v8sbhost_protocol_fuzz.exe" -runs=200000 "$(Build.SourcesDirectory)\deps\chromium\v8sbhost\protocol\corpus"
+                if ($LASTEXITCODE -ne 0) { throw "v8sbhost_protocol_fuzz FAILED (exit $LASTEXITCODE)" }
               displayName: Sandbox suites (--all; trust-transition on x64 only)
               workingDirectory: $(Build.SourcesDirectory)
 
@@ -496,7 +496,7 @@ extends:
 
               # Cross-architecture qualification. Compile-only is not evidence: each
               # scenario runs. A second payload build (different stamped version) is
-              # the "update" in the side-by-side scenario; v8jsisb.dll is shared.
+              # the "update" in the side-by-side scenario; v8jsi2sb.dll is shared.
               # Independent verification still runs after suite failure, but never on cancellation.
             - ${{ if eq(sb.BuildPlatform, 'x64') }}:
               - pwsh: |
@@ -505,14 +505,14 @@ extends:
                   $x86 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-x86"
                   node scripts/sbox-build.ts --target-cpu x86 --target generic
                   if ($LASTEXITCODE -ne 0) { throw "x86 client build FAILED" }
-                  node scripts/sbox-build.ts --target-cpu x86 --target v8host_cross_arch_tests --no-gen
+                  node scripts/sbox-build.ts --target-cpu x86 --target v8sbhost_cross_arch_tests --no-gen
                   if ($LASTEXITCODE -ne 0) { throw "x86 harness build FAILED" }
                   node scripts/sbox-build.ts --target-cpu x64 --out-dir $v2 --version-stamp 7 --target generic
                   if ($LASTEXITCODE -ne 0) { throw "second payload build FAILED" }
-                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsisb.dll" -Target "$out\v8jsisb.dll" | Out-Null
-                  & "$x86\v8host_cross_arch_tests.exe" --scenario=x86-client-x64-payload --client-root $x86 --payload-root $out
+                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsi2sb.dll" -Target "$out\v8jsi2sb.dll" | Out-Null
+                  & "$x86\v8sbhost_cross_arch_tests.exe" --scenario=x86-client-x64-payload --client-root $x86 --payload-root $out
                   if ($LASTEXITCODE -ne 0) { throw "x86-client-x64-payload FAILED" }
-                  & "$out\v8host_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
+                  & "$out\v8sbhost_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
                   if ($LASTEXITCODE -ne 0) { throw "side-by-side-update-rollback FAILED" }
                 displayName: Cross-arch - x86 client / x64 payload, side-by-side update and rollback
                 condition: succeededOrFailed()
@@ -522,16 +522,16 @@ extends:
                   $out = "$(Build.SourcesDirectory)\${{ sb.SboxOutDir }}"
                   $v2 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-arm64-v2"
                   $x64 = "$(Build.SourcesDirectory)\deps\chromium\out\sandbox-x64"
-                  node scripts/sbox-build.ts --target-cpu x64 --target v8host
+                  node scripts/sbox-build.ts --target-cpu x64 --target v8sbhost
                   if ($LASTEXITCODE -ne 0) { throw "x64 client build FAILED" }
                   node scripts/cross-arch-build.ts
                   if ($LASTEXITCODE -ne 0) { throw "ARM64EC harness build FAILED" }
                   node scripts/sbox-build.ts --target-cpu arm64 --out-dir $v2 --version-stamp 7 --target generic
                   if ($LASTEXITCODE -ne 0) { throw "second payload build FAILED" }
-                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsisb.dll" -Target "$out\v8jsisb.dll" | Out-Null
-                  & "$(Build.SourcesDirectory)\deps\chromium\out\cross-arch-arm64ec\v8host_cross_arch_tests.exe" --scenario=arm64ec-client-arm64-payload --client-root $x64 --payload-root $out
+                  New-Item -ItemType HardLink -Force -Path "$v2\v8jsi2sb.dll" -Target "$out\v8jsi2sb.dll" | Out-Null
+                  & "$(Build.SourcesDirectory)\deps\chromium\out\cross-arch-arm64ec\v8sbhost_cross_arch_tests.exe" --scenario=arm64ec-client-arm64-payload --client-root $x64 --payload-root $out
                   if ($LASTEXITCODE -ne 0) { throw "arm64ec-client-arm64-payload FAILED" }
-                  & "$out\v8host_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
+                  & "$out\v8sbhost_cross_arch_tests.exe" --scenario=side-by-side-update-rollback --payload-root $out --payload-root-v2 $v2
                   if ($LASTEXITCODE -ne 0) { throw "side-by-side-update-rollback FAILED" }
                 displayName: Cross-arch - ARM64EC client / ARM64 payload, side-by-side update and rollback
                 condition: succeededOrFailed()
@@ -556,7 +556,7 @@ extends:
 
             # Stage the shipped sandbox binaries under a build/native/<rid>/
             # layout so the aggregator can merge the downloaded artifact straight
-            # into pkg-staging. v8jsisb.pdb is renamed to v8jsisb.dll.pdb (the
+            # into pkg-staging. Symbols use DLL-qualified PDB names (the
             # nuspec/symbol globs expect <dll>.pdb). Test executables are
             # deliberately excluded. Always runs so the artifact path exists.
             # Publishing builds stage the release-trust build; PR builds stage the
@@ -570,15 +570,14 @@ extends:
               # An x86 client needs only its client DLL: the broker and worker are
               # always the native x64 payload, so no x86 sbox.exe or engine ships.
               $native = '${{ sb.BuildPlatform }}' -ne 'x86'
-              $files = @('v8host.dll','v8host.dll.pdb','v8host.dll.lib')
+              $files = @('v8sbhost.dll','v8sbhost.dll.pdb','v8sbhost.dll.lib')
               if ($native) { $files += 'sbox.exe','sbox.exe.pdb' }
               foreach ($f in $files) {
                 $p = Join-Path $sandboxOut $f
                 if (Test-Path $p) { Copy-Item $p $dst }
               }
-              if ($native -and (Test-Path "$eng\v8jsisb.dll")) { Copy-Item "$eng\v8jsisb.dll" $dst }
-              if ($native -and (Test-Path "$eng\v8jsisb.dll.pdb")) { Copy-Item "$eng\v8jsisb.dll.pdb" $dst }
-              elseif ($native -and (Test-Path "$eng\v8jsisb.pdb")) { Copy-Item "$eng\v8jsisb.pdb" (Join-Path $dst 'v8jsisb.dll.pdb') }
+              if ($native -and (Test-Path "$eng\v8jsi2sb.dll")) { Copy-Item "$eng\v8jsi2sb.dll" $dst }
+              if ($native -and (Test-Path "$eng\v8jsi2sb.dll.pdb")) { Copy-Item "$eng\v8jsi2sb.dll.pdb" $dst }
               # mkv8snapshot.exe: the offline snapshot builder (vcbuild output,
               # same dir as the engine — it links no V8). Ships per-RID beside
               # the engine it LoadLibrary's. PDB renamed to <exe>.pdb for the glob.
@@ -588,8 +587,8 @@ extends:
             displayName: Stage sandbox binaries (build/native/${{ sb.Rid }})
             workingDirectory: $(Build.SourcesDirectory)
 
-              # Sign the SHIPPED sandbox binaries (v8jsisb.dll, sbox.exe,
-              # v8host.dll, mkv8snapshot.exe) only on the publishing CI build.
+              # Sign the SHIPPED sandbox binaries (v8jsi2sb.dll, sbox.exe,
+              # v8sbhost.dll, mkv8snapshot.exe) only on the publishing CI build.
               # Test executables are never staged or signed.
           - ${{ if and(eq(parameters.isPublish, true), eq(parameters.fakeBuild, false)) }}:
             - template: /.ado/templates/esrp-codesign-binaries.yml@self
@@ -597,9 +596,9 @@ extends:
                 displayName: CodeSign Sandbox Binaries
                 folderPath: $(Build.StagingDirectory)\sandbox
                 pattern: |
-                  **\v8jsisb.dll
+                  **\v8jsi2sb.dll
                   **\sbox.exe
-                  **\v8host.dll
+                  **\v8sbhost.dll
                   **\mkv8snapshot.exe
 
         # =====================================================================
@@ -658,7 +657,7 @@ extends:
             versionSpec: ">=4.6.0"
 
           # Download each Release cell's pkg-staging (build/native/<rid>/ with
-          # v8jsi.dll + import lib + PDB, plus the shared headers/TUs). Each
+          # v8jsi2.dll + import lib + PDB, plus the shared headers/TUs). Each
           # artifact is the cell's pkg-staging content, so it lands directly
           # under out/pkg-staging; merging all three gives packNuGet a complete
           # per-RID staging so the meta package's <dependencies> resolve.
@@ -672,7 +671,7 @@ extends:
 
           # Merge the sandbox binaries (build/native/<rid>/ layout) into the
           # same pkg-staging so the per-RID nuspec globs pick them up. The
-          # packNuGet per-platform loop hits its pre-staged-v8jsi.dll fast path
+          # packNuGet per-platform loop hits its pre-staged-v8jsi2.dll fast path
           # for these RIDs and does not re-stage, so the sandbox binaries must
           # already be in build/native/<rid>/ -- which these downloads provide.
           # Each artifact carries a distinct build/native/<rid>/ subtree, so
@@ -714,7 +713,7 @@ extends:
         # package as a real consumer and run the full tests/ suite against the
         # SIGNED bytes -- including the sandbox (v8jsisb) leg + cross-engine
         # rejection, which the in-cell --test-e2e skips (a per-RID build cell's
-        # pack carries no v8jsisb.dll). This is the only stage that exercises the
+        # pack carries no v8jsi2sb.dll). This is the only stage that exercises the
         # exact signed binaries + signed .nupkg a customer restores. PR builds
         # skip it (nothing is signed there); their fast in-cell --test-e2e
         # already covers the non-sandbox legs unsigned. One job per shipped RID:
@@ -765,7 +764,7 @@ extends:
 
               # Restore the signed per-RID package as a real consumer and run the
               # smoke + snapshot suite (both engines) against it. --test-acceptance
-              # forces the sandbox leg on: the final pack MUST carry v8jsisb.dll.
+              # forces the sandbox leg on: the final pack MUST carry v8jsi2sb.dll.
               # The shipped sandbox binaries require signed payloads but accept an
               # unsigned client image, so on x64/ARM64 the sandbox smoke runs the
               # consumer unsigned and requires its session to succeed; x86 consumers

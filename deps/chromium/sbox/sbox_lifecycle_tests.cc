@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 #include "sbox_lifecycle_test.h"
-#include "v8host_test_support.h"
+#include "v8sbhost_test_support.h"
 #include <cstdlib>
 #include <cstring>
 
@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
     HANDLE exit = reinterpret_cast<HANDLE>(std::strtoull(argv[1] + 15, nullptr, 10));
     return ::WaitForSingleObject(exit, 10000) == WAIT_OBJECT_0 ? 0 : 1;
   }
-  using namespace v8host::test;
+  using namespace v8sbhost::test;
   const auto exe = ExecutableDirectory() + L"\\sbox_lifecycle_tests.exe";
   return RunTests(argc, argv, {
       {"reader", "origin", [&](std::string*) { return SboxTestReader(false, false, exe); }},

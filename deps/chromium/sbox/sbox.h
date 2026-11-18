@@ -5,7 +5,7 @@
  * EXPERIMENTAL API - NOT YET ABI-STABLE
  *
  * sbox.h is the sbox.exe plugin ABI. The host EXE is a generic, renameable
- * sandbox container; a plugin DLL (e.g. v8host.dll) carries ALL app knowledge.
+ * sandbox container; a plugin DLL (e.g. v8sbhost.dll) carries ALL app knowledge.
  * Plugin authors include ONLY this header; they never link or import the host
  * EXE by name (that would pin its name) and never touch the sandbox core
  * (sbox_core_internal.h). Host services are passed IN as function-pointer

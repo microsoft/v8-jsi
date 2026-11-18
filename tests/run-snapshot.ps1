@@ -64,9 +64,9 @@ if (-not (Test-Path $mkv8)) {
 # rejection check). mkv8snapshot auto-derives --jitless from the engine name
 # (on for *sb*), matching how each engine is configured at runtime.
 if ($UseV8Sandbox) {
-    $ownDll = 'v8jsisb.dll'; $otherDll = 'v8jsi.dll'
+    $ownDll = 'v8jsi2sb.dll'; $otherDll = 'v8jsi2.dll'
 } else {
-    $ownDll = 'v8jsi.dll';   $otherDll = 'v8jsisb.dll'
+    $ownDll = 'v8jsi2.dll';   $otherDll = 'v8jsi2sb.dll'
 }
 
 $snapDir = Join-Path $harnessDir 'snap'

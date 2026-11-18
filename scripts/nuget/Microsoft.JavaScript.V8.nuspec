@@ -14,6 +14,10 @@
     <repository type="git" url="$repoUrl$" branch="$repoBranch$" commit="$repoCommit$" />
     <language>en-US</language>
     <readme>README.md</readme>
+    <releaseNotes>DLLs renamed: v8jsi.dll -> v8jsi2.dll, v8jsisb.dll -> v8jsi2sb.dll, v8host.dll -> v8sbhost.dll.
+Rebuild against the new import libraries. The new v8jsi_names.h provides DLL-name macros.
+Sandbox C API: v8host_*/V8HOST_* -> v8sbhost_*/V8SBHOST_*; include "v8sbhost_client.h" from include\v8sbhost.
+Sandbox clients and payloads from 26.0.x do not work with 26.1.</releaseNotes>
     <tags>native JavaScript JS V8 JSI library Microsoft react-native</tags>
     <!-- Two groups: netstandard2.0 silences NU5128 (paired with the
          lib/netstandard2.0/_._ placeholder) and serves PackageReference /

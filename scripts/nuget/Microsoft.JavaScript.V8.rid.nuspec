@@ -14,6 +14,10 @@
     <repository type="git" url="$repoUrl$" branch="$repoBranch$" commit="$repoCommit$" />
     <language>en-US</language>
     <readme>README.md</readme>
+    <releaseNotes>DLLs renamed: v8jsi.dll -> v8jsi2.dll, v8jsisb.dll -> v8jsi2sb.dll, v8host.dll -> v8sbhost.dll.
+Rebuild against the new import libraries. The new v8jsi_names.h provides DLL-name macros.
+Sandbox C API: v8host_*/V8HOST_* -> v8sbhost_*/V8SBHOST_*; include "v8sbhost_client.h" from include\v8sbhost.
+Sandbox clients and payloads from 26.0.x do not work with 26.1.</releaseNotes>
     <tags>native JavaScript JS V8 JSI library Microsoft react-native</tags>
     <!-- The per-RID package ships only build/native/ and runtimes/ content;
          no real dependencies. The empty netstandard2.0 group exists to
@@ -32,23 +36,23 @@
     <file src="$nugetroot$\build\native\stela\*.model.json"
           target="build\native\stela" />
     <!-- Sandbox runtime payloads, per RID: the jitless sandbox engine
-         v8jsisb.dll (Untrusted tier; degraded no-cage variant on win-x86), the
+         v8jsi2sb.dll (Untrusted tier; degraded no-cage variant on win-x86), the
          generic Chromium sandbox container sbox.exe, the engine payload
-         v8host.dll (the app loads it; it carries the v8host client ABI), and
+         v8sbhost.dll (the app loads it; it carries the v8sbhost client ABI), and
          mkv8snapshot.exe (the offline startup-snapshot builder — it
          LoadLibrary's the engine in this same dir). Globbed (not literal) so a
          RID that didn't build the sandbox binaries still packs — and excluding
-         v8jsi.dll, which has its own entry below. The gn test binaries are never
+         $v8jsiName$, which has its own entry below. The gn test binaries are never
          staged into build\native\<rid>\, so *.exe matches only sbox.exe +
-         mkv8snapshot.exe. The import lib (v8host.dll.lib) + PDBs ride the
-         *.lib / *.pdb globs; the sbox and v8host C-ABI headers ship under
-         include\sbox and include\v8host via the include\**\*.* rule above. -->
+         mkv8snapshot.exe. The import lib (v8sbhost.dll.lib) + PDBs ride the
+         *.lib / *.pdb globs; the sbox and v8sbhost C-ABI headers ship under
+         include\sbox and include\v8sbhost via the include\**\*.* rule above. -->
     <file src="$nugetroot$\build\native\$rid$\*.dll"
-          exclude="$nugetroot$\build\native\$rid$\v8jsi.dll"
+          exclude="$nugetroot$\build\native\$rid$\$v8jsiName$"
           target="runtimes\$rid$\native\" />
     <file src="$nugetroot$\build\native\$rid$\*.exe"
           target="runtimes\$rid$\native\" />
-    <!-- Local builds stage v8jsi.dll.lib, but pre-staged aggregator payloads may omit it.
+    <!-- Local builds stage $v8jsiName$.lib, but pre-staged aggregator payloads may omit it.
          Keep the glob optional; consumers enabling engine linkage validate its presence. -->
     <file src="$nugetroot$\build\native\$rid$\*.lib"
           target="build\native\$rid$\" />

@@ -302,8 +302,8 @@ export function checkSourceLink(pdbs: string[], options: SourceLinkOptions = {})
   return ok;
 }
 
-// The PDB of a binary: lld-link names it <binary>.pdb (sbox.exe.pdb) or, from
-// gyp, <name>.pdb (v8jsi.pdb).
+// The PDB of a binary: prefer <binary>.pdb (v8jsi2.dll.pdb), with a
+// fallback to <name>.pdb for older outputs.
 export function pdbOf(binary: string): string {
   const full = `${binary}.pdb`;
   if (fs.existsSync(full)) return full;

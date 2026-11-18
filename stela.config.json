@@ -7,7 +7,7 @@
   "diff": {
     "baselines": {
       "sbox": "api/sbox.model.json",
-      "v8host": "api/v8host.model.json",
+      "v8sbhost": "api/v8sbhost.model.json",
       "jsi_abi": "api/jsi_abi.model.json",
       "v8_jsi_abi": "api/v8_jsi_abi.model.json",
       "v8_node_api": "api/v8_node_api.model.json"
@@ -22,11 +22,11 @@
       "stelaHeader": "deps/chromium/sbox/sbox_stela.h"
     },
     {
-      "name": "v8host",
-      "prefix": "v8host",
-      "macroPrefix": "V8HOST",
-      "headers": ["src/public/v8host_client.h"],
-      "stelaHeader": "src/public/v8host_stela.h"
+      "name": "v8sbhost",
+      "prefix": "v8sbhost",
+      "macroPrefix": "V8SBHOST",
+      "headers": ["src/public/v8sbhost_client.h"],
+      "stelaHeader": "src/public/v8sbhost_stela.h"
     },
     {
       "name": "jsi_abi",
@@ -41,7 +41,7 @@
       "prefix": "v8_jsi_abi",
       "macroPrefix": "V8_JSI_ABI",
       "headers": ["src/jsi_abi/v8_jsi_abi.h"],
-      "includeDirs": ["src"],
+      "includeDirs": ["src", "src/public"],
       "status": "jsi_status",
       "stelaHeader": false
     },
@@ -50,15 +50,15 @@
       "prefix": "v8_node_api",
       "macroPrefix": "V8_NODE_API",
       "headers": ["src/node-api/v8_node_api.h"],
-      "includeDirs": ["src"],
+      "includeDirs": ["src", "src/public"],
       "status": "napi_status",
       "stelaHeader": "src/node-api/v8_node_api_stela.h"
     }
   ],
   "binaries": [
-    { "name": "v8jsi.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
-    { "name": "v8jsisb.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
-    { "name": "v8host.dll", "libraries": ["sbox", "v8host"], "otherExports": false },
+    { "name": "v8jsi2.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
+    { "name": "v8jsi2sb.dll", "libraries": ["jsi_abi", "v8_jsi_abi", "v8_node_api"] },
+    { "name": "v8sbhost.dll", "libraries": ["sbox", "v8sbhost"], "otherExports": false },
     { "name": "sbox.exe", "libraries": ["sbox"], "exports": "none", "otherExports": false }
   ]
 }

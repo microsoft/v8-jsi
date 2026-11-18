@@ -12,7 +12,7 @@
       "macroPrefix": "V8_JSI_ABI",
       "status": "jsi_status",
       "headers": ["src/jsi_abi/v8_jsi_abi.h"],
-      "includeDirs": ["src"],
+      "includeDirs": ["src", "src/public"],
       "defines": [],
       "declarations": [
         {
@@ -27,7 +27,7 @@
         {
           "kind": "macro",
           "name": "V8_JSI_ABI_API",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 53, "column": 9},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 54, "column": 9},
           "doc": null,
           "annotations": [],
           "functionLike": false,
@@ -36,7 +36,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_runtime_create",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 85, "column": 41},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 86, "column": 41},
           "doc": "Create a V8-backed jsi_runtime.\n\nabi_version: the JSI_ABI_VERSION the consumer compiled against. A version\n  this implementation does not support fails with\n  jsi_status_version_mismatch.\nconfigure: invoked with a factory-owned jsi_config so the consumer can set\n  fields via the v8_jsi_abi_config_set_* setters below. May be NULL\n  (defaults). The config handle is valid only for the duration of that\n  callback. If configure returns a failure status, creation fails with it.\n  If a setter failed (poisoning the config), creation fails with that\n  setter's status even if configure returned jsi_status_ok.\nuser_data: passed straight through to configure.\nout_runtime: receives the runtime (refcount 1; release via\n  runtime->api->release), or NULL on failure.\n\nReturns jsi_status_ok, jsi_status_invalid_arg (out_runtime NULL),\njsi_status_version_mismatch, the configure/poison status, or\njsi_status_native_error if V8 could not create the isolate.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -68,7 +68,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_runtime_create_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 90, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 91, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -241,7 +241,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_initial_heap_size",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 114, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 115, "column": 1},
           "doc": "Initial V8 heap size in bytes. 0 means the V8 default.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -259,7 +259,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_initial_heap_size_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 115, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 116, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -343,7 +343,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_maximum_heap_size",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 120, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 121, "column": 1},
           "doc": "Maximum V8 heap size in bytes. 0 means the V8 default.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -361,7 +361,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_maximum_heap_size_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 121, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 122, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -445,7 +445,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_thread_pool_size",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 129, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 130, "column": 1},
           "doc": "Cap the V8 worker thread pool. 0 means default\n(V8 picks min(num_cores - 1, 16)).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -463,7 +463,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_thread_pool_size_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 130, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 131, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -547,7 +547,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_debugger_runtime_name_utf8",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 143, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 144, "column": 1},
           "doc": "Name shown in the inspector UI to distinguish parallel runtimes. The text\nis copied. length may be JSI_ABI_AUTO_LENGTH; value may be NULL only when\nlength is 0 or JSI_ABI_AUTO_LENGTH (an empty name).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -570,7 +570,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_debugger_runtime_name_utf8_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 148, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 149, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -674,7 +674,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_inspector_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 155, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 156, "column": 1},
           "doc": "Enable the V8 inspector. Default: false.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -692,7 +692,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_inspector_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 156, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 157, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -776,7 +776,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_inspector_port",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 161, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 162, "column": 1},
           "doc": "Inspector TCP port.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -794,7 +794,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_inspector_port_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 162, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 163, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -878,7 +878,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_inspector_break_on_start",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 167, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 168, "column": 1},
           "doc": "Pause on the first statement until a debugger attaches. Default: false.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -896,7 +896,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_inspector_break_on_start_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 169, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 170, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -980,7 +980,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_explicit_microtask_policy",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 181, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 182, "column": 1},
           "doc": "If true, the runtime uses MicrotasksPolicy::kExplicit and the host must\ndrain microtasks itself. Default is false (V8 default policy).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -998,7 +998,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_explicit_microtask_policy_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 183, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 184, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1082,7 +1082,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_ignore_unhandled_promises",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 191, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 192, "column": 1},
           "doc": "If true, the PromiseRejectCallback that tracks unhandled rejections is\nNOT installed. Default is false (track rejections).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1100,7 +1100,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_ignore_unhandled_promises_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 193, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 194, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1184,7 +1184,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_gc_api_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 202, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 203, "column": 1},
           "doc": "Expose the global gc() function (passes --expose_gc to V8).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1202,7 +1202,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_gc_api_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 203, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 204, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1286,7 +1286,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_multi_thread_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 212, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 213, "column": 1},
           "doc": "Wrap isolate access in v8::Locker for multi-threaded use.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1304,7 +1304,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_multi_thread_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 214, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 215, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1388,7 +1388,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_jit_tracing_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 223, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 224, "column": 1},
           "doc": "Log JIT code events.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1406,7 +1406,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_jit_tracing_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 225, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 226, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1490,7 +1490,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_message_tracing_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 230, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 231, "column": 1},
           "doc": "Log inspector protocol messages.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1508,7 +1508,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_message_tracing_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 232, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 233, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1592,7 +1592,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_gc_tracing_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 237, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 238, "column": 1},
           "doc": "Log GC events.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1610,7 +1610,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_gc_tracing_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 239, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 240, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1694,7 +1694,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_system_instrumentation_enabled",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 247, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 248, "column": 1},
           "doc": "V8 ETW provider GUID 57277741-3638-4A4B-BDBA-0AC6E45DA56C\n(passes --enable-system-instrumentation to V8).",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1712,7 +1712,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_system_instrumentation_enabled_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 250, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 251, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1796,7 +1796,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_set_v8_flags",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 275, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 282, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1819,7 +1819,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_set_v8_flags_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 276, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 283, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1923,7 +1923,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_snapshot_create",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 304, "column": 41},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 311, "column": 41},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -1961,7 +1961,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_snapshot_create_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 312, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 319, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2113,7 +2113,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_snapshot_destroy",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 323, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 330, "column": 1},
           "doc": "Free a container returned by v8_jsi_abi_snapshot_create. NULL is a no-op.",
           "annotations": [],
           "result": {"type": {"builtin": "void"}},
@@ -2134,7 +2134,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_snapshot_destroy_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 324, "column": 29},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 331, "column": 29},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2218,7 +2218,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_startup_snapshot",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 342, "column": 41},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 349, "column": 41},
           "doc": "Supply a V8 startup-snapshot container (built with\nv8_jsi_abi_snapshot_create) to a runtime. The isolate is created from it\n(Isolate::CreateParams::snapshot_blob) so the embedded script's heap is\npre-materialized — neither parsed nor run.\n\nLifetime: the config takes ownership of data when the setter is called; on\nv8_jsi_abi_runtime_create the runtime takes over. The runtime keeps the\nbytes alive for the isolate's lifetime and calls\ndata_delete_cb(data_delete_data, data) exactly once on destroy. If creation\nfails before the runtime is built, the config fires the deleter instead.\ndata_delete_cb may be NULL (the bytes are then caller-owned and must\noutlive the runtime). NULL data with size 0 clears any previously set\nsnapshot; NULL data with a nonzero size is jsi_status_invalid_arg.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -2255,7 +2255,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_startup_snapshot_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 350, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 357, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2448,7 +2448,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_snapshot_compat",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 381, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 388, "column": 1},
           "doc": "Snapshot-container compatibility. See the compatibility notes above.",
           "annotations": [],
           "type": {"name": "v8_jsi_abi_snapshot_compat"},
@@ -2473,7 +2473,7 @@
         {
           "kind": "enum",
           "name": "v8_jsi_abi_snapshot_compat",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 381, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 388, "column": 1},
           "doc": "Snapshot-container compatibility. See the compatibility notes above.",
           "annotations": [{"key": "enum", "value": "v8_jsi_abi_snapshot_compat"}],
           "type": {"name": "int32_t"},
@@ -2519,7 +2519,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_snapshot_check",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 394, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 401, "column": 1},
           "doc": "Checks whether this engine can load a snapshot container. See above.",
           "annotations": [],
           "result": {"type": {"name": "v8_jsi_abi_snapshot_compat"}},
@@ -2541,7 +2541,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_snapshot_check_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 396, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 403, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2629,7 +2629,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_snapshot_compat_to_string",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 404, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 411, "column": 1},
           "doc": "Human-readable description of a v8_jsi_abi_snapshot_compat (never NULL;\nan unknown value gets a generic string).",
           "annotations": [],
           "result": {"type": {"pointer": {"builtin": "char", "const": true}}},
@@ -2646,7 +2646,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_snapshot_compat_to_string_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 406, "column": 20},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 413, "column": 20},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2730,7 +2730,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_script_cache_load_cb",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 434, "column": 29},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 443, "column": 29},
           "doc": "Loads cached bytecode. See the script cache notes above.",
           "annotations": [],
           "type": {
@@ -3024,7 +3024,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_script_cache_store_cb",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 447, "column": 29},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 456, "column": 29},
           "doc": "Stores cached bytecode. See the script cache notes above.",
           "annotations": [],
           "type": {
@@ -3286,7 +3286,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_script_cache",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 461, "column": 41},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 470, "column": 41},
           "doc": "Configures callbacks described in the script cache notes above.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -3341,7 +3341,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_script_cache_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 474, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 483, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4053,7 +4053,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_task_run_cb",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 507, "column": 29},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 516, "column": 29},
           "doc": "Runs a foreground task. See the task runner notes above.",
           "annotations": [],
           "type": {
@@ -4125,7 +4125,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_task_runner_post_task_cb",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 511, "column": 29},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 520, "column": 29},
           "doc": "Posts a foreground task. See the task runner notes above.",
           "annotations": [],
           "type": {
@@ -4359,7 +4359,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_config_set_task_runner",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 522, "column": 41},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 531, "column": 41},
           "doc": "Configures the foreground task runner described above.",
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -4404,7 +4404,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_config_set_task_runner_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 532, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 541, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4806,7 +4806,7 @@
         {
           "kind": "function",
           "name": "v8_jsi_abi_runtime_open_inspector",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 555, "column": 1},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 564, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "jsi_status"}},
@@ -4823,7 +4823,7 @@
         {
           "kind": "typedef",
           "name": "v8_jsi_abi_runtime_open_inspector_fn",
-          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 556, "column": 35},
+          "location": {"file": "src/jsi_abi/v8_jsi_abi.h", "line": 565, "column": 35},
           "doc": null,
           "annotations": [],
           "type": {

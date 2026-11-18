@@ -17,11 +17,11 @@
 // (VFT_DLL 0x2 for libraries, VFT_APP 0x1 for executables).
 #if VER_BINARY == 1
 #define VER_FILEDESCRIPTION  "V8 JavaScript engine with JSI"
-#define VER_ORIGINALFILENAME "v8jsi.dll"
+#define VER_ORIGINALFILENAME "v8jsi2.dll"
 #define VER_FILETYPE         0x2L
 #elif VER_BINARY == 2
 #define VER_FILEDESCRIPTION  "V8 JavaScript engine with JSI (sandboxed)"
-#define VER_ORIGINALFILENAME "v8jsisb.dll"
+#define VER_ORIGINALFILENAME "v8jsi2sb.dll"
 #define VER_FILETYPE         0x2L
 #elif VER_BINARY == 3
 #define VER_FILEDESCRIPTION  "V8 startup-snapshot builder"
@@ -33,11 +33,11 @@
 #define VER_FILETYPE         0x1L
 #elif VER_BINARY == 5
 #define VER_FILEDESCRIPTION  "V8-JSI sandbox engine host"
-#define VER_ORIGINALFILENAME "v8host.dll"
+#define VER_ORIGINALFILENAME "v8sbhost.dll"
 #define VER_FILETYPE         0x2L
 #else
 #define VER_FILEDESCRIPTION  "Microsoft.JavaScript.V8"
-#define VER_ORIGINALFILENAME "v8jsi.dll"
+#define VER_ORIGINALFILENAME "v8jsi2.dll"
 #define VER_FILETYPE         0x2L
 #endif
 

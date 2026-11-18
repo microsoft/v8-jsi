@@ -5,7 +5,7 @@
   Consumes the freshly-packed Microsoft.JavaScript.V8.<rid> NuGet the same way
   a downstream consumer does. The v8-jsi NuGet is multi-package (1 meta + 3
   per-RID); the smoke restores the matching per-RID package directly. The
-  package's RID-specific .targets file injects the v8jsi.dll.lib link
+  package's RID-specific .targets file injects the v8jsi2.dll.lib link
   reference plus the consumer-side V8JsiRuntime.cpp / JsiAbiRuntime.cpp /
   jsi.cpp <ClCompile> items.
 
@@ -17,11 +17,11 @@
 
   Release is the baseline for each platform; Debug additionally exercises the
   Hybrid CRT cross-CRT boundary: the consumer EXE links /MDd (Debug-CRT) while
-  the package's v8jsi.dll is the Release Hybrid-CRT build (the package ships a
-  single Release config, so Debug consumers link the Release v8jsi.dll).
+  the package's v8jsi2.dll is the Release Hybrid-CRT build (the package ships a
+  single Release config, so Debug consumers link the Release v8jsi2.dll).
 
   When the driver passes /p:UseV8Sandbox=true, the package .targets add the
-  v8host include dir + v8host.dll.lib and copy the sandbox binaries, and this
+  v8sbhost include dir + v8sbhost.dll.lib and copy the sandbox binaries, and this
   project defines SMOKE_SANDBOX so main.cpp compiles the sandbox-surface path.
 -->
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
@@ -205,8 +205,8 @@
   </ItemDefinitionGroup>
 
   <!-- Sandbox-surface smoke: when the driver opts in with /p:UseV8Sandbox=true,
-       compile main.cpp's SMOKE_SANDBOX path (drives v8jsisb.dll via a delay-load
-       redirect + validates the v8host_client.h / v8host.dll.lib surface). -->
+       compile main.cpp's SMOKE_SANDBOX path (drives v8jsi2sb.dll via a delay-load
+       redirect + validates the v8sbhost_client.h / v8sbhost.dll.lib surface). -->
   <ItemDefinitionGroup Condition="'$(UseV8Sandbox)' == 'True'">
     <ClCompile>
       <PreprocessorDefinitions>SMOKE_SANDBOX;%(PreprocessorDefinitions)</PreprocessorDefinitions>

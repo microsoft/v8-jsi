@@ -12,93 +12,71 @@
     }
   },
   "results": {
-    "ed4c23a4255e855c80890390f7876daf8065011da61af9c56ea1456fb73a95a8": {
-      "signature": "ed4c23a4255e855c80890390f7876daf8065011da61af9c56ea1456fb73a95a8",
-      "target": "out-new/pkg-staging/build/native/win-x64/v8jsi.dll",
+    "b66676be4d3fd6e1bbcd588157da6e5fd32bdf08223dc622a2e2cbf9af378c89": {
+      "signature": "b66676be4d3fd6e1bbcd588157da6e5fd32bdf08223dc622a2e2cbf9af378c89",
+      "target": "out-new/pkg-staging/build/native/win-x64/v8jsi2.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2014",
-      "createdDate": "2026-06-09 00:00:00Z",
+      "createdDate": "2026-11-17 00:00:00Z",
       "justification": "BA2014 fires on three compiler-generated 'default constructor closure' thunks (??_F...) in upstream V8 (DefaultPlatform, CpuProfilingOptions, SnapshotCreator), emitted into the vendored V8 static libs. The thunks carry no stack buffers, so /GS inserts no cookie and there is nothing to guard -- a false positive, not disabled protection in v8-jsi code. They come from V8's own compilation, so we cannot reflag them without patching vendored V8 (/sdl on V8 did not clear them and costs engine-wide perf). Accepted as a residual; the actionable rules (CFG, ASLR, NX, Spectre, secure hashing) are enabled via src/v8jsi_settings.gypi. Signature is per-RID."
     },
-    "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f": {
-      "signature": "0a506e6d0b48e2c0f3d467d5ab0c44728ae13aa5ef0b3872c84331d1ddffb82f",
-      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+    "8e7b95843f601216c307cf43e17e01ce6b2637999ce1901d739eea40ac03ee55": {
+      "signature": "8e7b95843f601216c307cf43e17e01ce6b2637999ce1901d739eea40ac03ee55",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi2.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2014",
-      "createdDate": "2026-06-09 00:00:00Z",
-      "justification": "BA2014 on win-x86 v8jsi.dll -- same root cause as the win-x64 entry: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
+      "createdDate": "2026-11-17 00:00:00Z",
+      "justification": "BA2014 on win-x86 v8jsi2.dll -- same root cause as the win-x64 entry: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
     },
-    "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7": {
-      "signature": "ede677031c928c4735aa18415b12b27ea69927e8f99a0c97a01e6ccee2c08ea7",
-      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi.dll",
+    "d5c43077d15fb9ffb62e0afaea70e5492ed53fa6c7e581d83aeba68543f4c15c": {
+      "signature": "d5c43077d15fb9ffb62e0afaea70e5492ed53fa6c7e581d83aeba68543f4c15c",
+      "target": "out-new/pkg-staging/build/native/win-x86/v8jsi2.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2018",
-      "createdDate": "2026-06-09 00:00:00Z",
-      "justification": "BA2018 (EnableSafeSEH) on win-x86 v8jsi.dll. SafeSEH is x86-only and needs every linked object to register safe handlers (.sxdata). clang-cl (required by Node.js >= 24) emits none, and V8's x86 build links hand-written asm (push_registers_asm.obj) that is not SafeSEH-aware, so the linker can't produce a /SAFESEH image. A clang-cl/x86 toolchain limitation, not a v8-jsi defect; x86-only. Accepted as a residual."
+      "createdDate": "2026-11-17 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on win-x86 v8jsi2.dll. SafeSEH is x86-only and needs every linked object to register safe handlers (.sxdata). clang-cl (required by Node.js >= 24) emits none, and V8's x86 build links hand-written asm (push_registers_asm.obj) that is not SafeSEH-aware, so the linker can't produce a /SAFESEH image. A clang-cl/x86 toolchain limitation, not a v8-jsi defect; x86-only. Accepted as a residual."
     },
-    "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9": {
-      "signature": "eab73c02965b82ce678b3399fb0a26c2bcf1392be077f1054a0f01fdfd33e0e9",
-      "target": "out-new/pkg-staging/build/native/win-arm64/v8jsi.dll",
+    "7ba9ebafa9af2a842e173b81a639a5be05cad3556f66c59755513dab21ae8163": {
+      "signature": "7ba9ebafa9af2a842e173b81a639a5be05cad3556f66c59755513dab21ae8163",
+      "target": "out-new/pkg-staging/build/native/win-arm64/v8jsi2.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2014",
-      "createdDate": "2026-06-09 00:00:00Z",
-      "justification": "BA2014 on win-arm64 v8jsi.dll -- same root cause as the win-x64/win-x86 entries: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
+      "createdDate": "2026-11-17 00:00:00Z",
+      "justification": "BA2014 on win-arm64 v8jsi2.dll -- same root cause as the win-x64/win-x86 entries: buffer-less 'default constructor closure' thunks (??_F...) in upstream V8's vendored static libs. A false positive, not fixable without patching V8. Per-RID signature, hence a separate entry."
     },
-    "b6b6540615630dc8bc8ebee414c9f9a04fd4a279ef1132fe35cb87edfa9cc6d2": {
-      "signature": "b6b6540615630dc8bc8ebee414c9f9a04fd4a279ef1132fe35cb87edfa9cc6d2",
-      "target": "sandbox/build/native/win-x64/v8jsisb.dll",
+    "cafc516f0dd4b4737c67cec81a22efe4b57929eb8a58ae0650a5cf7a7c09bdb3": {
+      "signature": "cafc516f0dd4b4737c67cec81a22efe4b57929eb8a58ae0650a5cf7a7c09bdb3",
+      "target": "sandbox/build/native/win-x64/v8jsi2sb.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2014",
-      "createdDate": "2026-07-10 00:00:00Z",
-      "justification": "BA2014 on win-x64 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
+      "createdDate": "2026-11-17 00:00:00Z",
+      "justification": "BA2014 on win-x64 v8jsi2sb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi2.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
     },
-    "a1bc12756530869e7186acc8671389ad1170fb9ab0fddce8ef050a11b1f4c564": {
-      "signature": "a1bc12756530869e7186acc8671389ad1170fb9ab0fddce8ef050a11b1f4c564",
-      "target": "sandbox/build/native/win-x86/v8jsisb.dll",
+    "187c63335654b18cff6d30ce37525b15791c57de8dc1243ffc5bef73f00091b9": {
+      "signature": "187c63335654b18cff6d30ce37525b15791c57de8dc1243ffc5bef73f00091b9",
+      "target": "sandbox/build/native/win-arm64/v8jsi2sb.dll",
       "memberOf": [
         "default"
       ],
       "tool": "binskim",
       "ruleId": "BA2014",
-      "createdDate": "2026-07-10 00:00:00Z",
-      "justification": "BA2014 on win-x86 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
-    },
-    "d7f6e42a78a3ea32bfe4ec47753e9b5ffbdf4d8ea23a450d228ab7d150333a5f": {
-      "signature": "d7f6e42a78a3ea32bfe4ec47753e9b5ffbdf4d8ea23a450d228ab7d150333a5f",
-      "target": "sandbox/build/native/win-x86/v8jsisb.dll",
-      "memberOf": [
-        "default"
-      ],
-      "tool": "binskim",
-      "ruleId": "BA2018",
-      "createdDate": "2026-07-10 00:00:00Z",
-      "justification": "BA2018 on win-x86 v8jsisb.dll -- same clang-cl and V8 hand-written assembly limitation as the existing x86 v8jsi.dll suppression. The complete engine object closure cannot produce a SafeSEH image. Per-binary signature."
-    },
-    "841f3dfe44c37db30f1bd8877414d2740ef2c50d93f928ca3dda50596dca87ae": {
-      "signature": "841f3dfe44c37db30f1bd8877414d2740ef2c50d93f928ca3dda50596dca87ae",
-      "target": "sandbox/build/native/win-arm64/v8jsisb.dll",
-      "memberOf": [
-        "default"
-      ],
-      "tool": "binskim",
-      "ruleId": "BA2014",
-      "createdDate": "2026-07-10 00:00:00Z",
-      "justification": "BA2014 on win-arm64 v8jsisb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
+      "createdDate": "2026-11-17 00:00:00Z",
+      "justification": "BA2014 on win-arm64 v8jsi2sb.dll -- same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi2.dll suppression. No stack protection is disabled in v8-jsi code. Per-binary and per-RID signature."
     },
     "726720bdcd4df574e06156a2ca86b964b70baf771cc39efab8c0ee54863273c4": {
       "signature": "726720bdcd4df574e06156a2ca86b964b70baf771cc39efab8c0ee54863273c4",
@@ -109,7 +87,7 @@
       "tool": "binskim",
       "ruleId": "BA2014",
       "createdDate": "2026-11-13 00:00:00Z",
-      "justification": "BA2014 on win-x64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
+      "justification": "BA2014 on win-x64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi2.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
     },
     "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07": {
       "signature": "2b48ad0a1399ea2c5628c6379b49b1ce90f7eeff5410fd760990161f70f6ce07",
@@ -120,7 +98,7 @@
       "tool": "binskim",
       "ruleId": "BA2014",
       "createdDate": "2026-11-13 00:00:00Z",
-      "justification": "BA2014 on win-arm64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
+      "justification": "BA2014 on win-arm64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi2.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
     }
   }
 }

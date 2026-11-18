@@ -54,13 +54,13 @@ int beta_use(void) {
 // The three generated files v8-jsi ships, together in one translation unit.
 const PRODUCTS = `#include <stdint.h>
 #include "sbox_stela.h"
-#include "v8host_stela.h"
+#include "v8sbhost_stela.h"
 #include "jsi_abi_stela.h"
 ${ASSERT_MACRO}
 SBOX_ENUM(int32_t, sbox_probe){sbox_probe_a = 0};
-V8HOST_FLAGS(uint32_t, v8host_probe){v8host_probe_a = 1u << 0};
+V8SBHOST_FLAGS(uint32_t, v8sbhost_probe){v8sbhost_probe_a = 1u << 0};
 JSI_ABI_ENUM(int32_t, jsi_probe){jsi_probe_a = 0};
-STELA_TEST_ASSERT(sizes, sizeof(sbox_probe) == 4 && sizeof(v8host_probe) == 4 && sizeof(jsi_probe) == 4);
+STELA_TEST_ASSERT(sizes, sizeof(sbox_probe) == 4 && sizeof(v8sbhost_probe) == 4 && sizeof(jsi_probe) == 4);
 `;
 
 const TUS: Record<string, string> = {
@@ -183,7 +183,7 @@ describe("generated headers compile", () => {
     gen(v1, "ALPHA", "alpha_stela.h");
     gen(v2, "BETA", "beta_stela.h");
     gen(v1, "SBOX", "sbox_stela.h");
-    gen(v1, "V8HOST", "v8host_stela.h");
+    gen(v1, "V8SBHOST", "v8sbhost_stela.h");
     gen(v1, "JSI_ABI", "jsi_abi_stela.h");
     copyFileSync(path.join(fixtures, "alpha.h"), path.join(dir, "alpha.h"));
     copyFileSync(path.join(fixtures, "beta.h"), path.join(dir, "beta.h"));

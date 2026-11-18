@@ -1,15 +1,15 @@
-# The trust policy of the product binaries (sbox.exe, v8host.dll).
+# The trust policy of the product binaries (sbox.exe, v8sbhost.dll).
 import("//sbox/trust.gni")
 
 # The product single-image sbox.exe (broker + worker, persona by argv) + the
 # broker/target C ABI it links statically. Built with the Chromium toolchain;
-# the EXE loads v8host.dll (the engine payload) at runtime.
+# the EXE loads v8sbhost.dll (the engine payload) at runtime.
 # Build everything: `ninja -C out/sandbox-x64 generic`.
 
 # The broker's sandbox-policy builder (host side of sbox.h's sbox_config_api) +
 # the fail-closed marshal/discard gate. Factored out of sbox_main.cc so the
 # status-returning setters and the gate are unit-testable (see
-# //v8host:v8host_config_tests) without the sbox.exe role dispatch or a spawned
+# //v8sbhost:v8sbhost_config_tests) without the sbox.exe role dispatch or a spawned
 # worker.
 config("sbox_config_public") {
   include_dirs = [ "." ]  # sbox.h, sbox_core_internal.h, sbox_config.h
@@ -40,7 +40,7 @@ executable("sbox") {
     ":sbox_config",
     "//base",
     "//sandbox/win:sandbox",
-    "//v8host:file_identity",
+    "//v8sbhost:file_identity",
   ]
   libs = [
     "advapi32.lib",  # token / SID plumbing pulled in by the sandbox core
@@ -70,8 +70,8 @@ executable("sbox") {
     "/pdbstream:sourcelink=source_link_gen_gyp.json",
   ]
 
-  # Copy the engine payload (v8host.dll) beside sbox.exe so the worker loads it.
-  data_deps = [ "//v8host" ]
+  # Copy the engine payload (v8sbhost.dll) beside sbox.exe so the worker loads it.
+  data_deps = [ "//v8sbhost" ]
 }
 
 # The trust-transition runner and worker share one image. Chromium TargetProcess
@@ -96,7 +96,7 @@ if (current_cpu == "x64") {
       "//base",
       "//sandbox/win:sandbox_trust_transition_test",
     ]
-    data_deps = [ "//v8host" ]
+    data_deps = [ "//v8sbhost" ]
     libs = [ "userenv.lib" ]  # AppContainer profile APIs (broker/case role)
 
     # Resolve statically-imported DLLs only from System32 + the app dir.
@@ -112,11 +112,11 @@ executable("sbox_lifecycle_tests") {
     "sbox_main.cc",
     "sbox_lifecycle_test.h",
     "sbox_lifecycle_tests.cc",
-    "//v8host/tests/v8host_test_support.cc",
+    "//v8sbhost/tests/v8sbhost_test_support.cc",
   ]
-  include_dirs = [ ".", "//v8host/tests" ]
+  include_dirs = [ ".", "//v8sbhost/tests" ]
   defines = [ "SBOX_LIFECYCLE_TESTING" ]
-  deps = [ ":sbox_config", "//base", "//sandbox/win:sandbox", "//v8host:file_identity" ]
+  deps = [ ":sbox_config", "//base", "//sandbox/win:sandbox", "//v8sbhost:file_identity" ]
   libs = [ "advapi32.lib", "bcrypt.lib", "wintrust.lib" ]
   ldflags = [ "/DEPENDENTLOADFLAG:0xA00" ]
 }

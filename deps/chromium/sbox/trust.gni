@@ -1,4 +1,4 @@
-# The trust policy of the product binaries (sbox.exe, v8host.dll).
+# The trust policy of the product binaries (sbox.exe, v8sbhost.dll).
 declare_args() {
   # true: developer policy. Unsigned payloads and non-architecture layouts are
   # accepted (SBOX_DEV_ALLOW_UNSIGNED). false: release policy, fail closed.

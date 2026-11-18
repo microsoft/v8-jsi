@@ -21,7 +21,7 @@ function main(): void {
   if (process.argv.includes("--help")) {
     console.log("Usage: node scripts\\cross-arch-build.ts\n" +
       "Builds the client-only ARM64EC qualification harness with MSVC /arm64EC.\n" +
-      "Output: deps\\chromium\\out\\cross-arch-arm64ec\\v8host_cross_arch_tests.exe");
+      "Output: deps\\chromium\\out\\cross-arch-arm64ec\\v8sbhost_cross_arch_tests.exe");
     return;
   }
   if (process.argv.length !== 2) throw new Error("Unknown argument (use --help)");
@@ -75,15 +75,15 @@ function main(): void {
     LIB: [path.join(msvc, "lib", "arm64ec"), crt, um, ucrt].join(";"),
     PATH: `${tools};${process.env.PATH ?? ""}`,
   };
-  const exe = path.join(out, "v8host_cross_arch_tests.exe");
+  const exe = path.join(out, "v8sbhost_cross_arch_tests.exe");
   console.log(`ARM64EC: MSVC=${msvc}\nSDK=${sdkLib}\nOutput=${exe}`);
   execFileSync(path.join(tools, "cl.exe"), [
     "/nologo", "/arm64EC", "/std:c++17", "/MT", "/guard:cf", "/W4", "/WX",
     "/DUNICODE", "/D_UNICODE", "/D_WIN32_WINNT=0x0A00", "/O2",
     `/I${path.join(repoRoot, "src", "public")}`,
-    `/I${path.join(repoRoot, "deps", "chromium", "v8host", "tests")}`,
-    `/Fo${path.join(out, "v8host_cross_arch_tests.obj")}`, `/Fe${exe}`,
-    path.join(repoRoot, "deps", "chromium", "v8host", "tests", "v8host_cross_arch_tests.cc"),
+    `/I${path.join(repoRoot, "deps", "chromium", "v8sbhost", "tests")}`,
+    `/Fo${path.join(out, "v8sbhost_cross_arch_tests.obj")}`, `/Fe${exe}`,
+    path.join(repoRoot, "deps", "chromium", "v8sbhost", "tests", "v8sbhost_cross_arch_tests.cc"),
     "/link", "/MACHINE:ARM64EC", "/guard:cf", "user32.lib", "bcrypt.lib",
   ], { env, cwd: repoRoot, stdio: "inherit" });
   if (fs.existsSync(dumpbin)) {

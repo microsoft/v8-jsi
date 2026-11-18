@@ -37,6 +37,7 @@
 #define V8_JSI_ABI_H_
 
 #include "jsi_abi/jsi_abi.h"
+#include "v8jsi_names.h"
 
 /**
  * Exports only while v8jsi builds (V8_JSI_ABI_IMPL defined). Consumers get it

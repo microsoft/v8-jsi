@@ -1,6 +1,6 @@
-// Generate the GitHub Source Link map for the Windows PDBs of v8jsi.dll and
-// v8jsisb.dll (src/v8jsi.gyp), mkv8snapshot.exe, libnode.dll (src/libnode.gyp),
-// and sbox.exe and v8host.dll (scripts/sbox-build.ts). The linker embeds it in
+// Generate the GitHub Source Link map for the Windows PDBs of v8jsi2.dll and
+// v8jsi2sb.dll (src/v8jsi.gyp), mkv8snapshot.exe, libnode.dll (src/libnode.gyp),
+// and sbox.exe and v8sbhost.dll (scripts/sbox-build.ts). The linker embeds it in
 // each PDB as the "sourcelink" stream (lld-link /pdbstream:sourcelink=), and a
 // debugger (Visual Studio, WinDbg) uses it to fetch each source from
 // raw.githubusercontent.com/microsoft/v8-jsi/<commit>/ at the built commit.

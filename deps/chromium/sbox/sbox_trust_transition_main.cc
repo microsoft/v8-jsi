@@ -357,7 +357,7 @@ bool VerifyEarlyWarmup(const SboxTrustTransitionPolicyExpectation &expected) {
   const std::wstring path(executable);
   const std::wstring directory = path.substr(0, path.find_last_of(L"\\") + 1);
   bool ok = true;
-  for (const wchar_t *name : {L"v8host.dll", L"v8jsisb.dll"}) {
+  for (const wchar_t *name : {L"v8sbhost.dll", L"v8jsi2sb.dll"}) {
     HMODULE module = ::LoadLibraryExW((directory + name).c_str(), nullptr,
         LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
     if (!module)

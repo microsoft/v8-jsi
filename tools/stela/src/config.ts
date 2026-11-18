@@ -44,7 +44,7 @@ export interface DiffConfig {
 
 /** A binary that implements libraries and embeds their manifest (design §12). */
 export interface BinaryConfig {
-  /** The file name, such as `v8jsi.dll`. */
+  /** The file name, such as `v8jsi2.dll`. */
   readonly name: string;
   /** The libraries it implements, in config library order. */
   readonly libraries: readonly string[];

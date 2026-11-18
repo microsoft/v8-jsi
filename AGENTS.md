@@ -1,7 +1,7 @@
 # V8-JSI — Project Guide
 
 V8-JSI implements the JavaScript Interface (JSI) on top of the **V8** JavaScript
-engine, bridging native code and JavaScript. It ships as `v8jsi.dll` and is
+engine, bridging native code and JavaScript. It ships as `v8jsi2.dll` and is
 consumed mainly by React Native for Windows and related Microsoft projects.
 
 The project is transitioning from a standalone Google V8 build to building V8
@@ -21,7 +21,7 @@ The TypeScript tooling under `scripts/` runs on Node.js v24 directly (it uses
 
 ## Build
 
-`v8jsi.dll` is built from the vendored Node.js v26.x tree via `scripts/build.ts`
+`v8jsi2.dll` is built from the vendored Node.js v26.x tree via `scripts/build.ts`
 (which wraps `deps/nodejs/vcbuild.bat` with the right narrow-build flags).
 Node.js v24 remains the tooling runtime. Both engine variants disable Temporal
 and Node-only LIEF tooling, so Rust is not a build prerequisite.
@@ -56,7 +56,7 @@ Set-Location .\deps\nodejs; .\vcbuild.bat clean
 ```
 
 **Outputs** (`Release` or `Debug` per configuration):
-- `deps/nodejs/out/<config>/v8jsi.dll` — the shared library
+- `deps/nodejs/out/<config>/v8jsi2.dll` — the shared library
 - `deps/nodejs/out/<config>/v8jsi_test.exe` — JSI test runner
 - `deps/nodejs/out/<config>/node_api_tests.exe` — Node-API test runner
 
@@ -65,12 +65,12 @@ on success and the output binaries get fresh timestamps. These are more reliable
 signals than a shell pipeline's exit code, which can be misleading.
 
 **The sandbox variant shares the output folder.** `node build.ts
---build-v8jsisb` builds `v8jsisb.dll` (jitless, V8 sandbox) into the same
-`deps/nodejs/out/<config>` as `v8jsi.dll`. The first build after switching
+--build-v8jsisb` builds `v8jsi2sb.dll` (jitless, V8 sandbox) into the same
+`deps/nodejs/out/<config>` as `v8jsi2.dll`. The first build after switching
 between the two variants can leave V8's embedded builtins stale: it reports
 success, but every runtime then crashes with 0xc0000005. After a switch, build
 again until the build is nearly a no-op, then test. To run the sandbox with a
-fresh engine, copy `v8jsisb.dll` and its PDB into
+fresh engine, copy `v8jsi2sb.dll` and its PDB into
 `deps/chromium/out/sandbox-x64` yourself; no script does it.
 
 Architecture switches share those output folders too. The first build after
@@ -88,7 +88,7 @@ architectures or variants concurrently in the same Node output directory.
 - `v8jsi_enable_inspector` = 1 — the inspector is **always enabled**; v8-jsi must
   ship with it on
 - `v8jsi_enable_node_api` — always-on in `v8jsi.gyp` (defines `V8JSI_ENABLE_NODE_API`)
-- `v8jsi_test_hooks` = 1 (default) — when 1, `v8jsi.dll` exports test-only hooks
+- `v8jsi_test_hooks` = 1 (default) — when 1, `v8jsi2.dll` exports test-only hooks
   guarded by `#ifdef JSI_TESTING_ONLY` (e.g. `v8_jsi_test_post_foreground_task`).
   CI/release builds may set 0; test targets that reference a gated symbol then
   fail to link.
@@ -113,8 +113,8 @@ as coverage is added or removed.
 
 ## Symbols and Source Link
 
-Every shipped Windows binary (v8jsi.dll, v8jsisb.dll, mkv8snapshot.exe,
-sbox.exe, v8host.dll, libnode.dll) has a PDB with a GitHub Source Link map:
+Every shipped Windows binary (v8jsi2.dll, v8jsi2sb.dll, mkv8snapshot.exe,
+sbox.exe, v8sbhost.dll, libnode.dll) has a PDB with a GitHub Source Link map:
 `src/generate_source_link.ts` maps the repository root to
 `raw.githubusercontent.com/microsoft/v8-jsi/<commit>/`, and the link embeds it
 with lld-link `/pdbstream:sourcelink=` (`src/v8jsi.gyp`, `src/libnode.gyp`,
@@ -207,7 +207,7 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
   Publishing builds sign libnode.dll and the packages. Its key should be
   CP-231522, the key for third-party and open-source components (libnode.dll
   is Node.js); until the pipeline's ESRP client can use it,
-  `.ado/libnode-jobs.yml` passes CP-230012, v8jsi.dll's key.
+  `.ado/libnode-jobs.yml` passes CP-230012, v8jsi2.dll's key.
 - The release pipeline (`.ado/windows-release.yml`) pushes the packages to
   ms/react-native-public and the libnode.dll symbols to the Symbol Server, and
   publishes the packages to nuget.org through ESRP Release, as hermes-windows
@@ -263,17 +263,18 @@ The binary-stable C ABI for JSI (see "ABI architecture" below).
 - `jsi_abi_v8_internal.h` — in-DLL-only accessors (not a public/consumer header)
 
 ### Public headers (`src/public/`)
+- `v8jsi_names.h` — narrow and wide DLL-name macros for Microsoft.JavaScript.V8
 - `V8JsiRuntime.h` + `V8JsiRuntime.cpp` — the legacy public `makeV8Runtime` API
   (the `.cpp` is consumer-compiled source)
 - `ScriptStore.h` — prepared-script storage interface
-- `v8host_client.h` + `v8host_stela.h` — the C client API apps use to load
-  `v8host.dll` and run JS in the sandbox (ships in `include\v8host`)
+- `v8sbhost_client.h` + `v8sbhost_stela.h` — the C client API apps use to load
+  `v8sbhost.dll` and run JS in the sandbox (ships in `include\v8sbhost`)
 
 ### Sandbox (`deps/chromium/`)
 - `sbox/sbox.h` + `sbox_stela.h` — the plugin ABI between `sbox.exe`
-  and `v8host.dll`
-- `v8host/` — `v8host.dll`: the client, coordinator, and engine personas (see
-  `deps/chromium/v8host/README.md`)
+  and `v8sbhost.dll`
+- `v8sbhost/` — `v8sbhost.dll`: the client, coordinator, and engine personas (see
+  `deps/chromium/v8sbhost/README.md`)
 - Built by `node scripts/sbox-build.ts --target-cpu x64 --target generic` into
   `deps/chromium/out/sandbox-x64`; `--check` runs the export, CRT, size, and
   BinSkim gates
@@ -297,12 +298,12 @@ connections; overflow closes the connection.
 ## ABI architecture
 
 > The JSI ABI, Node-API hosting, and sandbox surfaces (`src/jsi_abi/*.h`,
-> `src/node-api/v8_node_api.h`, `src/public/v8host_client.h`,
+> `src/node-api/v8_node_api.h`, `src/public/v8sbhost_client.h`,
 > `deps/chromium/sbox/sbox.h`) are **experimental and not yet ABI-stable** — each header
 > carries a banner saying so. Nothing depends on it as a stable contract yet,
 > which is why it can still be reshaped freely.
 
-The ABI gives JSI a stable C interface so a single `v8jsi.dll` can serve
+The ABI gives JSI a stable C interface so a single `v8jsi2.dll` can serve
 consumers compiled with different toolchains.
 
 - **Creation is a flat function.** `v8_jsi_abi_runtime_create(uint32_t
@@ -390,16 +391,16 @@ needs the library's `*_ABI_VERSION` raised.
 Every shipped binary that implements a C ABI embeds a Stela manifest (PE
 resource `STELA` 1) describing the API it was built against; the
 `binaries` entries in `stela.config.json` list each binary's libraries. The
-gyp `v8jsi_stela_gen` action extracts and writes it for v8jsi.dll and
-v8jsisb.dll, so the v8jsi build needs the VS "C++ Clang Compiler for Windows"
+gyp `v8jsi_stela_gen` action extracts and writes it for v8jsi2.dll and
+v8jsi2sb.dll, so the v8jsi build needs the VS "C++ Clang Compiler for Windows"
 component, as the sandbox build already does; `scripts/sbox-build.ts` writes
-the v8host.dll and sbox.exe manifests before ninja links. `stela show
+the v8sbhost.dll and sbox.exe manifests before ninja links. `stela show
 <binary>` prints a binary's API, `stela verify <binary>` checks its exports
 against the manifest, and `stela check <binary> --config stela.config.json`
 diffs it against the current headers. `build.ts --test` runs verify and
-check on the engine DLL, and `sbox-build.ts --check` on v8host.dll and
+check on the engine DLL, and `sbox-build.ts --check` on v8sbhost.dll and
 sbox.exe (whose `otherExports: false` makes verify the exact export gate; there
 is no separate allowlist). `build.ts --pack` ships each public header's model as
-`build\native\stela\<library>.model.json`, including `v8host` for
-`include\v8host\v8host_client.h`, the client header apps compile against to
-load v8host.dll.
+`build\native\stela\<library>.model.json`, including `v8sbhost` for
+`include\v8sbhost\v8sbhost_client.h`, the client header apps compile against to
+load v8sbhost.dll.

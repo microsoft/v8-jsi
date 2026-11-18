@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 //
 // Internal accessor functions for JsiRuntimeState. Used only by code
-// compiled into v8jsi.dll (currently jsi_abi_v8.cpp + node-api/v8_api_abi.cpp).
+// compiled into v8jsi2.dll (currently jsi_abi_v8.cpp + node-api/v8_api_abi.cpp).
 // JsiRuntimeState's full layout is anonymous-namespaced inside
 // jsi_abi_v8.cpp; these free functions expose the bits the Node-API surface
 // needs without leaking the struct shape (host-object proxies, host-function

@@ -25,7 +25,7 @@ A V8 adapter implemention of the JSI interface for the react-native framework.
    * C++ ATL for latest v143 build tools with Spectre Mitigations (x86 & x64)
 1. The Visual Studio **C++ Clang Compiler for Windows** component
    (`Microsoft.VisualStudio.Component.VC.Llvm.Clang`). The build uses its
-   libclang to embed the API manifest in `v8jsi.dll` (see
+   libclang to embed the API manifest in `v8jsi2.dll` (see
    [`tools/stela/README.md`](tools/stela/README.md)), and the sandbox build
    ([`scripts/sbox-build.ts`](scripts/sbox-build.ts)) compiles with its clang.
 
@@ -42,11 +42,11 @@ If PowerShell blocks execution, consult Microsoft's
 and your organization's policy. The script does not change policy.
 It does not install Visual Studio C++/Clang, the Windows SDK, or Git.
 
-##### Building v8jsi.dll from Node.js sources
+##### Building v8jsi2.dll from Node.js sources
 
 The supported build uses vendored [Node.js 26.x sources](deps/nodejs/) through
 [`dev.ps1`](dev.ps1) / [`scripts/build.ts`](scripts/build.ts). Outputs are
-`v8jsi.dll`, `v8jsi_test.exe`, and `node_api_tests.exe` in
+`v8jsi2.dll`, `v8jsi_test.exe`, and `node_api_tests.exe` in
 `deps/nodejs/out/{Release,Debug}/`, packaged as `Microsoft.JavaScript.V8`.
 
 ###### Developer task runner: `dev.ps1`
@@ -101,7 +101,7 @@ flags (skips `node.exe`, `cctest`, `embedtest`, etc.). See
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
 
 For the experimental Windows sandbox client API, see
-[Sandboxed JavaScript through v8host.dll](docs/v8host-sandbox.md).
+[Sandboxed JavaScript through v8sbhost.dll](docs/v8sbhost-sandbox.md).
 
 ## Contributing
 See [Contributing guidelines](./docs/CONTRIBUTING.md) for how to setup your fork of the repo and start a PR to contribute to React Native V8 JSI adapter.

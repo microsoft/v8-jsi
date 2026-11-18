@@ -22,6 +22,48 @@ import * as https from "node:https";
 // Repo root (this file lives in scripts/).
 export const repoRoot = path.resolve(import.meta.dirname, "..");
 
+// DLL names are literals so C/C++ consumers and package staging share one source.
+export type V8JsiNames = Record<
+  "V8JSI_DLL_NAME" | "V8JSI_SB_DLL_NAME" | "V8SBHOST_DLL_NAME", string>;
+
+export function readV8JsiNames(
+  header = fs.readFileSync(path.join(repoRoot, "src/public/v8jsi_names.h"), "utf8"),
+): V8JsiNames {
+  const names = {} as V8JsiNames;
+  for (const key of ["V8JSI_DLL_NAME", "V8JSI_SB_DLL_NAME", "V8SBHOST_DLL_NAME"] as const) {
+    for (const wide of [false, true]) {
+      const macro = `${key}${wide ? "_W" : ""}`;
+      const definitions = header.split(/\r?\n/).filter((line) =>
+        new RegExp(`^\\s*#\\s*define\\s+${macro}(?:\\s|$)`).test(line));
+      const match = definitions.length === 1 && new RegExp(
+        `^\\s*#\\s*define\\s+${macro}\\s+${wide ? "L" : ""}"([a-z0-9]+\\.dll)"\\s*$`,
+      ).exec(definitions[0]);
+      if (!match) throw new Error(`${macro} must be a single ${wide ? "wide " : ""}DLL name literal`);
+      if (wide && names[key] !== match[1]) throw new Error(`${macro} does not match ${key}`);
+      names[key] = match[1];
+    }
+  }
+  if (new Set(Object.values(names)).size !== 3) throw new Error("DLL names must be distinct");
+  return names;
+}
+
+// Called after staging, not just copying: aggregator jobs have no local binaries.
+// Optional sandbox/host payloads must also match the published names.
+export function checkV8JsiPayload(ridDir: string, names: V8JsiNames): void {
+  const expected = names.V8JSI_DLL_NAME;
+  const allowed = Object.values(names).flatMap((name) => [name, `${name}.lib`, `${name}.pdb`]);
+  const entries = fs.existsSync(ridDir) ? fs.readdirSync(ridDir) : [];
+  for (const file of entries) {
+    if (/^v8jsi(?:[0-9]+)?(?:sb)?\.dll(?:\.(?:lib|pdb))?$|^v8jsi(?:sb)?\.(?:lib|pdb)$|^v8(?:sb)?host\.dll(?:\.(?:lib|pdb))?$/i.test(file) &&
+        !allowed.includes(file)) {
+      throw new Error(`Stale engine payload ${file} at ${ridDir}; expected ${Object.values(names).join(", ")}`);
+    }
+  }
+  if (!fs.statSync(path.join(ridDir, expected), { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`Missing ${expected} at ${ridDir} (v8jsi_names.h)`);
+  }
+}
+
 // =============================================================================
 // BinSkim / NuGet constants
 // =============================================================================
