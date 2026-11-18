@@ -90,6 +90,81 @@ class ReplicatorModule {
   std::atomic<int32_t>* counter_ptr_;
 };
 
+// Above NODE_API_SUPPORTED_VERSION_MAX, so Node.js rejects the module.
+constexpr int32_t kUnsupportedNodeApiVersion = 9999;
+
+// Throws from its initializer after creating new exports:
+// process._linkedBinding() must throw the error instead of returning them.
+class FailingModule {
+ public:
+  explicit FailingModule(std::atomic<int32_t>* counter_ptr)
+      : counter_ptr_(counter_ptr) {}
+
+  napi_value operator()(const NodeRuntime& runtime,
+                        napi_env env,
+                        std::string_view module_name,
+                        napi_value exports) {
+    NodeApiErrorHandler<napi_value> error_handler(env);
+    counter_ptr_->fetch_add(1);
+
+    napi_value new_exports{};
+    NODE_API_CALL(napi_create_object(env, &new_exports));
+    NODE_API_CALL(napi_throw_error(env, nullptr, "failing_module init failed"));
+    return new_exports;
+  }
+
+ private:
+  std::atomic<int32_t>* counter_ptr_;
+};
+
+// Registered with an unsupported Node-API version: Node.js throws before the
+// initializer can run.
+class UnsupportedModule {
+ public:
+  explicit UnsupportedModule(std::atomic<int32_t>* counter_ptr)
+      : counter_ptr_(counter_ptr) {}
+
+  napi_value operator()(const NodeRuntime& runtime,
+                        napi_env env,
+                        std::string_view module_name,
+                        napi_value exports) {
+    counter_ptr_->fetch_add(1);
+    return exports;
+  }
+
+ private:
+  std::atomic<int32_t>* counter_ptr_;
+};
+
+// Registered before Node.js initializes, so Node.js treats it as a linked
+// module and loads it through napi_module_register_by_symbol, which also loads
+// Node-API addons for require(). Its init throws after creating new exports.
+std::atomic<int32_t> failing_napi_module_init_call_count{0};
+
+napi_value NAPI_CDECL InitFailingNapiModule(napi_env env, napi_value exports) {
+  failing_napi_module_init_call_count.fetch_add(1);
+  napi_value new_exports{};
+  if (napi_create_object(env, &new_exports) != napi_ok) return nullptr;
+  napi_throw_error(env, nullptr, "failing_napi_module init failed");
+  return new_exports;
+}
+
+napi_module failing_napi_module = {
+    NAPI_MODULE_VERSION,
+    0,
+    __FILE__,
+    InitFailingNapiModule,
+    "failing_napi_module",
+    nullptr,
+    {nullptr},
+};
+
+struct FailingNapiModuleRegistration {
+  FailingNapiModuleRegistration() {
+    napi_module_register(&failing_napi_module);
+  }
+} failing_napi_module_registration;
+
 }  // namespace
 
 int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
@@ -100,6 +175,8 @@ int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
 
   std::atomic<int32_t> greeterModuleInitCallCount{0};
   std::atomic<int32_t> replicatorModuleInitCallCount{0};
+  std::atomic<int32_t> failingModuleInitCallCount{0};
+  std::atomic<int32_t> unsupportedModuleInitCallCount{0};
 
   NODE_EMBEDDING_CALL(NodePlatform::RunMain(
       NodeArgs(argc, argv),
@@ -129,6 +206,16 @@ int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
                 ReplicatorModule(&replicatorModuleInitCallCount),
                 NAPI_VERSION));
 
+            NODE_EMBEDDING_CALL(runtime_config.AddModule(
+                "failing_module",
+                FailingModule(&failingModuleInitCallCount),
+                NAPI_VERSION));
+
+            NODE_EMBEDDING_CALL(runtime_config.AddModule(
+                "unsupported_module",
+                UnsupportedModule(&unsupportedModuleInitCallCount),
+                kUnsupportedNodeApiVersion));
+
             NODE_EMBEDDING_CALL(LoadUtf8Script(runtime_config, main_script));
 
             return error_handler.ReportResult();
@@ -137,6 +224,10 @@ int32_t test_main_c_cpp_api_linked_modules(int32_t argc, const char* argv[]) {
   NODE_ASSERT(greeterModuleInitCallCount == expectedGreeterModuleInitCallCount);
   NODE_ASSERT(replicatorModuleInitCallCount ==
               expectedReplicatorModuleInitCallCount);
+  // use-linked-modules.js loads each failing module once, in the main thread.
+  NODE_ASSERT(failingModuleInitCallCount == 1);
+  NODE_ASSERT(unsupportedModuleInitCallCount == 0);
+  NODE_ASSERT(failing_napi_module_init_call_count == 1);
 
   return error_handler.ReportResult();
 }

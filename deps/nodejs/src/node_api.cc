@@ -778,6 +778,10 @@ void napi_module_register_by_symbol(v8::Local<v8::Object> exports,
     _exports = init(env, v8impl::JsValueFromV8LocalValue(exports));
   });
 
+  // v8-jsi: A V8 API call clears a pending exception (V8 12.1 and later), so
+  // return if the init function threw: the exception must reach the caller.
+  if (env->isolate->HasPendingException()) return;
+
   // If register function returned a non-null exports object different from
   // the exports object we passed it, set that as the "exports" property of
   // the module.
