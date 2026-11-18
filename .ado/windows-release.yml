@@ -156,7 +156,7 @@ extends:
         templateContext:
           type: releaseJob
           isProduction: true
-          # Consume the per-arch build artifacts directly — the signed v8jsi.dll +
+          # Consume the per-arch build artifacts directly — the signed v8jsi2.dll +
           # PDB from each Release cell, and the signed sandbox binaries + PDBs —
           # the same bits the NuGet aggregator packs. Build once, sign once, reuse;
           # no dependence on a build.ts-staged symbols/ dir. Each artifact lands in

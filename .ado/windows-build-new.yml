@@ -20,7 +20,7 @@ parameters:
 steps:
   # Overlay the CI-computed config.json before build.ts runs. The gyp version
   # action (src/generate_version_info.ts) reads config.json.v8jsi_version to
-  # stamp v8jsi.dll, and build.ts --pack reads it for the per-RID NuGet version.
+  # stamp v8jsi2.dll, and build.ts --pack reads it for the per-RID NuGet version.
 - template: /.ado/overlay-version-config.yml@self
 
 - ${{ if eq(parameters.fakeBuild, false) }}:
@@ -32,7 +32,7 @@ steps:
       node scripts/build.ts `
           --platform ${{parameters.buildPlatform}} `
           --configuration ${{parameters.buildConfiguration}}
-    displayName: Build v8jsi.dll via scripts/build.ts
+    displayName: Build v8jsi2.dll via scripts/build.ts
     workingDirectory: $(Build.SourcesDirectory)
 
     # Runs both gtest binaries (v8jsi_test + node_api_tests). build.ts skips
@@ -47,11 +47,11 @@ steps:
     # ---------------------------------------------------------------------
     # Release cells: stage the per-RID NuGet content (Microsoft.JavaScript.V8).
     # scripts/build.ts --pack lays out pkg-staging/build/native/<rid>/ with the
-    # v8jsi.dll, the import lib (renamed v8jsi.dll.lib), and the PDB, plus the
+    # v8jsi2.dll, the import lib (v8jsi2.dll.lib), and the PDB, plus the
     # shared headers + consumer-side source TUs, and produces this cell's per-RID
     # .nupkg under <outputPath>/pkg. The V8JsiCreateNugetNew aggregator downloads
     # every Release cell's pkg-staging and re-runs --pack to emit the 4-pack
-    # (3 per-RID + 1 meta). Debug v8jsi.dll variants are not packaged (Hybrid CRT
+    # (3 per-RID + 1 meta). Debug v8jsi2.dll variants are not packaged (Hybrid CRT
     # lets a Debug-CRT consumer link the Release DLL), so this runs Release-only.
     # ---------------------------------------------------------------------
   - ${{ if eq(parameters.buildConfiguration, 'Release') }}:
@@ -71,7 +71,7 @@ steps:
       # startup-snapshot e2e (build a snapshot with the packaged
       # mkv8snapshot.exe and consume it via the public
       # V8RuntimeArgs::startupSnapshotBlob surface). This per-RID pack carries
-      # v8jsi.dll + mkv8snapshot.exe but not v8jsisb.dll (that ships from the
+      # v8jsi2.dll + mkv8snapshot.exe but not v8jsi2sb.dll (that ships from the
       # sandbox job and is merged only in the aggregator), so the snapshot
       # scenario runs the v8jsi leg here and auto-skips the v8jsisb + cross-engine
       # legs until they run against a sandbox-complete pack. x86 builds the

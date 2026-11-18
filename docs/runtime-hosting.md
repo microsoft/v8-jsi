@@ -5,6 +5,11 @@ These are observations of the current implementation, backed by
 They do not extend the experimental ABI's compatibility promises.
 See `src/jsi_abi/v8_jsi_abi.h` and `src/node-api/v8_node_api.h` for signatures.
 
+## Loading the engine
+
+Microsoft.JavaScript.V8 consumers can include `<v8jsi_names.h>` and call
+`LoadLibraryW(V8JSI_DLL_NAME_W)` to load the engine by its packaged DLL name.
+
 ## Microtasks and promises
 
 | Creation path | Observed policy |
@@ -140,7 +145,7 @@ check each extension and module's required Node-API version when porting.
   `jsi::Runtime::drainMicrotasks` follows the JSI ABI behavior above under both
   auto and explicit policy. Default `V8RuntimeArgs` use auto policy.
 - For engine RID defaults, explicit overrides, and package availability checks,
-  see [NuGet engine RID selection](v8host-sandbox.md#nuget-engine-rid-selection).
+  see [NuGet engine RID selection](v8sbhost-sandbox.md#nuget-engine-rid-selection).
 - For queued-task ownership and destruction (including debugger-paused tasks),
   see [Host task-runner and teardown rules](#host-task-runner-and-teardown-rules).
   Keep host queues and callback data alive through teardown.

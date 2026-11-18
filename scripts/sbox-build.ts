@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Build script for the Chromium-sandbox binaries (sbox.exe / v8host.dll). Run
+// Build script for the Chromium-sandbox binaries (sbox.exe / v8sbhost.dll). Run
 // with Node.js v24+ (TypeScript strip-types).
 // Usage: node scripts/sbox-build.ts [options]
 //
@@ -11,7 +11,7 @@
 //      (via vswhere; requires the "C++ Clang Compiler for Windows" component),
 //      and the vendored gn (deps/gn/gn.exe, Git LFS),
 //   2. runs `gn gen` (writing args.gn) then `ninja` into a single out dir, and
-//   3. enforces the same hygiene gates as v8jsi.dll (exact exports via the
+//   3. enforces the same hygiene gates as v8jsi2.dll (exact exports via the
 //      embedded Stela manifests + Hybrid CRT + BinSkim) over the produced
 //      binaries, plus a size budget.
 //
@@ -72,7 +72,7 @@ const clangMajorFloor = 22;
 const clangComponentId = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
 
 // BinSkim rules accepted as residuals on the sandbox binaries (sbox.exe,
-// v8host.dll). These follow from the gn/ninja (clang-cl +
+// v8sbhost.dll). These follow from the gn/ninja (clang-cl +
 // lld-link) build configuration for these binaries. The mitigations that this
 // toolchain CAN satisfy are enabled at the source (build/config/compiler/BUILD.gn
 // + build/toolchain/win/setup_toolchain.py) and are NO LONGER accepted:
@@ -94,7 +94,7 @@ const clangComponentId = "Microsoft.VisualStudio.Component.VC.Llvm.Clang";
 //   BA2025           - CET Shadow Stack. Chromium enables /CETCOMPAT on the x64
 //                      link (so x64 clears this), but not for the x86 target, and
 //                      32-bit CET shadow stack is rarely deployed. Accepted on x86
-//                      -- the same residual v8jsi.dll accepts -- since the OS
+//                      -- the same residual v8jsi2.dll accepts -- since the OS
 //                      lockdown, not CET, is the sandbox's primary defense; x64 is
 //                      unaffected. Revisit if x86 /CETCOMPAT is productized.
 const acceptedSandboxBinSkimRules = new Set([
@@ -136,9 +136,9 @@ Boolean flags (all support --no- prefix):
   --build         Run 'ninja' on the target (default: true)
   --check         Enforce the Stela-manifest (exact exports) + Hybrid-CRT +
                   size-budget + Source Link + BinSkim gates on the produced
-                  binaries (sbox.exe, v8host.dll)
+                  binaries (sbox.exe, v8sbhost.dll)
   --clean         Delete the out dir before generating
-  --release-trust Build sbox.exe / v8host.dll with the release trust policy
+  --release-trust Build sbox.exe / v8sbhost.dll with the release trust policy
                   (no SBOX_DEV_ALLOW_UNSIGNED): unsigned payloads and non-
                   architecture layouts fail closed. For the shipped build; the
                   suites need signed payloads or the default developer policy.
@@ -502,7 +502,7 @@ function ninjaBuild(ninja: string, outDir: string, target: string): void {
 }
 
 // Generate src/version_info_gen.h (the version numbers src/version_info.rc
-// #includes for sbox.exe / v8host.dll). The gyp engine build regenerates the
+// #includes for sbox.exe / v8sbhost.dll). The gyp engine build regenerates the
 // same header via its v8jsi_version_gen action; both keep it fresh from
 // config.json.v8jsi_version. The header is git-ignored.
 function generateVersionInfo(): void {
@@ -511,7 +511,7 @@ function generateVersionInfo(): void {
   execSync(`node "${script}"`, { stdio: "inherit", cwd: repoRoot });
 }
 
-// Emit the SourceLink map that sbox.exe / v8host.dll inject as their PDB
+// Emit the SourceLink map that sbox.exe / v8sbhost.dll inject as their PDB
 // "sourcelink" stream (/pdbstream: in their BUILD.gn ldflags; lld-link has no
 // /SOURCELINK). Same generator and map the gyp engine build uses. It names the
 // commit, so it changes with each one; installLinkInput relinks both binaries
@@ -524,10 +524,10 @@ function generateSourceLink(outDir: string): void {
     stdio: "inherit",
     cwd: repoRoot,
   });
-  installLinkInput(outDir, fresh, ["sbox.exe", "v8host.dll"]);
+  installLinkInput(outDir, fresh, ["sbox.exe", "v8sbhost.dll"]);
 }
 
-// The out-dir files sbox.exe / v8host.dll link through ldflags (the version and
+// The out-dir files sbox.exe / v8sbhost.dll link through ldflags (the version and
 // Stela .res files, the SourceLink map) are generated outside GN's graph, so GN
 // can't list them as link inputs and ninja won't relink when one changes. Each is
 // produced under <outDir>\link-inputs (or stela\), copied into the out dir only
@@ -574,18 +574,18 @@ function toolchainRc(outDir: string, targetCpu: TargetCpu): { env: NodeJS.Proces
 }
 
 // Compile src/version_info.rc -> version_info_<name>.res for sbox.exe and
-// v8host.dll, which link the prebuilt .res via ldflags. GN's own rc tool
+// v8sbhost.dll, which link the prebuilt .res via ldflags. GN's own rc tool
 // (rc.py) needs the hermetic rc binary + hermetic clang, neither of which the
 // pruned VS-clang sandbox tree carries — so we use the Windows SDK rc.exe
 // directly (see toolchainRc). VER_BINARY selects each binary's strings.
 function compileVersionResources(outDir: string, targetCpu: TargetCpu, versionStamp?: number): void {
-  console.log("\n=== version resources (sbox.exe / v8host.dll) ===\n");
+  console.log("\n=== version resources (sbox.exe / v8sbhost.dll) ===\n");
   const { env, rcExe } = toolchainRc(outDir, targetCpu);
 
   const rcSource = path.join(repoRoot, "src", "version_info.rc");
   for (const b of [
     { name: "sbox", binary: "sbox.exe", verBinary: 4 },
-    { name: "v8host", binary: "v8host.dll", verBinary: 5 },
+    { name: "v8sbhost", binary: "v8sbhost.dll", verBinary: 5 },
   ]) {
     const fresh = path.join(linkInputsDir(outDir), `version_info_${b.name}.res`);
     console.log(`  rc ${b.name} (VER_BINARY=${b.verBinary}) -> ${path.basename(fresh)}`);
@@ -606,7 +606,7 @@ function compileVersionResources(outDir: string, targetCpu: TargetCpu, versionSt
 
 const stelaCli = path.join(repoRoot, "tools", "stela", "src", "stela.ts");
 const stelaConfig = path.join(repoRoot, "stela.config.json");
-const stelaBinaries = ["v8host.dll", "sbox.exe"];
+const stelaBinaries = ["v8sbhost.dll", "sbox.exe"];
 const stelaTargets: Record<TargetCpu, string> = {
   x64: "x86_64-pc-windows-msvc",
   x86: "i686-pc-windows-msvc",
@@ -621,7 +621,7 @@ function stela(args: string[]): void {
 // and compile it to <binary>.stela.res, which the binary's BUILD.gn links via
 // ldflags (installed by installLinkInput, which relinks it when it changes).
 function embedStelaManifests(outDir: string, targetCpu: TargetCpu): void {
-  console.log("\n=== Stela manifests (v8host.dll / sbox.exe) ===\n");
+  console.log("\n=== Stela manifests (v8sbhost.dll / sbox.exe) ===\n");
   const { env, rcExe } = toolchainRc(outDir, targetCpu);
   const stelaDir = path.join(outDir, "stela");
   const model = path.join(stelaDir, "stela.model.json");
@@ -653,7 +653,7 @@ function checkStelaManifests(outDir: string): boolean {
 // Sandbox binary hygiene gates
 // =============================================================================
 //
-// The same hygiene bar as v8jsi.dll: exact exports (the Stela manifest gate
+// The same hygiene bar as v8jsi2.dll: exact exports (the Stela manifest gate
 // above: `stela verify` with otherExports false in stela.config.json), the
 // Hybrid CRT contract, BinSkim, and a size budget. Parameterized over a binary
 // table so further binaries can be added with one entry.
@@ -667,14 +667,14 @@ interface SandboxBinary {
 
 // The sandbox binaries. Their export surfaces live in stela.config.json:
 //   sbox.exe    — the single-image container: exports NOTHING.
-//   v8host.dll  — the engine payload: exports the sbox plugin-ABI entry plus
-//                 the v8host client API (src/public/v8host_client.h).
+//   v8sbhost.dll  — the engine payload: exports the sbox plugin-ABI entry plus
+//                 the v8sbhost client API (src/public/v8sbhost_client.h).
 const sandboxBinaries: SandboxBinary[] = [
   // sbox.exe budget: <= 2 MiB (measured ~1.76 MiB; floor at the Hybrid CRT).
   { file: "sbox.exe", maxBytes: 2 * 1024 * 1024 },
-  // v8host.dll budget: <= 704 KiB (measured 692,736 bytes): plugin + engine
+  // v8sbhost.dll budget: <= 704 KiB (measured 692,736 bytes): plugin + engine
   // glue + coordinator router + client; the engine DLL is loaded at runtime.
-  { file: "v8host.dll", maxBytes: 704 * 1024 },
+  { file: "v8sbhost.dll", maxBytes: 704 * 1024 },
 ];
 
 // Gate 2: Hybrid CRT. No sandbox binary may import vcruntime140 / msvcp140;
@@ -769,11 +769,11 @@ async function runSandboxBinSkim(
 // binaries only under SBOX_DEV_ALLOW_UNSIGNED (read in the broker and sbox.exe).
 function checkReleaseTrust(outDir: string): boolean {
   console.log("\n=== Release trust policy (no developer hooks) ===\n");
-  const markers = ["V8HOST_BROKER_API_TEST", "SBOX_TEST_LIFECYCLE_FAILURE", "SBOX_TEST_LIFECYCLE_HELD_EVENT",
-    "V8HOST_GUEST_JS", "SBOX_TIER", "V8HOST_ENGINE_DLL", "V8HOST_SNAPSHOT", "V8HOST_PERF",
+  const markers = ["V8SBHOST_BROKER_API_TEST", "SBOX_TEST_LIFECYCLE_FAILURE", "SBOX_TEST_LIFECYCLE_HELD_EVENT",
+    "V8SBHOST_GUEST_JS", "SBOX_TIER", "V8SBHOST_ENGINE_DLL", "V8SBHOST_SNAPSHOT", "V8SBHOST_PERF",
     "--pipe-bench", "sbox_bench"];
   let ok = true;
-  for (const file of ["sbox.exe", "v8host.dll"]) {
+  for (const file of ["sbox.exe", "v8sbhost.dll"]) {
     const filePath = path.join(outDir, file);
     if (!fs.existsSync(filePath)) {
       console.error(`  MISSING: ${filePath}`);

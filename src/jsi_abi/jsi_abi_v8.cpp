@@ -3044,7 +3044,7 @@ const jsi_runtime_api g_vtable = {
 //==============================================================================
 //
 // These are internal-coupling accessors exposed to other TUs compiled into
-// v8jsi.dll (currently node-api/v8_api_abi.cpp). They reach into the
+// v8jsi2.dll (currently node-api/v8_api_abi.cpp). They reach into the
 // anonymous-namespaced JsiRuntimeState without leaking its layout.
 
 namespace v8rt_internal {

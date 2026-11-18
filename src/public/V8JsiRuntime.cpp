@@ -7,7 +7,7 @@
 // (see also include/node-api-jsi/NodeApiJsiRuntime.cpp for the same pattern).
 // The consumer compiles it locally; only the C-stable v8_jsi_abi_config_* setters,
 // the v8_jsi_abi_runtime_create entry point, and the JsiAbiRuntime C++ wrapper (also
-// compiled in the consumer) cross into v8jsi.dll.
+// compiled in the consumer) cross into v8jsi2.dll.
 
 #include "V8JsiRuntime.h"
 
@@ -22,7 +22,7 @@ namespace {
 // Wraps a buffer that crosses the DLL boundary back into a facebook::jsi::Buffer
 // so the consumer's PreparedScriptStore::persistPreparedScript can hold on to
 // the bytes for later retrieval. The supplied delete callback frees the bytes
-// in whichever CRT allocated them — ours, when invoked from inside V8jsi.dll's
+// in whichever CRT allocated them — ours, when invoked from inside v8jsi2.dll's
 // store path; theirs, when invoked from a recursive load.
 class V8JsiBuffer final : public facebook::jsi::Buffer {
  public:

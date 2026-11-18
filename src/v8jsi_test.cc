@@ -1,6 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
-// Tests for v8jsi.dll - loads the DLL and tests V8 functionality
+// Tests for v8jsi2.dll - loads the DLL and tests V8 functionality
 
 #include "gtest/gtest.h"
 #include "v8.h"
@@ -15,7 +15,7 @@
 #define V8JSI_IMPORT
 #endif
 
-// Import functions from v8jsi.dll
+// Import functions from v8jsi2.dll
 extern "C" {
   V8JSI_IMPORT const char* v8jsi_version();
   V8JSI_IMPORT const char* v8jsi_v8_version();

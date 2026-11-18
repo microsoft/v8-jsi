@@ -23,6 +23,8 @@ import {
   crtDependencyLines,
   ensureSupportedPython,
   prependToPath,
+  readV8JsiNames,
+  checkV8JsiPayload,
 } from "./build-common.ts";
 import { checkSourceLink, pdbOf } from "./source-link-check.ts";
 
@@ -37,7 +39,7 @@ const stelaConfig = path.join(repoRoot, "stela.config.json");
 
 // Libraries whose headers ship in the package; each ships its Stela model
 // (build/native/stela/<library>.model.json), extracted from the same headers.
-const shippedStelaLibraries = ["jsi_abi", "v8_jsi_abi", "v8_node_api", "sbox", "v8host"];
+const shippedStelaLibraries = ["jsi_abi", "v8_jsi_abi", "v8_node_api", "sbox", "v8sbhost"];
 
 // Run the Stela CLI; `run` joins a shell command line, so quote every path.
 function runStela(stelaArgs: string[]): void {
@@ -198,9 +200,9 @@ function sandboxOutDir(platform: string): string {
 // Stage the sandbox binaries for one platform into build/native/<rid>/.
 // Everything is optional: a mainline (non-sandbox) build won't have produced
 // them, and the CI aggregator pre-stages them from the `sandbox-binaries`
-// artifact. v8jsisb.dll comes from the vcbuild out dir (engineOutDir, alongside
-// v8jsi.dll); sbox.exe (the sandbox container) and v8host.dll (the engine
-// payload a consuming app loads) + v8host.dll.lib from the gn out dir. The gn
+// artifact. v8jsi2sb.dll comes from the vcbuild out dir (engineOutDir, alongside
+// v8jsi2.dll); sbox.exe (the sandbox container) and v8sbhost.dll (the engine
+// payload a consuming app loads) + v8sbhost.dll.lib from the gn out dir. The gn
 // test binaries are deliberately excluded.
 function stageSandboxBinaries(
   platform: string,
@@ -208,23 +210,14 @@ function stageSandboxBinaries(
   ridDir: string,
 ): void {
   const sbxOut = sandboxOutDir(platform);
-  // The jitless sandbox engine (vcbuild output, same dir as v8jsi.dll). On x86
+  const { V8JSI_SB_DLL_NAME: sbDllName, V8SBHOST_DLL_NAME: hostDllName } = readV8JsiNames();
+  // The jitless sandbox engine (vcbuild output, same dir as v8jsi2.dll). On x86
   // this is the degraded no-cage variant (still product-shipped); on x64/arm64
   // it carries the V8 in-process cage. Runtime payload only — no import lib
-  // (v8host LoadLibrary's it by name; the JSI C++ consumer links v8jsi.dll.lib).
-  copyFile("v8jsisb.dll", engineOutDir, ridDir, /*optional*/ true);
-  // PDB: the GYP build emits v8jsisb.pdb; stage it as v8jsisb.dll.pdb so the
-  // *.pdb nuspec glob + the symbol-publish staging resolve (mirrors v8jsi.pdb ->
-  // v8jsi.dll.pdb above). Optional — release/no-symbols builds skip it.
-  if (fs.existsSync(path.join(engineOutDir, "v8jsisb.dll.pdb"))) {
-    copyFile("v8jsisb.dll.pdb", engineOutDir, ridDir);
-  } else if (fs.existsSync(path.join(engineOutDir, "v8jsisb.pdb"))) {
-    ensureDir(ridDir);
-    fs.copyFileSync(
-      path.join(engineOutDir, "v8jsisb.pdb"),
-      path.join(ridDir, "v8jsisb.dll.pdb"),
-    );
-  }
+  // (v8sbhost LoadLibrary's it by name; the JSI C++ consumer links v8jsi2.dll.lib).
+  copyFile(sbDllName, engineOutDir, ridDir, /*optional*/ true);
+  // Optional: release/no-symbols builds skip the DLL-qualified PDB.
+  copyFile(`${sbDllName}.pdb`, engineOutDir, ridDir, /*optional*/ true);
   // The offline startup-snapshot builder (vcbuild output, same dir as the
   // engine — it links no V8, so it's an engine-build artifact, not a gn one).
   // Ships per-RID beside the engine it LoadLibrary's. Optional: only the
@@ -239,13 +232,13 @@ function stageSandboxBinaries(
       path.join(ridDir, "mkv8snapshot.exe.pdb"),
     );
   }
-  // The Chromium-sandbox binaries (gn output) + v8host's import lib.
+  // The Chromium-sandbox binaries (gn output) + v8sbhost's import lib.
   for (const f of [
     "sbox.exe",
     "sbox.exe.pdb",
-    "v8host.dll",
-    "v8host.dll.pdb",
-    "v8host.dll.lib",
+    hostDllName,
+    `${hostDllName}.pdb`,
+    `${hostDllName}.lib`,
   ]) {
     copyFile(f, sbxOut, ridDir, /*optional*/ true);
   }
@@ -281,7 +274,7 @@ Usage: node scripts/build.ts [options]
 
 Boolean flags (all support --no- prefix):
   --help              Show this help message
-  --build             Build v8jsi.dll (default: true)
+  --build             Build v8jsi2.dll (default: true)
   --test              Run v8jsi_test.exe + node_api_tests.exe, check the DLL's
                       embedded Stela manifest (stela verify + check), and check
                       Source Link in its and mkv8snapshot.exe's PDBs
@@ -295,18 +288,18 @@ Boolean flags (all support --no- prefix):
                       engines, incl. cross-engine rejection)
   --test-acceptance   Like --test-e2e but against an already-built pack (e.g. the
                       downloaded signed NuGet in CI); forces the sandbox-engine
-                      leg on (the final multi-engine pack always carries v8jsisb.dll).
+                      leg on (the final multi-engine pack always carries v8jsi2sb.dll).
                       The pack's sandbox binaries must be the shipped release-trust
                       build: the x64/ARM64 sandbox smoke requires the unsigned
                       consumer to succeed; sign it, then run
                       tests/run-smoke.ps1 -UseV8Sandbox -RunSigned
   --binskim           Run BinSkim security validation
-  --check-crt         Report v8jsi.dll's C/C++ runtime imports (Hybrid CRT check)
-  --check-size        Enforce the binary-size budget (v8jsisb.dll <= 18 MiB)
-  --count-exports     Report v8jsi.dll's exported symbol counts by API family
-  --build-v8jsisb     Build the sandbox variant v8jsisb.dll (V8 in-process sandbox
+  --check-crt         Report v8jsi2.dll's C/C++ runtime imports (Hybrid CRT check)
+  --check-size        Enforce the binary-size budget (v8jsi2sb.dll <= 18 MiB)
+  --count-exports     Report v8jsi2.dll's exported symbol counts by API family
+  --build-v8jsisb     Build the sandbox variant v8jsi2sb.dll (V8 in-process sandbox
                       + pointer-compression shared cage + build-time jitless/lite)
-                      instead of the mainline full-JIT v8jsi.dll.
+                      instead of the mainline full-JIT v8jsi2.dll.
   --clean-all         Delete entire output folder
   --clean-build       Delete build outputs for targeted configs
   --clean-pkg         Delete pkg and pkg-staging folders
@@ -325,7 +318,7 @@ Examples:
   node scripts/build.ts --no-build --pack        # Package only
   node scripts/build.ts --clean-all              # Clean everything
 
-The Chromium sandbox binaries (sbox.exe / v8host.dll and their tests) are built
+The Chromium sandbox binaries (sbox.exe / v8sbhost.dll and their tests) are built
 by a separate gn/ninja toolchain — see: node scripts/sbox-build.ts --help
 `);
 }
@@ -346,7 +339,7 @@ async function runBuild(
   // passing it explicitly is harmless and keeps the call uniform.
   // The sandbox variant uses the `v8jsisb` vcbuild token (which implies the
   // `v8jsi` target) so configure.py turns on the V8 sandbox + lite variables and
-  // emits v8jsisb.dll. Mainline builds keep the plain `v8jsi` token unchanged.
+  // emits v8jsi2sb.dll. Mainline builds keep the plain `v8jsi` token unchanged.
   const v8jsiToken = args["build-v8jsisb"] ? "v8jsisb" : "v8jsi";
   const vcbuildArgs = [
     ".\\vcbuild.bat",
@@ -385,13 +378,13 @@ async function runBuild(
 // =============================================================================
 
 function runTests(platform: string, configuration: string): void {
-  const engineName = args["build-v8jsisb"] ? "v8jsisb" : "v8jsi";
+  const engineName = v8jsiDllName();
   console.log(`\n=== Testing ${engineName} (${platform} ${configuration}) ===\n`);
 
   // The embedded Stela manifest gate is a static check, so it runs for
   // cross-platform builds too: the DLL's exports match its manifest, and the
   // manifest matches the current headers.
-  const engine = path.join(buildOutputDir(configuration), `${engineName}.dll`);
+  const engine = path.join(buildOutputDir(configuration), engineName);
   runStela(["verify", engine]);
   runStela(["check", engine, "--config", stelaConfig]);
 
@@ -472,11 +465,12 @@ async function runBinSkim(
 // =============================================================================
 
 // The produced DLL name depends on the build variant: the sandbox build
-// (--build-v8jsisb) emits v8jsisb.dll; the mainline build emits v8jsi.dll. The
+// (--build-v8jsisb) emits v8jsi2sb.dll; the mainline build emits v8jsi2.dll. The
 // hygiene gates (--binskim, --check-crt, --count-exports) follow the variant so
 // they validate whichever DLL was just built.
 function v8jsiDllName(): string {
-  return args["build-v8jsisb"] ? "v8jsisb.dll" : "v8jsi.dll";
+  const names = readV8JsiNames();
+  return args["build-v8jsisb"] ? names.V8JSI_SB_DLL_NAME : names.V8JSI_DLL_NAME;
 }
 
 function builtDllPath(configuration: string): string {
@@ -488,7 +482,7 @@ function builtDllPath(configuration: string): string {
   return dll;
 }
 
-// Report v8jsi.dll's C/C++ runtime imports. The Hybrid CRT contract means the
+// Report v8jsi2.dll's C/C++ runtime imports. The Hybrid CRT contract means the
 // only shared runtime should be the UCRT (api-ms-win-crt-* / ucrtbase.dll) —
 // there must be no vcruntime140 / msvcp140 (App-CRT is statically private).
 function reportCrtDependencies(platform: string, configuration: string): void {
@@ -511,7 +505,7 @@ function reportCrtDependencies(platform: string, configuration: string): void {
   }
 }
 
-// Report v8jsi.dll's exported symbol counts by API family. Handy for spotting
+// Report v8jsi2.dll's exported symbol counts by API family. Handy for spotting
 // an unexpected change in the export surface.
 function reportExports(platform: string, configuration: string): void {
   console.log(`\n=== Export counts (${platform} ${configuration}) ===\n`);
@@ -528,19 +522,16 @@ function reportExports(platform: string, configuration: string): void {
 }
 
 // Enforce the binary-size budget on the built engine DLL. Only the sandbox
-// variant v8jsisb.dll has a ceiling (17.06 MB jitless+lite, budget <= 18 MiB);
-// the full-JIT v8jsi.dll is reported but not gated. Exits non-zero on breach.
+// variant v8jsi2sb.dll has a ceiling (17.06 MB jitless+lite, budget <= 18 MiB);
+// the full-JIT v8jsi2.dll is reported but not gated. Exits non-zero on breach.
 // Re-baseline only on a deliberate, justified increase (e.g. a V8 bump).
-const DLL_SIZE_BUDGET_BYTES: Record<string, number> = {
-  "v8jsisb.dll": 18 * 1024 * 1024,
-};
 function checkDllSize(platform: string, configuration: string): void {
   console.log(`\n=== Binary size budget (${platform} ${configuration}) ===\n`);
   const dll = builtDllPath(configuration);
   const name = path.basename(dll);
   const size = fs.statSync(dll).size;
   const mib = (n: number) => (n / (1024 * 1024)).toFixed(2);
-  const budget = DLL_SIZE_BUDGET_BYTES[name];
+  const budget = args["build-v8jsisb"] ? 18 * 1024 * 1024 : undefined;
   if (budget === undefined) {
     console.log(`  ${name}: ${mib(size)} MiB (no size budget — reported only)`);
     return;
@@ -567,7 +558,8 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   const nugetSourceDir = path.join(repoRoot, "scripts", "nuget");
   const configJson = readConfigJson();
   // Windows-only today; .so/.dylib substitutions land with future multi-OS support.
-  const v8jsiName = "v8jsi.dll";
+  const names = readV8JsiNames();
+  const v8jsiName = names.V8JSI_DLL_NAME;
 
   // ---------------------------------------------------------------------
   // Stage RID-specific content for each requested platform: DLL + import
@@ -578,9 +570,9 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // ---------------------------------------------------------------------
   for (const platform of platforms) {
     for (const configuration of configurations) {
-      // Debug v8jsi.dll variants are dropped from the shipped NuGet. The
+      // Debug v8jsi2.dll variants are dropped from the shipped NuGet. The
       // Hybrid CRT makes a Debug-CRT consumer safe to link against the
-      // Release v8jsi.dll: the App-CRT is statically private to the DLL,
+      // Release v8jsi2.dll: the App-CRT is statically private to the DLL,
       // UCRT is the only shared runtime, and ucrtbase.dll / ucrtbased.dll
       // are separate DLLs with separate heaps - so as long as no STL types
       // cross the DLL boundary, the cross-CRT allocations stay sound. Debug
@@ -593,56 +585,39 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 
       // CI aggregator scenario: matrix jobs uploaded their per-RID
       // staging; aggregator has no local build output. If the source
-      // build dir has no v8jsi.dll, fall back to whatever is already
+      // build dir has no v8jsi2.dll, fall back to whatever is already
       // staged for this RID (idempotent re-run is fine).
-      if (!fs.existsSync(path.join(outDir, "v8jsi.dll"))) {
-        if (fs.existsSync(path.join(ridDir, "v8jsi.dll"))) {
+      if (!fs.existsSync(path.join(outDir, v8jsiName))) {
+        if (fs.existsSync(path.join(ridDir, v8jsiName))) {
           console.log(
-            `Using pre-staged v8jsi.dll for ${rid} (no local build at ${outDir}).`,
+            `Using pre-staged ${v8jsiName} for ${rid} (no local build at ${outDir}).`,
           );
           continue;
         }
         throw new Error(
-          `Cannot stage ${rid}: no v8jsi.dll at ${outDir} or ${ridDir}.`,
+          `Cannot stage ${rid}: no ${v8jsiName} at ${outDir} or ${ridDir}.`,
         );
       }
 
-      copyFile("v8jsi.dll", outDir, ridDir);
-      // GYP build produces v8jsi.lib (MSBuild legacy emitted v8jsi.dll.lib);
-      // rename on copy so .targets resolves either way.
-      if (fs.existsSync(path.join(outDir, "v8jsi.dll.lib"))) {
-        copyFile("v8jsi.dll.lib", outDir, ridDir);
-      } else {
-        ensureDir(ridDir);
-        fs.copyFileSync(
-          path.join(outDir, "v8jsi.lib"),
-          path.join(ridDir, "v8jsi.dll.lib"),
-        );
-      }
-      // PDB is optional: ship it in the per-RID .nupkg when present.
-      // Like the import lib, the GYP build names it v8jsi.pdb while the
-      // MSBuild legacy emitted v8jsi.dll.pdb; stage it as v8jsi.dll.pdb either
-      // way so the .targets copy rule and the symbol-publish staging resolve.
-      if (fs.existsSync(path.join(outDir, "v8jsi.dll.pdb"))) {
-        copyFile("v8jsi.dll.pdb", outDir, ridDir);
-      } else if (fs.existsSync(path.join(outDir, "v8jsi.pdb"))) {
-        ensureDir(ridDir);
-        fs.copyFileSync(
-          path.join(outDir, "v8jsi.pdb"),
-          path.join(ridDir, "v8jsi.dll.pdb"),
-        );
-      } else {
-        console.log("Skipping copy of v8jsi.dll.pdb (file not found, optional)");
-      }
+      copyFile(v8jsiName, outDir, ridDir);
+      copyFile(`${v8jsiName}.lib`, outDir, ridDir);
+      copyFile(`${v8jsiName}.pdb`, outDir, ridDir, /*optional*/ true);
 
-      // Sandbox binaries: the jitless sandbox engine v8jsisb.dll (vcbuild
-      // output, same out dir as v8jsi.dll) plus the Chromium-sandbox binaries
-      // sbox.exe / v8host.dll + v8host.dll.lib (gn output, per-arch out dir).
+      // Sandbox binaries: the jitless sandbox engine v8jsi2sb.dll (vcbuild
+      // output, same out dir as v8jsi2.dll) plus the Chromium-sandbox binaries
+      // sbox.exe / v8sbhost.dll + v8sbhost.dll.lib (gn output, per-arch out dir).
       // All optional: a non-sandbox build won't have produced them, and the CI
       // aggregator pre-stages them from the `sandbox-binaries` artifact, so a
       // missing local file just means "already staged / not built here".
       // The gn test binaries are deliberately NOT staged.
       stageSandboxBinaries(platform, outDir, ridDir);
+    }
+  }
+
+  for (const rid of ALL_WINDOWS_RIDS) {
+    const ridDir = path.join(pkgStagingPath, "build", "native", rid);
+    if (platforms.map(platformToRid).includes(rid) || fs.existsSync(ridDir)) {
+      checkV8JsiPayload(ridDir, names);
     }
   }
 
@@ -662,6 +637,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 
   // Public headers
   for (const file of [
+    "v8jsi_names.h",
     "compat.h",
     "Readme.md",
     "ScriptStore.h",
@@ -672,7 +648,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 
   // JSI headers + base-class impl + inline impl. jsi.cpp ships the JSI
   // base-class implementations (Buffer/Value/JSError/Runtime destructors
-  // and virtual default impls) since v8jsi.dll does not export them
+  // and virtual default impls) since v8jsi2.dll does not export them
   // (JSI_EXPORT is a no-op unless CREATE_SHARED_LIBRARY is set, which
   // v8jsi.gyp doesn't define), so every consumer compiles jsi.cpp locally.
   for (const file of ["jsi.h", "jsi-inl.h", "jsi.cpp", "instrumentation.h"]) {
@@ -736,13 +712,13 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   }
 
   // Sandbox public C-ABI headers, staged RID-independently under
-  // build/native/include/sbox and build/native/include/v8host.
-  //   sbox.h        — the sbox.exe plugin ABI (self-contained: <stddef.h>/<stdint.h>)
-  //   sbox_stela.h  — the Stela annotation macros sbox.h includes
-  //   sbox_harden.h — header-only DLL-search hardening + WinVerifyTrust helpers
-  //   v8host_client.h — the client ABI an app compiles against to load
-  //                     v8host.dll and run sandboxed JavaScript
-  //   v8host_stela.h  — the Stela annotation macros v8host_client.h includes
+  // build/native/include/sbox and build/native/include/v8sbhost.
+  //   sbox.h            — the sbox.exe plugin ABI (self-contained: <stddef.h>/<stdint.h>)
+  //   sbox_stela.h      — the Stela annotation macros sbox.h includes
+  //   sbox_harden.h     — header-only DLL-search hardening + WinVerifyTrust helpers
+  //   v8sbhost_client.h — the client ABI an app compiles against to load
+  //                       v8sbhost.dll and run sandboxed JavaScript
+  //   v8sbhost_stela.h  — the Stela annotation macros v8sbhost_client.h includes
   // msg_channel.h and the sbox_*internal headers are NOT shipped — they're
   // internal to the sandbox binaries.
   const sboxIncludeDir = path.join(includeDir, "sbox");
@@ -750,8 +726,8 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   for (const file of ["sbox.h", "sbox_stela.h", "sbox_harden.h"]) {
     copyFile(file, sboxHeaderSrc, sboxIncludeDir);
   }
-  for (const file of ["v8host_client.h", "v8host_stela.h"]) {
-    copyFile(file, path.join(srcDir, "public"), path.join(includeDir, "v8host"));
+  for (const file of ["v8sbhost_client.h", "v8sbhost_stela.h"]) {
+    copyFile(file, path.join(srcDir, "public"), path.join(includeDir, "v8sbhost"));
   }
 
   // Stela models of the shipped C ABI headers, extracted from the same source
@@ -880,7 +856,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
   // feed doesn't have, breaking consumer installs.
   const allRidsPresent = ALL_WINDOWS_RIDS.every((r) =>
     fs.existsSync(
-      path.join(pkgStagingPath, "build", "native", r, "v8jsi.dll"),
+      path.join(pkgStagingPath, "build", "native", r, v8jsiName),
     ),
   );
   if (allRidsPresent) {
@@ -889,7 +865,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
     const missing = ALL_WINDOWS_RIDS.filter(
       (r) =>
         !fs.existsSync(
-          path.join(pkgStagingPath, "build", "native", r, "v8jsi.dll"),
+          path.join(pkgStagingPath, "build", "native", r, v8jsiName),
         ),
     );
     console.log(
@@ -909,7 +885,7 @@ function packNuGet(outputPath: string, platforms: string[], configurations: stri
 // against the default engine (v8jsi) in the given consumer configs, then once
 // more on the sandbox engine (v8jsisb, -UseV8Sandbox). requireSandbox forces the
 // sandbox leg on (acceptance against a sandbox-complete pack); otherwise it runs
-// only when the pack actually staged a v8jsisb.dll for this RID. The package
+// only when the pack actually staged a v8jsi2sb.dll for this RID. The package
 // supports UseV8Sandbox for x64 and ARM64 consumers only, so on x86 the leg
 // asserts that the package rejects it. sandboxArgs are extra script arguments
 // for the sandbox leg only.
@@ -958,14 +934,14 @@ function runHarnessScenario(
     }
 
     // Sandbox-engine leg: only when the pack actually carries the sandbox
-    // binaries (a non-sandbox build doesn't). Drives v8jsisb.dll.
+    // binaries (a non-sandbox build doesn't). Drives v8jsi2sb.dll.
     const stagedV8jsisb = path.join(
       outputPath,
       "pkg-staging",
       "build",
       "native",
       platformToRid(platform),
-      "v8jsisb.dll",
+      readV8JsiNames().V8JSI_SB_DLL_NAME,
     );
     if (requireSandbox || fs.existsSync(stagedV8jsisb)) {
       const leg =
@@ -976,14 +952,14 @@ function runHarnessScenario(
       invoke("Release", /*sandbox*/ true);
     } else {
       console.log(
-        `Skipping ${scenario} sandbox leg for ${platform}: no v8jsisb.dll staged (non-sandbox pack).`,
+        `Skipping ${scenario} sandbox leg for ${platform}: no ${readV8JsiNames().V8JSI_SB_DLL_NAME} staged (non-sandbox pack).`,
       );
     }
   }
 }
 
 // Real-consumer smoke: builds the consumer in Release + Debug against the
-// Release v8jsi.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
+// Release v8jsi2.dll (the Debug/Release leg exercises the Hybrid CRT cross-CRT
 // boundary) and runs the JSI ABI checks. Under acceptance the pack carries the
 // shipped release-trust sandbox binaries, which require signed payloads but
 // accept an unsigned client: the sandbox leg requires the unsigned consumer to

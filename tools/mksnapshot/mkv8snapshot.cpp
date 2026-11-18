@@ -3,7 +3,7 @@
 //
 // mkv8snapshot — offline tool that builds a V8 startup-snapshot blob from a
 // pure-JS builder script. It LoadLibrary's a chosen v8jsi engine DLL
-// (v8jsi.dll or the sandbox variant v8jsisb.dll) and calls its
+// (v8jsi2.dll or the sandbox variant v8jsi2sb.dll) and calls its
 // `v8_jsi_abi_snapshot_create` C export, then writes the blob to a file.
 //
 // Using the actual shipped engine DLL guarantees the blob matches that engine's
@@ -16,12 +16,12 @@
 //
 // Usage:
 //   mkv8snapshot --builder <file.js> --out <file.bin>
-//                [--engine <dll>]        (default: v8jsisb.dll)
+//                [--engine <dll>]        (default: v8jsi2sb.dll)
 //                [--engine-dir <dir>]    (default: this exe's directory)
 //                [--jitless | --no-jitless]
 //
 // --jitless forwards V8's --jitless to the snapshot creator so it matches a
-// jitless consumer (the Untrusted sandbox tier runs v8jsisb jitless). When not
+// jitless consumer (the Untrusted sandbox tier runs v8jsi2sb jitless). When not
 // specified it defaults ON for an engine whose name contains "sb", else OFF.
 
 #include <windows.h>
@@ -85,7 +85,7 @@ bool WriteFileBytes(const std::string& path, const uint8_t* data, size_t size) {
 void Usage() {
   std::fprintf(stderr,
       "Usage: mkv8snapshot --builder <file.js> --out <file.bin>\n"
-      "                    [--engine <dll>]       (default v8jsisb.dll)\n"
+      "                    [--engine <dll>]       (default v8jsi2sb.dll)\n"
       "                    [--engine-dir <dir>]   (default this exe's dir)\n"
       "                    [--jitless | --no-jitless]\n");
 }
@@ -93,7 +93,7 @@ void Usage() {
 } // namespace
 
 int main(int argc, char** argv) {
-  std::string builderPath, outPath, engineName = "v8jsisb.dll", engineDir;
+  std::string builderPath, outPath, engineName = "v8jsi2sb.dll", engineDir;
   int jitlessOpt = -1; // -1 = derive from engine name
 
   for (int i = 1; i < argc; ++i) {

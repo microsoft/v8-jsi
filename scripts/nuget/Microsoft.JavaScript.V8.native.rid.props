@@ -8,19 +8,19 @@
     <!-- If V8JsiIncludeNodeApiHeaders == False then don't add include directories for the Node-API and Node-API-JSI headers. -->
     <V8JsiIncludeNodeApiHeaders Condition=" '$(V8JsiIncludeNodeApiHeaders)' == '' ">True</V8JsiIncludeNodeApiHeaders>
 
-    <!-- If V8JsiAddLibDependency == False then don't add linker dependency on v8jsi.dll.lib. -->
+    <!-- If V8JsiAddLibDependency == False then don't add linker dependency on v8jsi2.dll.lib. -->
     <V8JsiAddLibDependency Condition=" '$(V8JsiAddLibDependency)' == '' ">True</V8JsiAddLibDependency>
 
     <!-- If V8JsiAddConsumerSourceTUs == False then don't inject the consumer-side <ClCompile> items
          (jsi.cpp, V8JsiRuntime.cpp, JsiAbiRuntime.cpp). Useful when the consumer ships its own copy. -->
     <V8JsiAddConsumerSourceTUs Condition=" '$(V8JsiAddConsumerSourceTUs)' == '' ">True</V8JsiAddConsumerSourceTUs>
 
-    <!-- If V8JsiCopyDLL == False then don't copy the native v8jsi.dll to the target output folder. -->
+    <!-- If V8JsiCopyDLL == False then don't copy the native v8jsi2.dll to the target output folder. -->
     <V8JsiCopyDLL Condition=" '$(V8JsiCopyDLL)' == '' ">True</V8JsiCopyDLL>
 
-    <!-- Sandbox opt-in. The package ships the sandbox binaries (v8jsisb.dll,
-         sbox.exe, v8host.dll) for every RID, but only consumers that set
-         UseV8Sandbox=true get the v8host include dir, the v8host.dll.lib link
+    <!-- Sandbox opt-in. The package ships the sandbox binaries (v8jsi2sb.dll,
+         sbox.exe, v8sbhost.dll) for every RID, but only consumers that set
+         UseV8Sandbox=true get the v8sbhost include dir, the v8sbhost.dll.lib link
          dependency, and the three binaries copied to their output. Default
          False so non-sandbox consumers pay nothing. -->
     <UseV8Sandbox Condition=" '$(UseV8Sandbox)' == '' ">False</UseV8Sandbox>

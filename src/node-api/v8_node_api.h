@@ -31,6 +31,7 @@
 #include "js_native_api.h"
 #include "jsi_abi/jsi_abi.h"
 #include "v8_node_api_stela.h"
+#include "v8jsi_names.h"
 
 /// The current V8 Node-API hosting ABI version.
 #define V8_NODE_API_ABI_VERSION 1u

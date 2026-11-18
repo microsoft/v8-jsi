@@ -53,7 +53,7 @@ struct sbox_config_s {
   bool invalid = false;                   // poison: a failed setter forbids spawn
 };
 
-// A plugin name / engine DLL must be a BARE app-dir filename (e.g. "v8host.dll")
+// A plugin name / engine DLL must be a BARE app-dir filename (e.g. "v8sbhost.dll")
 // — never a path. The broker Authenticode-verifies it inside the app dir, so
 // rejecting separators / ".." closes the only planting vector the name opens.
 bool IsBareFilename(const std::wstring& name);

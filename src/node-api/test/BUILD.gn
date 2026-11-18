@@ -64,7 +64,7 @@ config("test_module") {
     "js-native-api",
   ]
 
-  # Hybrid CRT: keep the test-module DLLs in lockstep with v8jsi.dll —
+  # Hybrid CRT: keep the test-module DLLs in lockstep with v8jsi2.dll —
   # static C++ runtime + dynamic UCRT. See //jsi:hybrid_crt_swap.
   if (is_win && current_os != "winuwp" && !is_component_build) {
     if (is_debug) {

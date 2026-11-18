@@ -8,11 +8,13 @@
 # against it, and runs the resulting v8jsi_smoke.exe with no args - which evals
 # `1 + 2` through the JSI ABI runtime and asserts 3, plus four cross-CRT exercises
 # (utf8 round-trip, global property set/get, HostFunction call, JSError catch).
+# Also loads V8JSI_DLL_NAME_W and resolves the create export to evaluate via
+# the shared names header, independently of the import-library path.
 #
 # -UseV8Sandbox additionally validates the sandbox package surface: it sets
-# /p:UseV8Sandbox=true (the package .targets add the v8host include dir +
-# v8host.dll.lib and copy v8jsisb.dll / sbox.exe / v8host.dll) and the EXE then
-# drives v8jsisb.dll through JSI and runs a session through the client API. Use it
+# /p:UseV8Sandbox=true (the package .targets add the v8sbhost include dir +
+# v8sbhost.dll.lib and copy v8jsi2sb.dll / sbox.exe / v8sbhost.dll) and the EXE then
+# drives v8jsi2sb.dll through JSI and runs a session through the client API. Use it
 # only when the restored package actually carries the sandbox binaries.
 # consumer.vcxproj puts the EXE and copy-local payload in
 # bin\<Configuration>\<Platform>\ (x64 or arm64 for sandbox consumers). For x86
@@ -94,7 +96,7 @@ if ($UseV8Sandbox) {
     $msbuild = Get-MSBuild
     $invalidOutDir = Join-Path $harnessDir 'bin\invalid-sandbox-layout'
     $validation = & $msbuild (Join-Path $harnessDir 'consumer.vcxproj') `
-        "/t:V8HostSandboxValidateOutputDirectory_$rid" `
+        "/t:V8SbHostSandboxValidateOutputDirectory_$rid" `
         "/p:Configuration=$Configuration" "/p:Platform=$Platform" `
         "/p:V8JsiPackageProps=$($pkg.PkgProps)" `
         "/p:V8JsiPackageTargets=$($pkg.PkgTargets)" `
@@ -102,10 +104,10 @@ if ($UseV8Sandbox) {
         "/p:OutDir=$invalidOutDir" /nologo /v:minimal 2>&1
     $validationExit = $LASTEXITCODE
     $validation | Out-Host
-    if ($validationExit -eq 0 -or ($validation -join "`n") -notmatch 'V8HOST001') {
-        throw 'Expected invalid sandbox output directory to fail with V8HOST001.'
+    if ($validationExit -eq 0 -or ($validation -join "`n") -notmatch 'V8SBHOST001') {
+        throw 'Expected invalid sandbox output directory to fail with V8SBHOST001.'
     }
-    Write-Host 'tests: invalid sandbox output directory rejected (V8HOST001)'
+    Write-Host 'tests: invalid sandbox output directory rejected (V8SBHOST001)'
 }
 
 $exe = Build-Consumer -HarnessDir $harnessDir -Configuration $Configuration `

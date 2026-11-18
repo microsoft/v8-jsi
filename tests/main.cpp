@@ -4,19 +4,19 @@
 // Real-consumer smoke build. Validates the .targets-driven consumer path
 // end-to-end: this TU and the consumer-side V8JsiRuntime.cpp / JsiAbiRuntime.cpp
 // / jsi.cpp (pulled in by Microsoft.JavaScript.V8.<rid>.targets) all compile
-// against the shipped header layout, link against v8jsi.dll.lib, and run against
-// v8jsi.dll at load time.
+// against the shipped header layout, link against v8jsi2.dll.lib, and run against
+// v8jsi2.dll at load time.
 //
 // The default build also exercises the Hybrid CRT cross-CRT boundary: when built
-// /MDd (Debug-CRT) and linked against a Release Hybrid-CRT v8jsi.dll, every
+// /MDd (Debug-CRT) and linked against a Release Hybrid-CRT v8jsi2.dll, every
 // allocation/free below stays on the consumer-CRT side. The DLL sees only the C
-// ABI vtable; STL types (std::string, jsi::JSError, etc.) never cross it.
+// ABI vtable; STL types (std::string, fbjsi::JSError, etc.) never cross it.
 //
 // When built with SMOKE_SANDBOX defined (the consumer .vcxproj sets it when
 // UseV8Sandbox=true), the harness additionally validates the sandbox package
-// surface: it drives the jitless sandbox engine v8jsisb.dll through the same JSI
+// surface: it drives the jitless sandbox engine v8jsi2sb.dll through the same JSI
 // C++ API (via a delay-load redirect) and confirms the broker ABI is consumable
-// (compiles against v8host_client.h, imports v8host.dll, and runs a session).
+// (compiles against v8sbhost_client.h, imports v8sbhost.dll, and runs a session).
 //
 // Scenario selection (argv):
 //   (no args)                  cross-CRT / sandbox-surface smoke (runJsiChecks).
@@ -28,8 +28,8 @@
 //   --snapshot-reject <blob>   feed an INCOMPATIBLE (cross-engine) blob; assert
 //                              the engine rejects it and falls back to a normal
 //                              runtime (global absent), never crashing.
-// The same exe serves both engines: default links v8jsi.dll; SMOKE_SANDBOX
-// redirects to v8jsisb.dll — so each snapshot scenario runs against whichever
+// The same exe serves both engines: default links v8jsi2.dll; SMOKE_SANDBOX
+// redirects to v8jsi2sb.dll — so each snapshot scenario runs against whichever
 // engine this build targets.
 //
 // Exit code:
@@ -39,6 +39,10 @@
 
 #include <V8JsiRuntime.h>
 #include <jsi/jsi.h>
+#include <jsi_abi/JsiAbiRuntime.h>
+#include <jsi_abi/v8_jsi_abi.h>
+#include <v8jsi_names.h>
+#include <windows.h>
 
 #include <cstdio>
 #include <cstring>
@@ -47,14 +51,13 @@
 #include <string>
 
 #ifdef SMOKE_SANDBOX
-#include <v8host_client.h>
+#include <v8sbhost_client.h>
 
-#include <windows.h>
 #include <delayimp.h>
 #include <string.h>  // _stricmp
 #endif
 
-namespace jsi = facebook::jsi;
+namespace fbjsi = facebook::jsi;
 
 #define FAIL(msg)                                       \
   do {                                                  \
@@ -63,17 +66,17 @@ namespace jsi = facebook::jsi;
   } while (0)
 
 #ifdef SMOKE_SANDBOX
-// Redirect the delay-loaded "v8jsi.dll" import to the jitless sandbox engine
-// v8jsisb.dll, so the JSI C++ API (makeV8Runtime) drives the sandbox engine
-// in-process. v8jsisb.dll exposes the same JSI ABI as v8jsi.dll, so every
+// Redirect the delay-loaded "v8jsi2.dll" import to the jitless sandbox engine
+// v8jsi2sb.dll, so the JSI C++ API (makeV8Runtime) drives the sandbox engine
+// in-process. v8jsi2sb.dll exposes the same JSI ABI as v8jsi2.dll, so every
 // import resolves from it. delayimp.lib reads __pfnDliNotifyHook2 on the first
 // delay-load; it is declared `const` in <delayimp.h>, so we install the hook by
 // defining that variable (the linker takes our definition over the library
 // default) rather than assigning it at runtime.
 static FARPROC WINAPI SmokeDelayHook(unsigned notify, PDelayLoadInfo info) {
   if (notify == dliNotePreLoadLibrary && info->szDll &&
-      _stricmp(info->szDll, "v8jsi.dll") == 0) {
-    return reinterpret_cast<FARPROC>(::LoadLibraryW(L"v8jsisb.dll"));
+      _stricmp(info->szDll, V8JSI_DLL_NAME) == 0) {
+    return reinterpret_cast<FARPROC>(::LoadLibraryW(V8JSI_SB_DLL_NAME_W));
   }
   return nullptr;
 }
@@ -84,24 +87,24 @@ struct SandboxSmoke {
   bool ready = false;
   bool done = false;
   bool completed = false;
-  v8host_status status = v8host_status_ok;
+  v8sbhost_status status = v8sbhost_status_ok;
 };
 
-static void V8HOST_CDECL smokeSessionState(
-    void *data, v8host_session, v8host_session_state state, v8host_status status) {
+static void V8SBHOST_CDECL smokeSessionState(
+    void *data, v8sbhost_session, v8sbhost_session_state state, v8sbhost_status status) {
   auto &smoke = *static_cast<SandboxSmoke *>(data);
-  smoke.ready = state == v8host_session_state_ready;
-  if (status != v8host_status_ok || state == v8host_session_state_closed) {
+  smoke.ready = state == v8sbhost_session_state_ready;
+  if (status != v8sbhost_status_ok || state == v8sbhost_session_state_closed) {
     smoke.status = status;
     smoke.done = true;
   }
 }
 
-static void V8HOST_CDECL smokeRunEvent(
-    void *data, v8host_run, v8host_run_event event, v8host_status status) {
-  if (event == v8host_run_event_started) return;
+static void V8SBHOST_CDECL smokeRunEvent(
+    void *data, v8sbhost_run, v8sbhost_run_event event, v8sbhost_status status) {
+  if (event == v8sbhost_run_event_started) return;
   auto &smoke = *static_cast<SandboxSmoke *>(data);
-  smoke.completed = event == v8host_run_event_completed;
+  smoke.completed = event == v8sbhost_run_event_completed;
   smoke.status = status;
   smoke.done = true;
 }
@@ -117,45 +120,45 @@ static bool pumpSandbox(SandboxSmoke &smoke, bool waitForRun) {
       ::MsgWaitForMultipleObjectsEx(0, nullptr, 10, QS_ALLINPUT,
                                    MWMO_INPUTAVAILABLE);
   }
-  return !smoke.done || (smoke.completed && smoke.status == v8host_status_ok);
+  return !smoke.done || (smoke.completed && smoke.status == v8sbhost_status_ok);
 }
 
-static v8host_status V8HOST_CDECL configureSmokeSession(
-    void *, v8host_config config) {
-  auto status = v8host_config_set_broker_mode(config, v8host_broker_mode_dedicated);
-  if (status != v8host_status_ok) return status;
-  return v8host_config_set_prohibit_dynamic_code(config, true);
+static v8sbhost_status V8SBHOST_CDECL configureSmokeSession(
+    void *, v8sbhost_config config) {
+  auto status = v8sbhost_config_set_broker_mode(config, v8sbhost_broker_mode_dedicated);
+  if (status != v8sbhost_status_ok) return status;
+  return v8sbhost_config_set_prohibit_dynamic_code(config, true);
 }
 
-static v8host_status V8HOST_CDECL configureSmokeRun(
-    void *, v8host_run_config config) {
+static v8sbhost_status V8SBHOST_CDECL configureSmokeRun(
+    void *, v8sbhost_run_config config) {
   static const char script[] =
       "if (1 + 2 !== 3) throw new Error('smoke'); host.complete();";
-  return v8host_run_config_set_payload(config, script, sizeof(script) - 1);
+  return v8sbhost_run_config_set_payload(config, script, sizeof(script) - 1);
 }
 
 static int runSandboxClientChecks() {
   MSG msg;
   ::PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);
-  if (v8host_initialize(V8HOST_ABI_VERSION) != v8host_status_ok)
-    FAIL("v8host_initialize failed");
+  if (v8sbhost_initialize(V8SBHOST_ABI_VERSION) != v8sbhost_status_ok)
+    FAIL("v8sbhost_initialize failed");
 
   SandboxSmoke smoke;
-  v8host_session session = nullptr;
-  if (v8host_session_open(configureSmokeSession, nullptr, &session) !=
-      v8host_status_ok)
-    FAIL("v8host_session_open failed");
-  v8host_callbacks callbacks = V8HOST_CALLBACKS_INIT;
+  v8sbhost_session session = nullptr;
+  if (v8sbhost_session_open(configureSmokeSession, nullptr, &session) !=
+      v8sbhost_status_ok)
+    FAIL("v8sbhost_session_open failed");
+  v8sbhost_callbacks callbacks = V8SBHOST_CALLBACKS_INIT;
   callbacks.user_data = &smoke;
   callbacks.on_session_state = smokeSessionState;
   callbacks.on_run_event = smokeRunEvent;
-  bool ok = v8host_session_set_callbacks(session, &callbacks) == v8host_status_ok &&
+  bool ok = v8sbhost_session_set_callbacks(session, &callbacks) == v8sbhost_status_ok &&
       pumpSandbox(smoke, false);
-  v8host_run run = nullptr;
+  v8sbhost_run run = nullptr;
   if (ok)
-    ok = v8host_session_start_run(session, configureSmokeRun, nullptr, &run) ==
-        v8host_status_ok && pumpSandbox(smoke, true);
-  v8host_session_close(session);
+    ok = v8sbhost_session_start_run(session, configureSmokeRun, nullptr, &run) ==
+        v8sbhost_status_ok && pumpSandbox(smoke, true);
+  v8sbhost_session_close(session);
   if (!ok) {
     std::fprintf(stderr, "test-harness: sandbox client failed/timed out (0x%x)\n",
                  static_cast<unsigned>(smoke.status));
@@ -165,12 +168,12 @@ static int runSandboxClientChecks() {
 }
 #endif
 
-// The shared JSI-ABI exercises. Run identically against v8jsi.dll (default) and
-// v8jsisb.dll (SMOKE_SANDBOX) — all are jitless-compatible (no JIT required).
-static int runJsiChecks(jsi::Runtime &runtime) {
+// The shared JSI-ABI exercises. Run identically against v8jsi2.dll (default) and
+// v8jsi2sb.dll (SMOKE_SANDBOX) — all are jitless-compatible (no JIT required).
+static int runJsiChecks(fbjsi::Runtime &runtime) {
   // 1) Baseline number evaluation.
   {
-    auto src = std::make_shared<jsi::StringBuffer>("1 + 2");
+    auto src = std::make_shared<fbjsi::StringBuffer>("1 + 2");
     auto r = runtime.evaluateJavaScript(src, "smoke-num.js");
     if (!r.isNumber() || r.getNumber() != 3.0) FAIL("1 + 2 != 3");
   }
@@ -180,7 +183,7 @@ static int runJsiChecks(jsi::Runtime &runtime) {
   //    consumer-compiled). The returned std::string lives entirely in the
   //    consumer's CRT heap; the DLL never sees the std::string object.
   {
-    auto src = std::make_shared<jsi::StringBuffer>("'hello, ' + 'world'");
+    auto src = std::make_shared<fbjsi::StringBuffer>("'hello, ' + 'world'");
     auto r = runtime.evaluateJavaScript(src, "smoke-str.js");
     if (!r.isString()) FAIL("expected string result");
     std::string utf8 = r.asString(runtime).utf8(runtime);
@@ -201,18 +204,18 @@ static int runJsiChecks(jsi::Runtime &runtime) {
   //    the C ABI host-function callback.
   {
     int calls = 0;
-    auto fn = jsi::Function::createFromHostFunction(
+    auto fn = fbjsi::Function::createFromHostFunction(
         runtime,
-        jsi::PropNameID::forAscii(runtime, "add"),
+        fbjsi::PropNameID::forAscii(runtime, "add"),
         2,
-        [&calls](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *a,
-                 size_t n) -> jsi::Value {
+        [&calls](fbjsi::Runtime &rt, const fbjsi::Value &, const fbjsi::Value *a,
+                 size_t n) -> fbjsi::Value {
           ++calls;
           if (n != 2 || !a[0].isNumber() || !a[1].isNumber())
-            throw jsi::JSError(rt, "bad args");
-          return jsi::Value(a[0].getNumber() + a[1].getNumber());
+            throw fbjsi::JSError(rt, "bad args");
+          return fbjsi::Value(a[0].getNumber() + a[1].getNumber());
         });
-    auto r = fn.call(runtime, jsi::Value(7.0), jsi::Value(35.0));
+    auto r = fn.call(runtime, fbjsi::Value(7.0), fbjsi::Value(35.0));
     if (!r.isNumber() || r.getNumber() != 42.0) FAIL("host fn result != 42");
     if (calls != 1) FAIL("host fn call counter != 1");
   }
@@ -222,11 +225,11 @@ static int runJsiChecks(jsi::Runtime &runtime) {
   //    via jsi_status; thrown and caught entirely in the consumer's CRT. The
   //    engine never participates in the exception unwinding.
   {
-    auto src = std::make_shared<jsi::StringBuffer>("throw new Error('boom')");
+    auto src = std::make_shared<fbjsi::StringBuffer>("throw new Error('boom')");
     bool caught = false;
     try {
       runtime.evaluateJavaScript(src, "smoke-throw.js");
-    } catch (const jsi::JSError &) {
+    } catch (const fbjsi::JSError &) {
       caught = true;
     }
     if (!caught) FAIL("JSError was not propagated to consumer");
@@ -234,6 +237,24 @@ static int runJsiChecks(jsi::Runtime &runtime) {
 
   return 0;
 }
+
+#ifndef SMOKE_SANDBOX
+// Keep the module loaded until every runtime/value created through its API dies.
+static int runMacroLoadChecks() {
+  struct Module {
+    HMODULE handle = ::LoadLibraryW(V8JSI_DLL_NAME_W);
+    ~Module() { if (handle) ::FreeLibrary(handle); }
+  } module;
+  if (!module.handle) FAIL("LoadLibraryW(V8JSI_DLL_NAME_W) failed");
+  auto create = reinterpret_cast<v8_jsi_abi_runtime_create_fn>(
+      ::GetProcAddress(module.handle, "v8_jsi_abi_runtime_create"));
+  if (!create) FAIL("GetProcAddress(v8_jsi_abi_runtime_create) failed");
+  auto runtime = jsi::abi::makeJsiAbiRuntime(create);
+  if (int rc = runJsiChecks(*runtime)) return rc;
+  std::printf("test-harness: macro LoadLibrary/GetProcAddress/evaluate OK\n");
+  return 0;
+}
+#endif
 
 // Read a whole file into a byte string. Returns false on any open/read failure.
 static bool readFileBytes(const char *path, std::string &out) {
@@ -269,7 +290,7 @@ static int runSnapshotScenario(const char *blobPath, bool expectMarker) {
   }
   v8runtime::V8RuntimeArgs args;
   args.startupSnapshotBlob =
-      std::make_shared<jsi::StringBuffer>(std::move(blob));
+      std::make_shared<fbjsi::StringBuffer>(std::move(blob));
   auto runtime = v8runtime::makeV8Runtime(std::move(args));
   if (!runtime) FAIL("makeV8Runtime(snapshot) returned null");
 
@@ -286,7 +307,7 @@ static int runSnapshotScenario(const char *blobPath, bool expectMarker) {
 
   // Liveness: the runtime must still evaluate JS in either case.
   auto r = runtime->evaluateJavaScript(
-      std::make_shared<jsi::StringBuffer>("1 + 1"), "snapshot-live.js");
+      std::make_shared<fbjsi::StringBuffer>("1 + 1"), "snapshot-live.js");
   if (!r.isNumber() || r.getNumber() != 2.0)
     FAIL("runtime not live after the snapshot path");
 
@@ -307,7 +328,7 @@ static int runJitlessScenario() {
     auto runtime = v8runtime::makeV8Runtime(std::move(args));
     if (!runtime) FAIL("makeV8Runtime(jitless) returned null");
     auto result = runtime->evaluateJavaScript(
-        std::make_shared<jsi::StringBuffer>(
+        std::make_shared<fbjsi::StringBuffer>(
             "typeof WebAssembly === 'undefined' && 1 + 2 === 3"),
         "jitless-smoke.js");
     if (!result.isBool() || !result.getBool())
@@ -338,25 +359,29 @@ int main(int argc, char **argv) {
     if (snapshotPath)
       return runSnapshotScenario(snapshotPath, expectMarker);
 
-    // The delay-load redirect to v8jsisb.dll is installed by the file-scope
+    // The delay-load redirect to v8jsi2sb.dll is installed by the file-scope
     // __pfnDliNotifyHook2 definition above (SMOKE_SANDBOX builds only), so it is
-    // already in effect before the first v8jsi.dll delay-import below.
+    // already in effect before the first v8jsi2.dll delay-import below.
     v8runtime::V8RuntimeArgs args;
     auto runtime = v8runtime::makeV8Runtime(std::move(args));
     if (!runtime) FAIL("makeV8Runtime returned null");
 
     if (int rc = runJsiChecks(*runtime)) return rc;
 
+#ifndef SMOKE_SANDBOX
+    if (int rc = runMacroLoadChecks()) return rc;
+#endif
+
 #ifdef SMOKE_SANDBOX
-    // Confirm v8jsisb.dll actually backed the runtime (the redirect resolved).
-    if (!::GetModuleHandleW(L"v8jsisb.dll"))
-      FAIL("v8jsisb.dll was not loaded — delay-load redirect did not take");
+    // Confirm v8jsi2sb.dll actually backed the runtime (the redirect resolved).
+    if (!::GetModuleHandleW(L"v8jsi2sb.dll"))
+      FAIL("v8jsi2sb.dll was not loaded — delay-load redirect did not take");
 
     if (int rc = runSandboxClientChecks()) return rc;
 
     std::printf(
         "test-harness: sandbox smoke OK "
-        "(v8jsisb.dll via JSI + v8host.dll client/session/run API)\n");
+        "(v8jsi2sb.dll via JSI + v8sbhost.dll client/session/run API)\n");
 #else
     std::printf("test-harness: cross-CRT smoke OK\n");
 #endif

@@ -49,7 +49,7 @@ inline constexpr uint8_t kMagic[4] = {'V', '8', 'S', 'N'};
 
 // Compile-time identity of the V8 build. The blob is only loadable by an engine
 // with the same value. These macros reach v8jsi's own sources via common.gypi
-// (see src/v8jsi.gyp) and separate v8jsi.dll (cage off) from v8jsisb.dll (cage +
+// (see src/v8jsi.gyp) and separate v8jsi2.dll (cage off) from v8jsi2sb.dll (cage +
 // shared-cage + external-code-space on). Computed identically on the write and
 // validate paths, so identical builds always agree and differently-configured
 // engines always differ — independent of runtime flags or init state.

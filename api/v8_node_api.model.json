@@ -12,7 +12,7 @@
       "macroPrefix": "V8_NODE_API",
       "status": "napi_status",
       "headers": ["src/node-api/v8_node_api.h"],
-      "includeDirs": ["src"],
+      "includeDirs": ["src", "src/public"],
       "defines": [],
       "stelaHeader": "src/node-api/v8_node_api_stela.h",
       "declarations": [
@@ -28,7 +28,7 @@
         {
           "kind": "macro",
           "name": "V8_NODE_API_ABI_VERSION",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 36, "column": 9},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 37, "column": 9},
           "doc": null,
           "annotations": [],
           "functionLike": false,
@@ -42,7 +42,7 @@
         {
           "kind": "macro",
           "name": "V8_NODE_API_AUTO_LENGTH",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 39, "column": 9},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 40, "column": 9},
           "doc": null,
           "annotations": [],
           "functionLike": false,
@@ -56,7 +56,7 @@
         {
           "kind": "macro",
           "name": "V8_NODE_API_CDECL",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 44, "column": 9},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 45, "column": 9},
           "doc": null,
           "annotations": [],
           "functionLike": false,
@@ -65,7 +65,7 @@
         {
           "kind": "macro",
           "name": "V8_NODE_API_API",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 62, "column": 9},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 63, "column": 9},
           "doc": null,
           "annotations": [],
           "functionLike": false,
@@ -74,7 +74,7 @@
         {
           "kind": "struct",
           "name": "v8_node_api_runtime_s",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 70, "column": 16},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 71, "column": 16},
           "doc": null,
           "annotations": [],
           "fields": [],
@@ -83,7 +83,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_runtime",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 70, "column": 39},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 71, "column": 39},
           "doc": null,
           "annotations": [],
           "type": {"pointer": {"name": "v8_node_api_runtime_s"}},
@@ -108,7 +108,7 @@
         {
           "kind": "struct",
           "name": "v8_node_api_config_s",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 71, "column": 16},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 72, "column": 16},
           "doc": null,
           "annotations": [],
           "fields": [],
@@ -117,7 +117,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 71, "column": 38},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 72, "column": 38},
           "doc": null,
           "annotations": [],
           "type": {"pointer": {"name": "v8_node_api_config_s"}},
@@ -142,7 +142,7 @@
         {
           "kind": "struct",
           "name": "v8_node_api_prepared_script_s",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 72, "column": 16},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 73, "column": 16},
           "doc": null,
           "annotations": [],
           "fields": [],
@@ -151,7 +151,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_prepared_script",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 72, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 73, "column": 47},
           "doc": null,
           "annotations": [],
           "type": {"pointer": {"name": "v8_node_api_prepared_script_s"}},
@@ -176,7 +176,7 @@
         {
           "kind": "struct",
           "name": "v8_node_api_env_scope_s",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 73, "column": 16},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 74, "column": 16},
           "doc": null,
           "annotations": [],
           "fields": [],
@@ -185,7 +185,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_scope",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 73, "column": 41},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 74, "column": 41},
           "doc": null,
           "annotations": [],
           "type": {"pointer": {"name": "v8_node_api_env_scope_s"}},
@@ -210,7 +210,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_data_delete_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 80, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 81, "column": 33},
           "doc": "Releases data transferred to the implementation. The callback receives its\nclosure first and the owned data second. It runs synchronously on whichever\nthread releases the data and must not reenter an environment being torn down.",
           "annotations": [],
           "type": {
@@ -290,7 +290,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_task_run_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 88, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 89, "column": 33},
           "doc": "Runs one posted task on the host-selected runtime thread. It enters the\nruntime and must not be invoked reentrantly or after delete_task.",
           "annotations": [],
           "type": {
@@ -358,7 +358,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_task_runner_post_task_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 95, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 96, "column": 33},
           "doc": "Posts a task to the host runner. The host owns task_data until it calls\ndelete_task exactly once, normally after run_task. The callback may be\ninvoked from any V8 thread and must not reenter the runtime synchronously.",
           "annotations": [],
           "type": {
@@ -591,7 +591,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_script_cache_load_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 110, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 111, "column": 33},
           "doc": "Synchronously loads a cache buffer. A returned buffer remains valid until\nthe implementation calls out_delete_buffer(out_delete_data, out_buffer).\nIt runs on the thread preparing the script and preserves the existing\ncallback's ability to reenter host code.",
           "annotations": [],
           "type": {
@@ -883,7 +883,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_script_cache_store_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 128, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 129, "column": 33},
           "doc": "Synchronously stores a cache buffer. The callback takes ownership of buffer\nand must eventually invoke delete_buffer(delete_data, buffer). It runs on\nthe thread preparing the script and may reenter host code as before.",
           "annotations": [],
           "type": {
@@ -1135,7 +1135,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_utf8_output_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 145, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 146, "column": 33},
           "doc": "Synchronous visitor on the API caller's thread. data is borrowed only for\nthe call; the visitor must not reenter the same environment.",
           "annotations": [],
           "type": {
@@ -1231,7 +1231,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_heap_info_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 154, "column": 33},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 155, "column": 33},
           "doc": "Synchronous visitor on the API caller's thread. key_utf8 is borrowed only\nfor the call; the visitor must not reenter the same environment.",
           "annotations": [],
           "type": {
@@ -1327,7 +1327,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_configure_runtime_cb",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 165, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 166, "column": 40},
           "doc": "Configures a factory-owned config. The config is valid only during the\nsynchronous call on the factory caller's thread. Only config setters may be\ncalled; no runtime exists to reenter. Returning a failure status aborts\ncreation with that status.",
           "annotations": [],
           "type": {
@@ -1415,7 +1415,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_runtime_create",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 174, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 175, "column": 47},
           "doc": "Creates a hosted V8 runtime. configure may be NULL for defaults. The first\nfailing setter poisons config and creation returns that status. out_runtime\nis set to NULL before validation.",
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -1447,7 +1447,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_runtime_create_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 180, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 181, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1620,7 +1620,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_runtime_destroy",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 188, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 189, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -1637,7 +1637,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_runtime_destroy_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 189, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 190, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1717,7 +1717,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_runtime_get_env",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 192, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 193, "column": 47},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -1735,7 +1735,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_runtime_get_env_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 195, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 196, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1831,7 +1831,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_runtime_get_jsi_runtime",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 204, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 205, "column": 1},
           "doc": "Returns a JSI ABI runtime borrowed for the lifetime of runtime. The caller\nmust not release it.",
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -1853,7 +1853,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_runtime_get_jsi_runtime_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 208, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 209, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -1953,7 +1953,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_inspector_enabled",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 214, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 215, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -1971,7 +1971,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_inspector_enabled_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 218, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 219, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2055,7 +2055,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_inspector_runtime_name_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 223, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 224, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2078,7 +2078,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_inspector_runtime_name_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 228, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 229, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2182,7 +2182,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_inspector_port",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 234, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 235, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2200,7 +2200,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_inspector_port_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 238, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 239, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2284,7 +2284,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_inspector_break_on_start",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 243, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 244, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2302,7 +2302,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_inspector_break_on_start_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 247, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 248, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2386,7 +2386,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_gc_api_enabled",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 252, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 253, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2404,7 +2404,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_gc_api_enabled_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 256, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 257, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2488,7 +2488,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_multithreading_enabled",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 261, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 262, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2506,7 +2506,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_multithreading_enabled_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 265, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 266, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -2590,7 +2590,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_task_runner",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 275, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 276, "column": 1},
           "doc": "Retains post_task and user_data until runtime destruction. On failure, or\nat runtime destruction, delete_user_data(delete_data, user_data) is invoked\nexactly once when non-NULL.",
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -2634,7 +2634,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_task_runner_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 284, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 285, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -3035,7 +3035,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_config_set_script_cache",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 301, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 302, "column": 1},
           "doc": "Retains the callbacks and user_data until runtime destruction. Calls may be\nsynchronous and reentrant. On failure, or at runtime destruction,\ndelete_user_data(delete_data, user_data) is invoked exactly once when\nnon-NULL.",
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -3088,7 +3088,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_config_set_script_cache_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 313, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 314, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -3798,7 +3798,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_scope_open",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 326, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 327, "column": 47},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -3820,7 +3820,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_scope_open_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 329, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 330, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -3920,7 +3920,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_scope_close",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 333, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 334, "column": 47},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -3938,7 +3938,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_scope_close_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 336, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 337, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4034,7 +4034,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_get_description_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 341, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 342, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4056,7 +4056,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_get_description_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 345, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 346, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4156,7 +4156,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_queue_microtask",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 350, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 351, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4174,7 +4174,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_queue_microtask_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 351, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 352, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4270,7 +4270,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_drain_microtasks",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 356, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 357, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4289,7 +4289,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_drain_microtasks_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 360, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 361, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4381,7 +4381,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_is_inspectable",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 366, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 367, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4399,7 +4399,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_is_inspectable_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 369, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 370, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4487,7 +4487,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_run_script_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 373, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 374, "column": 47},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4512,7 +4512,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_run_script_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 380, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 381, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4655,7 +4655,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_prepared_script_create_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 389, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 390, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4703,7 +4703,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_prepared_script_create_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 401, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 402, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -4940,7 +4940,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_prepared_script_destroy",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 414, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 415, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -4958,7 +4958,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_prepared_script_destroy_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 418, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 419, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5058,7 +5058,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_prepared_script_run",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 423, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 424, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5077,7 +5077,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_prepared_script_run_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 427, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 428, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5197,7 +5197,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_get_recorded_gc_stats_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 433, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 434, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5224,7 +5224,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_get_recorded_gc_stats_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 438, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 439, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5404,7 +5404,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_get_heap_info",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 444, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 445, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5432,7 +5432,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_get_heap_info_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 449, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 450, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5616,7 +5616,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_collect_garbage_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 456, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 457, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5639,7 +5639,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_collect_garbage_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 461, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 462, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5743,7 +5743,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_start_heap_sampling",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 467, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 468, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5761,7 +5761,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_start_heap_sampling_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 469, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 470, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -5845,7 +5845,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_stop_heap_sampling_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 474, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 475, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -5872,7 +5872,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_stop_heap_sampling_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 479, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 480, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6052,7 +6052,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_create_heap_snapshot_utf8",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 485, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 486, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6080,7 +6080,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_create_heap_snapshot_utf8_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 491, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 492, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6264,7 +6264,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_request_garbage_collection",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 498, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 499, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6279,7 +6279,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_request_garbage_collection_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 500, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 501, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6357,7 +6357,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_has_unhandled_promise_rejection",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 504, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 505, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6379,7 +6379,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_has_unhandled_promise_rejection_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 508, "column": 24},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 509, "column": 24},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6467,7 +6467,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_get_and_clear_last_unhandled_promise_rejection",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 513, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 514, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6489,7 +6489,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_get_and_clear_last_unhandled_promise_rejection_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 518, "column": 10},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 519, "column": 10},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6589,7 +6589,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_create_module",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 523, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 524, "column": 1},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6608,7 +6608,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_create_module_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 527, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 528, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6708,7 +6708,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_env_run_task",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 532, "column": 47},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 533, "column": 47},
           "doc": null,
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6731,7 +6731,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_env_run_task_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 536, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 537, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {
@@ -6881,7 +6881,7 @@
         {
           "kind": "function",
           "name": "v8_node_api_dispose_platform",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 543, "column": 1},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 544, "column": 1},
           "doc": "Disposes the process-wide V8 platform.",
           "annotations": [],
           "result": {"type": {"name": "napi_status"}},
@@ -6896,7 +6896,7 @@
         {
           "kind": "typedef",
           "name": "v8_node_api_dispose_platform_fn",
-          "location": {"file": "src/node-api/v8_node_api.h", "line": 544, "column": 40},
+          "location": {"file": "src/node-api/v8_node_api.h", "line": 545, "column": 40},
           "doc": null,
           "annotations": [],
           "type": {

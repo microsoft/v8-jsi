@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 // ----------------------------------------------------------------------------
 // This file is referenced from js_native_api_v8.cc when compiled into the
-// new v8jsi.dll (JSI_ABI_BUILDING). It replaces V8Runtime-based private-key
+// new v8jsi2.dll (JSI_ABI_BUILDING). It replaces V8Runtime-based private-key
 // lookup with the per-isolate IsolateData lookup this architecture
 // exposes. The legacy js_native_api_v8_internals.h (master state) stays
 // unchanged through PR 1+2; the rename-on-delete collapse happens in PR 3.

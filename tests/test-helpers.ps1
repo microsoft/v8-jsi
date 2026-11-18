@@ -41,7 +41,7 @@ function Get-Rid {
 
 # Restore the latest per-RID .nupkg into tests/packages/ against a local feed.
 # Returns the package id/version + the resolved .props/.targets and the native
-# binary dir (runtimes/<rid>/native, where v8jsi.dll / v8jsisb.dll /
+# binary dir (runtimes/<rid>/native, where v8jsi2.dll / v8jsi2sb.dll /
 # mkv8snapshot.exe live).
 function Restore-V8Package {
     param([string]$HarnessDir, [string]$PkgDir, [string]$Rid)
@@ -130,7 +130,7 @@ function Assert-SandboxUnsupported {
     )
     $msbuild = Get-MSBuild
     $output = & $msbuild (Join-Path $HarnessDir 'consumer.vcxproj') `
-        "/t:V8HostSandboxUnsupportedPlatform_$Rid" `
+        "/t:V8SbHostSandboxUnsupportedPlatform_$Rid" `
         "/p:Configuration=$Configuration" "/p:Platform=$(Get-MSBuildPlatform $Platform)" `
         "/p:V8JsiPackageProps=$PkgProps" "/p:V8JsiPackageTargets=$PkgTargets" `
         "/p:V8JsiRuntimeIdentifier=$Rid" /p:UseV8Sandbox=true /nologo /v:minimal 2>&1
@@ -143,7 +143,7 @@ function Assert-SandboxUnsupported {
 }
 
 # Build consumer.vcxproj against the restored package. -UseV8Sandbox opts into
-# the sandbox surface (v8host include + v8host.dll.lib, all three binaries copied,
+# the sandbox surface (v8sbhost include + v8sbhost.dll.lib, all three binaries copied,
 # SMOKE_SANDBOX defined). Returns the path to the produced v8jsi_smoke.exe.
 function Build-Consumer {
     param(

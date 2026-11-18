@@ -125,7 +125,7 @@ TEST(Basic, CreateManyRuntimes) {
 //   v8jsi_test.exe --gtest_also_run_disabled_tests --gtest_filter=*DISABLED_SnapshotConsume
 // The Consume isolate is then the only isolate in its process, so its custom
 // blob defines the process read-only heap — the real (one-isolate-per-process)
-// deployment shape used by v8host.
+// deployment shape used by v8sbhost.
 namespace {
 const char *kSnapshotTestBlobPath = "e:\\tmp\\v8jsi_test_snapshot.bin";
 
@@ -2419,7 +2419,7 @@ napi_status V8_NODE_API_CDECL configureNodeApiGc(
 }  // namespace
 
 // Node-API revival smoke test. Confirms that the napi_*/v8_node_api_* surface
-// compiled into v8jsi.dll works end-to-end:
+// compiled into v8jsi2.dll works end-to-end:
 //   1. Create a v8_node_api_runtime with a pull-config callback.
 //   2. Obtain the napi_env and open an env scope.
 //   3. Run a trivial JS script via napi_run_script and read back a number.

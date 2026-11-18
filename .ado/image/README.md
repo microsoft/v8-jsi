@@ -266,7 +266,7 @@ OS) lets SBoM run on the ARM64 cells.
 LibNode enables V8's Temporal implementation, which the vendored Node.js build
 compiles from the Rust `temporal_rs` crates with Cargo. Both Windows images
 provide public Rust; Microsoft Rust is installed separately by the Windows
-LibNode jobs as described below. `v8jsi.dll` and `v8jsisb.dll` disable Temporal
+LibNode jobs as described below. `v8jsi2.dll` and `v8jsi2sb.dll` disable Temporal
 and do not need Rust. The Chromium sandbox build does not use it either.
 
 The factory artifact `windows-install-public-rust-toolchain` installs the

@@ -30,9 +30,9 @@ export interface StelaTemplate {
 }
 
 export interface VendorOptions {
-  /** The library's macro prefix, such as `V8HOST`. */
+  /** The library's macro prefix, such as `V8SBHOST`. */
   readonly macroPrefix: string;
-  /** The generated file's base name, such as `v8host_stela.h`. */
+  /** The generated file's base name, such as `v8sbhost_stela.h`. */
   readonly fileName: string;
   /** Per-name overrides: vocabulary name (without `STELA_`) → full macro name. */
   readonly stelaNames?: Readonly<Record<string, string>>;

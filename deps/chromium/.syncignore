@@ -139,7 +139,7 @@
 /BUILD.gn
 /out/**
 /sbox/**
-/v8host/**
+/v8sbhost/**
 /test_app/**
 /jsi_cpp/**
 /chrome/**

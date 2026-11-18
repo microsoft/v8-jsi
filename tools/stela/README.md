@@ -48,7 +48,7 @@ directory.
 `stela vendor` generates one `<lib>_stela.h` per library from it, with the
 library's macro prefix:
 
-- `STELA_<NAME>` becomes `<LIB>_<NAME>`: `V8HOST_NULLABLE`, `V8HOST_ENUM`.
+- `STELA_<NAME>` becomes `<LIB>_<NAME>`: `V8SBHOST_NULLABLE`, `V8SBHOST_ENUM`.
 - The internal helpers become `<LIB>_STELA_VERSION`, `<LIB>_STELA_ANNOTATE_`,
   and `<LIB>_STELA_FIXED_ENUMS_`.
 - `STELA_EXTRACT` keeps its name. It's the extractor's command-line switch.
@@ -74,12 +74,12 @@ node tools\stela\src\stela.ts diff              # compare the model with the bas
 node tools\stela\src\stela.ts diff --base old.model.json --head new.model.json
 node tools\stela\src\stela.ts baseline          # refresh every configured baseline
 node tools\stela\src\stela.ts baseline --out pkg\stela sbox   # write pkg\stela\sbox.model.json
-node tools\stela\src\stela.ts gen embed --binary v8host.dll --target x86_64-pc-windows-msvc --out out\stela
-node tools\stela\src\stela.ts show v8host.dll   # print the API a binary's manifest describes
-node tools\stela\src\stela.ts verify v8host.dll sbox.exe   # exports against manifests
-node tools\stela\src\stela.ts check v8host.dll --config stela.config.json
-node tools\stela\src\stela.ts check v8host.dll --headers include\sbox.h include\v8host_client.h
-node tools\stela\src\stela.ts diff --base old\v8host.dll --head v8host.dll
+node tools\stela\src\stela.ts gen embed --binary v8sbhost.dll --target x86_64-pc-windows-msvc --out out\stela
+node tools\stela\src\stela.ts show v8sbhost.dll   # print the API a binary's manifest describes
+node tools\stela\src\stela.ts verify v8sbhost.dll sbox.exe   # exports against manifests
+node tools\stela\src\stela.ts check v8sbhost.dll --config stela.config.json
+node tools\stela\src\stela.ts check v8sbhost.dll --headers include\sbox.h include\v8sbhost_client.h
+node tools\stela\src\stela.ts diff --base old\v8sbhost.dll --head v8sbhost.dll
 ```
 
 Options: `--config <file>` (default `stela.config.json` in the current
@@ -253,11 +253,11 @@ C99 floor; layout tests need C11 for `_Static_assert`. v8-jsi runs both in
   "schema": "stela.config/1",
   "libraries": [
     {
-      "name": "v8host",
-      "prefix": "v8host",
-      "macroPrefix": "V8HOST",
-      "headers": ["src/public/v8host_client.h"],
-      "stelaHeader": "src/public/v8host_stela.h"
+      "name": "v8sbhost",
+      "prefix": "v8sbhost",
+      "macroPrefix": "V8SBHOST",
+      "headers": ["src/public/v8sbhost_client.h"],
+      "stelaHeader": "src/public/v8sbhost_stela.h"
     }
   ]
 }
@@ -267,7 +267,7 @@ C99 floor; layout tests need C11 for `_Static_assert`. v8-jsi runs both in
   first header. An extension library sets it to `false` and uses its base
   library's file.
 - `stelaNames` gives one annotation a longer name if it clashes with a library
-  macro that can't change: `{ "DEPRECATED": "V8HOST_STELA_DEPRECATED" }`.
+  macro that can't change: `{ "DEPRECATED": "V8SBHOST_STELA_DEPRECATED" }`.
 - `status` names the library's status type (default `<prefix>_status`).
 - `targets` (top level) lists every target the model covers, as clang
   triples; a library's own `targets` narrows it to a subset, in the same
