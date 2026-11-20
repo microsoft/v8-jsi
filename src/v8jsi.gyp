@@ -462,6 +462,7 @@
       'sources': [
         # Test main with runtime factory (no Node-API)
         '<(v8jsi_root)/src/jsitests_main.cpp',
+        '<(v8jsi_root)/src/cet_tests.cpp',
         # JSI test library
         '<(v8jsi_root)/src/jsi/test/testlib.cpp',
         '<(v8jsi_root)/src/jsi/test/testlib.h',

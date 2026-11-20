@@ -457,11 +457,31 @@ function runTests(platform: string, configuration: string): void {
   cetEnv.CETRUN_TIMEOUT_MS = String(30 * 60 * 1000);
   // Death-test children do not inherit policy: the CETCOMPAT test exe runs
   // them in compat mode on CET hosts, which is intentional.
-  cetEnv.V8JSI_TEST_V8_FLAGS = "--allow-natives-syntax";
-  console.log("\n=== Strict CET: full JSI suite ===");
-  let passed = runCetSuite(path.join(outDir, "cetrun.exe"),
-    ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
-  delete cetEnv.V8JSI_TEST_V8_FLAGS; // Never forward V8 flags to node_lite.
+  let passed = true;
+  try {
+    cetEnv.V8JSI_TEST_V8_FLAGS = "--allow-natives-syntax";
+    console.log("\n=== Strict CET: full JSI suite (flags: --allow-natives-syntax) ===");
+    passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+      ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
+    // The sandbox engine is jitless; run its strict suite once, not the matrix.
+    if (!args["build-v8jsisb"]) {
+      const interpreterFlags = "--allow-natives-syntax --no-sparkplug --no-maglev --no-turbofan";
+      const rows = [
+        ["interpreter", interpreterFlags],
+        ["jitless", "--allow-natives-syntax --jitless"],
+        ["native-stack", `${interpreterFlags} --interpreted-frames-native-stack`],
+      ];
+      for (const [name, flags] of rows) {
+        cetEnv.V8JSI_TEST_V8_FLAGS = flags;
+        console.log(`\n=== Strict CET: ${name} (flags: ${flags}) ===`);
+        passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+          ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_filter=*CetShadowStack.*",
+            "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"], cetEnv) && passed;
+      }
+    }
+  } finally {
+    delete cetEnv.V8JSI_TEST_V8_FLAGS; // Never forward V8 flags to node_lite.
+  }
   cetEnv.V8JSI_TEST_CET = "strict";
   console.log("\n=== Strict CET: per-child Node-API suite ===");
   passed = runCetSuite(path.join(outDir, "node_api_tests.exe"), ["--gtest_brief=1"], cetEnv) && passed;
