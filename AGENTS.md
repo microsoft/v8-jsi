@@ -136,16 +136,20 @@ nested child launches), rather than just the parent test runner. Unavailable
 CET is counted as a GoogleTest skip. `V8JSI_TEST_V8_FLAGS` supplies flags to
 the JSI runner before V8 initialization; do not forward it to node_lite.
 
-The normal x64 matrix runs the full strict JSI suite with
+The x64 matrix runs the full JSI suite under `off` without extra flags.
+The normal x64 matrix also runs the full strict JSI suite with
 `--allow-natives-syntax`, then focused `*CetShadowStack.*` rows for interpreter
 (`--no-sparkplug --no-maglev --no-turbofan`), jitless (`--jitless`), and native
 interpreter stack (`--interpreted-frames-native-stack` plus interpreter flags).
-All rows allow natives syntax; focused rows reject an empty selection.
-Off/compat rows exercise Wasm and JSPI; off plus `--cet-compatible` and strict plus
-`--no-cet-compatible` exercise JSPI policy gating only, not unsafe deopt.
+All focused rows allow natives syntax and reject an empty selection.
+Off/compat rows exercise Wasm and JSPI. Off plus `--cet-compatible` covers
+`*CetShadowStack.*` and `*JsiAbiInspector.Cet*`, including debugger code generation
+without hardware CET. Strict plus `--no-cet-compatible` tests JSPI policy gating
+only, not unsafe deopt. Unavailable strict coverage also emits a CI warning.
 The per-child strict Node-API suite follows, without JSI V8 flags. The jitless
-sandbox engine runs its full strict JSI suite once and per-child strict
-Node-API suite once, not the normal-engine flag matrix.
+sandbox engine runs its full JSI suite once under `off` and once under
+`strict`, plus its per-child strict Node-API suite once, not the normal-engine
+flag matrix.
 
 ## Symbols and Source Link
 

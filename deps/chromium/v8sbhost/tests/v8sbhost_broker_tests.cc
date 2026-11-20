@@ -59,6 +59,8 @@ V8SBHOST_SAME_VALUE(v8sbhost_broker_mode_shared, sbox_broker_mode_shared);
 
 namespace {
 
+constexpr char kCetUnavailable[] = "SKIP: user CET not available";
+
 using v8sbhost::BrokerConnection;
 using v8sbhost::BrokerMode;
 using v8sbhost::BrokerRendezvous;
@@ -5590,7 +5592,7 @@ bool PublicCetCatchStress(std::string* detail) {
   const auto available = reinterpret_cast<UserCetAvailable>(
       ::GetProcAddress(::GetModuleHandleW(L"kernel32.dll"), "IsUserCetAvailableInEnvironment"));
   if (!available || !available(0)) {
-    *detail = "SKIP: user CET not available"; return true;
+    *detail = kCetUnavailable; return true;
   }
   // The trusted pass uses naturally warmed code; optimized frames are not asserted.
   // The untrusted pass is jitless; depth 300 exceeds incsspq's 255-entry limit.
@@ -7283,8 +7285,8 @@ bool BuildOutputPublicCase(const char* name, std::string* detail, const std::wst
       " job_empty=" + std::to_string(result.empty) + " profile_removed=" + std::to_string(removed);
   const bool passed = removed && ChildPassed(result, name);
   if (passed && std::strcmp(name, "cet-catch-stress") == 0 &&
-      result.output.find("child/cet-catch-stress: PASS - SKIP: user CET not available") != std::string::npos) {
-    *detail = "SKIP: user CET not available; " + *detail;
+      result.output.find(std::string("child/cet-catch-stress: PASS - ") + kCetUnavailable) != std::string::npos) {
+    *detail = std::string(kCetUnavailable) + "; " + *detail;
   }
   return passed;
 }

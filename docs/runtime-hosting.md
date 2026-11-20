@@ -32,7 +32,8 @@ unsafe and can crash during exception unwinding or deoptimization. Setting
 the flag does not disable the operating system's shadow-stack policy.
 The sandbox engine (`v8jsi2sb.dll`) has CET support but does not apply the
 normal engine's process-dependent startup default. x86 and ARM64 behavior
-is unchanged.
+is unchanged except for one upstream-identical V8 debugger change: discarding
+optimized code without deoptimization exits clears that code in all builds.
 
 ### WebAssembly
 

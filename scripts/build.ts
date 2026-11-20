@@ -481,51 +481,43 @@ function runTests(platform: string, configuration: string): void {
   // Death-test children do not inherit policy: the CETCOMPAT test exe runs
   // them in compat mode on CET hosts, which is intentional.
   let passed = true;
-  try {
-    cetEnv.V8JSI_TEST_V8_FLAGS = "--allow-natives-syntax";
-    console.log("\n=== Strict CET: full JSI suite (flags: --allow-natives-syntax) ===");
-    passed = runCetSuite(path.join(outDir, "cetrun.exe"),
-      ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
-    // The sandbox engine is jitless; run its strict suite once, not the matrix.
-    if (!args["build-v8jsisb"]) {
-      const interpreterFlags = "--allow-natives-syntax --no-sparkplug --no-maglev --no-turbofan";
-      const rows = [
-        ["interpreter", interpreterFlags],
-        ["jitless", "--allow-natives-syntax --jitless"],
-        ["native-stack", `${interpreterFlags} --interpreted-frames-native-stack`],
-      ];
-      for (const [name, flags] of rows) {
-        cetEnv.V8JSI_TEST_V8_FLAGS = flags;
-        console.log(`\n=== Strict CET: ${name} (flags: ${flags}) ===`);
-        passed = runCetSuite(path.join(outDir, "cetrun.exe"),
-          ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_filter=*CetShadowStack.*",
-            "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"], cetEnv) && passed;
-      }
-      // Explicit policies: ambient CET is not evidence for the off contract.
-      // The counterexample rows vary only the host flag, never unsafe deopt tests.
-      const wasmRows = [
-        ["off", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
-        ["compat", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
-        ["off", "--allow-natives-syntax --cet-compatible", "*CetShadowStack.Jspi*"],
-        ["strict", "--allow-natives-syntax --no-cet-compatible", "*CetShadowStack.Jspi*"],
-      ];
-      for (const [mode, flags, filter] of wasmRows) {
-        cetEnv.V8JSI_TEST_V8_FLAGS = flags;
-        console.log(`\n=== CET Wasm: ${mode} (flags: ${flags}) ===`);
-        passed = runCetSuite(path.join(outDir, "cetrun.exe"),
-          [mode, path.join(outDir, "v8jsi_test.exe"), `--gtest_filter=${filter}`,
-            "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"], cetEnv) && passed;
-      }
+  console.log("\n=== CET off: full JSI suite (no extra flags) ===");
+  passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+    ["off", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
+  console.log("\n=== Strict CET: full JSI suite (flags: --allow-natives-syntax) ===");
+  passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+    ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"],
+    { ...cetEnv, V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax" }) && passed;
+  // The sandbox engine is jitless; run its full suites, not the flag matrix.
+  if (!args["build-v8jsisb"]) {
+    const interpreterFlags = "--allow-natives-syntax --no-sparkplug --no-maglev --no-turbofan";
+    // Explicit policies cover both process behavior and host-flag overrides.
+    // Only the JSPI row opts out of compatible code in a shadow-stack process.
+    const rows = [
+      ["interpreter", "strict", interpreterFlags, "*CetShadowStack.*"],
+      ["jitless", "strict", "--allow-natives-syntax --jitless", "*CetShadowStack.*"],
+      ["native-stack", "strict", `${interpreterFlags} --interpreted-frames-native-stack`, "*CetShadowStack.*"],
+      ["Wasm", "off", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+      ["Wasm", "compat", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+      ["compatible code", "off", "--allow-natives-syntax --cet-compatible", "*CetShadowStack.*:*JsiAbiInspector.Cet*"],
+      ["JSPI override", "strict", "--allow-natives-syntax --no-cet-compatible", "*CetShadowStack.Jspi*"],
+    ];
+    for (const [name, mode, flags, filter] of rows) {
+      console.log(`\n=== CET ${name}: ${mode} (flags: ${flags}) ===`);
+      passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+        [mode, path.join(outDir, "v8jsi_test.exe"), `--gtest_filter=${filter}`,
+          "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"],
+        { ...cetEnv, V8JSI_TEST_V8_FLAGS: flags }) && passed;
     }
-  } finally {
-    delete cetEnv.V8JSI_TEST_V8_FLAGS; // Never forward V8 flags to node_lite.
   }
-  cetEnv.V8JSI_TEST_CET = "strict";
   console.log("\n=== Strict CET: per-child Node-API suite ===");
-  passed = runCetSuite(path.join(outDir, "node_api_tests.exe"), ["--gtest_brief=1"], cetEnv) && passed;
-  if (!passed) throw new Error("Strict CET tests failed");
-  console.log(cetAvailable ? "Strict CET summary: JSI and Node-API rows passed" :
-    "Strict CET summary: JSI and Node-API rows SKIPPED (SKIP: user CET not available)");
+  passed = runCetSuite(path.join(outDir, "node_api_tests.exe"), ["--gtest_brief=1"],
+    { ...cetEnv, V8JSI_TEST_CET: "strict" }) && passed;
+  if (!passed) throw new Error("CET tests failed");
+  const summary = cetAvailable ? "Strict CET summary: JSI and Node-API rows passed" :
+    "Strict CET summary: JSI and Node-API rows SKIPPED (SKIP: user CET not available)";
+  console.log(summary);
+  if (!cetAvailable) console.log(`##vso[task.logissue type=warning]${summary}`);
 }
 
 // =============================================================================

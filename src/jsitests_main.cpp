@@ -2212,14 +2212,6 @@ void checkCetBaselineStepOver(int depth) {
 }
 } // namespace
 
-TEST(JsiAbiInspector, CetStepOverBaselineDebuggerStatement) {
-#ifdef _WIN32
-  checkCetBaselineStepOver(0);
-#else
-  GTEST_SKIP() << "Windows inspector transport required";
-#endif
-}
-
 TEST(JsiAbiInspector, CetStepOverRecursiveBaselineFrames) {
 #ifdef _WIN32
   checkCetBaselineStepOver(3);

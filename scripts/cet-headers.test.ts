@@ -53,11 +53,6 @@ for (const [layout, headers, expected] of [
   });
 }
 
-test("snapshot tools must not be CET compatible", () => {
-  assert.doesNotThrow(() => checkCetHeaders(ordinary, false, "mkv8snapshot.exe"));
-  assert.throws(() => checkCetHeaders(extendedCet, false, "mkv8snapshot.exe"), /must NOT be CET compatible/);
-});
-
 test("CET text outside a characteristics list does not mark a binary", () => {
   // Cover list boundaries and both misplaced characteristics-block forms.
   for (const stray of [

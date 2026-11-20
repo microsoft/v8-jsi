@@ -75,6 +75,7 @@ class CetShadowStack : public JSITestBase {
     std::istringstream words(flags_);
     bool natives = false;
     for (std::string word; words >> word;) {
+      if (word == "--") break;
       const auto name = NormalizeFlagName(word);
       if (name == "allow-natives-syntax") natives = true;
       if (name == "no-allow-natives-syntax") natives = false;
@@ -98,6 +99,7 @@ class CetShadowStack : public JSITestBase {
           (!needsTurbofan || std::string(tier) != "turbofan")) continue;
       std::istringstream words(flags_);
       for (std::string flag; words >> flag;) {
+        if (flag == "--") break;
         const auto name = NormalizeFlagName(flag);
         if (name == "jitless" || name == "lite-mode" || name == std::string("no-") + tier ||
             name == std::string(std::string(tier) == "turbofan" ? "turbo" : tier) + "-filter")
@@ -108,6 +110,7 @@ class CetShadowStack : public JSITestBase {
     if (interpreted) {
       std::istringstream words(flags_);
       for (std::string flag; words >> flag;) {
+        if (flag == "--") break;
         const auto name = NormalizeFlagName(flag);
         if (name == "always-sparkplug" || name == "no-baseline-batch-compilation" ||
             name == "jit-fuzzing")
@@ -181,6 +184,7 @@ class CetShadowStack : public JSITestBase {
     bool focused = false;
     std::istringstream words(flags_);
     for (std::string flag; words >> flag;) {
+      if (flag == "--") break;
       const auto name = NormalizeFlagName(flag);
       if (name == "jitless" || name == "no-sparkplug") focused = true;
       if (feature && (name == std::string("no-") + feature ||
@@ -258,6 +262,7 @@ class CetShadowStack : public JSITestBase {
     bool natives = false;
     std::istringstream words(flags_);
     for (std::string flag; words >> flag;) {
+      if (flag == "--") break;
       const auto name = NormalizeFlagName(flag);
       if (name == "jitless" || name == "lite-mode" || name == "wasm-jitless")
         GTEST_SKIP() << "Requires Wasm JIT; disabled by flag " << flag;
