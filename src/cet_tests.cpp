@@ -2,7 +2,14 @@
 // Licensed under the MIT license.
 
 #include "jsi/test/testlib.h"
+#include "jsi_abi/v8_jsi_abi.h"
+#include <cwchar>
+#include <thread>
+#include <algorithm>
 #include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <vector>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -606,6 +613,8 @@ const char* kEagerDeopt = R"JS(
   check(total, 50 * (5 + 2048));
   finished = 1;
 )JS";
+// Under strict CET this also proves the startup flag stays on: map/elements-type
+// changes force deopt continuations that cannot return safely with the flag off.
 TEST_P(CetShadowStack, TurboFanEagerDeopt) { scenario(kEagerDeopt, "turbofan"); }
 TEST_P(CetShadowStack, MaglevEagerDeopt) { scenario(kEagerDeopt, "maglev"); }
 
@@ -833,6 +842,173 @@ TEST_P(CetShadowStack, TurboFanThrowAndReturn) {
     finished = 1;
   )JS", "turbofan");
 }
+
+// Unlike death-test children, these children get an explicit process policy.
+TEST(CetShadowStack, InitOnly) {
+  auto runtime = runtimeGenerators()[1](); // One runtime, no JavaScript (safe even with CET opted out).
+}
+
+#if defined(_WIN32) && defined(_M_X64) && defined(V8JSI_TEST_CET_STARTUP_CHECK)
+// Only the normal Windows x64 engine has the process-dependent startup default.
+void CheckStartupFlags(const wchar_t* mode, const wchar_t* flags, const char* expected,
+                       const wchar_t* test = L"InitOnly",
+                       uint32_t* snapshotTag = nullptr, bool snapshotFirst = false) {
+  wchar_t exe[32768];
+  const DWORD length = GetModuleFileNameW(nullptr, exe, 32768);
+  ASSERT_GT(length, 0u);
+  ASSERT_LT(length, 32768u);
+  const std::wstring target(exe);
+  const auto launcher = target.substr(0, target.find_last_of(L"\\") + 1) + L"cetrun.exe";
+  std::wstring command = L"\"" + launcher + L"\" " + mode + L" \"" + target +
+      L"\" " + (snapshotFirst ? L"--cet-snapshot-first " : L"") +
+      L"--gtest_color=no --gtest_filter=CetShadowStack." + test;
+  // Build a child-only environment; never race V8's worker threads by mutating ours.
+  const auto inherited = GetEnvironmentStringsW();
+  ASSERT_NE(inherited, nullptr);
+  std::vector<std::wstring> entries;
+  for (const wchar_t* entry = inherited; *entry; entry += wcslen(entry) + 1) {
+    if (_wcsnicmp(entry, L"V8JSI_TEST_V8_FLAGS=", 20) &&
+        _wcsnicmp(entry, L"V8JSI_TEST_CET_CHILD=", 21) &&
+        _wcsnicmp(entry, L"CETRUN_TIMEOUT_MS=", 18)) entries.emplace_back(entry);
+  }
+  FreeEnvironmentStringsW(inherited);
+  // Diagnostic flags also enter V8's hash; omit them for tag comparisons.
+  entries.emplace_back(std::wstring(L"V8JSI_TEST_V8_FLAGS=") +
+      (snapshotTag ? L"" : L"--print-flag-values ") + flags);
+  entries.emplace_back(L"V8JSI_TEST_CET_CHILD=1");
+  entries.emplace_back(L"CETRUN_TIMEOUT_MS=60000");
+  std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+    return _wcsicmp(a.c_str(), b.c_str()) < 0;
+  });
+  std::vector<wchar_t> environment;
+  for (const auto& entry : entries) {
+    environment.insert(environment.end(), entry.begin(), entry.end());
+    environment.push_back(0);
+  }
+  environment.push_back(0);
+  SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
+  HANDLE read{}, write{};
+  ASSERT_TRUE(CreatePipe(&read, &write, &security, 0));
+  std::unique_ptr<void, decltype(&CloseHandle)> readOwner(read, CloseHandle), writeOwner(write, CloseHandle);
+  ASSERT_TRUE(SetHandleInformation(read, HANDLE_FLAG_INHERIT, 0));
+  STARTUPINFOW startup{sizeof(startup)};
+  startup.dwFlags = STARTF_USESTDHANDLES;
+  startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+  startup.hStdOutput = startup.hStdError = write;
+  PROCESS_INFORMATION child{};
+  ASSERT_TRUE(CreateProcessW(launcher.c_str(), command.data(), nullptr, nullptr, TRUE,
+                            CREATE_UNICODE_ENVIRONMENT, environment.data(), nullptr, &startup, &child))
+      << GetLastError();
+  CloseHandle(child.hThread);
+  std::unique_ptr<void, decltype(&CloseHandle)> process(child.hProcess, CloseHandle);
+  writeOwner.reset();
+  std::string output;
+  std::thread reader([&] {
+    char buffer[4096];
+    DWORD bytes;
+    while (ReadFile(read, buffer, sizeof(buffer), &bytes, nullptr) && bytes)
+      output.append(buffer, bytes);
+  });
+  const DWORD wait = WaitForSingleObject(child.hProcess, 90000);
+  if (wait != WAIT_OBJECT_0) {
+    TerminateProcess(child.hProcess, 1); // Closing cetrun also kills its job's child.
+    WaitForSingleObject(child.hProcess, INFINITE);
+  }
+  reader.join();
+  ASSERT_EQ(wait, WAIT_OBJECT_0) << output;
+  DWORD exit{};
+  ASSERT_TRUE(GetExitCodeProcess(child.hProcess, &exit));
+  ASSERT_EQ(exit, 0u) << output;
+  if (output.find("SKIP: user CET not available") != std::string::npos)
+    GTEST_SKIP() << "user CET not available; strict process cannot be tested";
+  ASSERT_NE(output.find("[  PASSED  ] 1 test."), std::string::npos) << output;
+  std::istringstream lines(output);
+  int cetLines = 0;
+  for (std::string line; std::getline(lines, line);) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line != "--cet-compatible" && line != "--no-cet-compatible") continue;
+    ++cetLines;
+    EXPECT_EQ(line, expected);
+  }
+  EXPECT_EQ(cetLines, snapshotTag ? 0 : 1) << output;
+  if (snapshotTag) {
+    const auto tag = output.find("snapshot-version=");
+    ASSERT_NE(tag, std::string::npos) << output;
+    *snapshotTag = static_cast<uint32_t>(std::stoul(output.substr(tag + 17)));
+  }
+  std::wcout << L"Startup mode=" << mode << L" host=" << flags << L" child=" << test;
+  std::cout << " => " << expected << '\n';
+}
+
+TEST(CetStartupFlags, OffUsesCurrentCodeGeneration) {
+  CheckStartupFlags(L"off", L"", "--no-cet-compatible");
+}
+TEST(CetStartupFlags, OffHonorsHostOptIn) {
+  CheckStartupFlags(L"off", L"--cet-compatible", "--cet-compatible");
+}
+TEST(CetStartupFlags, StrictDefaultsToCompatibleCode) {
+  CheckStartupFlags(L"strict", L"", "--cet-compatible");
+}
+TEST(CetStartupFlags, StrictHonorsHostOptOut) {
+  CheckStartupFlags(L"strict", L"--no-cet-compatible", "--no-cet-compatible");
+}
+TEST(CetStartupFlags, RepeatedHostFlagsBeforeRuntimeWin) {
+  CheckStartupFlags(L"off", L"", "--cet-compatible", L"RepeatedHostFlags");
+}
+// Separate processes avoid V8's immutable flags and shared read-only heap.
+void CheckSnapshotFirstDefault(const wchar_t* mode, const wchar_t* flag, const char* expected) {
+  uint32_t explicitTag = 0, defaultTag = 0;
+  CheckStartupFlags(mode, flag, expected, L"SnapshotFirst", &explicitTag);
+  if (testing::Test::IsSkipped() || testing::Test::HasFatalFailure()) return;
+  CheckStartupFlags(mode, L"", expected, L"SnapshotFirst", &defaultTag, true);
+  if (testing::Test::IsSkipped() || testing::Test::HasFatalFailure()) return;
+  EXPECT_NE(defaultTag, 0u);
+  EXPECT_EQ(defaultTag, explicitTag);
+}
+TEST(CetStartupFlags, SnapshotFirstOffMatchesExplicitOptOut) {
+  CheckSnapshotFirstDefault(L"off", L"--no-cet-compatible", "--no-cet-compatible");
+}
+TEST(CetStartupFlags, SnapshotFirstStrictMatchesExplicitOptIn) {
+  CheckSnapshotFirstDefault(L"strict", L"--cet-compatible", "--cet-compatible");
+}
+TEST(CetStartupFlags, SnapshotBeforeRuntimeKeepsHostOverride) {
+  CheckStartupFlags(L"off", L"--cet-compatible", "--cet-compatible", L"SnapshotFirst");
+}
+
+TEST(CetShadowStack, RepeatedHostFlags) {
+  if (!std::getenv("V8JSI_TEST_CET_CHILD"))
+    GTEST_SKIP() << "Requires fresh explicitly launched startup child";
+  char program[] = "v8jsi", on[] = "--cet-compatible", off[] = "--no-cet-compatible";
+  // Alternate values, then a no-op call: defaults must not reset any earlier host call.
+  for (char* flag : {on, off, on, static_cast<char*>(nullptr)}) {
+    char* argv[] = {program, flag};
+    size_t argc = flag ? 2 : 1;
+    ASSERT_EQ(v8_jsi_abi_set_v8_flags(&argc, argv, false), jsi_status_ok);
+  }
+  auto runtime = runtimeGenerators()[1]();
+}
+
+TEST(CetShadowStack, SnapshotFirst) {
+  if (!std::getenv("V8JSI_TEST_CET_CHILD"))
+    GTEST_SKIP() << "Requires fresh explicitly launched startup child";
+  uint8_t* blob = nullptr;
+  size_t size = 0;
+  ASSERT_EQ(v8_jsi_abi_snapshot_create("", 0, "empty.js", false, &blob, &size), jsi_status_ok);
+  std::unique_ptr<uint8_t, decltype(&v8_jsi_abi_snapshot_destroy)> owner(blob, v8_jsi_abi_snapshot_destroy);
+  ASSERT_GE(size, 24u);
+  // CachedDataVersionTag in the container header, finalized after V8 init.
+  uint32_t tag;
+  std::memcpy(&tag, blob + 8, sizeof(tag));
+  std::cout << "snapshot-version=" << tag << '\n';
+  EXPECT_EQ(v8_jsi_abi_snapshot_check(blob, size), v8_jsi_abi_snapshot_compat_ok);
+  // This checks initialization order, not custom-blob consumption (shared RO heap).
+  auto runtime = runtimeGenerators()[1]();
+  char program[] = "v8jsi", flag[] = "--cet-compatible";
+  char* argv[] = {program, flag};
+  size_t argc = 2;
+  EXPECT_EQ(v8_jsi_abi_set_v8_flags(&argc, argv, false), jsi_status_invalid_arg);
+}
+#endif
 
 // Hand-assembled: (import "m" "s" (func (result i32))), f() = s() + 1.
 const char* kJspiModule = R"JS(

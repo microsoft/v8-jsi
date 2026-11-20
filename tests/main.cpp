@@ -289,10 +289,15 @@ static int runSnapshotScenario(const char *blobPath, bool expectMarker) {
     return 1;
   }
   v8runtime::V8RuntimeArgs args;
-  args.startupSnapshotBlob =
-      std::make_shared<fbjsi::StringBuffer>(std::move(blob));
+  auto snapshot = std::make_shared<fbjsi::StringBuffer>(std::move(blob));
+  args.startupSnapshotBlob = snapshot;
   auto runtime = v8runtime::makeV8Runtime(std::move(args));
   if (!runtime) FAIL("makeV8Runtime(snapshot) returned null");
+  const auto compat = v8_jsi_abi_snapshot_check(snapshot->data(), snapshot->size());
+  std::printf("test-harness: snapshot validation: %s\n",
+              v8_jsi_abi_snapshot_compat_to_string(compat));
+  if ((compat == v8_jsi_abi_snapshot_compat_ok) != expectMarker)
+    FAIL("snapshot validation did not match expected compatibility");
 
   // Read the baked-in global BEFORE evaluating anything: if present it can only
   // have come from the snapshot, proving no parse/execute happened here.

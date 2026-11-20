@@ -3207,7 +3207,33 @@ TEST(V8RuntimeFlagsDeathTest, LoneFlagIsApplied) {
 #endif
 }
 
+// Snapshot creation precedes runtime creation; main may already have applied
+// V8JSI_TEST_V8_FLAGS. CetStartupFlags separately covers no-prior-flag startup.
+TEST(JsiAbiFlagsDeathTest, SnapshotCanInitializeBeforeRuntime) {
+  EXPECT_EXIT(
+      {
+        uint8_t* blob = nullptr;
+        size_t size = 0;
+        auto created = v8_jsi_abi_snapshot_create("", 0, "empty.js", false, &blob, &size);
+        v8_jsi_abi_snapshot_destroy(blob);
+        auto runtime = ::jsi::abi::makeJsiAbiRuntime(&v8_jsi_abi_runtime_create);
+        char program[] = "v8jsi";
+        char flag[] = "--no-cet-compatible";
+        char* argv[2] = {program};
+        argv[1] = flag;
+        size_t argc = 2;
+        auto late = v8_jsi_abi_set_v8_flags(&argc, argv, false);
+        runtime.reset();
+        std::_Exit(created == jsi_status_ok && size > 0 &&
+                           late == jsi_status_invalid_arg && argc == 2 ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0),
+      "");
+}
+
 // Disposal is process-global and irreversible, so isolate it from other tests.
+// V8::Dispose forbids reinitialization: only late flag rejection is supported,
+// not runtime creation after platform disposal.
 TEST(JsiAbiFlagsDeathTest, SetV8FlagsFailsAfterDispose) {
   EXPECT_EXIT(
       {
@@ -3648,7 +3674,13 @@ int main(int argc, char **argv) {
 #if defined(_WIN32) && defined(_M_X64)
   if (argc >= 2 && !strcmp(argv[1], "--cetrun-child")) return CetRunChild(argc, argv);
 #endif
-  if (const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS")) {
+  // This child must reach snapshot creation before ANY engine flag call.
+  const bool snapshotFirst = argc >= 2 && !strcmp(argv[1], "--cet-snapshot-first");
+  if (snapshotFirst) {
+    for (int i = 1; i < argc; ++i) argv[i] = argv[i + 1];
+    --argc;
+  }
+  if (const char* flags = snapshotFirst ? nullptr : std::getenv("V8JSI_TEST_V8_FLAGS")) {
     std::istringstream input(flags);
     std::vector<std::string> storage{argv[0]};
     for (std::string flag; input >> flag;) storage.push_back(std::move(flag));

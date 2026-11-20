@@ -35,6 +35,7 @@
     # (the v8_enable_* variables are set in configure.py). Defaulted here so the
     # condition below is valid even on a mainline (v8jsi2.dll) build.
     'build_v8jsisb%': 0,
+    'v8_enable_cet_shadow_stack%': 0,
 
     # Enable inspector support (sets V8JSI_ENABLE_INSPECTOR).
     # v8-jsi must always ship with inspector ON — Office's enableDebugging and
@@ -334,6 +335,9 @@
       ],
 
       'conditions': [
+        ['v8_enable_cet_shadow_stack==1 and build_v8jsisb==0', {
+          'defines': ['V8JSI_CET_STARTUP_CHECK'],
+        }],
         # Sandbox variant: emit v8jsi2sb.dll instead of v8jsi2.dll. The gyp target
         # name stays 'v8jsi' so v8jsi_test / node_api_tests keep depending on it
         # (gyp links them against the renamed import library automatically); only
@@ -490,6 +494,9 @@
       ],
 
       'conditions': [
+        ['v8_enable_cet_shadow_stack==1 and build_v8jsisb==0', {
+          'defines': ['V8JSI_TEST_CET_STARTUP_CHECK'],
+        }],
         ['OS=="win" and target_arch=="x64"', {
           'dependencies': [ 'cetrun' ],
         }],
@@ -605,6 +612,14 @@
             'VCResourceCompilerTool': {
               'PreprocessorDefinitions': ['VER_BINARY=3'],
             },
+          },
+        }],
+        ['OS=="win" and target_arch=="x64"', {
+          # The blob's version tag includes CET mode: produce blobs for ordinary
+          # hosts. Shadow-stack hosts can create matching blobs in-process via
+          # the snapshot-create ABI. Override target_defaults' /CETCOMPAT.
+          'msvs_settings': {
+            'VCLinkerTool': { 'AdditionalOptions': [ '/CETCOMPAT:NO' ] },
           },
         }],
         ['OS=="win" and target_arch=="ia32"', {

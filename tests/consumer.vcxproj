@@ -204,6 +204,14 @@
     </ClCompile>
   </ItemDefinitionGroup>
 
+  <!-- Model an ordinary host for the offline tool's default snapshot blobs.
+       Their version tags include CET mode; strict hosts create blobs in-process. -->
+  <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
+    <Link>
+      <AdditionalOptions>%(AdditionalOptions) /CETCOMPAT:NO</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+
   <!-- Sandbox-surface smoke: when the driver opts in with /p:UseV8Sandbox=true,
        compile main.cpp's SMOKE_SANDBOX path (drives v8jsi2sb.dll via a delay-load
        redirect + validates the v8sbhost_client.h / v8sbhost.dll.lib surface). -->
