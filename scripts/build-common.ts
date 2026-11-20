@@ -527,24 +527,58 @@ export function vswhereExe(): string | undefined {
   return fs.existsSync(vswhere) ? vswhere : undefined;
 }
 
-// Locate dumpbin.exe via vswhere (works across VS editions/versions), falling
-// back to PATH. Cached after the first lookup.
+// Compare only parseable MSVC versions numerically, not in discovery order.
+export function pickNewestMsvcTool(paths: string[]): string | undefined {
+  const candidates = paths.flatMap((file) => {
+    const match = /[\\/]MSVC[\\/](\d+\.\d+\.\d+)[\\/]/i.exec(file);
+    return match ? [{ file, version: match[1].split(".").map(Number) }] : [];
+  });
+  candidates.sort((a, b) => {
+    const av = a.version, bv = b.version;
+    return bv[0] - av[0] || bv[1] - av[1] || bv[2] - av[2];
+  });
+  return candidates[0]?.file;
+}
+
+// Prefer VCToolsInstallDir (the linking toolset in a developer prompt), then
+// vswhere's default toolset, newest discovered MSVC, and PATH. Cache the lookup.
 let cachedDumpbin: string | undefined;
 export function findDumpbin(): string {
   if (cachedDumpbin) return cachedDumpbin;
 
+  const tool = path.join("bin", "Hostx64", "x64", "dumpbin.exe");
+  if (process.env.VCToolsInstallDir) {
+    const candidate = path.join(process.env.VCToolsInstallDir, tool);
+    if (fs.existsSync(candidate)) return cachedDumpbin = candidate;
+  }
   const vswhere = vswhereExe();
+  if (vswhere) {
+    try {
+      const installation = (requires: string) => execSync(
+        `"${vswhere}" -latest -products * ${requires} -property installationPath`,
+        { encoding: "utf8" },
+      ).trim();
+      const root = installation("-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
+        || installation("");
+      if (root) {
+        const versionFile = path.join(root, "VC", "Auxiliary", "Build", "Microsoft.VCToolsVersion.default.txt");
+        const version = fs.readFileSync(versionFile, "utf8").trim();
+        const candidate = path.join(root, "VC", "Tools", "MSVC", version, tool);
+        if (fs.existsSync(candidate)) return cachedDumpbin = candidate;
+      }
+    } catch {
+      // Missing default toolset; try the newest discovered MSVC next.
+    }
+  }
   if (vswhere) {
     try {
       const out = execSync(
         `"${vswhere}" -latest -products * -find "**\\Hostx64\\x64\\dumpbin.exe"`,
-        { encoding: "utf-8" },
-      ).trim();
-      const first = out.split(/\r?\n/).find((l) => l.trim().length > 0)?.trim();
-      if (first && fs.existsSync(first)) {
-        cachedDumpbin = first;
-        return first;
-      }
+        { encoding: "utf8" },
+      );
+      const newest = pickNewestMsvcTool(out.split(/\r?\n/).map((l) => l.trim())
+        .filter((l) => l.length > 0 && fs.existsSync(l)));
+      if (newest) return cachedDumpbin = newest;
     } catch {
       // Fall through to the PATH lookup.
     }
@@ -569,14 +603,17 @@ export function findDumpbin(): string {
 }
 
 // Validate dumpbin /headers without loading the binary (including cross-arch PEs).
-export function checkCetHeaders(headers: string, expected: boolean, binary: string): void {
+export function checkCetHeaders(headers: string, expected: boolean, binary: string, dumpbin = "dumpbin"): void {
   if (!/^\s*FILE HEADER VALUES\s*$/m.test(headers)) {
-    throw new Error(`CET header gate: invalid dumpbin /headers output for ${binary}`);
+    throw new Error(`CET header gate: invalid dumpbin /headers output for ${binary}\ndumpbin: ${dumpbin}`);
   }
   let block: "optional" | "debug" | undefined;
   let listIndent: number | undefined;
   let recognized = false;
   let actual = false;
+  const characteristics: string[] = [];
+  const debugRows: string[] = [];
+  const banner = headers.match(/^Microsoft \(R\) COFF\/PE Dumper Version[^\r\n]*/m)?.[0];
   for (const line of headers.split(/\r?\n/)) {
     const text = line.trim();
     const indent = line.length - line.trimStart().length;
@@ -586,23 +623,38 @@ export function checkCetHeaders(headers: string, expected: boolean, binary: stri
       continue;
     }
     if (text && indent === 0) block = undefined;
+    // Keep table rows (including unknown types from older readers), not sections.
+    if (block === "debug" && debugRows.length < 8 &&
+        /^\s+[0-9A-Fa-f]+\s+\S+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+(?:\s|$)/.test(line)) {
+      debugRows.push(text);
+    }
     const list = /^\s+[0-9A-Fa-f]+ (DLL characteristics|extended DLL characteristics)\s*$/.exec(line);
     if ((block === "optional" && list?.[1] === "DLL characteristics") ||
         (block === "debug" && list?.[1] === "extended DLL characteristics")) {
       recognized = true;
       listIndent = indent;
+      characteristics.push(line);
       continue;
     }
     // List entries are indented beneath their numeric characteristics value.
     // A blank line, next field, or section heading ends the list.
     if (!text || (listIndent !== undefined && indent <= listIndent)) listIndent = undefined;
-    if (listIndent !== undefined && text === "CET compatible") actual = true;
+    if (listIndent !== undefined) {
+      if (characteristics.length < 24) characteristics.push(line);
+      if (text === "CET compatible") actual = true;
+    }
   }
   if (!recognized) {
-    throw new Error(`CET header gate: no recognizable DLL characteristics block in dumpbin /headers output for ${binary}`);
+    throw new Error(`CET header gate: no recognizable DLL characteristics block in dumpbin /headers output for ${binary}\ndumpbin: ${dumpbin}`);
   }
   if (actual !== expected) {
-    throw new Error(`CET header gate: ${binary} must ${expected ? "" : "NOT "}be CET compatible`);
+    const details = [
+      `dumpbin: ${dumpbin}`,
+      ...(banner ? [banner] : []),
+      `Characteristics: ${characteristics.map((line) => line.trim()).join("; ")}`,
+      ...(debugRows.length ? ["Debug Directories (Time Type Size RVA Pointer):", ...debugRows] : []),
+    ];
+    throw new Error(`CET header gate: ${binary} must ${expected ? "" : "NOT "}be CET compatible\n${details.join("\n")}`);
   }
 }
 

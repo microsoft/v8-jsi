@@ -391,8 +391,13 @@ function runCetSuite(exe: string, args: string[], env = process.env): boolean {
   return true;
 }
 
+let loggedDumpbin = false;
 function checkBinaryHeaders(platform: string, configuration: string): void {
   const dumpbin = findDumpbin();
+  if (!loggedDumpbin) {
+    console.log(`CET header gate: using ${dumpbin}`);
+    loggedDumpbin = true;
+  }
   const binaries: [string, boolean][] = [
     [v8jsiDllName(), platform === "x64"],
     ["mkv8snapshot.exe", false],
@@ -407,7 +412,7 @@ function checkBinaryHeaders(platform: string, configuration: string): void {
       throw new Error(`CET header gate: required binary not found: ${binary}. Build ${platform} ${configuration} first.`);
     }
     const headers = execSync(`"${dumpbin}" /headers "${binary}"`, { encoding: "utf8" });
-    checkCetHeaders(headers, expected, binary);
+    checkCetHeaders(headers, expected, binary, dumpbin);
     console.log(`CET header gate passed: ${name} (${platform}, CET compatible=${expected})`);
   }
 }
