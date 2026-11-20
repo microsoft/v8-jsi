@@ -38,23 +38,32 @@ __declspec(noinline) uint64_t ReadShadowStackPointer() { return _rdsspq(); }
 uint64_t ReadShadowStackPointer() { return 0; }
 #endif
 
+#if defined(_WIN32) && defined(_M_X64)
+bool QueryShadowStackPolicy(PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY& policy) {
+  using QueryPolicy = BOOL(WINAPI*)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+  auto query = reinterpret_cast<QueryPolicy>(GetProcAddress(
+      GetModuleHandleW(L"kernel32.dll"), "GetProcessMitigationPolicy"));
+  return query && query(GetCurrentProcess(), ProcessUserShadowStackPolicy,
+                        &policy, sizeof(policy));
+}
+#endif
+
 class CetShadowStack : public JSITestBase {
  protected:
   void SetUp() override {
+    const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS");
+    flags_ = flags ? flags : "";
+  }
+
+  void requireOracle() {
 #if defined(_WIN32) && defined(_M_X64)
     PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy{};
-    using QueryPolicy = BOOL(WINAPI*)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
-    auto query = reinterpret_cast<QueryPolicy>(GetProcAddress(
-        GetModuleHandleW(L"kernel32.dll"), "GetProcessMitigationPolicy"));
-    if (!query || !query(GetCurrentProcess(), ProcessUserShadowStackPolicy,
-                         &policy, sizeof(policy)) ||
+    if (!QueryShadowStackPolicy(policy) ||
         !policy.EnableUserShadowStack || !policy.EnableUserShadowStackStrictMode)
       GTEST_SKIP() << "Requires enabled CET shadow stacks in strict mode; compat repair can hide leaks";
 #endif
     if (!ReadShadowStackPointer())
       GTEST_SKIP() << "Requires Windows x64 with active CET shadow stacks";
-    const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS");
-    flags_ = flags ? flags : "";
     // Do not parse even one native intrinsic until syntax has been enabled.
     std::istringstream words(flags_);
     bool natives = false;
@@ -74,6 +83,8 @@ class CetShadowStack : public JSITestBase {
   // Declare every catch tier before executing any tier-forcing intrinsic.
   void run(const char* body, bool interpreted = false, int depth = 0,
            int expectedCatches = 1, bool async = false, bool needsTurbofan = false) {
+    requireOracle();
+    if (IsSkipped()) return;
     // Check restrictions before tier intrinsics: CompileBaseline can trap when filtered out.
     for (const char* tier : {"sparkplug", "turbofan"}) {
       if ((interpreted || std::string(tier) != "sparkplug") &&
@@ -149,6 +160,8 @@ class CetShadowStack : public JSITestBase {
   // Optimizing scenarios separately declare TurboFan/Maglev before parsing JS.
   void scenario(const char* body, const char* optimizedTier = nullptr,
                 bool async = false, const char* feature = nullptr) {
+    requireOracle();
+    if (IsSkipped()) return;
     bool focused = false;
     std::istringstream words(flags_);
     for (std::string flag; words >> flag;) {
@@ -222,6 +235,23 @@ class CetShadowStack : public JSITestBase {
               << '/' << eval("maxDelta").getNumber()
               << " tiers=" << eval("JSON.stringify(statuses)").getString(rt).utf8(rt) << '\n';
   }
+  void requireWasm(bool tiering = false) {
+#ifndef V8JSI_TEST_WEBASSEMBLY
+    GTEST_SKIP() << "Requires WebAssembly; lite/sandbox build excludes Wasm";
+#endif
+    bool natives = false;
+    std::istringstream words(flags_);
+    for (std::string flag; words >> flag;) {
+      const auto name = NormalizeFlagName(flag);
+      if (name == "jitless" || name == "lite-mode" || name == "wasm-jitless")
+        GTEST_SKIP() << "Requires Wasm JIT; disabled by flag " << flag;
+      if (name == "allow-natives-syntax") natives = true;
+      if (name == "no-allow-natives-syntax") natives = false;
+    }
+    if (tiering && !natives) GTEST_SKIP() << "Wasm tier assertions require --allow-natives-syntax";
+    ASSERT_TRUE(eval("typeof WebAssembly === 'object'").getBool());
+  }
+
   std::string flags_;
 };
 
@@ -541,7 +571,6 @@ TEST_P(CetShadowStack, AsyncRejectionsAndReturns) {
   )JS", nullptr, true);
 }
 
-
 // Shared bodies exercise identical transitions in TurboFan and Maglev.
 const char* kEagerDeopt = R"JS(
   function getX(o) { return o.x + 1; }
@@ -803,6 +832,123 @@ TEST_P(CetShadowStack, TurboFanThrowAndReturn) {
     }
     finished = 1;
   )JS", "turbofan");
+}
+
+// Hand-assembled: (import "m" "s" (func (result i32))), f() = s() + 1.
+const char* kJspiModule = R"JS(
+  var module = new WebAssembly.Module(new Uint8Array([
+    0,97,115,109,1,0,0,0, 1,5,1,96,0,1,127,
+    2,7,1,1,109,1,115,0,0, 3,2,1,0, 7,5,1,1,102,0,1,
+    10,9,1,7,0,16,0,65,1,106,11
+  ]));
+)JS";
+
+TEST_P(CetShadowStack, JspiFollowsProcessPolicy) {
+  requireWasm();
+  if (IsSkipped() || HasFatalFailure()) return;
+#if defined(_WIN32) && defined(_M_X64)
+  PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy{};
+  const bool shadowStacks = QueryShadowStackPolicy(policy) && policy.EnableUserShadowStack;
+  EXPECT_EQ(ReadShadowStackPointer() != 0, shadowStacks);
+#else
+  const bool shadowStacks = false;
+#endif
+  // JSI owns one context per runtime. Keep the initial context alive while an
+  // additional factory-created runtime/context exercises the same contract.
+  auto additional = factory();
+  for (Runtime* context : {&rt, additional.get()}) {
+    auto evaluate = [context](const char* js) {
+      return context->evaluateJavaScript(std::make_unique<StringBuffer>(js), "wasm-jspi.js");
+    };
+    for (const char* name : {"Suspending", "promising", "SuspendError"}) {
+      SCOPED_TRACE(name);
+      const std::string js = std::string("typeof WebAssembly.") + name;
+      EXPECT_EQ(evaluate(js.c_str()).getString(*context).utf8(*context),
+                shadowStacks ? "undefined" : "function");
+    }
+    if (HasFailure()) return; // Never attempt stack switching after a contract failure.
+    evaluate(kJspiModule);
+    if (shadowStacks) {
+      // A missing wrapper is an invalid import; construction itself is also a
+      // catchable TypeError, rather than a stack-switching process termination.
+      EXPECT_TRUE(evaluate(R"JS(
+        var errors = 0;
+        try { new WebAssembly.Suspending(() => Promise.resolve(41)); }
+        catch (e) { if (e instanceof TypeError) ++errors; else throw e; }
+        try { new WebAssembly.Instance(module, {m: {s: WebAssembly.Suspending}}); }
+        catch (e) { if (e instanceof WebAssembly.LinkError) ++errors; else throw e; }
+        errors === 2
+      )JS").getBool());
+    } else {
+      evaluate(R"JS(
+        var calls = 0, resolved = 0, result = 0, rejected = 0, resume;
+        var pending = new Promise(resolve => { resume = resolve; });
+        var s = new WebAssembly.Suspending(() => { ++calls; return pending; });
+        var instance = new WebAssembly.Instance(module, {m: {s}});
+        var promise = WebAssembly.promising(instance.exports.f)();
+        promise.then(value => { result = value; ++resolved; }, () => { ++rejected; });
+      )JS");
+      EXPECT_TRUE(evaluate("promise instanceof Promise && calls === 1 && resolved === 0").getBool());
+      context->drainMicrotasks();
+      EXPECT_EQ(evaluate("resolved").getNumber(), 0); // Still suspended on our unresolved promise.
+      evaluate("resume(41)");
+      for (int i = 0; i < 4; ++i) context->drainMicrotasks();
+      EXPECT_TRUE(evaluate("calls === 1 && resolved === 1 && result === 42 && rejected === 0").getBool());
+    }
+  }
+  // v8::Isolate::InstallConditionalFeatures is unreachable through JSI/ABI:
+  // v8jsi2.dll does not export the V8 C++ API. That site is covered by the
+  // identical process-policy guard, not by this test.
+}
+
+// (memory 1), add(i32,i32)->i32 and load(i32)->i32; no external fixture.
+const char* kAddLoadModule = R"JS(
+  var instance = new WebAssembly.Instance(new WebAssembly.Module(new Uint8Array([
+    0,97,115,109,1,0,0,0,
+    1,12,2,96,2,127,127,1,127,96,1,127,1,127,
+    3,3,2,0,1, 5,3,1,0,1,
+    7,14,2,3,97,100,100,0,0,4,108,111,97,100,0,1,
+    10,17,2,7,0,32,0,32,1,106,11,7,0,32,0,40,2,0,11
+  ])));
+  var add = instance.exports.add, load = instance.exports.load;
+)JS";
+
+TEST_P(CetShadowStack, WasmAddLoadAndTrap) {
+  requireWasm();
+  if (IsSkipped() || HasFatalFailure()) return;
+  eval(kAddLoadModule);
+  EXPECT_EQ(eval("add(20, 22)").getNumber(), 42);
+  EXPECT_EQ(eval("load(0)").getNumber(), 0);
+  EXPECT_EQ(eval("load(65532)").getNumber(), 0);
+  eval(R"JS(
+    var sum = 0, caught = 0;
+    for (let i = 0; i < 2000; ++i) {
+      sum = add(sum, 1);
+      try { load(70000); }
+      catch (e) { if (e instanceof WebAssembly.RuntimeError) ++caught; else throw e; }
+    }
+  )JS");
+  EXPECT_EQ(eval("sum").getNumber(), 2000);
+  EXPECT_EQ(eval("caught").getNumber(), 2000);
+  EXPECT_EQ(eval("add(load(4), 42)").getNumber(), 42);
+}
+
+TEST_P(CetShadowStack, WasmLiftoffToTurboFan) {
+  requireWasm(true);
+  if (IsSkipped() || HasFatalFailure()) return;
+  eval(kAddLoadModule);
+  EXPECT_EQ(eval("add(1, 2)").getNumber(), 3); // Compile lazy functions before checking tiers.
+  EXPECT_EQ(eval("load(0)").getNumber(), 0);
+  ASSERT_TRUE(eval("%IsLiftoffFunction(add) && %IsLiftoffFunction(load)").getBool());
+  eval("%WasmTierUpFunction(add); %WasmTierUpFunction(load)");
+  ASSERT_TRUE(eval("%IsTurboFanFunction(add) && %IsTurboFanFunction(load)").getBool());
+  EXPECT_EQ(eval("var total = 0; for (let i = 0; i < 10000; ++i) total = add(total, 1); total").getNumber(), 10000);
+  EXPECT_EQ(eval("load(65532)").getNumber(), 0);
+  EXPECT_TRUE(eval(R"JS(
+    var trapped = false;
+    try { load(70000); } catch (e) { if (e instanceof WebAssembly.RuntimeError) trapped = true; else throw e; }
+    trapped
+  )JS").getBool());
 }
 
 INSTANTIATE_TEST_SUITE_P(Runtimes, CetShadowStack,

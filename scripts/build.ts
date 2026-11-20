@@ -478,6 +478,21 @@ function runTests(platform: string, configuration: string): void {
           ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_filter=*CetShadowStack.*",
             "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"], cetEnv) && passed;
       }
+      // Explicit policies: ambient CET is not evidence for the off contract.
+      // The counterexample rows vary only the host flag, never unsafe deopt tests.
+      const wasmRows = [
+        ["off", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+        ["compat", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+        ["off", "--allow-natives-syntax --cet-compatible", "*CetShadowStack.Jspi*"],
+        ["strict", "--allow-natives-syntax --no-cet-compatible", "*CetShadowStack.Jspi*"],
+      ];
+      for (const [mode, flags, filter] of wasmRows) {
+        cetEnv.V8JSI_TEST_V8_FLAGS = flags;
+        console.log(`\n=== CET Wasm: ${mode} (flags: ${flags}) ===`);
+        passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+          [mode, path.join(outDir, "v8jsi_test.exe"), `--gtest_filter=${filter}`,
+            "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"], cetEnv) && passed;
+      }
     }
   } finally {
     delete cetEnv.V8JSI_TEST_V8_FLAGS; // Never forward V8 flags to node_lite.

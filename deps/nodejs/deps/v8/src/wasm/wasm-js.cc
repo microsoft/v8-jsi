@@ -3755,7 +3755,12 @@ void WasmJs::Install(Isolate* isolate) {
 
   // Initialize and install JSPI feature.
   // JSPI is not supported by Wasm interpreter.
-  if (!v8_flags.wasm_jitless) {
+  if (!v8_flags.wasm_jitless
+#ifdef V8_ENABLE_CET_SHADOW_STACK
+      // v8-jsi: JSPI stack switching is incompatible with process shadow stacks.
+      && !base::OS::IsHardwareEnforcedShadowStacksEnabled()
+#endif
+  ) {
     CHECK(native_context->is_wasm_jspi_installed() == Smi::zero());
     isolate->WasmInitJSPIFeature();
     InstallJSPromiseIntegration(isolate, native_context, webassembly);
@@ -3786,7 +3791,12 @@ void WasmJs::InstallConditionalFeatures(Isolate* isolate,
   // }
 
   // Install JSPI-related features.
-  if (!v8_flags.wasm_jitless) {
+  if (!v8_flags.wasm_jitless
+#ifdef V8_ENABLE_CET_SHADOW_STACK
+      // v8-jsi: JSPI stack switching is incompatible with process shadow stacks.
+      && !base::OS::IsHardwareEnforcedShadowStacksEnabled()
+#endif
+  ) {
     if (context->is_wasm_jspi_installed() == Smi::zero()) {
       isolate->WasmInitJSPIFeature();
       if (InstallJSPromiseIntegration(isolate, context, webassembly)) {
