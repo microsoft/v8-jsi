@@ -699,6 +699,9 @@
         '<(v8jsi_root)/src/node-api/test/testmain.cpp',
       ],
       'conditions': [
+        ['OS=="win" and target_arch=="x64"', {
+          'dependencies': [ 'cetrun' ],
+        }],
         ['OS=="win"', {
           'msvs_settings': {
             'VCCLCompilerTool': {

@@ -5,7 +5,7 @@
 // Usage: node scripts/build.ts [options]
 
 import { parseArgs } from "node:util";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -377,6 +377,19 @@ async function runBuild(
 // Test Operation
 // =============================================================================
 
+// No shell: preserve Windows argv and the full unsigned child exit code. Keep
+// launcher stderr (including the host diagnostic and SKIP) visible in CI logs.
+function runCetSuite(exe: string, args: string[], env = process.env): boolean {
+  console.log(`> ${exe} ${args.join(" ")}`);
+  const result = spawnSync(exe, args, { env, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    console.error(`CET suite FAILED: exit=${result.status} signal=${result.signal}`);
+    return false;
+  }
+  return true;
+}
+
 function runTests(platform: string, configuration: string): void {
   const engineName = v8jsiDllName();
   console.log(`\n=== Testing ${engineName} (${platform} ${configuration}) ===\n`);
@@ -407,14 +420,54 @@ function runTests(platform: string, configuration: string): void {
 
   // Run both gtest binaries: the JSI suite and the Node-API conformance suite.
   const outDir = buildOutputDir(configuration);
+  // Explicit child environments leave the caller's environment untouched.
+  const ordinaryEnv = { ...process.env };
+  for (const name of Object.keys(ordinaryEnv)) {
+    if (["V8JSI_TEST_CET", "V8JSI_TEST_V8_FLAGS"].includes(name.toUpperCase())) delete ordinaryEnv[name];
+  }
   for (const exeName of ["v8jsi_test.exe", "node_api_tests.exe"]) {
     const testExe = path.join(outDir, exeName);
     if (!fs.existsSync(testExe)) {
       console.error(`Test executable not found: ${testExe}`);
       process.exit(1);
     }
-    run(testExe, ["--gtest_brief=1"]);
+    run(testExe, ["--gtest_brief=1"], { env: ordinaryEnv });
   }
+  if (platform !== "x64") return;
+
+  const cetEnv = { ...ordinaryEnv };
+  // Never re-add ambient CETRUN_* passthrough to strict CI evidence rows
+  // (including nested node_lite launches); set their controls explicitly.
+  for (const name of Object.keys(cetEnv)) {
+    if (name.toUpperCase().startsWith("CETRUN_")) delete cetEnv[name];
+  }
+  console.log("\n=== CET launcher contract tests ===");
+  if (!runCetSuite(process.execPath, ["--test", path.join(repoRoot, "scripts", "cetrun.test.ts")],
+    { ...cetEnv, CETRUN_TEST_OUT: outDir })) throw new Error("CET launcher tests failed");
+  // Probe once with a bounded, tiny child; the full suites stream uncapped.
+  const probe = spawnSync(path.join(outDir, "cetrun.exe"),
+    ["off", path.join(outDir, "v8jsi_test.exe"), "--cetrun-child", "echo"],
+    { env: cetEnv, encoding: "utf8", timeout: 15000 });
+  if (probe.error) throw probe.error;
+  if (probe.status !== 0 || !/user_cet=(yes|no) forced_unavailable=0/.test(probe.stderr)) {
+    throw new Error(`CET availability probe failed: ${probe.status} ${probe.stderr}`);
+  }
+  const cetAvailable = /user_cet=yes/.test(probe.stderr);
+  if (cetAvailable) cetEnv.CETRUN_REQUIRE_CET = "1";
+  cetEnv.CETRUN_TIMEOUT_MS = String(30 * 60 * 1000);
+  // Death-test children do not inherit policy: the CETCOMPAT test exe runs
+  // them in compat mode on CET hosts, which is intentional.
+  cetEnv.V8JSI_TEST_V8_FLAGS = "--allow-natives-syntax";
+  console.log("\n=== Strict CET: full JSI suite ===");
+  let passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+    ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
+  delete cetEnv.V8JSI_TEST_V8_FLAGS; // Never forward V8 flags to node_lite.
+  cetEnv.V8JSI_TEST_CET = "strict";
+  console.log("\n=== Strict CET: per-child Node-API suite ===");
+  passed = runCetSuite(path.join(outDir, "node_api_tests.exe"), ["--gtest_brief=1"], cetEnv) && passed;
+  if (!passed) throw new Error("Strict CET tests failed");
+  console.log(cetAvailable ? "Strict CET summary: JSI and Node-API rows passed" :
+    "Strict CET summary: JSI and Node-API rows SKIPPED (SKIP: user CET not available)");
 }
 
 // =============================================================================

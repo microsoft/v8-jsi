@@ -2,7 +2,9 @@
 // Licensed under the MIT license.
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
+#include <sstream>
 #include <string_view>
 #include "child_process.h"
 
@@ -23,8 +25,14 @@ struct NodeApiTestFixture : ::testing::Test {
   void TearDown() override {}
 
   void TestBody() override {
-    ProcessResult result =
-        spawnSync(m_testProcess.string(), {m_jsFilePath.string()});
+    ProcessResult result = spawnSync(m_testProcess.string(), {m_jsFilePath.string()});
+    if (std::getenv("V8JSI_TEST_CET") && result.status == 0) {
+      std::istringstream lines(result.std_error);
+      for (std::string line; std::getline(lines, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line == "SKIP: user CET not available") GTEST_SKIP() << line;
+      }
+    }
     if (result.status == 0) {
       return;
     }
@@ -58,7 +66,7 @@ struct NodeApiTestFixture : ::testing::Test {
         return;
       }
     }
-    ASSERT_EQ(result.status, 0);
+    ASSERT_EQ(result.status, 0) << result.std_error;
   }
 
  private:

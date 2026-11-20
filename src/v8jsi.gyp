@@ -146,6 +146,16 @@
     ],
   },
 
+  'conditions': [
+    ['OS=="win" and target_arch=="x64"', {
+      'targets': [{
+        'target_name': 'cetrun',
+        'type': 'executable',
+        'sources': [ '<(v8jsi_root)/src/cetrun.c' ],
+      }],
+    }],
+  ],
+
   'targets': [
     {
       'target_name': 'v8jsi_version_gen',
@@ -479,6 +489,9 @@
       ],
 
       'conditions': [
+        ['OS=="win" and target_arch=="x64"', {
+          'dependencies': [ 'cetrun' ],
+        }],
         ['OS=="win"', {
           'sources': [
             '<(v8jsi_root)/src/jsi/jsilib-windows.cpp',

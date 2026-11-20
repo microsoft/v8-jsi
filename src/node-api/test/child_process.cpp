@@ -7,6 +7,10 @@
 #include <windows.h>
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <sstream>
 #include <future>
 
 #ifndef VerifyElseExit
@@ -39,11 +43,50 @@ struct AutoHandle {
   }
 };
 
+// The CET path accepts raw argv (fixture paths and JS child_process arguments).
+// Quote with CRT rules, including empty args and backslashes before quotes.
+static std::string QuoteArgument(std::string_view value) {
+  std::string quoted = "\"";
+  size_t slashes = 0;
+  for (char c : value) {
+    if (c == '\\') { ++slashes; continue; }
+    quoted.append(c == '"' ? slashes * 2 + 1 : slashes, '\\');
+    slashes = 0;
+    quoted += c;
+  }
+  quoted.append(slashes * 2, '\\');
+  return quoted + "\"";
+}
+
 // Create a child process that uses the previously created pipes for STDIN and
 // STDOUT.
 ProcessResult spawnSync(std::string_view command,
                         std::vector<std::string> args) {
   ProcessResult result{};
+  const char* cetMode = std::getenv("V8JSI_TEST_CET");
+  std::string wrappedCommand;
+  if (cetMode) {
+    if (std::string_view(cetMode) != "off" &&
+        std::string_view(cetMode) != "compat" &&
+        std::string_view(cetMode) != "strict") {
+      return {2, {}, "Invalid V8JSI_TEST_CET: expected off|compat|strict\n"};
+    }
+    // Shared by the gtest fixtures AND node_lite's JS spawnSync implementation:
+    // Windows does not inherit CET policy, so every nested child needs cetrun.
+    char module[32768];
+    DWORD length = GetModuleFileNameA(nullptr, module, sizeof(module));
+    if (!length || length >= sizeof(module)) return {3, {}, "Cannot locate cetrun.exe beside test runner\n"};
+    auto launcher = std::filesystem::path(module).replace_filename("cetrun.exe");
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(launcher, error)) {
+      return {3, {}, "V8JSI_TEST_CET requires launcher: " + launcher.string() + "\n"};
+    }
+    wrappedCommand = QuoteArgument(launcher.string());
+    std::vector<std::string> wrappedArgs{cetMode, QuoteArgument(command)};
+    for (const auto& arg : args) wrappedArgs.push_back(QuoteArgument(arg));
+    command = wrappedCommand;
+    args = std::move(wrappedArgs);
+  }
 
   AutoHandle job{::CreateJobObjectW(nullptr, nullptr)};
   VerifyElseExit(job.handle != nullptr);
@@ -153,6 +196,17 @@ ProcessResult spawnSync(std::string_view command,
     result.std_error += "Child process exceeded the 5-minute timeout.";
   }
 
+  if (cetMode) {
+    // Keep diagnostics visible in CI without changing JS stderr assertions or
+    // the fixture's file/line failure protocol. Retain the exact SKIP line.
+    std::istringstream lines(result.std_error);
+    std::string line, childError;
+    while (std::getline(lines, line)) {
+      if (line.starts_with("cetrun:")) std::cerr << line << '\n';
+      else childError += line + (lines.eof() ? "" : "\n");
+    }
+    result.std_error = std::move(childError);
+  }
   return result;
 }
 

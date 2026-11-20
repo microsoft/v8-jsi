@@ -20,6 +20,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -3602,7 +3603,64 @@ TEST(JsiAbiMicrotaskPolicy, NodeApiDrainEntersEnvironmentWithoutAnOpenScope) {
   }
 }
 
+#if defined(_WIN32) && defined(_M_X64)
+// A real child for the launcher contract tests; no runtime or gtest is started.
+static int CetRunChild(int argc, char** argv) {
+  if (argc < 3) return 2;
+  if (!strcmp(argv[2], "echo")) {
+    for (int i = 3; i < argc; ++i) printf("%zu:%s\n", strlen(argv[i]), argv[i]);
+    fprintf(stderr, "child stderr\n");
+  } else if (!strcmp(argv[2], "exit") && argc == 4) {
+    ExitProcess(static_cast<DWORD>(strtoul(argv[3], nullptr, 0)));
+  } else if (!strcmp(argv[2], "sleep")) {
+    printf("pid=%lu\n", GetCurrentProcessId());
+    fflush(stdout);
+    Sleep(60000);
+  } else if (!strcmp(argv[2], "tree")) {
+    char exe[MAX_PATH];
+    if (!GetModuleFileNameA(nullptr, exe, MAX_PATH)) return 3;
+    std::string command = "\"" + std::string(exe) + "\" --cetrun-child sleep";
+    STARTUPINFOA si{sizeof(si)};
+    PROCESS_INFORMATION child{};
+    if (!CreateProcessA(nullptr, command.data(), nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &si, &child)) return 3;
+    printf("parent=%lu\ndescendant=%lu\n", GetCurrentProcessId(), child.dwProcessId);
+    fflush(stdout);
+    CloseHandle(child.hThread);
+    CloseHandle(child.hProcess);
+    Sleep(60000);
+  } else if (!strcmp(argv[2], "policy")) {
+    PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy{};
+    using QueryPolicy = BOOL(WINAPI*)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+    auto query = reinterpret_cast<QueryPolicy>(GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "GetProcessMitigationPolicy"));
+    if (!query || !query(GetCurrentProcess(), ProcessUserShadowStackPolicy,
+                         &policy, sizeof(policy))) return 3;
+    printf("child: shadowstack=%lu strict=%lu\n",
+           static_cast<DWORD>(policy.EnableUserShadowStack),
+           static_cast<DWORD>(policy.EnableUserShadowStackStrictMode));
+  } else return 2;
+  return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
+#if defined(_WIN32) && defined(_M_X64)
+  if (argc >= 2 && !strcmp(argv[1], "--cetrun-child")) return CetRunChild(argc, argv);
+#endif
+  if (const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS")) {
+    std::istringstream input(flags);
+    std::vector<std::string> storage{argv[0]};
+    for (std::string flag; input >> flag;) storage.push_back(std::move(flag));
+    std::vector<char*> flagArgs;
+    for (auto& flag : storage) flagArgs.push_back(flag.data());
+    size_t count = flagArgs.size();
+    jsi_status status = v8_jsi_abi_set_v8_flags(&count, flagArgs.data(), false);
+    if (status != jsi_status_ok) {
+      fprintf(stderr, "V8JSI_TEST_V8_FLAGS rejected (status=%d): %s\n", static_cast<int>(status), flags);
+      return 1;
+    }
+  }
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
