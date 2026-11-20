@@ -1722,18 +1722,23 @@ class DiscardBaselineCodeVisitor : public ThreadVisitor {
         int bytecode_offset = code->GetBytecodeOffsetForBaselinePC(
             frame->pc(), frame->GetBytecodeArray());
         Address* pc_addr = frame->pc_address();
-        Address advance;
-        if (bytecode_offset == kFunctionEntryBytecodeOffset) {
-          advance = BUILTIN_CODE(isolate, BaselineOutOfLinePrologueDeopt)
-                        ->instruction_start();
-        } else {
-          advance = BUILTIN_CODE(isolate, InterpreterEnterAtNextBytecode)
-                        ->instruction_start();
-        }
+        Builtin builtin = bytecode_offset == kFunctionEntryBytecodeOffset
+                              ? Builtin::kBaselineOutOfLinePrologueDeopt
+                              : Builtin::kInterpreterEnterAtNextBytecode;
+        Address advance =
+            isolate->builtins()->code(builtin)->instruction_start();
         if (v8_flags.cet_compatible) {
+          // v8-jsi: Backport 490dba4bd5e2; zap before patching the jump.
+          // v8-jsi: Later frames must not zap earlier frames' patched jumps.
+          if (!code->marked_for_deoptimization()) {
+            code->SetMarkedForDeoptimization(isolate,
+                                             LazyDeoptimizeReason::kDebugger);
+          }
+#if V8_TARGET_ARCH_X64
+          Deoptimizer::PatchToBuiltinJump(isolate, code, *pc_addr, builtin);
+#else
           Deoptimizer::PatchToJump(*pc_addr, advance);
-          frame->LookupCode()->SetMarkedForDeoptimization(
-              isolate, LazyDeoptimizeReason::kDebugger);
+#endif
         } else {
           PointerAuthentication::ReplacePC(pc_addr, advance, kSystemPointerSize,
                                            it.frame()->iteration_depth());

@@ -105,6 +105,15 @@ class CetShadowStack : public JSITestBase {
                        << (needsTurbofan ? "; genuine deopt/materialized catch requires an optimizer" : "");
       }
     }
+    if (interpreted) {
+      std::istringstream words(flags_);
+      for (std::string flag; words >> flag;) {
+        const auto name = NormalizeFlagName(flag);
+        if (name == "always-sparkplug" || name == "no-baseline-batch-compilation" ||
+            name == "jit-fuzzing")
+          GTEST_SKIP() << "Required tier Ignition incompatible with forced baseline compilation by flag " << flag;
+      }
+    }
     const bool sparkplug = eval("%IsSparkplugEnabled()").getBool();
     if (!interpreted && !sparkplug)
       GTEST_SKIP() << "Required tier Sparkplug disabled by flags/build: " << flags_;
