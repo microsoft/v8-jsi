@@ -205,7 +205,7 @@
   </ItemDefinitionGroup>
 
   <!-- Model an ordinary host for the offline tool's default snapshot blobs.
-       Their version tags include CET mode; strict hosts create blobs in-process. -->
+       Their version tags include CET mode; hosts with shadow stacks create blobs in-process. -->
   <ItemDefinitionGroup Condition="'$(Platform)'=='x64'">
     <Link>
       <AdditionalOptions>%(AdditionalOptions) /CETCOMPAT:NO</AdditionalOptions>

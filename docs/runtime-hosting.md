@@ -10,6 +10,64 @@ See `src/jsi_abi/v8_jsi_abi.h` and `src/node-api/v8_node_api.h` for signatures.
 Microsoft.JavaScript.V8 consumers can include `<v8jsi_names.h>` and call
 `LoadLibraryW(V8JSI_DLL_NAME_W)` to load the engine by its packaged DLL name.
 
+## V8 flags and hardware shadow stacks
+
+Set process-global V8 flags with `v8_jsi_abi_set_v8_flags` before the first
+runtime or snapshot operation initializes V8. Flags are not per-runtime;
+calls after initialization are rejected.
+
+The Windows x64 engine supports processes with hardware-enforced shadow
+stacks (CET). Its V8 build includes the shadow-stack adjustments required
+for deoptimization and exception unwinding. The normal engine
+(`v8jsi2.dll`) chooses its startup default from the process policy:
+
+- Without shadow stacks, it automatically applies `--no-cet-compatible`,
+  retaining ordinary code generation.
+- With shadow stacks, it retains V8's `--cet-compatible` default.
+- A host's explicit `--cet-compatible` or `--no-cet-compatible` wins over
+  this automatic default.
+
+**Do not use `--no-cet-compatible` in a process with shadow stacks.** It is
+unsafe and can crash during exception unwinding or deoptimization. Setting
+the flag does not disable the operating system's shadow-stack policy.
+The sandbox engine (`v8jsi2sb.dll`) has CET support but does not apply the
+normal engine's process-dependent startup default. x86 and ARM64 behavior
+is unchanged.
+
+### WebAssembly
+
+In x64 processes with shadow stacks, the engine does not install these
+JavaScript Promise Integration (JSPI) names:
+
+- `WebAssembly.Suspending`
+- `WebAssembly.promising`
+- `WebAssembly.SuspendError`
+
+This restriction follows the process policy, not the host's CET flag.
+Ordinary WebAssembly remains available in the normal engine, including
+compilation, memory access, and traps; JSPI stack switching is unsupported.
+The sandbox engine does not expose WebAssembly.
+Host experimental flags such as `--experimental-wasm-wasmfx` and
+`--stress-wasm-stack-switching` can still enable other stack-switching paths
+and are unsupported in processes with shadow stacks. Hiding JSPI is not a
+general stack-switching guard for arbitrary experimental V8 flags.
+
+### Startup snapshots
+
+A snapshot blob's version tag includes V8's CET mode as well as other V8
+version/flag information. `mkv8snapshot.exe` intentionally runs without
+shadow stacks and produces blobs for ordinary hosts. With default flags,
+hosts with shadow stacks reject those blobs, including `/CETCOMPAT` hosts
+on CET-capable hardware where shadow stacks are enabled automatically.
+The engine prints an incompatible-snapshot warning to stderr and starts
+without the supplied snapshot; snapshot-initialized globals are unavailable.
+
+Hosts with shadow stacks should create blobs in-process with
+`v8_jsi_abi_snapshot_create`, using the same engine and flags that will
+consume them. Use `v8_jsi_abi_snapshot_check` to validate a blob before use
+if the host needs its own fallback policy. Do not opt out of CET to load
+an ordinary-host blob in a shadow-stack process.
+
 ## Microtasks and promises
 
 | Creation path | Observed policy |

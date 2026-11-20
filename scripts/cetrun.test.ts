@@ -142,8 +142,8 @@ for (const [variable, message] of [["CETRUN_TEST_MISMATCH", /policy mismatch/],
 }
 
 test("unavailable CET skips on/strict without starting child; off still runs", () => {
-  // This capable host cannot naturally exercise a missing API: force only the
-  // launcher's availability result, leaving real process/skip handling intact.
+  // Force only the availability result to cover missing CET on any host,
+  // leaving real process/skip handling intact.
   for (const mode of ["compat", "strict"]) {
     const r = invoke(mode, ["--cetrun-child", "echo", "must not run"], { CETRUN_TEST_NO_CET: "1" });
     assert.equal(r.status, 0, r.stderr);

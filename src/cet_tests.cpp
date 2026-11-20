@@ -843,12 +843,12 @@ TEST_P(CetShadowStack, TurboFanThrowAndReturn) {
   )JS", "turbofan");
 }
 
+#if defined(_WIN32) && defined(_M_X64) && defined(V8JSI_TEST_CET_STARTUP_CHECK)
 // Unlike death-test children, these children get an explicit process policy.
 TEST(CetShadowStack, InitOnly) {
   auto runtime = runtimeGenerators()[1](); // One runtime, no JavaScript (safe even with CET opted out).
 }
 
-#if defined(_WIN32) && defined(_M_X64) && defined(V8JSI_TEST_CET_STARTUP_CHECK)
 // Only the normal Windows x64 engine has the process-dependent startup default.
 void CheckStartupFlags(const wchar_t* mode, const wchar_t* flags, const char* expected,
                        const wchar_t* test = L"InitOnly",

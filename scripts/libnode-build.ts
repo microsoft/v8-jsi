@@ -73,8 +73,8 @@ const packageHeaders: Record<string, string[]> = {
 //            Built with public Rust (CI uses Microsoft Rust), the list also
 //            has Rust's precompiled standard library, which the Temporal
 //            library links in.
-//   BA2025 - CET shadow stack off: V8's heap snapshot code fails under it, as
-//            on v8jsi.dll.
+//   BA2025 - libnode x64 does not enable V8's CET switch for deopt/unwind
+//            shadow-stack adjustments; libnode remains non-CETCOMPAT.
 const acceptedBinSkimRules = new Set(["BA2014", "BA2025"]);
 
 // The DLLs libnode.dll may import, besides the UCRT API sets: Windows system

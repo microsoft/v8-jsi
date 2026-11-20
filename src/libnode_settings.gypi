@@ -25,8 +25,8 @@
 #     Node.js builds only with clang-cl, which ignores /Qspectre, so the
 #     compiler adds no Spectre barriers to our code; neither does it for
 #     v8jsi.dll or Hermes.
-#   - No /CETCOMPAT: V8's heap snapshot code fails under hardware shadow
-#     stacks (see src/v8jsi_settings.gypi).
+#   - No /CETCOMPAT: libnode x64 does not enable V8's CET switch, which
+#     supplies the shadow-stack adjustments needed for deopt and unwinding.
 #
 # Linux: the Linux counterpart of the Hybrid CRT. The build image
 # (.ado/image/libnode-linux-build.Dockerfile) has a newer libstdc++ than the

@@ -568,6 +568,44 @@ export function findDumpbin(): string {
   );
 }
 
+// Validate dumpbin /headers without loading the binary (including cross-arch PEs).
+export function checkCetHeaders(headers: string, expected: boolean, binary: string): void {
+  if (!/^\s*FILE HEADER VALUES\s*$/m.test(headers)) {
+    throw new Error(`CET header gate: invalid dumpbin /headers output for ${binary}`);
+  }
+  let block: "optional" | "debug" | undefined;
+  let listIndent: number | undefined;
+  let recognized = false;
+  let actual = false;
+  for (const line of headers.split(/\r?\n/)) {
+    const text = line.trim();
+    const indent = line.length - line.trimStart().length;
+    if (text === "OPTIONAL HEADER VALUES" || text === "Debug Directories") {
+      block = text === "OPTIONAL HEADER VALUES" ? "optional" : "debug";
+      listIndent = undefined;
+      continue;
+    }
+    if (text && indent === 0) block = undefined;
+    const list = /^\s+[0-9A-Fa-f]+ (DLL characteristics|extended DLL characteristics)\s*$/.exec(line);
+    if ((block === "optional" && list?.[1] === "DLL characteristics") ||
+        (block === "debug" && list?.[1] === "extended DLL characteristics")) {
+      recognized = true;
+      listIndent = indent;
+      continue;
+    }
+    // List entries are indented beneath their numeric characteristics value.
+    // A blank line, next field, or section heading ends the list.
+    if (!text || (listIndent !== undefined && indent <= listIndent)) listIndent = undefined;
+    if (listIndent !== undefined && text === "CET compatible") actual = true;
+  }
+  if (!recognized) {
+    throw new Error(`CET header gate: no recognizable DLL characteristics block in dumpbin /headers output for ${binary}`);
+  }
+  if (actual !== expected) {
+    throw new Error(`CET header gate: ${binary} must ${expected ? "" : "NOT "}be CET compatible`);
+  }
+}
+
 // Parse a PE's exported symbol names via `dumpbin /EXPORTS`. The export table is
 // the region between the "ordinal hint RVA name" header and the "Summary"
 // section; rows look like "    1    0 00001000 napi_foo = napi_foo" (ordinal,

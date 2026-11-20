@@ -111,6 +111,42 @@ in V8's DCHECKs).
 Run both test runners for the configuration being validated; test counts change
 as coverage is added or removed.
 
+### Hardware shadow-stack tests (Windows x64)
+
+`node scripts\build.ts --platform x64 --configuration release --no-build --test`
+runs the ordinary JSI and Node-API suites, static CET header gates (also for
+cross-architecture builds), and the x64 launcher and CET rows. The launcher
+is `deps/nodejs/out/Release/cetrun.exe`:
+
+```powershell
+& '.\deps\nodejs\out\Release\cetrun.exe' strict '.\deps\nodejs\out\Release\v8jsi_test.exe' --gtest_brief=1
+```
+
+`cetrun <off|compat|strict> <exe> [args]` creates a suspended child, sets its
+policy, verifies it, and resumes it. `off` disables shadow stacks; `compat`
+and `strict` enable them. `SKIP: user CET not available` is a coverage gap,
+not a pass. `CETRUN_REQUIRE_CET=1` turns unavailability into failure;
+`build.ts` sets it for evidence rows after probing a capable host.
+Death-test children do not inherit the launcher's policy: the CETCOMPAT
+JSI test executable runs those children in compat mode on capable hosts.
+Startup-policy tests instead launch explicit-policy children through cetrun.
+
+For Node-API, `V8JSI_TEST_CET=strict` wraps each node_lite child (including
+nested child launches), rather than just the parent test runner. Unavailable
+CET is counted as a GoogleTest skip. `V8JSI_TEST_V8_FLAGS` supplies flags to
+the JSI runner before V8 initialization; do not forward it to node_lite.
+
+The normal x64 matrix runs the full strict JSI suite with
+`--allow-natives-syntax`, then focused `*CetShadowStack.*` rows for interpreter
+(`--no-sparkplug --no-maglev --no-turbofan`), jitless (`--jitless`), and native
+interpreter stack (`--interpreted-frames-native-stack` plus interpreter flags).
+All rows allow natives syntax; focused rows reject an empty selection.
+Off/compat rows exercise Wasm and JSPI; off plus `--cet-compatible` and strict plus
+`--no-cet-compatible` exercise JSPI policy gating only, not unsafe deopt.
+The per-child strict Node-API suite follows, without JSI V8 flags. The jitless
+sandbox engine runs its full strict JSI suite once and per-child strict
+Node-API suite once, not the normal-engine flag matrix.
+
 ## Symbols and Source Link
 
 Every shipped Windows binary (v8jsi2.dll, v8jsi2sb.dll, mkv8snapshot.exe,
@@ -355,6 +391,8 @@ When updating to newer V8 versions, watch for these renames/changes:
 - `V8JSI_ENABLE_INSPECTOR` — inspector support (enabled)
 - `V8JSI_ENABLE_NODE_API` — Node-API integration
 - `JSI_TESTING_ONLY` — gates test-only DLL exports (see `v8jsi_test_hooks`)
+- `V8JSI_CET_STARTUP_CHECK` — process-dependent CET startup default; normal
+  Windows x64 engine only, not the sandbox engine
 - `V8JSI_TEST_WEBASSEMBLY` — enables flag tests that require WebAssembly
 
 ## Dependencies & binary size
@@ -371,6 +409,7 @@ repo root) tests native package RID selection. Stela's own tests are `npm test`
 in `tools/stela/`. Run `node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts`
 from the repo root to test NASM discovery and prerequisite setup. Run TypeScript with
 `node <script>.ts` directly.
+Run `node --test scripts/cet-headers.test.ts` from the repo root to test CET header validation.
 
 The public C ABI headers have a compile gate: `node --test
 scripts/header-check.ts` extracts the Stela model once and compiles Stela's
