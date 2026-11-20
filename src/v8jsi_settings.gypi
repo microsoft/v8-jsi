@@ -47,9 +47,9 @@
 # runtime libraries linked below, as in Hermes.
 #
 # We extend that with two defensive additions for BinSkim coverage:
-#   - `/CETCOMPAT` (link) -- BA2025 EnableShadowStack. Arch-independent
-#     metadata; the linker accepts the flag on arm64/x86 and the bit just
-#     isn't honored at runtime there.
+#   - v8-jsi: `/CETCOMPAT` (link) -- BA2025 EnableShadowStack, x64 only
+#     (see the x64 block in target_defaults). The x64 engine is built with
+#     V8's CET shadow-stack support; arm64/x86 stay non-CETCOMPAT.
 #   - Pin `RandomizedBaseAddress` (/DYNAMICBASE) and
 #     `DataExecutionPrevention` (/NXCOMPAT) explicitly. MSBuild v143 +
 #     x64 defaults both to true; pinning means BinSkim sees the flags in
@@ -99,14 +99,12 @@
       },
       'VCLinkerTool': {
         # /guard:cf -- Control Flow Guard link-side instrumentation.
-        # NOTE: /CETCOMPAT was tried and reverted -- V8's heap-snapshot
-        # serialization calls a virtual OutputStream::WriteAsciiChunk
-        # through an indirect call that lands in code V8 doesn't mark as
-        # shadow-stack-safe; CET enforcement triggers a FAST_FAIL
-        # (0xC0000409 STATUS_STACK_BUFFER_OVERRUN) in
-        # JSITestExt.V8Instrumentation_CreateHeapSnapshotToFile.
-        # BA2025 (EnableShadowStack) accepted as a residual finding --
-        # blocked by V8 upstream; see impl-b3-results.md.
+        # v8-jsi: /CETCOMPAT is applied in the x64 block below. The earlier
+        # heap-snapshot FAST_FAIL under enforced shadow stacks is addressed
+        # by this work's CET shadow-stack stages (v8_enable_cet_shadow_stack=1
+        # for x64 engine builds). Later stages validate CET enforcement with
+        # launcher-based runs. node_lite is excluded via /CETCOMPAT:NO in
+        # src/node-api/test/node_api_tests.gyp.
         'AdditionalOptions': [ '/guard:cf' ],
         # /DYNAMICBASE -- ASLR opt-in (BA2009). GYP takes the MSVS
         # enumeration index here: 2 is "true".
@@ -147,6 +145,7 @@
       ['target_arch=="x64"', {
         'msvs_settings': {
           'VCLinkerTool': {
+            'AdditionalOptions': [ '/CETCOMPAT' ],
             'AdditionalLibraryDirectories': [ '$(VCToolsInstallDir)lib\\spectre\\x64' ],
           },
         },

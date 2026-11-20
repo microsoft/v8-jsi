@@ -2336,6 +2336,10 @@ def configure_v8(o, configs):
       o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1
       o['variables']['v8_enable_sandbox'] = 1
   # === END v8jsisb.dll sandbox variant ===
+  # v8-jsi: Enable CET shadow stacks only for Windows x64 engine builds.
+  o['variables']['v8_enable_cet_shadow_stack'] = 1 if (
+      (options.build_v8jsi or options.build_v8jsisb) and flavor == 'win'
+      and o['variables']['target_arch'] == 'x64') else 0
   o['variables']['v8_enable_temporal_support'] = 0 if options.v8_disable_temporal_support else 1
   o['variables']['v8_trace_maps'] = 1 if options.trace_maps else 0
   o['variables']['v8_use_perfetto'] = 1 if options.with_perfetto else 0
