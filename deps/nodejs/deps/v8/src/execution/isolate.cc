@@ -2984,10 +2984,10 @@ Tagged<Object> Isolate::UnwindAndFindHandler() {
               static_cast<int>(offset));
 
           Tagged<Code> code = *BUILTIN_CODE(this, InterpreterEnterAtBytecode);
-#ifndef V8_ENABLE_RISCV_SHADOW_STACK
-          // We subtract a frame from visited_frames because otherwise the
-          // shadow stack will drop the underlying interpreter entry trampoline
-          // in which the handler runs.
+          // v8-jsi: CET resumes before a fresh interpreter handler call, so its
+          // old return entry is stale and must be included in visited_frames.
+#if !defined(V8_ENABLE_RISCV_SHADOW_STACK) && !defined(V8_ENABLE_CET_SHADOW_STACK)
+          // Without CET or RISC-V shadow stacks, this count is unused.
           //
           // An interpreted frame cannot be the first frame we look at
           // because at a minimum, an exit frame into C++ has to separate
