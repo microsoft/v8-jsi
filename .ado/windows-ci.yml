@@ -1,42 +1,55 @@
 name: v8jsi_ci_0.0.$(Date:yyMM.d)$(Rev:rrr)
 
-# Triggers are defined here, not in the ADO pipeline UI. CI runs on main and
-# skips changes that only touch the documentation and ownership-metadata files
-# excluded below. PR validation is handled separately by windows-pr.yml, so this
-# pipeline sets pr: none.
-trigger:
-  batch: false
-  branches:
-    include:
-    - main
-  paths:
-    exclude:
-    - README.md
-    - docs/*
-    - AGENTS.md
-    - CLAUDE.md
-    - CODEOWNERS
+# Test-branch-only CET availability probe; never merged.
+trigger: none
 pr: none
 
-# Monthly keep-alive run so ADO does not disable the pipeline for inactivity.
-# It is not used for real releases and its time is not significant. A successful
-# run still triggers windows-release.yml, which skips versions already published.
-schedules:
-- cron: '0 9 1 * *'
-  displayName: Monthly keep-alive
-  branches:
-    include:
-    - main
-  always: true
-
-variables:
-  - name: tags
-    value: production,externalfacing
+resources:
+  repositories:
+  - repository: OfficePipelineTemplates
+    type: git
+    name: 1ESPipelineTemplates/OfficePipelineTemplates
+    ref: refs/tags/release
 
 extends:
-  template: windows-jobs.yml@self
+  template: v1/Office.Unofficial.PipelineTemplate.yml@OfficePipelineTemplates
   parameters:
-    # CI builds must pass true.
-    isPublish: true
-    # It must be false for real builds. Use true only for the build pipeline debugging.
-    fakeBuild: false
+    featureFlags:
+      autoEnablePREfastWithNewRuleset: false
+    pool:
+      name: fabric-internal-pool-large
+      demands: ImageOverride -equals windows-2025-1espt
+    sdl:
+      prefast:
+        enabled: false
+        justificationForDisabling: "Probe only."
+    stages:
+    - stage: probe
+      jobs:
+      - job: fabric_large
+        displayName: CET probe fabric-internal-pool-large
+        pool:
+          name: fabric-internal-pool-large
+          demands: ImageOverride -equals windows-2025-1espt
+          os: windows
+        steps:
+        - pwsh: .ado/cet-probe.ps1
+          displayName: Probe
+      - job: exd_latest
+        displayName: CET probe ExDShared windows-latest
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          vmImage: windows-latest
+          os: windows
+        steps:
+        - pwsh: .ado/cet-probe.ps1
+          displayName: Probe
+      - job: exd_2025
+        displayName: CET probe ExDShared windows-2025
+        pool:
+          name: Azure-Pipelines-1ESPT-ExDShared
+          vmImage: windows-2025
+          os: windows
+        steps:
+        - pwsh: .ado/cet-probe.ps1
+          displayName: Probe
