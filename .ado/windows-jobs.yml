@@ -206,14 +206,18 @@ extends:
             outputs:
               # Only Release cells stage a NuGet artifact: build.ts --pack lays
               # out-new/pkg-staging for the V8JsiCreateNugetNew aggregator. Debug
-              # cells just build + run gtests (no NuGet ships from Debug), so the
-              # outputs list is empty for them. Publishing only pkg-staging (not
+              # cells just build + run gtests (no NuGet ships from Debug).
+              # Publishing only pkg-staging (not
               # the whole out-new) keeps the per-cell artifact to the binaries +
               # headers the aggregator needs — it omits the unused per-cell .nupkg.
             - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
               - output: pipelineArtifact
                 artifactName: ${{ matrix.Name }}-new
                 targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
+            - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+              - output: pipelineArtifact
+                artifactName: cet-tests-${{ matrix.Name }}
+                targetPath: $(Build.StagingDirectory)\cet-tests
 
           steps:
             # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
@@ -254,6 +258,38 @@ extends:
                 folderPath: $(Build.StagingDirectory)\out-new\pkg-staging
                 pattern: |
                   **\v8jsi2.dll
+
+          - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+            - pwsh: |
+                ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                    -Destination "$(Build.StagingDirectory)\cet-tests" -Configuration ${{ matrix.BuildConfiguration }}
+              displayName: Stage x64 CET runtime tests
+              workingDirectory: $(Build.SourcesDirectory)
+
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+          - job: V8JsiCetServer_${{ matrix.Name }}
+            displayName: Windows Server CET (${{ matrix.BuildConfiguration }})
+            dependsOn: V8JsiBuildNew_${{ matrix.Name }}
+            timeoutInMinutes: 180
+            pool:
+              name: Azure-Pipelines-1ESPT-ExDShared
+              vmImage: windows-2025
+              os: windows
+            steps:
+            - checkout: self
+              fetchDepth: 1
+              lfs: false
+              sparseCheckoutDirectories: .ado
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                artifact: cet-tests-${{ matrix.Name }}
+                path: $(Build.SourcesDirectory)
+            - pwsh: |
+                ./.ado/cet-probe.ps1 -RequireCet
+                ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" -Configuration ${{ matrix.BuildConfiguration }}
+              displayName: Require user CET and run runtime qualification
+              workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Sandbox binaries. One job PER RID (x64/x86/arm64) builds that arch's
@@ -315,6 +351,10 @@ extends:
             - output: pipelineArtifact
               artifactName: sandbox-binaries-${{ sb.Rid }}
               targetPath: $(Build.StagingDirectory)\sandbox
+            - ${{ if and(eq(sb.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+              - output: pipelineArtifact
+                artifactName: cet-tests-sandbox-win-x64
+                targetPath: $(Build.StagingDirectory)\cet-tests
 
           steps:
             # The vendored gn (deps/gn/gn.exe) is a Git LFS object; the default
@@ -488,6 +528,13 @@ extends:
 
             - ${{ if eq(sb.BuildPlatform, 'x64') }}:
               - pwsh: |
+                  ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                      -Destination "$(Build.StagingDirectory)\cet-tests" -Sandbox
+                displayName: Stage x64 sandbox CET runtime tests
+                workingDirectory: $(Build.SourcesDirectory)
+
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
                   # Untraced, as the suites above: this step starts sandbox workers too.
                   Get-ChildItem env:CODEQL_* | Where-Object Name -notin 'CODEQL_DIST', 'CODEQL_PLATFORM' | Remove-Item
                   .\tests\run-worker.ps1
@@ -600,6 +647,31 @@ extends:
                   **\sbox.exe
                   **\v8sbhost.dll
                   **\mkv8snapshot.exe
+
+      - ${{ each sb in parameters.SandboxMatrix }}:
+        - ${{ if and(eq(sb.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+          - job: V8JsiCetServerSandbox_${{ sb.Name }}
+            displayName: Windows Server CET (sandbox Release)
+            dependsOn: V8JsiBuildSandbox_${{ sb.Name }}
+            timeoutInMinutes: 180
+            pool:
+              name: Azure-Pipelines-1ESPT-ExDShared
+              vmImage: windows-2025
+              os: windows
+            steps:
+            - checkout: self
+              fetchDepth: 1
+              lfs: false
+              sparseCheckoutDirectories: .ado
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                artifact: cet-tests-sandbox-win-x64
+                path: $(Build.SourcesDirectory)
+            - pwsh: |
+                ./.ado/cet-probe.ps1 -RequireCet
+                ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" -Sandbox
+              displayName: Require user CET and run sandbox runtime qualification
+              workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Microsoft.JavaScript.LibNode: build, test, check, sign, pack, and

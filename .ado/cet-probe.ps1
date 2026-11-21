@@ -1,3 +1,5 @@
+param([switch] $RequireCet)
+
 $ErrorActionPreference = 'Continue'
 Add-Type -TypeDefinition @'
 using System;
@@ -27,3 +29,5 @@ Write-Host ("probe: pwsh_user_shadow_stack_policy ok={0} flags=0x{1:x}" -f $ok, 
 try { Get-ProcessMitigation -System | Select-Object -ExpandProperty UserShadowStack | Format-List | Out-String | Write-Host } catch { Write-Host "probe: Get-ProcessMitigation error $_" }
 $dg = Get-CimInstance -Namespace root\Microsoft\Windows\DeviceGuard -ClassName Win32_DeviceGuard -ErrorAction SilentlyContinue
 if ($dg) { Write-Host "probe: vbs_status=$($dg.VirtualizationBasedSecurityStatus) services_running=$($dg.SecurityServicesRunning -join ',')" }
+
+if ($RequireCet -and -not $avail) { throw "User CET is required on this test host" }
