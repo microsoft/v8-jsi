@@ -262,7 +262,11 @@ extends:
           - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
             - pwsh: |
                 ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
-                    -Destination "$(Build.StagingDirectory)\cet-tests" -Configuration ${{ matrix.BuildConfiguration }}
+                    -Destination "$(Agent.TempDirectory)\cet-tests" -Configuration ${{ matrix.BuildConfiguration }}
+                # One tar keeps the test-only payload (Node, unsigned test hosts) out of BinSkim.
+                New-Item -ItemType Directory -Force "$(Build.StagingDirectory)\cet-tests" | Out-Null
+                tar.exe -cf "$(Build.StagingDirectory)\cet-tests\cet-tests.tar" -C "$(Agent.TempDirectory)\cet-tests" .
+                if ($LASTEXITCODE) { throw "tar failed" }
               displayName: Stage x64 CET runtime tests
               workingDirectory: $(Build.SourcesDirectory)
 
@@ -284,8 +288,10 @@ extends:
             - task: DownloadPipelineArtifact@2
               inputs:
                 artifact: cet-tests-${{ matrix.Name }}
-                path: $(Build.SourcesDirectory)
+                path: $(Pipeline.Workspace)\cet-tests
             - pwsh: |
+                tar.exe -xf "$(Pipeline.Workspace)\cet-tests\cet-tests.tar" -C "$(Build.SourcesDirectory)"
+                if ($LASTEXITCODE) { throw "tar failed" }
                 ./.ado/cet-probe.ps1 -RequireCet
                 ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" -Configuration ${{ matrix.BuildConfiguration }}
               displayName: Require user CET and run runtime qualification
@@ -529,7 +535,10 @@ extends:
             - ${{ if eq(sb.BuildPlatform, 'x64') }}:
               - pwsh: |
                   ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
-                      -Destination "$(Build.StagingDirectory)\cet-tests" -Sandbox
+                      -Destination "$(Agent.TempDirectory)\cet-tests" -Sandbox
+                  New-Item -ItemType Directory -Force "$(Build.StagingDirectory)\cet-tests" | Out-Null
+                  tar.exe -cf "$(Build.StagingDirectory)\cet-tests\cet-tests.tar" -C "$(Agent.TempDirectory)\cet-tests" .
+                  if ($LASTEXITCODE) { throw "tar failed" }
                 displayName: Stage x64 sandbox CET runtime tests
                 workingDirectory: $(Build.SourcesDirectory)
 
@@ -666,8 +675,10 @@ extends:
             - task: DownloadPipelineArtifact@2
               inputs:
                 artifact: cet-tests-sandbox-win-x64
-                path: $(Build.SourcesDirectory)
+                path: $(Pipeline.Workspace)\cet-tests
             - pwsh: |
+                tar.exe -xf "$(Pipeline.Workspace)\cet-tests\cet-tests.tar" -C "$(Build.SourcesDirectory)"
+                if ($LASTEXITCODE) { throw "tar failed" }
                 ./.ado/cet-probe.ps1 -RequireCet
                 ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" -Sandbox
               displayName: Require user CET and run sandbox runtime qualification
