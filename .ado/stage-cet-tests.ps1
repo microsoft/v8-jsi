@@ -31,7 +31,7 @@ $addons | Copy-Item -Destination $dst
 $tooling = Join-Path $Destination 'tooling'
 $scripts = Join-Path $Destination 'scripts'
 New-Item -ItemType Directory -Force $tooling, $scripts | Out-Null
-$node = (Get-Command node -CommandType Application).Source
+$node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 $version = & $node -p 'process.versions.node'
 if ($LASTEXITCODE -ne 0 -or [version]$version -lt [version]'24.0.0') { throw "Node 24 required; found $version" }
 Copy-Required $node (Join-Path $tooling 'node.exe')
