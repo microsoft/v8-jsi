@@ -204,6 +204,10 @@ extends:
           parameters:
             symbolsArtifactName: V8Jsi-Symbols-New-$(Build.BuildId)
 
+      # =====================================================================
+      # Legacy package: ReactNative.V8Jsi.Windows. Publish to both feeds and
+      # independently verify package-identical DLLs with full server symbols.
+      # =====================================================================
       - job: ms_react_native_nuget_job_legacy
         displayName: Publish Nuget (ReactNative.V8Jsi.Windows) to ms/react-native-public
         condition: succeeded()
@@ -257,6 +261,10 @@ extends:
           type: releaseJob
           isProduction: true
           inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: published-packages-legacy
+            targetPath: $(Pipeline.Workspace)\published-packages-legacy
           - input: pipelineArtifact
             pipeline: microsoft.v8-jsi.ci
             artifactName: Desktop_x64_Debug-legacy
@@ -315,18 +323,26 @@ extends:
 
             $inputsDir = "$(Pipeline.Workspace)/legacy-symbol-inputs"
             $symbolsDir = "$(Pipeline.Workspace)/legacy-symbols"
-            foreach ($configuration in 'Debug', 'Release') {
-              foreach ($platform in 'x64', 'x86', 'ARM64') {
-                $artifact = "$inputsDir/Desktop_$($platform)_$configuration-legacy"
-                $source = "$artifact/symbols/$($platform.ToLower())-$configuration"
-                $dll = "$source/v8jsi.dll"
-                $pdb = "$source/v8jsi.dll.pdb"
-                $packageDll = "$artifact/pkg-staging/lib/win32/$configuration/$($platform.ToLower())/v8jsi.dll"
-                Assert-LegacySymbolPair $dll $pdb $packageDll
-                $destination = "$symbolsDir/$($platform.ToLower())-$configuration"
-                New-Item -ItemType Directory -Force $destination | Out-Null
-                Copy-Item -LiteralPath $dll, $pdb -Destination $destination
+            $packages = @(Get-ChildItem "$(Pipeline.Workspace)/published-packages-legacy" -Filter 'ReactNative.V8Jsi.Windows.*.nupkg' -File)
+            if ($packages.Count -ne 1) { throw 'Exactly one legacy package is required' }
+            $packageDir = "$(Pipeline.Workspace)/legacy-package-$([guid]::NewGuid())"
+            try {
+              [System.IO.Compression.ZipFile]::ExtractToDirectory($packages[0].FullName, $packageDir)
+              foreach ($configuration in 'Debug', 'Release') {
+                foreach ($platform in 'x64', 'x86', 'ARM64') {
+                  $artifact = "$inputsDir/Desktop_$($platform)_$configuration-legacy"
+                  $source = "$artifact/symbols/$($platform.ToLower())-$configuration"
+                  $dll = "$source/v8jsi.dll"
+                  $pdb = "$source/v8jsi.dll.pdb"
+                  $packageDll = "$packageDir/lib/win32/$configuration/$($platform.ToLower())/v8jsi.dll"
+                  Assert-LegacySymbolPair $dll $pdb $packageDll
+                  $destination = "$symbolsDir/$($platform.ToLower())-$configuration"
+                  New-Item -ItemType Directory -Force $destination | Out-Null
+                  Copy-Item -LiteralPath $dll, $pdb -Destination $destination
+                }
               }
+            } finally {
+              if (Test-Path -LiteralPath $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force }
             }
           displayName: Verify six signed DLL and full PDB pairs
 

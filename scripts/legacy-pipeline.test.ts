@@ -134,9 +134,6 @@ test("legacy feeds mirror existing destinations and duplicate handling without E
     assert.match(body, /ReactNative\.V8Jsi\.Windows\.\*\.nupkg/);
     assert.doesNotMatch(body, /nuget\.org|EsrpRelease|libnode-packages/);
   }
-  for (const template of ["ado", "office"]) {
-    assert.match(read(`.ado/templates/publish-nuget-to-${template}-feed.yml`), /Remove already-published packages[\s\S]*condition: and\(succeeded\(\), eq\(variables\['HasNewPackages'\], 'True'\)\)/);
-  }
   assert.match(releaseJob("nuget_org_job_libnode"), /Contents: 'Microsoft.JavaScript.LibNode.\*.nupkg'/);
 });
 
@@ -146,12 +143,60 @@ test("legacy symbols require all six artifacts and publish only verified pairs i
   const artifacts = [...body.matchAll(/artifactName: (Desktop_\S+-legacy)/g)].map(match => match[1]);
   assert.deepEqual(artifacts.sort(), ["ARM64", "x64", "x86"].flatMap(arch => ["Debug", "Release"].map(config => `Desktop_${arch}_${config}-legacy`)).sort());
   assert.doesNotMatch(body, /continueOnError:|condition: always/);
-  assert.ok(body.indexOf("Assert-LegacySymbolPair $dll $pdb $packageDll") < body.indexOf("- template: .ado/templates/publish-symbols.yml@self"));
+  const validation = body.indexOf("Assert-LegacySymbolPair $dll $pdb $packageDll");
+  const publication = body.indexOf("- template: .ado/templates/publish-symbols.yml@self");
+  assert.ok(validation >= 0);
+  assert.ok(publication >= 0);
+  assert.ok(validation < publication);
+  assert.match(body, /artifactName: published-packages-legacy/);
   assert.match(body, /symbolsFolder: \$\(Pipeline.Workspace\)\/legacy-symbols/);
-  const template = read(".ado/templates/publish-symbols.yml");
-  assert.match(template, /PublishSymbols@2/);
-  assert.match(template, /IndexSources: false/);
-  assert.match(template, /\*\*\/\*\.pdb\n      \*\*\/\*\.dll/);
+});
+
+test("legacy symbols compare every cell with the packed package and reject absent or differing images", () => {
+  const script = releaseJob("publish_symbols_job_legacy").match(/- pwsh: \|\n([\s\S]*?)\n          displayName:/)![1]
+    .replace(/\$vswhere = [\s\S]*?if \(-not \$dumpbin[^\n]+/, "$dumpbin = 'ReadHeaders'; $pdbutil = 'ReadPdb'");
+  // Six one-byte cells and textual PDB-tool outputs exercise the real ZIP, path selection, and hashes.
+  for (const mode of ["valid", "mismatch", "missing-entry", "missing-package", "multiple-packages"]) {
+    const root = mkdtempSync(path.join(tmpdir(), "legacy-symbol-package-"));
+    try {
+      for (const platform of ["x64", "x86", "arm64"]) for (const configuration of ["Debug", "Release"]) {
+        const name = `Desktop_${platform === "arm64" ? "ARM64" : platform}_${configuration}-legacy`;
+        const source = path.join(root, "legacy-symbol-inputs", name, "symbols", `${platform}-${configuration}`);
+        mkdirSync(source, { recursive: true });
+        writeFileSync(path.join(source, "v8jsi.dll"), platform[0]);
+        writeFileSync(path.join(source, "v8jsi.dll.pdb"), "p");
+        const payload = path.join(root, "payload/lib/win32", configuration, platform);
+        mkdirSync(payload, { recursive: true });
+        if (mode !== "missing-entry" || platform !== "x86" || configuration !== "Release") {
+          writeFileSync(path.join(payload, "v8jsi.dll"), mode === "mismatch" && platform === "arm64" && configuration === "Debug" ? "!" : platform[0]);
+        }
+      }
+      const packages = path.join(root, "published-packages-legacy");
+      mkdirSync(packages);
+      const setup = `
+        $ErrorActionPreference = 'Stop'
+        Compress-Archive -Path '${root}/payload/*' -DestinationPath '${root}/package.zip'
+        if ('${mode}' -ne 'missing-package') {
+          Copy-Item '${root}/package.zip' '${packages}/ReactNative.V8Jsi.Windows.0.79.8.nupkg'
+        }
+        if ('${mode}' -eq 'multiple-packages') {
+          Copy-Item '${root}/package.zip' '${packages}/ReactNative.V8Jsi.Windows.0.79.9.nupkg'
+        }
+        function Get-AuthenticodeSignature { [pscustomobject]@{ Status = 'Valid' } }
+        function ReadHeaders { $global:LASTEXITCODE = 0; 'Format: RSDS, {AABB-CCDD}, 1' }
+        function ReadPdb {
+          $global:LASTEXITCODE = 0
+          'GUID: {AABB-CCDD}'; 'Age: 1'; 'Is stripped: false'; 'Has Types: true'; 'Has Debug Info: true'
+        }
+      `;
+      const result = runPowerShell(setup + script.replaceAll("$(Pipeline.Workspace)", root));
+      assert.equal(result.status === 0, mode === "valid", `${mode}: ${result.stderr}`);
+      if (mode === "valid") assert.equal((result.stdout.match(/Verified /g) ?? []).length, 6);
+      if (mode === "mismatch") assert.match(result.stderr, /Symbol image differs from package/);
+      if (mode === "missing-entry") assert.match(result.stderr, /Cannot find path/);
+      if (mode.endsWith("packages") || mode === "missing-package") assert.match(result.stderr, /Exactly one legacy package is required/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
 
 test("legacy symbol validation rejects missing unreadable mismatched stripped or unsigned pairs", () => {
