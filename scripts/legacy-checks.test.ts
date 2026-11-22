@@ -197,3 +197,50 @@ test("compiler checks require SHA-256, GS and the static CRT in both configurati
     assert.throws(() => checkLegacyHardeningProject(bad), /Missing|missing/);
   }
 });
+
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { updateLegacySources } from "./legacy-checks.ts";
+
+test("refresh updates modern enforced pins without changing provenance or restored pins", () => {
+  const root = mkdtempSync(join(tmpdir(), "legacy-sources-"));
+  try {
+    const data = Buffer.from("source\n"), hash = normalizedHash(data);
+    const files = [
+      { path: "src/legacy/public/api.h", kind: "frozen", sha256: hash },
+      { path: "src/shared.cpp", kind: "shared", sha256: hash },
+      { path: "src/cetrun.c", kind: "shared", sha256: "a".repeat(64), outputSha256: hash },
+      { path: "src/legacy/inspector/copy.h", origin: "src/inspector/donor.h", kind: "inspector", sha256: hash, outputSha256: hash },
+    ];
+    for (const name of [...files.map(file => file.path), files[3].origin!]) {
+      mkdirSync(join(root, name, ".."), { recursive: true });
+      writeFileSync(join(root, name), data);
+    }
+    const manifestPath = join(root, "src/legacy/sources.json");
+    const original = JSON.stringify({ contract: "5424838ddaf", files }, null, 2).replaceAll("\n", "\r\n") + "\r\n";
+    writeFileSync(manifestPath, original);
+    checkLegacySources(root);
+    updateLegacySources(root);
+    assert.equal(readFileSync(manifestPath, "utf8"), original);
+    const changed = Buffer.from("changed\n"), changedHash = normalizedHash(changed);
+    // Ordinary shared, adapted shared, and inspector donor pins select different hash fields or inputs.
+    for (const index of [1, 2, 3]) {
+      const file = files[index];
+      writeFileSync(join(root, file.origin ?? file.path), changed);
+      assert.throws(() => checkLegacySources(root), /drift:.*node scripts\/legacy-checks.ts --update-sources/);
+      updateLegacySources(root);
+      file[file.kind === "shared" && file.outputSha256 ? "outputSha256" : "sha256"] = changedHash;
+      assert.deepEqual(JSON.parse(readFileSync(manifestPath, "utf8")).files, files);
+      checkLegacySources(root);
+    }
+    const refreshed = readFileSync(manifestPath);
+    // Frozen contracts and ported inspector copies have independent output pins.
+    for (const file of [files[0], files[3]]) {
+      writeFileSync(join(root, file.path), changed);
+      updateLegacySources(root);
+      assert.deepEqual(readFileSync(manifestPath), refreshed);
+      assert.throws(() => checkLegacySources(root), /Legacy source drift/);
+      writeFileSync(join(root, file.path), data);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -97,6 +97,13 @@ flags (skips `node.exe`, `cctest`, `embedtest`, etc.). See
 `deps/nodejs/src/node_version.h`, and fails fast on mismatch. See
 [`docs/versioning.md`](docs/versioning.md) for the `26.x.y` policy.
 
+##### Building legacy v8jsi.dll from Node.js sources
+
+The legacy build produces `v8jsi.dll` and the `ReactNative.V8Jsi.Windows` package with the 0.79.5 C++ JSI API.
+Build with `node scripts\legacy-build.ts --platform x64 --configuration release`.
+After reviewing the change to a shared file, refresh pins with `node scripts/legacy-checks.ts --update-sources`.
+See [AGENTS.md](AGENTS.md) for build, testing, staging, and source-pin details.
+
 ### Out-of-sync issues
 Until the JSI headers find a more suitable home, they're currently duplicated between the various repos. Code in jsi\jsi should be synchronized with the matching version of JSI from react-native (from https://github.com/facebook/hermes/tree/master/API/jsi/jsi).
 

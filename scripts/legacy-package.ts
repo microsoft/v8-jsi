@@ -70,6 +70,15 @@ export function legacyCells(files: readonly string[], diagnostic: boolean): stri
   return cells;
 }
 
+export function legacyVersionDetails(header: string): string {
+  const version = ["MAJOR", "MINOR"].map(part => {
+    const match = new RegExp(`^#define\\s+V8_${part}_VERSION\\s+(\\d+)\\s*$`, "m").exec(header);
+    if (!match) throw new Error(`Missing V8_${part}_VERSION`);
+    return match[1];
+  });
+  return `V8 ${version.join(".")}`;
+}
+
 export function packLegacy(stage: string, output: string, diagnostic: boolean): void {
   checkLegacySources(repoRoot);
   const files = stagedFiles(stage);
@@ -99,7 +108,8 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean): 
   const repository = /<projectUrl>([^<]+)<\/projectUrl>/.exec(fs.readFileSync(nuspec, "utf8"))![1];
   const nuget = execFileSync("where.exe", ["nuget.exe"], { encoding: "utf8" }).trim().split(/\r?\n/)[0];
   fs.mkdirSync(output, { recursive: true });
-  const properties = `nugetroot=${path.resolve(stage)};Version=${version};VersionDetails=V8 14.6;RepoUri=${repository};CommitId=${revision}`;
+  const versionDetails = legacyVersionDetails(fs.readFileSync(path.join(repoRoot, "deps/nodejs/deps/v8/include/v8-version.h"), "utf8"));
+  const properties = `nugetroot=${path.resolve(stage)};Version=${version};VersionDetails=${versionDetails};RepoUri=${repository};CommitId=${revision}`;
   execFileSync(nuget, ["pack", nuspec, "-Properties", properties, "-OutputDirectory", output,
     "-NoPackageAnalysis", "-NonInteractive"], { stdio: "inherit" });
   const pkg = path.join(output, `ReactNative.V8Jsi.Windows.${version}.nupkg`);

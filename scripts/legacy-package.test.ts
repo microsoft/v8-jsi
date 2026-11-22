@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { repoRoot } from "./build-common.ts";
 import { tmpdir } from "node:os";
 import { aggregateLegacy, expectedLegacyFiles, checkLegacyFileList, legacyCells,
-  legacyPayloadFiles, checkLegacyPdbIdentity, checkLegacyDllIdentity, packLegacy } from "./legacy-package.ts";
+  legacyPayloadFiles, checkLegacyPdbIdentity, checkLegacyDllIdentity, packLegacy, legacyVersionDetails } from "./legacy-package.ts";
 
 const cells = ["Debug/x86", "Debug/x64", "Debug/arm64", "Release/x86", "Release/x64", "Release/arm64"];
 function fixture(action: (root: string, inputs: string[]) => void): void {
@@ -117,4 +117,11 @@ test("aggregation requires an explicit output directory", () => {
   const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/legacy-build.ts"), "--aggregate", "missing-cell"], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /--aggregate requires an explicit --output/);
+});
+
+test("package version details follow the vendored V8 major and minor", () => {
+  assert.equal(legacyVersionDetails("#define V8_MAJOR_VERSION 15\r\n#define V8_MINOR_VERSION 2\r\n"), "V8 15.2");
+  for (const header of ["", "#define V8_MAJOR_VERSION 15\n", "#define V8_MAJOR_VERSION invalid\n#define V8_MINOR_VERSION 2\n"]) {
+    assert.throws(() => legacyVersionDetails(header), /Missing V8_/);
+  }
 });

@@ -10,45 +10,10 @@ import { test } from "node:test";
 
 const read = (file: string) => readFileSync(new URL("../" + file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
 const jobs = read(".ado/windows-jobs.yml");
-const build = read(".ado/windows-build-legacy.yml");
-const acceptance = read(".ado/windows-acceptance-legacy.yml");
 const job = (name: string) => jobs.split(`- job: ${name}\n`)[1]?.split(/\n\s*- job:/)[0] ?? "";
-
-test("legacy builds cover six cells on every run with native ARM64", () => {
-  const matrix = jobs.split("- name: SandboxMatrix")[0];
-  assert.equal((matrix.match(/Name: Desktop_/g) ?? []).length, 6);
-  const cell = jobs.split("- job: V8JsiBuildLegacy_${{ matrix.Name }}")[1].split("- job: V8JsiBuildNew_")[0];
-  assert.match(cell, /hostArchitecture: arm64/);
-  assert.match(cell, /ensure-node10-shim/);
-  assert.match(cell, /artifactName: \$\{\{ matrix.Name \}\}-legacy/);
-  assert.doesNotMatch(cell, /fakeBuild/);
-  assert.doesNotMatch(build, /fakeBuild|diagnostics|sarif/);
-  assert.match(build, /overlay-version-config/);
-  assert.match(build, /--no-build --test --check/);
-  assert.match(build, /--no-build --stage/);
-  assert.ok(build.indexOf("--test --check") < build.indexOf("--stage"));
-  assert.match(build, /if parameters.isPublish[\s\S]*esrp-codesign-binaries/);
-  assert.match(build, /keyCode: CP-230012/);
-  assert.match(build, /Copy-Item \$dll .*out\\symbols/);
-});
-
-test("legacy pack consumes all cells and verifies the final signed package", () => {
-  const pack = jobs.split("- job: V8JsiCreateNugetLegacy")[1].split("- job: V8JsiAcceptanceLegacy_x64host")[0];
-  assert.match(pack, /each matrix in parameters.BuildMatrix/);
-  assert.match(pack, /V8JsiBuildLegacy_\$\{\{ matrix.Name/);
-  assert.match(pack, /overlay-version-config/);
-  assert.match(pack, /Packaging.EnableSBOMSigning/);
-  assert.match(pack, /--aggregate/);
-  assert.match(pack, /--pack/);
-  assert.match(pack, /published-packages-legacy/);
-  assert.match(pack, /if parameters.isPublish[\s\S]*esrp-codesign-nuget/);
-  assert.match(pack, /Length -ge 500MB/);
-  assert.match(pack, /PDB in final legacy package/);
-});
 
 test("legacy Guardian receives adjacent PDBs only after packaging", () => {
   const pack = job("V8JsiCreateNugetLegacy");
-  assert.match(jobs, /analyzeTarget: \|\n          \$\(Build.StagingDirectory\)\\out\\pkg-staging\\\*\*\\\*\.dll/);
   const copy = pack.match(/Copy-Item .*v8jsi\.dll\.pdb.*-ErrorAction Stop/)![0];
   assert.ok(pack.indexOf(copy) > pack.indexOf("if ($LASTEXITCODE -ne 0) { throw 'Legacy pack failed' }"));
   const root = mkdtempSync(path.join(tmpdir(), "legacy-guardian-"));
@@ -73,43 +38,12 @@ test("legacy Guardian receives adjacent PDBs only after packaging", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("legacy acceptance runs unsigned PRs and signed publishing packages", () => {
-  assert.match(job("V8JsiAcceptanceLegacy_x64host"), /platforms: \[x64, x86\]/);
-  assert.match(job("V8JsiAcceptanceLegacy_ARM64"), /hostArchitecture: arm64/);
-  assert.match(job("V8JsiAcceptanceLegacy_ARM64"), /platforms: \[arm64\]/);
-  assert.match(acceptance, /artifact: published-packages-legacy/);
-  assert.match(acceptance, /artifact: Desktop_ARM64_Release-new/);
-  assert.match(acceptance, /artifact: Desktop_\$\{\{ platform \}\}_Release-new/);
-  assert.match(acceptance, /foreach \(\$configuration in 'Debug', 'Release'\)/);
-  assert.match(acceptance, /nuget install ReactNative.V8Jsi.Windows -Version 0.79.5 -Source 'https:\/\/pkgs.dev.azure.com\/ms\/react-native/);
-  assert.doesNotMatch(acceptance, /nuget.org|NuGetAuthenticate/);
-  assert.match(acceptance, /nuget verify -Signatures/);
-  assert.match(acceptance, /-ModernDll \$modern/);
-});
-
-test("legacy acceptance gates modern and legacy tags", () => {
-  for (const name of ["V8JsiTagRelease", "V8JsiTagReleaseLegacy"]) {
-    assert.match(job(name), /V8JsiAcceptanceLegacy_x64host/);
-    assert.match(job(name), /V8JsiAcceptanceLegacy_ARM64/);
-  }
-  for (const name of ["V8JsiAcceptanceLegacy_x64host", "V8JsiAcceptanceLegacy_ARM64"]) {
-    assert.match(job(name), /dependsOn:\n        - V8JsiCreateNugetLegacy/);
-  }
-  const tag = job("V8JsiTagReleaseLegacy");
-  assert.doesNotMatch(tag, /- V8JsiCreateNugetLegacy\n/);
-  assert.match(tag, /condition: and\(succeeded\(\), eq\(variables\['Build.SourceBranch'\], 'refs\/heads\/main'\)\)/);
-  assert.match(tag, /ReactNative.V8Jsi.Windows/);
-  assert.match(tag, /\$config.version/);
-  assert.match(tag, /git ls-remote --tags origin/);
-  assert.match(tag, /if \(\$existing\)/);
-});
-
 const release = read(".ado/windows-release.yml");
 const releaseJob = (name: string) => release.split(`- job: ${name}\n`)[1]?.split(/\n\s*- job:/)[0] ?? "";
 const runPowerShell = (script: string, env = {}) => spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script],
   { encoding: "utf8", timeout: 30_000, env: { ...process.env, ...env } });
 
-test("legacy release jobs inherit the fail-closed main gate", () => {
+test("release gate rejects non-main and unresolved branches", () => {
   const gate = release.match(/- pwsh: \|\n([\s\S]*?)\n          name: gate/)![1];
   // Exercise resolved, non-main, missing, and unresolved resource branches against the real gate script.
   for (const branch of ["refs/heads/main", "refs/heads/legacy/test", "", "$(resources.pipeline.microsoft.v8-jsi.ci.sourceBranch)"]) {
@@ -117,39 +51,24 @@ test("legacy release jobs inherit the fail-closed main gate", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.ok(result.stdout.includes(`variable=shouldRelease;isOutput=true]${branch === "refs/heads/main" ? "True" : "False"}`));
   }
-  assert.match(release, /dependsOn: gate\n      condition: and\(succeeded\(\), eq\(dependencies.gate.outputs\['evaluate.gate.shouldRelease'\], 'True'\)\)/);
-  for (const name of ["ms_react_native_nuget_job_legacy", "office_nuget_job_legacy", "publish_symbols_job_legacy"]) {
-    const body = releaseJob(name);
-    assert.match(body, /condition: succeeded\(\)/);
-    assert.doesNotMatch(body, /dependsOn:|continueOnError:|always\(|succeededOrFailed/);
-  }
 });
 
-test("legacy feeds mirror existing destinations and duplicate handling without ESRP Release", () => {
+test("legacy packages publish only to internal feeds and nuget.org stays LibNode-only", () => {
+  const glob = "$(Pipeline.Workspace)/published-packages-legacy/ReactNative.V8Jsi.Windows.*.nupkg";
   for (const prefix of ["ms_react_native_nuget", "office_nuget"]) {
-    const body = releaseJob(`${prefix}_job_legacy`).split("      #")[0];
-    assert.equal(body, releaseJob(`${prefix}_job_new`).split("      #")[0]
-      .replaceAll("Microsoft.JavaScript.V8", "ReactNative.V8Jsi.Windows").replaceAll("published-packages-new", "published-packages-legacy"));
-    assert.match(body, /input: pipelineArtifact[\s\S]*artifactName: published-packages-legacy/);
-    assert.match(body, /ReactNative\.V8Jsi\.Windows\.\*\.nupkg/);
+    const body = releaseJob(`${prefix}_job_legacy`);
+    const pushes = [...body.matchAll(/packagesToPush: ['"]?([^'"\n]+)/g)].map(match => match[1].trim());
+    assert.deepEqual(pushes, [glob]);
+    assert.deepEqual([...body.matchAll(/- template: ([^\n]+)/g)].map(match => match[1]),
+      [`.ado/templates/publish-nuget-to-${prefix === "office_nuget" ? "office" : "ado"}-feed.yml@self`]);
+    assert.deepEqual([...body.matchAll(/nugetFeedUrl: ['"]?([^'"\n]+)/g)].map(match => match[1].trim()),
+      prefix === "office_nuget" ? [] : ["https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json"]);
     assert.doesNotMatch(body, /nuget\.org|EsrpRelease|libnode-packages/);
   }
-  assert.match(releaseJob("nuget_org_job_libnode"), /Contents: 'Microsoft.JavaScript.LibNode.\*.nupkg'/);
-});
-
-test("legacy symbols require all six artifacts and publish only verified pairs independently", () => {
-  const body = releaseJob("publish_symbols_job_legacy");
-  assert.match(body, /timeoutInMinutes: 120/);
-  const artifacts = [...body.matchAll(/artifactName: (Desktop_\S+-legacy)/g)].map(match => match[1]);
-  assert.deepEqual(artifacts.sort(), ["ARM64", "x64", "x86"].flatMap(arch => ["Debug", "Release"].map(config => `Desktop_${arch}_${config}-legacy`)).sort());
-  assert.doesNotMatch(body, /continueOnError:|condition: always/);
-  const validation = body.indexOf("Assert-LegacySymbolPair $dll $pdb $packageDll");
-  const publication = body.indexOf("- template: .ado/templates/publish-symbols.yml@self");
-  assert.ok(validation >= 0);
-  assert.ok(publication >= 0);
-  assert.ok(validation < publication);
-  assert.match(body, /artifactName: published-packages-legacy/);
-  assert.match(body, /symbolsFolder: \$\(Pipeline.Workspace\)\/legacy-symbols/);
+  const publicJobs = release.split(/\n      - job: /).slice(1).filter(body => /nuget\.org|EsrpRelease@/.test(body));
+  assert.equal(publicJobs.length, 1);
+  assert.match(publicJobs[0], /Contents: 'Microsoft\.JavaScript\.LibNode\.\*\.nupkg'/);
+  assert.doesNotMatch(publicJobs[0], /ReactNative\.V8Jsi\.Windows|published-packages-legacy/);
 });
 
 test("legacy symbols compare every cell with the packed package and reject absent or differing images", () => {

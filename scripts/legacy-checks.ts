@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { join, win32 } from "node:path";
-import { readFileSync, openSync, closeSync, fstatSync, readSync } from "node:fs";
+import { join, win32, resolve } from "node:path";
+import { readFileSync, openSync, closeSync, fstatSync, readSync, writeFileSync } from "node:fs";
 
 import { createHash } from "node:crypto";
 
@@ -141,12 +141,33 @@ export function checkLegacySources(root: string, read: (file: string) => Buffer 
   for (const file of manifest.files) {
     const expected = file.outputSha256 ?? file.sha256;
     if (normalizedHash(read(join(root, file.path))) !== expected) {
-      throw new Error(`Legacy source drift: ${file.path}`);
+      throw new Error(`Legacy source drift: ${file.path}. Run node scripts/legacy-checks.ts --update-sources.`);
     }
     if (file.kind === "inspector" && normalizedHash(read(join(root, file.origin))) !== file.sha256) {
-      throw new Error(`Inspector donor drift: ${file.origin}`);
+      throw new Error(`Inspector donor drift: ${file.origin}. Run node scripts/legacy-checks.ts --update-sources.`);
     }
   }
+}
+
+export function updateLegacySources(root: string): void {
+  const manifestPath = join(root, "src/legacy/sources.json");
+  const text = readFileSync(manifestPath, "utf8");
+  const manifest = JSON.parse(text);
+  if (manifest.contract !== "5424838ddaf" || !Array.isArray(manifest.files) || !manifest.files.length) {
+    throw new Error("Invalid legacy source manifest");
+  }
+  // Replace only hash tokens so provenance, restored pins, and formatting stay intact.
+  const updated = text.replace(/\{[^{}]*\}/g, entry => {
+    const file = JSON.parse(entry);
+    const source = file.kind === "shared" && file.path.startsWith("src/") && !file.path.startsWith("src/legacy/")
+      ? file.path : file.kind === "inspector" && file.origin.startsWith("src/inspector/") && file.outputSha256
+      ? file.origin : undefined;
+    if (!source) return entry;
+    const hash = normalizedHash(readFileSync(join(root, source)));
+    const pin = file.kind === "shared" && file.outputSha256 ? "outputSha256" : "sha256";
+    return entry.replace(new RegExp(`("${pin}"\\s*:\\s*")[a-f0-9]{64}(")`), (_match, before, after) => before + hash + after);
+  });
+  if (updated !== text) writeFileSync(manifestPath, updated);
 }
 
 export function checkLegacyProject(project: string): void {
@@ -207,4 +228,11 @@ export function checkLegacyIdentity(pe: Buffer, info: { OriginalFilename: string
   if (pe.includes(Buffer.from("v8jsi2")) || pe.includes(Buffer.from(".?AVV8Runtime@v8runtime@@"))) {
     throw new Error("Legacy module identity/RTTI mismatch");
   }
+}
+
+if (import.meta.main) {
+  if (process.argv.length !== 3 || process.argv[2] !== "--update-sources") {
+    throw new Error("Usage: node scripts/legacy-checks.ts --update-sources");
+  }
+  updateLegacySources(resolve(import.meta.dirname, ".."));
 }

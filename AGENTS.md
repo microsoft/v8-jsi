@@ -1,8 +1,9 @@
 # V8-JSI — Project Guide
 
 V8-JSI implements the JavaScript Interface (JSI) on top of the **V8** JavaScript
-engine, bridging native code and JavaScript. It ships as `v8jsi2.dll` and is
-consumed mainly by React Native for Windows and related Microsoft projects.
+engine, bridging native code and JavaScript. It ships as `v8jsi2.dll` and the
+legacy `v8jsi.dll`, consumed mainly by React Native for Windows and related
+Microsoft projects.
 
 The project is transitioning from a standalone Google V8 build to building V8
 from the **vendored Node.js sources** under `deps/nodejs/`. New development
@@ -38,6 +39,21 @@ Canonical entry point:
 node scripts\build.ts --platform x64 --configuration release   # or: debug
 ```
 
+The legacy C++ JSI build uses `scripts/legacy-build.ts`, which passes the
+`v8jsilegacy` token and `cfg` to `vcbuild.bat`. It supports x64, x86, and arm64,
+with release or debug configuration:
+```powershell
+node scripts\legacy-build.ts --platform x64 --configuration release
+node scripts\legacy-build.ts --platform x64 --configuration release --no-build --test --check --stage out\legacy\stage\x64-release
+```
+`--stage <dir>` requires `--no-build`; staging keeps PDBs separate from the
+package payload. `ReactNative.V8Jsi.Windows` is released only to the internal
+ms/react-native-public and office/office feeds, not nuget.org.
+
+The legacy build shares `deps/nodejs/out/<Config>` with the other builds but
+uses a different engine configuration. After switching, build again until
+nearly a no-op before testing; never build variants concurrently there.
+
 Raw `vcbuild.bat` (narrow-build flags spelled out):
 ```powershell
 Set-Location .\deps\nodejs
@@ -59,6 +75,9 @@ Set-Location .\deps\nodejs; .\vcbuild.bat clean
 - `deps/nodejs/out/<config>/v8jsi2.dll` — the shared library
 - `deps/nodejs/out/<config>/v8jsi_test.exe` — JSI test runner
 - `deps/nodejs/out/<config>/node_api_tests.exe` — Node-API test runner
+- `deps/nodejs/out/<config>/v8jsi.dll` — legacy shared library
+- `deps/nodejs/out/<config>/jsitests_legacy.exe`, `node_api_tests_legacy.exe`,
+  `inspector_tests_legacy.exe` — legacy JSI, Node-API, and inspector test runners
 
 **Verifying a build succeeded:** `vcbuild.bat` prints a `Build took N m N s` line
 on success and the output binaries get fresh timestamps. These are more reliable
@@ -109,7 +128,10 @@ ABI-backed; `/0` goes through the public `makeV8Runtime`, `/1` through
 in V8's DCHECKs).
 
 Run both test runners for the configuration being validated; test counts change
-as coverage is added or removed.
+as coverage is added or removed. `legacy-build.ts --no-build --test` runs the
+legacy suites and supporting task, startup-policy, and CET tests.
+`tests/legacy-acceptance/` exercises package consumers, 0.79.5 DLL replacement,
+and coexistence with `v8jsi2.dll`.
 
 ### Hardware shadow-stack tests (Windows x64)
 
@@ -153,7 +175,7 @@ flag matrix.
 
 ## Symbols and Source Link
 
-Every shipped Windows binary (v8jsi2.dll, v8jsi2sb.dll, mkv8snapshot.exe,
+Every shipped Windows binary (v8jsi.dll, v8jsi2.dll, v8jsi2sb.dll, mkv8snapshot.exe,
 sbox.exe, v8sbhost.dll, libnode.dll) has a PDB with a GitHub Source Link map:
 `src/generate_source_link.ts` maps the repository root to
 `raw.githubusercontent.com/microsoft/v8-jsi/<commit>/`, and the link embeds it
@@ -287,6 +309,14 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
 JSI interface (synced from `facebook/hermes`). `src/jsi/test/` holds the shared
 test library.
 
+### Legacy C++ JSI (`src/legacy/`)
+The direct runtime preserves the 0.79.5 C++ JSI API. `sources.json` records
+restored-source provenance and hashes, plus modern shared-source and inspector
+donor pins. After reviewing a modern shared-file change (including whether an
+inspector fix needs porting), run `node scripts/legacy-checks.ts --update-sources`
+and review the manifest diff. This refreshes only modern shared and donor
+hashes; restored-file and legacy inspector-copy hashes remain enforced.
+
 ### ABI layer (`src/jsi_abi/`)
 The binary-stable C ABI for JSI (see "ABI architecture" below).
 - `jsi_abi.h` — engine-agnostic C ABI header (shared with hermes-windows)
@@ -376,7 +406,7 @@ The V8 implementation (`jsi_abi_v8.cpp`) is **exception-free** to match
 V8/Node.js style: it uses a `TryCatch` wrapper and V8's `Maybe`/`MaybeLocal`
 patterns, returns `jsi_status` codes, and can compile with exceptions disabled.
 
-`makeV8Runtime` (the public JSI entry point) is itself ABI-backed — it builds a
+`makeV8Runtime` for `v8jsi2.dll` is itself ABI-backed — it builds a
 runtime through the same ABI path as the Node-API surface.
 See [Runtime hosting and migration notes](docs/runtime-hosting.md) for microtask
 policies, code-cache behavior, and host task-runner and teardown rules.
