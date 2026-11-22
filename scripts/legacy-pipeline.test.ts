@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
 const read = (file: string) => readFileSync(new URL("../" + file, import.meta.url), "utf8").replaceAll("\r\n", "\n");
@@ -69,4 +70,84 @@ test("legacy failures gate modern tags and release completion", () => {
   const release = read(".ado/windows-release.yml").split("  repositories:")[0];
   assert.match(release, /source: microsoft.v8-jsi.ci/);
   assert.doesNotMatch(release, /stages:|succeededOrFailed|always\(/);
+});
+
+const release = read(".ado/windows-release.yml");
+const releaseJob = (name: string) => release.split(`- job: ${name}\n`)[1]?.split(/\n\s*- job:/)[0] ?? "";
+const runPowerShell = (script: string, env = {}) => spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", script],
+  { encoding: "utf8", timeout: 30_000, env: { ...process.env, ...env } });
+
+test("legacy release jobs inherit the fail-closed main gate", () => {
+  const gate = release.match(/- pwsh: \|\n([\s\S]*?)\n          name: gate/)![1];
+  // Exercise resolved, non-main, missing, and unresolved resource branches against the real gate script.
+  for (const branch of ["refs/heads/main", "refs/heads/legacy/test", "", "$(resources.pipeline.microsoft.v8-jsi.ci.sourceBranch)"]) {
+    const result = runPowerShell(gate, { CI_SOURCE_BRANCH: branch, CI_RUN_NAME: "123 - 0.79.44", BUILD_BUILDNUMBER: "v8jsi_release_0.0.1" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(result.stdout.includes(`variable=shouldRelease;isOutput=true]${branch === "refs/heads/main" ? "True" : "False"}`));
+  }
+  assert.match(release, /dependsOn: gate\n      condition: and\(succeeded\(\), eq\(dependencies.gate.outputs\['evaluate.gate.shouldRelease'\], 'True'\)\)/);
+  for (const name of ["ms_react_native_nuget_job_legacy", "office_nuget_job_legacy", "publish_symbols_job_legacy"]) {
+    const body = releaseJob(name);
+    assert.match(body, /condition: succeeded\(\)/);
+    assert.doesNotMatch(body, /dependsOn:|continueOnError:|always\(|succeededOrFailed/);
+  }
+});
+
+test("legacy feeds mirror existing destinations and duplicate handling without ESRP Release", () => {
+  for (const prefix of ["ms_react_native_nuget", "office_nuget"]) {
+    const body = releaseJob(`${prefix}_job_legacy`).split("      #")[0];
+    assert.equal(body, releaseJob(`${prefix}_job_new`).split("      #")[0]
+      .replaceAll("Microsoft.JavaScript.V8", "ReactNative.V8Jsi.Windows").replaceAll("published-packages-new", "published-packages-legacy"));
+    assert.match(body, /input: pipelineArtifact[\s\S]*artifactName: published-packages-legacy/);
+    assert.match(body, /ReactNative\.V8Jsi\.Windows\.\*\.nupkg/);
+    assert.doesNotMatch(body, /nuget\.org|EsrpRelease|libnode-packages/);
+  }
+  for (const template of ["ado", "office"]) {
+    assert.match(read(`.ado/templates/publish-nuget-to-${template}-feed.yml`), /Remove already-published packages[\s\S]*condition: and\(succeeded\(\), eq\(variables\['HasNewPackages'\], 'True'\)\)/);
+  }
+  assert.match(releaseJob("nuget_org_job_libnode"), /Contents: 'Microsoft.JavaScript.LibNode.\*.nupkg'/);
+});
+
+test("legacy symbols require all six artifacts and publish only verified pairs independently", () => {
+  const body = releaseJob("publish_symbols_job_legacy");
+  assert.match(body, /timeoutInMinutes: 120/);
+  const artifacts = [...body.matchAll(/artifactName: (Desktop_\S+-legacy)/g)].map(match => match[1]);
+  assert.deepEqual(artifacts.sort(), ["ARM64", "x64", "x86"].flatMap(arch => ["Debug", "Release"].map(config => `Desktop_${arch}_${config}-legacy`)).sort());
+  assert.doesNotMatch(body, /continueOnError:|condition: always/);
+  assert.ok(body.indexOf("Assert-LegacySymbolPair $dll $pdb $packageDll") < body.indexOf("- template: .ado/templates/publish-symbols.yml@self"));
+  assert.match(body, /symbolsFolder: \$\(Pipeline.Workspace\)\/legacy-symbols/);
+  const template = read(".ado/templates/publish-symbols.yml");
+  assert.match(template, /PublishSymbols@2/);
+  assert.match(template, /IndexSources: false/);
+  assert.match(template, /\*\*\/\*\.pdb\n      \*\*\/\*\.dll/);
+});
+
+test("legacy symbol validation rejects missing unreadable mismatched stripped or unsigned pairs", () => {
+  const helper = releaseJob("publish_symbols_job_legacy").match(/function Assert-LegacySymbolPair[\s\S]*?\n            }/)![0];
+  // Small textual tool outputs isolate every publication rejection without storing large PDB fixtures.
+  const failures: Record<string, string> = { missing: "Missing artifact", unsigned: "Invalid signature", image: "Symbol image differs from package",
+    unreadable: "Cannot read PDB", guid: "DLL/PDB identity mismatch", age: "DLL/PDB identity mismatch",
+    stripped: "Full PDB required", "no-types": "Full PDB required", "no-debug": "Full PDB required" };
+  for (const mode of ["valid", ...Object.keys(failures)]) {
+    const script = `
+      $ErrorActionPreference = 'Stop'; $global:LASTEXITCODE = 0; $mode = '${mode}'
+      $dumpbin = 'ReadHeaders'; $pdbutil = 'ReadPdb'
+      function Get-Item { if ($mode -eq 'missing') { throw 'Missing artifact' }; [pscustomobject]@{ Length = 1024 } }
+      function Get-AuthenticodeSignature { [pscustomobject]@{ Status = $(if ($mode -eq 'unsigned') { 'NotSigned' } else { 'Valid' }) } }
+      function Get-FileHash($file) { [pscustomobject]@{ Hash = $(if ($mode -eq 'image' -and $file -eq 'package') { 'different' } else { 'same' }) } }
+      function ReadHeaders { 'Format: RSDS, {AABB-CCDD}, 1' }
+      function ReadPdb {
+        if ($mode -eq 'unreadable') { $global:LASTEXITCODE = 1 }
+        "GUID: {$(if ($mode -eq 'guid') { 'EEEE-FFFF' } else { 'aabb-ccdd' })}"
+        "Age: $(if ($mode -eq 'age') { 2 } else { 1 })"
+        "Is stripped: $($mode -eq 'stripped')".ToLower()
+        "Has Types: $($mode -ne 'no-types')".Replace('True', 'true').Replace('False', 'false')
+        "Has Debug Info: $($mode -ne 'no-debug')".Replace('True', 'true').Replace('False', 'false')
+      }
+      ${helper}
+      Assert-LegacySymbolPair dll pdb package`;
+    const result = runPowerShell(script);
+    assert.equal(result.status === 0, mode === "valid", `${mode}: ${result.stderr}`);
+    if (mode !== "valid") assert.ok(result.stderr.includes(failures[mode]), result.stderr);
+  }
 });

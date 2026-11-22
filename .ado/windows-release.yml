@@ -204,6 +204,137 @@ extends:
           parameters:
             symbolsArtifactName: V8Jsi-Symbols-New-$(Build.BuildId)
 
+      - job: ms_react_native_nuget_job_legacy
+        displayName: Publish Nuget (ReactNative.V8Jsi.Windows) to ms/react-native-public
+        condition: succeeded()
+        timeoutInMinutes: 30
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: published-packages-legacy
+            targetPath: $(Pipeline.Workspace)\published-packages-legacy
+
+        steps:
+        - template: .ado/templates/publish-nuget-to-ado-feed.yml@self
+          parameters:
+            endpointId: '29e4c04c-ae69-4453-b9f3-bfef7a4c8d32'
+            nugetFeedUrl: 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
+            packageParentPath: '$(Pipeline.Workspace)/published-packages-legacy'
+            packagesToPush: '$(Pipeline.Workspace)/published-packages-legacy/ReactNative.V8Jsi.Windows.*.nupkg'
+            publishFeedCredentials: 'Nuget - ms/react-native-public'
+            feedDisplayName: 'ms/react-native-public'
+
+      - job: office_nuget_job_legacy
+        displayName: Publish Nuget (ReactNative.V8Jsi.Windows) to office
+        condition: succeeded()
+        timeoutInMinutes: 30
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: published-packages-legacy
+            targetPath: $(Pipeline.Workspace)\published-packages-legacy
+
+        steps:
+        - template: .ado/templates/publish-nuget-to-office-feed.yml@self
+          parameters:
+            packageParentPath: $(Pipeline.Workspace)\published-packages-legacy
+            packagesToPush: $(Pipeline.Workspace)/published-packages-legacy/ReactNative.V8Jsi.Windows.*.nupkg
+
+      - job: publish_symbols_job_legacy
+        displayName: Publish full PDB Symbols (ReactNative.V8Jsi.Windows) to Symbol Server
+        condition: succeeded()
+        timeoutInMinutes: 120
+
+        templateContext:
+          type: releaseJob
+          isProduction: true
+          inputs:
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_x64_Debug-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_x64_Debug-legacy
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_x86_Debug-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_x86_Debug-legacy
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_ARM64_Debug-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_ARM64_Debug-legacy
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_x64_Release-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_x64_Release-legacy
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_x86_Release-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_x86_Release-legacy
+          - input: pipelineArtifact
+            pipeline: microsoft.v8-jsi.ci
+            artifactName: Desktop_ARM64_Release-legacy
+            targetPath: $(Pipeline.Workspace)\legacy-symbol-inputs\Desktop_ARM64_Release-legacy
+
+        steps:
+        # Release agents cannot enlist sources. Validate the signed package images
+        # against their full PDBs here, then publish only the verified pairs.
+        - pwsh: |
+            $ErrorActionPreference = 'Stop'
+            $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
+            $dumpbin = & $vswhere -latest -prerelease -products * -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | Select-Object -First 1
+            $pdbutil = & $vswhere -latest -prerelease -products * -find 'VC/Tools/Llvm/x64/bin/llvm-pdbutil.exe' | Select-Object -First 1
+            if (-not $dumpbin -or -not $pdbutil) { throw 'Visual Studio dumpbin and llvm-pdbutil are required' }
+
+            function Assert-LegacySymbolPair($dll, $pdb, $packageDll) {
+              Get-Item -LiteralPath $dll, $pdb, $packageDll | Out-Null
+              if ((Get-AuthenticodeSignature $dll).Status -ne 'Valid') { throw "Invalid signature: $dll" }
+              if ((Get-FileHash $dll).Hash -ne (Get-FileHash $packageDll).Hash) { throw "Symbol image differs from package: $dll" }
+              $headers = (& $dumpbin /headers $dll) -join "`n"
+              if ($LASTEXITCODE -ne 0) { throw "Cannot read DLL: $dll" }
+              $summary = (& $pdbutil dump --summary $pdb) -join "`n"
+              if ($LASTEXITCODE -ne 0) { throw "Cannot read PDB: $pdb" }
+              $rsds = [regex]::Match($headers, 'Format:\s*RSDS,\s*\{([^}]+)\},\s*(\d+)', 'IgnoreCase')
+              $guid = [regex]::Match($summary, 'GUID:\s*\{([^}]+)\}', 'IgnoreCase')
+              $age = [regex]::Match($summary, 'Age:\s*(\d+)', 'IgnoreCase')
+              if (-not $rsds.Success -or -not $guid.Success -or -not $age.Success -or
+                  $rsds.Groups[1].Value -ne $guid.Groups[1].Value -or $rsds.Groups[2].Value -ne $age.Groups[1].Value) {
+                throw "DLL/PDB identity mismatch: $dll"
+              }
+              foreach ($field in 'Has Debug Info: true', 'Has Types: true', 'Is stripped: false') {
+                if ($summary -notmatch [regex]::Escape($field)) { throw "Full PDB required: $pdb ($field)" }
+              }
+              Write-Host "Verified $dll with $pdb ($((Get-Item $pdb).Length) bytes)"
+            }
+
+            $inputsDir = "$(Pipeline.Workspace)/legacy-symbol-inputs"
+            $symbolsDir = "$(Pipeline.Workspace)/legacy-symbols"
+            foreach ($configuration in 'Debug', 'Release') {
+              foreach ($platform in 'x64', 'x86', 'ARM64') {
+                $artifact = "$inputsDir/Desktop_$($platform)_$configuration-legacy"
+                $source = "$artifact/symbols/$($platform.ToLower())-$configuration"
+                $dll = "$source/v8jsi.dll"
+                $pdb = "$source/v8jsi.dll.pdb"
+                $packageDll = "$artifact/pkg-staging/lib/win32/$configuration/$($platform.ToLower())/v8jsi.dll"
+                Assert-LegacySymbolPair $dll $pdb $packageDll
+                $destination = "$symbolsDir/$($platform.ToLower())-$configuration"
+                New-Item -ItemType Directory -Force $destination | Out-Null
+                Copy-Item -LiteralPath $dll, $pdb -Destination $destination
+              }
+            }
+          displayName: Verify six signed DLL and full PDB pairs
+
+        - template: .ado/templates/publish-symbols.yml@self
+          parameters:
+            symbolsArtifactName: V8Jsi-Symbols-Legacy-$(Build.BuildId)
+            symbolsFolder: $(Pipeline.Workspace)/legacy-symbols
+
       # =====================================================================
       # Microsoft.JavaScript.LibNode. Consumes the libnode-packages artifact
       # (the LibNodePack CI job) and pushes the meta package and the six
