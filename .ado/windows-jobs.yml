@@ -174,6 +174,25 @@ extends:
           workingDirectory: $(Build.SourcesDirectory)
 
 
+      - job: V8JsiBuildLegacy_Desktop_x64_Release
+        displayName: Build and verify legacy V8 engine (x64 Release)
+        dependsOn: V8JsiComputeVersion
+        timeoutInMinutes: 1200
+        steps:
+        - task: UseNode@1
+          displayName: Use Node.js 24.x
+          inputs:
+            version: '24.x'
+        - ${{ if eq(parameters.fakeBuild, false) }}:
+          - pwsh: |
+              node scripts/legacy-build.ts --platform x64 --configuration release
+            displayName: Build legacy engine probe
+            workingDirectory: $(Build.SourcesDirectory)
+          - pwsh: |
+              node scripts/legacy-build.ts --platform x64 --configuration release --no-build --test --check
+            displayName: Test legacy engine and verify hardening
+            workingDirectory: $(Build.SourcesDirectory)
+
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
           displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
@@ -368,7 +387,7 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
                   }
-                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts
+                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts
                   if ($LASTEXITCODE -ne 0) {
                     throw "Prerequisite and CET header tooling tests FAILED (exit $LASTEXITCODE)"
                   }

@@ -1,5 +1,7 @@
 {
   'variables': {
+    # v8-jsi: the legacy static engine must not export V8's C++ API.
+    'build_v8jsi_legacy%': 0,
     'configuring_node%': 0,
     'asan%': 0,
     'ubsan%': 0,
@@ -460,6 +462,10 @@
     'msvs_cygwin_shell': 0, # prevent actions from trying to use cygwin
 
     'conditions': [
+      # v8-jsi: common Windows defines otherwise re-export static V8 symbols.
+      ['build_v8jsi_legacy==1', {
+        'defines!': ['BUILDING_V8_SHARED=1', 'BUILDING_V8_BASE_SHARED'],
+      }],
       [ 'configuring_node', {
         'msvs_configuration_attributes': {
           'OutputDirectory': '<(DEPTH)/out/$(Configuration)/',
