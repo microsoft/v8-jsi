@@ -28,9 +28,10 @@ steps:
       pattern: '**\v8jsi.dll'
       keyCode: CP-230012
   - pwsh: |
+      Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg-staging" -Filter "CodeSignSummary-*.md" -File -ErrorAction Stop | Remove-Item -Force -ErrorAction Stop
       $dll = "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ parameters.buildConfiguration }}\${{ parameters.buildPlatform }}\v8jsi.dll"
       $signature = Get-AuthenticodeSignature $dll
       if ($signature.Status -ne 'Valid') { throw 'Legacy DLL signature is not valid' }
       # The symbol image must be the exact signed DLL that goes into the package.
       Copy-Item $dll "$(Build.StagingDirectory)\out\symbols\${{ parameters.buildPlatform }}-${{ parameters.buildConfiguration }}\v8jsi.dll" -Force
-    displayName: Verify signing and synchronize symbol image
+    displayName: Remove signing summary, verify signature, and synchronize symbol image

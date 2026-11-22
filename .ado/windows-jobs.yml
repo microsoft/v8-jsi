@@ -791,9 +791,12 @@ extends:
             parameters:
               folderPath: $(Build.StagingDirectory)\out\pkg
               pattern: ReactNative.V8Jsi.Windows.*.nupkg
+          - pwsh: |
+              Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg" -Filter "CodeSignSummary-*.md" -File -ErrorAction Stop | Remove-Item -Force -ErrorAction Stop
+            displayName: Remove NuGet signing summary
         - pwsh: |
-            $packages = @(Get-ChildItem "$(Build.StagingDirectory)\out\pkg" -Filter '*.nupkg')
-            if ($packages.Count -ne 1 -or $packages[0].Length -ge 500MB) { throw 'Invalid final legacy package count or size' }
+            $packages = @(Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg" -Force -ErrorAction Stop)
+            if ($packages.Count -ne 1 -or $packages[0].PSIsContainer -or $packages[0].Name -notlike 'ReactNative.V8Jsi.Windows.*.nupkg' -or $packages[0].Length -ge 500MB) { throw 'Invalid final legacy package count or size' }
             $zip = [IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
             try {
               if ($zip.Entries.FullName -match '\.pdb$') { throw 'PDB in final legacy package' }
