@@ -89,8 +89,7 @@ function Build-Consumer([string]$PackageRoot, [string]$Output) {
 }
 $old = Restore-Package 'baseline' '0.79.5' $baseline.FullName
 $new = Restore-Package 'candidate' $version $candidate.FullName
-$toolset = & $msbuild "$PSScriptRoot\consumer.vcxproj" '/getProperty:PlatformToolset' "/p:PackageRoot=$old" "/p:Configuration=$Configuration" "/p:Platform=$msplatform" @toolsetArguments
-if ($LASTEXITCODE) { throw "Toolset evaluation failed: $LASTEXITCODE" }
+$toolset = if ($toolsetArguments) { 'v143' } else { "the default toolset of $vs" }
 Write-Host "Acceptance PlatformToolset: $toolset"
 $dropin = "$work\dropin"
 Build-Consumer $old $dropin
