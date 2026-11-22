@@ -26,20 +26,32 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   & $Exe @Arguments | Out-Host
   if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
 }
-function Run-Consumer([string]$Exe, [string[]]$Arguments, [switch]$ExpectFailure) {
-  $options = @{ FilePath = $Exe; NoNewWindow = $true; PassThru = $true }
-  if ($Arguments.Count) { $options.ArgumentList = $Arguments }
-  $child = Start-Process @options
-  if (!$child.WaitForExit(60000)) {
-    Stop-Process -Id $child.Id
-    # The old inspector can deadlock during teardown instead of crashing.
-    if ($ExpectFailure) { Write-Host "PASS: expected control timeout for $Arguments"; return }
-    throw 'Consumer timed out'
-  }
-  if ($ExpectFailure) {
-    if (!$child.ExitCode) { throw 'Negative control unexpectedly passed' }
-    Write-Host "PASS: expected control failure for $Arguments (exit $($child.ExitCode))"
-  } elseif ($child.ExitCode) { throw "Consumer failed: $($child.ExitCode)" }
+function Run-Consumer([string]$Exe, [string[]]$Arguments, [string]$ExpectedFailureMessage) {
+  $options = [Diagnostics.ProcessStartInfo]::new($Exe)
+  $options.UseShellExecute = $false
+  $options.RedirectStandardOutput = $true
+  $options.RedirectStandardError = $true
+  foreach ($argument in $Arguments) { $options.ArgumentList.Add($argument) }
+  $child = [Diagnostics.Process]::new()
+  $child.StartInfo = $options
+  try {
+    if (!$child.Start()) { throw 'Consumer did not start' }
+    $stdout = $child.StandardOutput.ReadToEndAsync()
+    $stderr = $child.StandardError.ReadToEndAsync()
+    $exited = $child.WaitForExit(60000)
+    if (!$exited) { Stop-Process -Id $child.Id; $child.WaitForExit() }
+    $output = $stdout.GetAwaiter().GetResult()
+    $errors = $stderr.GetAwaiter().GetResult()
+    Write-Host $output -NoNewline
+    Write-Host $errors -NoNewline
+    if (!$exited) { throw 'Consumer timed out' }
+    if ($ExpectedFailureMessage) {
+      if ($child.ExitCode -ne 1 -or !($errors -split '\r?\n' -contains $ExpectedFailureMessage)) {
+        throw "Negative control did not report '$ExpectedFailureMessage' (exit $($child.ExitCode))"
+      }
+      Write-Host "PASS: expected control failure for $Arguments`: $ExpectedFailureMessage"
+    } elseif ($child.ExitCode) { throw "Consumer failed: $($child.ExitCode)" }
+  } finally { $child.Dispose() }
 }
 function Restore-Package([string]$Name, [string]$Version, [string]$Package) {
   $dir = Join-Path $work $Name
@@ -58,8 +70,8 @@ $new = Restore-Package 'candidate' $version $candidate.FullName
 $dropin = "$work\dropin"
 Build-Consumer $old $dropin
 Run-Consumer "$dropin\consumer.exe" @()
-Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain') -ExpectFailure
-Run-Consumer "$dropin\consumer.exe" @('--late-tasks') -ExpectFailure
+Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain') -ExpectedFailureMessage 'teardown did not drain pending finalizer'
+# The candidate proves queued inspector dispatch is safe after teardown; 0.79.5 disconnect does not queue it.
 $hash = (Get-FileHash "$dropin\consumer.exe").Hash
 Copy-Item "$new\lib\win32\$Configuration\$Platform\v8jsi.dll" "$dropin\v8jsi.dll" -Force
 if ((Get-FileHash "$dropin\consumer.exe").Hash -ne $hash) { throw 'DLL swap changed the consumer executable' }

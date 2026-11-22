@@ -65,7 +65,12 @@ struct Host final : jsi::HostObject {
     if (name.utf8(rt) == "fail") throw jsi::JSError(rt, "host failure");
     return value;
   }
-  void set(jsi::Runtime &, const jsi::PropNameID &, const jsi::Value &v) override { value = static_cast<int>(v.getNumber()); }
+  void set(jsi::Runtime &rt, const jsi::PropNameID &, const jsi::Value &v) override {
+    if (v.getNumber() == -1) throw jsi::JSError(rt, "host setter JSError");
+    if (v.getNumber() == -2) throw std::runtime_error("host setter exception");
+    if (v.getNumber() == -3) throw 3;
+    value = static_cast<int>(v.getNumber());
+  }
   std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime &rt) override {
     std::vector<jsi::PropNameID> names; names.push_back(jsi::PropNameID::forAscii(rt, "value")); return names;
   }
@@ -130,6 +135,16 @@ void directRuntime() {
     std::cout << "Host setter properties: " << properties << '\n';
     require(properties == "[true,true,true,true,true,true]", "host setter own-property behavior changed");
     require(eval(*runtime, "Object.keys(host).includes('value')").getBool(), "host enumeration failed");
+    // Cover all exception translations for both named and indexed interceptors.
+    require(eval(*runtime,
+        "(() => { const messages = ['host setter JSError', 'host setter exception',"
+        "'<Unknown exception in host function callback>'];"
+        "for (let i = 0; i < messages.length; ++i) {"
+        "for (const key of ['throw' + i, 100 + i]) {"
+        "let caught = false; try { host[key] = -(i + 1); }"
+        "catch (e) { caught = e.message.includes(messages[i]); }"
+        "if (!caught || Object.getOwnPropertyNames(host).includes(String(key))) return false;"
+        "}} return true; })()").getBool(), "throwing host setter did not preserve exception and property behavior");
     bool caught = false;
     try { eval(*runtime, "host.fail"); } catch (const jsi::JSError &error) { caught = error.getMessage().find("host failure") != std::string::npos; }
     require(caught, "host JSError was not caught by type");

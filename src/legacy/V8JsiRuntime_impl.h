@@ -284,7 +284,7 @@ class V8Runtime : public facebook::jsi::Runtime {
     }
 
     // V8 14.6: setters use a void return slot.
-    static void SetInternal(
+    static v8::Intercepted SetInternal(
         const facebook::jsi::PropNameID &propId,
         v8::Local<v8::Value> value,
         const v8::PropertyCallbackInfo<void> &info) {
@@ -294,6 +294,8 @@ class V8Runtime : public facebook::jsi::Runtime {
 
       try {
         hostObject->set(runtime, propId, runtime.createValue(value));
+        // Preserve legacy own-property creation after a successful host callback.
+        return v8::Intercepted::kNo;
       } catch (const facebook::jsi::JSError &error) {
         // Schedule to throw the exception back to JS.
         info.GetIsolate()->ThrowException(runtime.valueReference(error.value()));
@@ -312,6 +314,7 @@ class V8Runtime : public facebook::jsi::Runtime {
                 .ToLocalChecked();
         info.GetIsolate()->ThrowException(v8::Exception::Error(message));
       }
+      return v8::Intercepted::kYes;
     }
 
     template <typename T>
@@ -369,13 +372,13 @@ class V8Runtime : public facebook::jsi::Runtime {
     Set(v8::Local<v8::Name> v8PropName, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<void> &info) {
       V8Runtime &runtime = GetHostObjectProxy(info)->runtime_;
       if (v8PropName->IsString()) {
-        SetInternal(
+        return SetInternal(
             make<facebook::jsi::PropNameID>(
                 V8StringValue::make(runtime.GetIsolate(), v8::Local<v8::String>::Cast(v8PropName))),
             value,
             info);
       } else if (v8PropName->IsSymbol()) {
-        SetInternal(
+        return SetInternal(
             make<facebook::jsi::PropNameID>(
                 V8SymbolValue::make(runtime.GetIsolate(), v8::Local<v8::Symbol>::Cast(v8PropName))),
             value,
@@ -383,8 +386,6 @@ class V8Runtime : public facebook::jsi::Runtime {
       } else {
         std::abort();
       }
-      // The legacy setter also lets V8 define an own property after the host callback.
-      return v8::Intercepted::kNo;
     }
 
     // V8 14.6: interceptors explicitly report whether the property was handled.
@@ -392,11 +393,10 @@ class V8Runtime : public facebook::jsi::Runtime {
     SetIndexed(uint32_t index, v8::Local<v8::Value> value, const v8::PropertyCallbackInfo<void> &info) {
       std::string propName = std::to_string(index);
       V8Runtime &runtime = GetHostObjectProxy(info)->runtime_;
-      SetInternal(
+      return SetInternal(
           facebook::jsi::PropNameID::forString(runtime, facebook::jsi::String::createFromUtf8(runtime, propName)),
           value,
           info);
-      return v8::Intercepted::kNo;
     }
 
     // V8 14.6: enumeration receives the interceptor holder, not the receiver.
