@@ -199,8 +199,9 @@ export function checkLegacyHardeningProject(project: string): void {
   }
 }
 
-export function checkLegacyIdentity(pe: Buffer, info: { OriginalFilename: string; ProductName: string; FileVersion: string }, version: string): void {
-  if (info.OriginalFilename !== "v8jsi.dll" || info.ProductName !== "React Native V8 JSI Adapter" || info.FileVersion !== version + ".0") {
+export function checkLegacyIdentity(pe: Buffer, info: { OriginalFilename: string; ProductName: string; FileVersion: string; ProductVersion: string }, version: string): void {
+  if (info.OriginalFilename !== "v8jsi.dll" || info.ProductName !== "React Native V8 JSI Adapter" || info.FileVersion !== version.split("-")[0] + ".0" ||
+      info.ProductVersion !== version) {
     throw new Error("Legacy version resource mismatch");
   }
   if (pe.includes(Buffer.from("v8jsi2")) || pe.includes(Buffer.from(".?AVV8Runtime@v8runtime@@"))) {

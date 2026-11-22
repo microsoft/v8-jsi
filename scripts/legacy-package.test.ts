@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { repoRoot } from "./build-common.ts";
 import { tmpdir } from "node:os";
 import { aggregateLegacy, expectedLegacyFiles, checkLegacyFileList, legacyCells,
-  legacyPayloadFiles, checkLegacyPdbIdentity, packLegacy } from "./legacy-package.ts";
+  legacyPayloadFiles, checkLegacyPdbIdentity, checkLegacyDllIdentity, packLegacy } from "./legacy-package.ts";
 
 const cells = ["Debug/x86", "Debug/x64", "Debug/arm64", "Release/x86", "Release/x64", "Release/arm64"];
 function fixture(action: (root: string, inputs: string[]) => void): void {
@@ -76,33 +76,38 @@ test("symbol pairing requires matching GUID and age", () => {
   }
 });
 
+function resourceDll(root: string, name: string, version: string): string {
+  const vswhere = path.join(process.env["ProgramFiles(x86)"]!, "Microsoft Visual Studio/Installer/vswhere.exe");
+  const vs = execFileSync(vswhere, ["-latest", "-prerelease", "-products", "*", "-property", "installationPath"], { encoding: "utf8" }).trim();
+  const config = path.join(root, name + ".json");
+  fs.writeFileSync(config, JSON.stringify({ version }));
+  execFileSync(process.execPath, [path.join(repoRoot, "src/generate_version_rc.ts"),
+    "--config", config, "--output", path.join(root, name + ".rc")]);
+  const result = spawnSync(process.env.ComSpec!, ["/c", `call "${vs}\\VC\\Auxiliary\\Build\\vcvarsall.bat" x64 && rc /nologo ${name}.rc && link /nologo /dll /noentry /out:${name}.dll ${name}.res`], { cwd: root, encoding: "utf8", windowsVerbatimArguments: true });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  return path.join(root, name + ".dll");
+}
+
+test("CI version resources compile and preserve the package commit identity", () => {
+  const root = fs.mkdtempSync(path.join(tmpdir(), "legacy-version-"));
+  try {
+    const dll = resourceDll(root, "ci", "0.79.70-g344c6be7");
+    checkLegacyDllIdentity(dll, "0.79.70-g344c6be7");
+    assert.throws(() => checkLegacyDllIdentity(dll, "0.79.70-g8c3c4ccc"), /resource mismatch/);
+    assert.throws(() => checkLegacyDllIdentity(dll, "0.79.71-g344c6be7"), /resource mismatch/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test("packing checks every cell version against the package version before invoking NuGet", () => fixture((root, inputs) => {
   const stage = path.join(root, "merged");
   aggregateLegacy(inputs, stage);
-  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version + ".0";
-  const vswhere = path.join(process.env["ProgramFiles(x86)"]!, "Microsoft Visual Studio/Installer/vswhere.exe");
-  const vs = execFileSync(vswhere, ["-latest", "-prerelease", "-products", "*", "-property", "installationPath"], { encoding: "utf8" }).trim();
+  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
   // Resource-only DLLs exercise real FileVersion reads without engine binaries.
-  for (const [name, value] of [["current", version], ["stale", "0.0.0.0"]]) {
-    fs.writeFileSync(path.join(root, name + ".rc"), `1 VERSIONINFO
-FILEVERSION ${value.replaceAll(".", ",")}
-BEGIN
-  BLOCK "StringFileInfo" BEGIN
-    BLOCK "040904b0" BEGIN
-      VALUE "OriginalFilename", "v8jsi.dll"
-      VALUE "ProductName", "React Native V8 JSI Adapter"
-      VALUE "FileVersion", "${value}"
-    END
-  END
-  BLOCK "VarFileInfo" BEGIN
-    VALUE "Translation", 0x409, 1200
-  END
-END`);
-    const result = spawnSync(process.env.ComSpec!, ["/c", `call "${vs}\\VC\\Auxiliary\\Build\\vcvarsall.bat" x64 && rc /nologo ${name}.rc && link /nologo /dll /noentry /out:${name}.dll ${name}.res`], { cwd: root, encoding: "utf8", windowsVerbatimArguments: true });
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-  }
-  for (const cell of cells) fs.copyFileSync(path.join(root, "current.dll"), path.join(stage, "lib/win32", cell, "v8jsi.dll"));
-  fs.copyFileSync(path.join(root, "stale.dll"), path.join(stage, "lib/win32/Debug/arm64/v8jsi.dll"));
+  const current = resourceDll(root, "current", version);
+  const stale = resourceDll(root, "stale", "0.0.0");
+  checkLegacyDllIdentity(current, version);
+  for (const cell of cells) fs.copyFileSync(current, path.join(stage, "lib/win32", cell, "v8jsi.dll"));
+  fs.copyFileSync(stale, path.join(stage, "lib/win32/Debug/arm64/v8jsi.dll"));
   const output = path.join(root, "pkg");
   assert.throws(() => packLegacy(stage, output, false), /Legacy cell Debug\/arm64: Legacy version resource mismatch/);
   assert.equal(fs.existsSync(output), false);

@@ -169,13 +169,24 @@ test("source manifests independently reject copy and inspector origin drift", ()
   }
 });
 test("module resources reject modern identity, wrong versions, and runtime RTTI", () => {
-  const info = { OriginalFilename: "v8jsi.dll", ProductName: "React Native V8 JSI Adapter", FileVersion: "0.79.8.0" };
+  const info = { OriginalFilename: "v8jsi.dll", ProductName: "React Native V8 JSI Adapter", FileVersion: "0.79.8.0", ProductVersion: "0.79.8" };
   checkLegacyIdentity(Buffer.alloc(0), info, "0.79.8");
-  for (const field of ["OriginalFilename", "ProductName", "FileVersion"]) {
+  for (const field of ["OriginalFilename", "ProductName", "FileVersion", "ProductVersion"]) {
     assert.throws(() => checkLegacyIdentity(Buffer.alloc(0), { ...info, [field]: "wrong" }, "0.79.8"), /resource mismatch/);
   }
   for (const data of ["v8jsi2", ".?AVV8Runtime@v8runtime@@"]) {
     assert.throws(() => checkLegacyIdentity(Buffer.from(data), info, "0.79.8"), /identity\/RTTI/);
+  }
+});
+test("CI package versions require numeric FileVersion and the exact prerelease ProductVersion", () => {
+  const version = "0.79.44-g8c3c4ccc";
+  const info = { OriginalFilename: "v8jsi.dll", ProductName: "React Native V8 JSI Adapter",
+    FileVersion: "0.79.44.0", ProductVersion: version };
+  checkLegacyIdentity(Buffer.alloc(0), info, version);
+  // Numeric drift and same-core builds from different commits are distinct mismatches.
+  for (const changed of [{ FileVersion: "0.79.43.0" }, { FileVersion: version + ".0" },
+                         { ProductVersion: "0.79.44-g344c6be7" }, { ProductVersion: "0.79.44" }]) {
+    assert.throws(() => checkLegacyIdentity(Buffer.alloc(0), { ...info, ...changed }, version), /resource mismatch/);
   }
 });
 test("compiler checks require SHA-256, GS and the static CRT in both configurations", () => {

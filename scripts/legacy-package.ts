@@ -188,6 +188,6 @@ function checkLegacySymbols(output: string): void {
 export function checkLegacyDllIdentity(dll: string, version: string): void {
   const escaped = dll.replaceAll("'", "''");
   const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
-    `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
+    `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion,ProductVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
   checkLegacyIdentity(fs.readFileSync(dll), info, version);
 }

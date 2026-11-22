@@ -1,6 +1,6 @@
 #include <verrsrc.h>
 
-// A PowerShell script replaces the tokens with actual version information
+// generate_version_rc.ts replaces the tokens with actual version information
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION V8JSIVER_MAJOR,V8JSIVER_MINOR,V8JSIVER_BUILD,0
@@ -26,7 +26,7 @@ BEGIN
             VALUE "LegalCopyright", "(c) Microsoft Corporation."
             VALUE "OriginalFilename", "v8jsi.dll"
             VALUE "ProductName", "React Native V8 JSI Adapter"
-            VALUE "ProductVersion", "V8JSIVER_MAJOR.V8JSIVER_MINOR.V8JSIVER_BUILD.V8JSIVER_V8REF"
+            VALUE "ProductVersion", "V8JSIVER_PRODUCT_VERSION"
             VALUE "CompanyShortName", "Microsoft"
             VALUE "ProductShortName", "V8JSI"
         END
