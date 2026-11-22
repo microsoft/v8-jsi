@@ -13,7 +13,7 @@
     <ConfigurationType>Application</ConfigurationType><PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <PropertyGroup><TargetName>consumer</TargetName><IntDir>$(OutDir)obj\</IntDir></PropertyGroup>
+  <PropertyGroup><TargetName Condition="'$(Coexistence)' != 'true'">consumer</TargetName><TargetName Condition="'$(Coexistence)' == 'true'">coexistence</TargetName><IntDir>$(OutDir)obj\</IntDir></PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp17</LanguageStandard><ExceptionHandling>Sync</ExceptionHandling><RuntimeTypeInfo>false</RuntimeTypeInfo><RuntimeLibrary Condition="'$(Configuration)' == 'Release'">MultiThreaded</RuntimeLibrary><RuntimeLibrary Condition="'$(Configuration)' == 'Debug'">MultiThreadedDebug</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions><DisableSpecificWarnings>4127;4100;%(DisableSpecificWarnings)</DisableSpecificWarnings><PreprocessorDefinitions Condition="'$(Platform)' == 'ARM64' and '$(Configuration)' == 'Debug'">_HAS_ITERATOR_DEBUGGING=0;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>$(PackageRoot)\build\native\jsi;$(PackageRoot)\build\native\include\node-api;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
     <Link>
@@ -25,7 +25,13 @@
       <AdditionalDependencies Condition="'$(Configuration)' == 'Debug'">ucrtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="consumer.cpp" /><ClCompile Include="$(PackageRoot)\build\native\jsi\jsi\jsi.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="consumer.cpp" Condition="'$(Coexistence)' != 'true'" />
+    <ClCompile Include="coexistence.cpp" Condition="'$(Coexistence)' == 'true'" />
+    <ClCompile Include="coexistence-legacy.cpp" Condition="'$(Coexistence)' == 'true'" />
+    <ClCompile Include="coexistence-modern.cpp" Condition="'$(Coexistence)' == 'true'"><AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src;$(MSBuildThisFileDirectory)..\..\src\public;$(MSBuildThisFileDirectory)..\..\src\jsi_abi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile Include="$(PackageRoot)\build\native\jsi\jsi\jsi.cpp" />
+  </ItemGroup>
   <Import Project="$(PackageRoot)\build\native\ReactNative.V8Jsi.Windows.targets" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -23,6 +23,16 @@ int main(int argc, char **argv) {
   if (argc != 3) { std::fprintf(stderr, "usage: modern-cache <v8jsi2.dll> <cache file>\n"); return 1; }
   auto library = LoadLibraryA(argv[1]);
   if (!library) { std::fprintf(stderr, "Cannot load %s: Windows error %lu (check DLL architecture and dependencies)\n", argv[1], GetLastError()); return 2; }
+  // DLL identity does not invalidate caches when x86 engine configurations match.
+  const auto setFlags = reinterpret_cast<v8_jsi_abi_set_v8_flags_fn>(
+      GetProcAddress(library, "v8_jsi_abi_set_v8_flags"));
+  char program[] = "modern-cache";
+  char flag[] = "--no-lazy";
+  char *flags[]{program, flag};
+  size_t count = 2;
+  if (!setFlags || setFlags(&count, flags, false) != jsi_status_ok) {
+    std::fprintf(stderr, "Cannot set incompatible cache fixture flags\n"); return 3;
+  }
   CacheProducer producer;
   producer.setCache = reinterpret_cast<v8_jsi_abi_config_set_script_cache_fn>(
       GetProcAddress(library, "v8_jsi_abi_config_set_script_cache"));

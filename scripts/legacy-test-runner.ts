@@ -14,7 +14,9 @@ export function legacyTestEnvironment(env: NodeJS.ProcessEnv, filter?: string): 
 }
 
 export function legacySuiteFilter(filter: string, exclusion: string): string {
-  const [positive, negative] = filter.split("-", 2);
+  const separator = filter.indexOf("-");
+  const positive = separator < 0 ? filter : filter.slice(0, separator);
+  const negative = separator < 0 ? "" : filter.slice(separator + 1);
   return `${positive}-${negative ? negative + ":" : ""}${exclusion}`;
 }
 
@@ -23,11 +25,11 @@ export function requireLegacyTests(count: number): void {
 }
 
 export function runLegacySuite(exe: string, args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit"; timeout: number; allowEmpty?: boolean }): number {
+    options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit"; timeout: number; allowEmpty?: boolean; countFilter?: string }): number {
   const directory = mkdtempSync(join(tmpdir(), "legacy-gtest-"));
   const report = join(directory, "result.xml");
   try {
-    const child = spawnSync(exe, [...args, "--gtest_brief=0", "--gtest_output=xml:" + report],
+    const child = spawnSync(exe, [...args, "--gtest_brief=0", "--gtest_color=no", "--gtest_output=xml:" + report],
       { ...options, stdio: "pipe", encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
     process.stdout.write(child.stdout ?? "");
     process.stderr.write(child.stderr ?? "");
@@ -42,6 +44,16 @@ export function runLegacySuite(exe: string, args: string[],
     if (!count && !options.allowEmpty) {
       throw new Error(`Legacy suite ran zero tests: ${exe} ${args.join(" ")}`);
     }
-    return count;
+    if (options.countFilter === undefined) return count;
+    return [...child.stdout.matchAll(/\[ RUN      \] (.+)/g)].filter(match => legacyTestMatches(match[1].trim(), options.countFilter!)).length;
   } finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
+export function legacyTestMatches(name: string, filter: string): boolean {
+  const separator = filter.indexOf("-");
+  const positive = separator < 0 ? filter : filter.slice(0, separator);
+  const negative = separator < 0 ? "" : filter.slice(separator + 1);
+  const matches = (patterns: string) => patterns.split(":").some(pattern =>
+    new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*").replaceAll("?", ".") + "$", "u").test(name));
+  return matches(positive) && (!negative || !matches(negative));
 }

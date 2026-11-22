@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests } from "./legacy-test-runner.ts";
+import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests, legacyTestMatches } from "./legacy-test-runner.ts";
 
 test("ambient test filters require an explicit command-line choice", () => {
   assert.throws(() => legacyTestEnvironment({ GTEST_FILTER: "NoSuchLegacyTest.*" }), /Inherited GTEST_FILTER/);
@@ -41,4 +41,17 @@ test("timed-out children identify the last running test", () => {
   assert.throws(() => runLegacySuite(process.execPath,
     ["-e", "console.log('[ RUN      ] Example.Timeout'); setTimeout(()=>{},60000)", "--"],
     { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 1000 }), /last running test: Example.Timeout/);
+});
+
+test("filters preserve negative patterns containing another hyphen", () => {
+  assert.equal(legacySuiteFilter("Wanted.*-Other.name-with-hyphens", "Isolated.*"),
+    "Wanted.*-Other.name-with-hyphens:Isolated.*");
+  assert.equal(legacyTestMatches("Other.name-with-hyphens", "*-Other.name-with-hyphens"), false);
+});
+test("isolated mandatory checks count only explicit filter matches", () => {
+  const script = `const fs=require('node:fs'); const p=process.argv.find(a=>a.startsWith('--gtest_output=xml:')).slice('--gtest_output=xml:'.length); fs.writeFileSync(p, '<testsuites tests="1"></testsuites>'); console.log('[ RUN      ] LegacyInstrumentation.Flags');`;
+  for (const [filter, expected] of [["LegacyInstrumentation.*", 1], ["Missing.*", 0], ["", 0], ["*-LegacyInstrumentation.*", 0]] as const) {
+    assert.equal(runLegacySuite(process.execPath, ["-e", script, "--"],
+      { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 10000, countFilter: filter }), expected);
+  }
 });

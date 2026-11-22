@@ -10,7 +10,7 @@ import { repoRoot, run, ensureSupportedPython, ensureNasm, nasmRequiredForTarget
 import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags, legacyCetArtifacts, checkLegacyHardeningProject, checkLegacyIdentity } from "./legacy-checks.ts";
 
 import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests } from "./legacy-test-runner.ts";
-import { stageLegacy, packLegacy } from "./legacy-package.ts";
+import { stageLegacy, packLegacy, aggregateLegacy } from "./legacy-package.ts";
 import { checkLegacyExports, checkLegacySources, checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
 
 const { values: args } = parseArgs({ allowNegative: true, options: {
@@ -21,23 +21,31 @@ const { values: args } = parseArgs({ allowNegative: true, options: {
   check: { type: "boolean", default: false },
   stage: { type: "string" },
   pack: { type: "string" },
+  aggregate: { type: "string", multiple: true },
+  "baseline-package": { type: "string" },
   output: { type: "string", default: "out/legacy/pkg" },
   "diagnostic-pack": { type: "boolean", default: false },
   "gtest-filter": { type: "string" },
   help: { type: "boolean", default: false },
 } });
 if (args.help) {
-  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--gtest-filter <filter>] [--check] [--stage <dir>] | --pack <dir> [--output <dir>] [--diagnostic-pack]");
+  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--gtest-filter <filter>] [--check] [--stage <dir>] | --pack <dir> [--output <dir>] [--diagnostic-pack] [--baseline-package <0.79.5.nupkg>] | --aggregate <cell-dir> (repeat for each cell) --output <dir>");
   process.exit(0);
 }
 if (process.platform !== "win32" || !["x64", "x86", "arm64"].includes(args.platform) ||
     !["release", "debug"].includes(args.configuration)) throw new Error("Invalid Windows build configuration");
-if (args.pack) {
-  if (args.stage || args.test || args.check) throw new Error("Pack cannot be combined with build operations");
-  packLegacy(path.resolve(args.pack), path.resolve(args.output), args["diagnostic-pack"]);
+if (args["diagnostic-pack"] && !args.pack) throw new Error("--diagnostic-pack requires --pack");
+if (args["baseline-package"] && !args.pack) throw new Error("--baseline-package requires --pack");
+if (args.aggregate) {
+  if (args.pack || args.stage || args.test || args.check) throw new Error("Aggregate cannot be combined with build operations");
+  aggregateLegacy(args.aggregate.map(input => path.resolve(input)), path.resolve(args.output));
   process.exit(0);
 }
-if (args["diagnostic-pack"]) throw new Error("--diagnostic-pack requires --pack");
+if (args.pack) {
+  if (args.stage || args.test || args.check) throw new Error("Pack cannot be combined with build operations");
+  packLegacy(path.resolve(args.pack), path.resolve(args.output), args["diagnostic-pack"], args["baseline-package"]);
+  process.exit(0);
+}
 if (args.stage && args.build) throw new Error("Staging requires --no-build");
 const nodeDir = path.join(repoRoot, "deps/nodejs");
 const output = path.join(nodeDir, "out", args.configuration === "release" ? "Release" : "Debug");
@@ -81,17 +89,17 @@ if (args.test) {
   const suiteEnv = legacyTestEnvironment(process.env, args["gtest-filter"]);
   run(`"${path.join(output, "v8jsi_legacy_probe_runner.exe")}"`, [], { cwd: output });
   execFileSync(path.join(output, "v8jsi_legacy_task_tests.exe"), [], { cwd: output, stdio: "inherit", timeout: 60000 });
-  runLegacySuite(path.join(output, "inspector_tests_legacy.exe"),
-    ["--gtest_filter=LegacyInstrumentationFlags.*", "--gtest_brief=1"],
-    { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000 });
+  selectedTests += runLegacySuite(path.join(output, "inspector_tests_legacy.exe"),
+    ["--gtest_filter=LegacyInstrumentationFlags.*"],
+    { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000, countFilter: args["gtest-filter"] });
   // ETW's process-global initialization must see the requested instrumentation flags first.
-  runLegacySuite(path.join(output, "jsitests_legacy.exe"),
-    ["--gtest_filter=LegacyInstrumentation.*", "--gtest_brief=1"],
-    { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000 });
+  selectedTests += runLegacySuite(path.join(output, "jsitests_legacy.exe"),
+    ["--gtest_filter=LegacyInstrumentation.*"],
+    { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000, countFilter: args["gtest-filter"] });
   for (const name of ["jsitests_legacy", "node_api_tests_legacy", "inspector_tests_legacy"]) {
     // Flag parsing ran in its fresh process before any runtime froze V8's flags.
     const filter = legacySuiteFilter(args["gtest-filter"] ?? "*", "LegacyInstrumentationFlags.*");
-    selectedTests += runLegacySuite(path.join(output, name + ".exe"), ["--gtest_brief=1", "--gtest_filter=" + filter],
+    selectedTests += runLegacySuite(path.join(output, name + ".exe"), ["--gtest_filter=" + filter],
       { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 300000, allowEmpty });
   }
   if (args.platform === "x64") {
@@ -125,17 +133,17 @@ if (args.test) {
       const childEnv = { ...suiteEnv, V8JSI_TEST_CET: mode, CETRUN_TIMEOUT_MS: "300000",
         ...(available ? { CETRUN_REQUIRE_CET: "1" } : {}) };
       runLegacySuite(path.join(output, "cetrun_legacy.exe"),
-        [mode, path.join(output, "jsitests_legacy.exe"), "--gtest_filter=LegacyInstrumentation.*", "--gtest_brief=1"],
-        { cwd: output, env: childEnv, stdio: "inherit", timeout: 90000 });
+        [mode, path.join(output, "jsitests_legacy.exe"), "--gtest_filter=LegacyInstrumentation.*"],
+        { cwd: output, env: { ...childEnv, CETRUN_TIMEOUT_MS: "60000" }, stdio: "inherit", timeout: 90000 });
       for (const name of ["jsitests_legacy", "node_api_tests_legacy"]) {
-        selectedTests += runLegacySuite(path.join(output, "cetrun_legacy.exe"), [mode, path.join(output, name + ".exe"), "--gtest_brief=1",
+        selectedTests += runLegacySuite(path.join(output, "cetrun_legacy.exe"), [mode, path.join(output, name + ".exe"),
           "--gtest_filter=" + legacySuiteFilter(args["gtest-filter"] ?? "*", "LegacyInspector*.*:LegacyInstrumentationFlags.*")],
           { cwd: output, env: childEnv, stdio: "inherit", timeout: 360000, allowEmpty });
       }
     }
     if (available) {
       runLegacySuite(path.join(output, "cetrun_legacy.exe"),
-        ["strict", path.join(output, "inspector_tests_legacy.exe"), "--gtest_brief=1", "--gtest_filter=*CetStepOver*"],
+        ["strict", path.join(output, "inspector_tests_legacy.exe"), "--gtest_filter=*CetStepOver*"],
         { cwd: output, env: { ...suiteEnv, CETRUN_REQUIRE_CET: "1", CETRUN_TIMEOUT_MS: "60000",
           V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax --sparkplug" }, stdio: "inherit", timeout: 90000 });
       for (const tier of ["", "--no-sparkplug", "--jitless"]) {
@@ -143,7 +151,7 @@ if (args.test) {
           V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax " + tier };
         const filter = tier ? ["--gtest_filter=*Interpreted*:*AsyncCatch*:*GeneratorCatch*"] : [];
         runLegacySuite(path.join(output, "cetrun_legacy.exe"),
-          ["strict", path.join(output, "cet_tests_legacy.exe"), "--gtest_brief=1", ...filter],
+          ["strict", path.join(output, "cet_tests_legacy.exe"), ...filter],
           { cwd: output, env, stdio: "inherit", timeout: 360000 });
       }
     }

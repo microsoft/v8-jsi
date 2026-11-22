@@ -4,8 +4,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
-import { repoRoot, dumpbinExportNames } from "./build-common.ts";
-import { checkLegacyExports, checkLegacySources, normalizedHash } from "./legacy-checks.ts";
+import { repoRoot, dumpbinExportNames, findDumpbin } from "./build-common.ts";
+import { checkSourceLink } from "./source-link-check.ts";
+import { checkLegacyExports, checkLegacySources, normalizedHash, checkLegacyIdentity } from "./legacy-checks.ts";
 
 const configurations = ["Release", "Debug"];
 const platforms = ["x64", "x86", "arm64"];
@@ -14,6 +15,18 @@ const exports = JSON.parse(fs.readFileSync(path.join(contractDir, "exports.json"
 
 export function stageLegacy(output: string, destination: string, platform: string, configuration: string): void {
   checkLegacySources(repoRoot);
+  const dll = path.join(output, "v8jsi.dll");
+  const bytes = fs.readFileSync(dll);
+  const machine = bytes.readUInt16LE(bytes.readUInt32LE(60) + 4);
+  if (machine !== ({ x86: 0x14c, x64: 0x8664, arm64: 0xaa64 } as Record<string, number>)[platform]) {
+    throw new Error("Staged DLL architecture mismatch");
+  }
+  const escaped = dll.replaceAll("'", "''");
+  const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
+    `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
+  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
+  checkLegacyIdentity(fs.readFileSync(dll), info, version);
+  checkLegacySymbols(output);
   checkLegacyExports(dumpbinExportNames(path.join(output, "v8jsi.dll")), exports, platform);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error("Stage directory must be empty");
   const cell = path.join(destination, "lib/win32", configuration, platform);
@@ -22,8 +35,7 @@ export function stageLegacy(output: string, destination: string, platform: strin
   const symbols = path.join(path.dirname(destination), "symbols", `${platform}-${configuration}`);
   fs.mkdirSync(symbols, { recursive: true });
   for (const file of ["v8jsi.dll", "v8jsi.dll.pdb"]) fs.copyFileSync(path.join(output, file), path.join(symbols, file));
-  const include = path.join(destination, "build/native/include");
-  fs.mkdirSync(include, { recursive: true });
+
   const manifest = JSON.parse(fs.readFileSync(path.join(contractDir, "sources.json"), "utf8"));
   for (const file of manifest.files) {
     if (!file.packagePath) continue;
@@ -33,7 +45,7 @@ export function stageLegacy(output: string, destination: string, platform: strin
   }
   fs.copyFileSync(path.join(repoRoot, "ReactNative.V8Jsi.Windows.targets"), path.join(destination, "build/native/ReactNative.V8Jsi.Windows.targets"));
   fs.mkdirSync(path.join(destination, "license"), { recursive: true });
-  for (const file of ["LICENSE", "LICENSE.jsi.md", "LICENSE.napi.md", "LICENSE.v8.md"]) {
+  for (const file of ["LICENSE.jsi.md", "LICENSE.napi.md", "LICENSE.v8.md"]) {
     fs.copyFileSync(path.join(repoRoot, file), path.join(destination, "license", file));
   }
   console.log(`Staged ${platform} ${configuration}; symbols are separate from the package payload`);
@@ -61,11 +73,14 @@ export function legacyCells(files: readonly string[], diagnostic: boolean): stri
   return cells;
 }
 
-export function packLegacy(stage: string, output: string, diagnostic: boolean): void {
+export function packLegacy(stage: string, output: string, diagnostic: boolean, baseline?: string): void {
   checkLegacySources(repoRoot);
-  const files = fs.readdirSync(stage, { recursive: true, withFileTypes: true }).filter(file => file.isFile())
-    .map(file => path.relative(stage, path.join(file.parentPath, file.name)).replaceAll("\\", "/"));
+  const files = stagedFiles(stage);
   const selected = legacyCells(files, diagnostic);
+  checkLegacyFileList(files, expectedLegacyFiles(selected));
+  if (!diagnostic && !baseline) throw new Error("Production packaging requires --baseline-package <0.79.5.nupkg>");
+  if (baseline) checkLegacyFileList(files, legacyPayloadFiles(zipFiles(baseline), true).filter(file =>
+    !file.startsWith("lib/") || selected.some(cell => file.startsWith(`lib/win32/${cell}/`))));
   for (const cell of selected) {
     checkLegacyExports(dumpbinExportNames(path.join(stage, "lib/win32", cell, "v8jsi.dll")), exports, cell.split("/")[1]);
   }
@@ -78,9 +93,6 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean): 
   }
   if (normalizedHash(fs.readFileSync(path.join(stage, "build/native/ReactNative.V8Jsi.Windows.targets"))) !==
       normalizedHash(fs.readFileSync(path.join(repoRoot, "ReactNative.V8Jsi.Windows.targets")))) throw new Error("Staged targets drift");
-  for (const file of ["build/native/ReactNative.V8Jsi.Windows.targets", "build/native/include/V8JsiRuntime.h"]) {
-    if (!files.includes(file)) throw new Error(`Missing package file: ${file}`);
-  }
   const config = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8"));
   const version = config.version;
   const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
@@ -92,6 +104,92 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean): 
   execFileSync(nuget, ["pack", nuspec, "-Properties", properties, "-OutputDirectory", output,
     "-NoPackageAnalysis", "-NonInteractive"], { stdio: "inherit" });
   const pkg = path.join(output, `ReactNative.V8Jsi.Windows.${version}.nupkg`);
-  if (fs.statSync(pkg).size >= 500 * 1024 * 1024) throw new Error("Legacy package exceeds 500 MiB");
+  checkLegacyPackageSize(fs.statSync(pkg).size);
+  const packedFiles = zipFiles(pkg);
+  legacyCells(packedFiles, diagnostic);
+  checkLegacyFileList(legacyPayloadFiles(packedFiles), files);
   console.log(`Packed ${pkg}${diagnostic ? " (diagnostic)" : ""}`);
+}
+
+function stagedFiles(root: string): string[] {
+  return fs.readdirSync(root, { recursive: true, withFileTypes: true }).filter(file => file.isFile())
+    .map(file => path.relative(root, path.join(file.parentPath, file.name)).replaceAll("\\", "/"));
+}
+
+export function expectedLegacyFiles(cells: readonly string[]): string[] {
+  const manifest = JSON.parse(fs.readFileSync(path.join(contractDir, "sources.json"), "utf8"));
+  return [...manifest.files.filter((file: { packagePath?: string }) => file.packagePath)
+    .map((file: { packagePath: string }) => file.packagePath),
+    "build/native/ReactNative.V8Jsi.Windows.targets",
+    ...["LICENSE.jsi.md", "LICENSE.napi.md", "LICENSE.v8.md"].map(file => `license/${file}`),
+    ...cells.flatMap(cell => ["v8jsi.dll", "v8jsi.dll.lib"].map(file => `lib/win32/${cell}/${file}`))];
+}
+
+export function checkLegacyFileList(actual: readonly string[], expected: readonly string[]): void {
+  const missing = expected.filter(file => !actual.includes(file));
+  const extra = actual.filter(file => !expected.includes(file));
+  if (missing.length || extra.length || new Set(actual).size !== actual.length) {
+    throw new Error(`Legacy file list mismatch: missing [${missing.join(", ")}]; extra [${extra.join(", ")}]`);
+  }
+}
+
+export function legacyPayloadFiles(files: readonly string[], baseline = false): string[] {
+  return files.filter(file => !/^(?:_rels\/|package\/|\[Content_Types\]\.xml$|\.signature\.p7s$)/.test(file) &&
+    !/^[^/]+\.nuspec$/.test(file) && (!baseline || !/(?:\.pdb|args\.gn)$/.test(file)));
+}
+
+function zipFiles(file: string): string[] {
+  const escaped = path.resolve(file).replaceAll("'", "''");
+  return JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
+    `Add-Type -AssemblyName System.IO.Compression; $z = [IO.Compression.ZipFile]::OpenRead('${escaped}'); try { ConvertTo-Json -InputObject @($z.Entries | Where-Object { !$_.FullName.EndsWith('/') } | ForEach-Object { $_.FullName }) -Compress } finally { $z.Dispose() }`], { encoding: "utf8" }));
+}
+
+export function aggregateLegacy(inputs: readonly string[], destination: string): void {
+  const cells: string[] = [];
+  const contents = new Map<string, Buffer>();
+  for (const input of inputs) {
+    const files = stagedFiles(input);
+    const selected = legacyCells(files, true);
+    checkLegacyFileList(files, expectedLegacyFiles(selected));
+    for (const cell of selected) {
+      if (cells.includes(cell)) throw new Error(`Duplicate legacy cell: ${cell}`);
+      cells.push(cell);
+    }
+    for (const file of files) {
+      const data = fs.readFileSync(path.join(input, file));
+      if (contents.has(file) && !contents.get(file)!.equals(data)) throw new Error(`Conflicting staged file: ${file}`);
+      contents.set(file, data);
+    }
+  }
+  legacyCells([...contents.keys()], false);
+  if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error("Aggregate directory must be empty");
+  for (const [file, data] of contents) {
+    const output = path.join(destination, file);
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    fs.writeFileSync(output, data);
+  }
+}
+
+export function checkLegacyPdbIdentity(headers: string, summary: string): void {
+  const dll = /Format:\s*RSDS,\s*\{([^}]+)\},\s*(\d+)/i.exec(headers);
+  const guid = /GUID:\s*\{([^}]+)\}/i.exec(summary);
+  const age = /Age:\s*(\d+)/i.exec(summary);
+  if (!dll || !guid || !age || dll[1].toLowerCase() !== guid[1].toLowerCase() || dll[2] !== age[1]) {
+    throw new Error("Legacy DLL/PDB identity mismatch");
+  }
+}
+
+function checkLegacySymbols(output: string): void {
+  const pdb = path.join(output, "v8jsi.dll.pdb");
+  const vswhere = path.join(process.env["ProgramFiles(x86)"]!, "Microsoft Visual Studio/Installer/vswhere.exe");
+  const util = execFileSync(vswhere, ["-latest", "-prerelease", "-products", "*", "-find",
+    `VC\\Tools\\Llvm\\${process.arch === "arm64" ? "ARM64" : "x64"}\\bin\\llvm-pdbutil.exe`], { encoding: "utf8" }).trim().split(/\r?\n/)[0];
+  if (!util) throw new Error("Visual Studio llvm-pdbutil is required to check legacy symbols");
+  checkLegacyPdbIdentity(execFileSync(findDumpbin(), ["/headers", path.join(output, "v8jsi.dll")], { encoding: "utf8" }),
+    execFileSync(util, ["dump", "--summary", pdb], { encoding: "utf8" }));
+  if (!checkSourceLink([pdb], { strict: true })) throw new Error("Legacy strict Source Link failed");
+}
+
+export function checkLegacyPackageSize(bytes: number): void {
+  if (bytes >= 500 * 1024 * 1024) throw new Error("Legacy package exceeds 500 MiB");
 }

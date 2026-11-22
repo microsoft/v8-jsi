@@ -6,6 +6,7 @@ param(
   [ValidateSet('x64', 'x86', 'arm64')][string]$Platform = 'x64',
   [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
   [string]$ModernDll,
+  [switch]$BuildOnly,
   [string]$WorkDir = 'out\legacy\acceptance'
 )
 $ErrorActionPreference = 'Stop'
@@ -32,11 +33,15 @@ $expectedMachine = switch ($Platform) { 'x86' { 0x14c } 'arm64' { 0xaa64 } defau
 if ($machine -ne $expectedMachine) {
   throw ('Modern DLL PE machine 0x{0:x} does not match {1}. Supply -ModernDll with a matching v8jsi2.dll.' -f $machine, $Platform)
 }
-$work = [IO.Path]::GetFullPath($WorkDir)
+$hostArch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+if (!$BuildOnly -and $Platform -eq 'arm64' -and $hostArch -ne 'arm64') { throw 'ARM64 acceptance must run natively on an ARM64 host.' }
+$work = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkDir)
 if (Test-Path $work) { throw 'Acceptance work directory must not already exist' }
 New-Item -ItemType Directory $work | Out-Null
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-$vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$requiredTools = if ($hostArch -eq 'arm64') { 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' } else { 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64' }
+$vs = & $vswhere -latest -products '*' -requires $requiredTools -property installationPath
+if (!$vs) { throw "Visual Studio with $requiredTools is required" }
 $msbuild = Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe'
 $toolset = if (Test-Path (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt')) { 'v143' } else { 'v145' }
 $msplatform = switch ($Platform) { 'x86' { 'Win32' } 'arm64' { 'ARM64' } default { 'x64' } }
@@ -45,6 +50,7 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
 }
 function Run-Consumer([string]$Exe, [string[]]$Arguments, [string]$ExpectedFailureMessage) {
+  if ($BuildOnly) { Write-Host "PENDING native execution: $Exe $Arguments"; return }
   $options = [Diagnostics.ProcessStartInfo]::new($Exe)
   $options.UseShellExecute = $false
   $options.RedirectStandardOutput = $true
@@ -101,7 +107,11 @@ Run-Consumer "$dropin\consumer.exe" @('--reject-cache', $cache)
 Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$dropin\consumer.exe" @('--late-tasks')
 $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
-$arch = switch ($Platform) { 'x86' { 'x64_x86' } 'arm64' { 'x64_arm64' } default { 'x64' } }
+$arch = if ($hostArch -eq 'arm64') {
+  switch ($Platform) { 'x86' { 'arm64_x86' } 'arm64' { 'arm64' } default { 'arm64_x64' } }
+} else {
+  switch ($Platform) { 'x86' { 'x64_x86' } 'arm64' { 'x64_arm64' } default { 'x64' } }
+}
 Invoke-Checked $env:ComSpec @('/c', "call `"$vcvars`" $arch && cl /nologo /std:c++17 /EHsc /W4 /WX /I`"$PSScriptRoot\..\..\src`" /I`"$PSScriptRoot\..\..\src\public`" /I`"$PSScriptRoot\..\..\src\jsi_abi`" `"$PSScriptRoot\modern-cache.cpp`" /Fo`"$work\modern-cache.obj`" /Fe`"$work\modern-cache.exe`"")
 Run-Consumer "$work\modern-cache.exe" @($ModernDll, "$work\modern.cache")
 Run-Consumer "$dropin\consumer.exe" @('--reject-cache', "$work\modern.cache")
@@ -112,4 +122,10 @@ Run-Consumer "$rebuilt\consumer.exe" @('--reject-cache', $cache)
 Run-Consumer "$rebuilt\consumer.exe" @('--reject-cache', "$work\modern.cache")
 Run-Consumer "$rebuilt\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$rebuilt\consumer.exe" @('--late-tasks')
-Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild"
+if (!$BuildOnly) { Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild" }
+
+$coexistence = "$work\coexistence"
+Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$new", "/p:OutDir=$coexistence\", '/p:Coexistence=true')
+Copy-Item -LiteralPath $ModernDll -Destination "$coexistence\v8jsi2.dll"
+Run-Consumer "$coexistence\coexistence.exe" @('legacy-first')
+Run-Consumer "$coexistence\coexistence.exe" @('modern-first')

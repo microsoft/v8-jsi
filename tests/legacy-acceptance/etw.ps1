@@ -43,4 +43,4 @@ $engineEvents = $events.SelectNodes("//*[local-name()='Event']") | Where-Object 
 if (!$engineEvents) {
   throw 'No V8.js MethodLoad or SourceLoad events were captured; engine ETW flags may be inactive.'
 }
-Write-Host "PASS: runtime JIT/GC events captured in $trace"
+Write-Host "PASS: runtime JIT/GC and V8.js MethodLoad/SourceLoad events captured in $trace"
