@@ -171,3 +171,77 @@ test("startup flags distinguish defaults, overrides and duplicate initialization
     assert.throws(() => checkLegacyStartupFlags(bad, "--no-cet-compatible", true), /startup policy mismatch/);
   }
 });
+
+import { normalizedHash, legacyCetArtifacts, checkLegacyHardeningProject, checkLegacyIdentity } from "./legacy-checks.ts";
+import { join } from "node:path";
+test("legacy CET artifact wiring checks the launcher and the ordinary Node-API child", () => {
+  assert.deepEqual(legacyCetArtifacts("x64"), [["v8jsi.dll", true], ["cetrun_legacy.exe", true], ["node_lite_legacy.exe", false]]);
+  assert.deepEqual(legacyCetArtifacts("x86"), []);
+  assert.deepEqual(legacyCetArtifacts("arm64"), []);
+});
+test("source hashes normalize checkout EOLs but not content tampering", () => {
+  assert.equal(normalizedHash(Buffer.from("a\nb\n")), normalizedHash(Buffer.from("a\r\nb\r\n")));
+  assert.notEqual(normalizedHash(Buffer.from("a\nb\n")), normalizedHash(Buffer.from("a\nc\n")));
+});
+test("source manifests independently reject copy and inspector origin drift", () => {
+  const data = Buffer.from("source\n"), hash = normalizedHash(data);
+  const manifest = { contract: "5424838ddaf", files: [{ kind: "inspector", path: "copy", origin: "origin", sha256: hash }] };
+  const files = new Map([[join("repo", "src/legacy/sources.json"), Buffer.from(JSON.stringify(manifest))],
+                         [join("repo", "copy"), data], [join("repo", "origin"), data]]);
+  const read = (file: string) => files.get(file)!;
+  checkLegacySources("repo", read);
+  for (const name of ["copy", "origin"]) {
+    files.set(join("repo", name), Buffer.from("tampered"));
+    assert.throws(() => checkLegacySources("repo", read), /drift/);
+    files.set(join("repo", name), data);
+  }
+  for (const invalid of ["{}", "{", JSON.stringify({ contract: "other", files: manifest.files })]) {
+    files.set(join("repo", "src/legacy/sources.json"), Buffer.from(invalid));
+    assert.throws(() => checkLegacySources("repo", read));
+  }
+});
+test("module resources reject modern identity, wrong versions, and runtime RTTI", () => {
+  const info = { OriginalFilename: "v8jsi.dll", ProductName: "React Native V8 JSI Adapter", FileVersion: "0.79.8.0" };
+  checkLegacyIdentity(Buffer.alloc(0), info, "0.79.8");
+  for (const field of ["OriginalFilename", "ProductName", "FileVersion"]) {
+    assert.throws(() => checkLegacyIdentity(Buffer.alloc(0), { ...info, [field]: "wrong" }, "0.79.8"), /resource mismatch/);
+  }
+  for (const data of ["v8jsi2", ".?AVV8Runtime@v8runtime@@"]) {
+    assert.throws(() => checkLegacyIdentity(Buffer.from(data), info, "0.79.8"), /identity\/RTTI/);
+  }
+});
+test("compiler checks require SHA-256, GS and the static CRT in both configurations", () => {
+  const group = (config: string, runtime: string) => `<ItemDefinitionGroup Condition="${config}|x64"><ClCompile>/ZH:SHA_256<BufferSecurityCheck>true</BufferSecurityCheck><RuntimeLibrary>${runtime}</RuntimeLibrary></ClCompile></ItemDefinitionGroup>`;
+  const valid = group("Debug", "MultiThreadedDebug") + group("Release", "MultiThreaded");
+  checkLegacyHardeningProject(valid);
+  for (const bad of ["", valid.replace("/ZH:SHA_256", ""), valid.replace("true", "false"), valid.replace("MultiThreadedDebug", "MultiThreadedDebugDLL")]) {
+    assert.throws(() => checkLegacyHardeningProject(bad), /Missing|missing/);
+  }
+});
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+test("package ZIP entries reject symbols, build arguments and incorrect cell contents", () => {
+  const directory = mkdtempSync(join(tmpdir(), "legacy-zip-"));
+  try {
+    const base = ["Release", "Debug"].flatMap(configuration => ["x64", "x86", "arm64"].flatMap(platform =>
+      ["v8jsi.dll", "v8jsi.dll.lib"].map(file => `lib/win32/${configuration}/${platform}/${file}`)));
+    // ZIP metadata, not binary payloads, determines the package cell contract.
+    for (const extra of [null, "lib/win32/Release/x64/v8jsi.dll.pdb", "build/native/args.gn", "lib/win32/Release/x64/other.dll"]) {
+      const files = extra ? [...base, extra] : base;
+      const entries = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command", `
+        $zip = [IO.Compression.ZipFile]::Open('${join(directory, "fixture.zip").replaceAll("'", "''")}', 'Create')
+        try { foreach ($name in ('${files.join("','")}')) { $null = $zip.CreateEntry($name) } } finally { $zip.Dispose() }
+        $zip = [IO.Compression.ZipFile]::OpenRead('${join(directory, "fixture.zip").replaceAll("'", "''")}')
+        try { ConvertTo-Json -Compress -InputObject @($zip.Entries.FullName) } finally { $zip.Dispose() }
+        Remove-Item '${join(directory, "fixture.zip").replaceAll("'", "''")}'
+      `], { encoding: "utf8", timeout: 30000 })) as string[];
+      if (extra) assert.throws(() => legacyCells(entries, true), /forbidden payload|Incomplete legacy cell/);
+      else {
+        assert.deepEqual(legacyCells(entries, false), ["Release/x64", "Release/x86", "Release/arm64",
+          "Debug/x64", "Debug/x86", "Debug/arm64"]);
+      }
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

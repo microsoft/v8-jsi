@@ -3,6 +3,7 @@
 #pragma once
 
 #include "v8.h"
+#include <atomic>
 
 #include "public/V8JsiRuntime.h"
 #include "TaskRunner.h"
@@ -20,6 +21,7 @@ struct IsolateData {
 
   std::shared_ptr<GatedTaskRunner> foreground_task_runner_;
   v8::ArrayBuffer::Allocator *array_buffer_allocator_{};
+  std::atomic<bool> enable_multi_thread_{false};
 
   v8::Local<v8::Private> napi_type_tag() const {
     return napi_type_tag_.Get(isolate_);

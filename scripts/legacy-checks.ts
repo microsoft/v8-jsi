@@ -146,14 +146,15 @@ export function normalizedHash(data: Buffer): string {
   return createHash("sha256").update(Buffer.from(data.toString("latin1").replaceAll("\r\n", "\n"), "latin1")).digest("hex");
 }
 
-export function checkLegacySources(root: string): void {
-  const manifest = JSON.parse(readFileSync(join(root, "src/legacy/sources.json"), "utf8"));
+export function checkLegacySources(root: string, read: (file: string) => Buffer = readFileSync): void {
+  const manifest = JSON.parse(read(join(root, "src/legacy/sources.json")).toString("utf8"));
+  if (manifest.contract !== "5424838ddaf" || !Array.isArray(manifest.files) || !manifest.files.length) throw new Error("Invalid legacy source manifest");
   for (const file of manifest.files) {
     const expected = file.outputSha256 ?? file.sha256;
-    if (normalizedHash(readFileSync(join(root, file.path))) !== expected) {
+    if (normalizedHash(read(join(root, file.path))) !== expected) {
       throw new Error(`Legacy source drift: ${file.path}`);
     }
-    if (file.kind === "inspector" && normalizedHash(readFileSync(join(root, file.origin))) !== file.sha256) {
+    if (file.kind === "inspector" && normalizedHash(read(join(root, file.origin))) !== file.sha256) {
       throw new Error(`Inspector donor drift: ${file.origin}`);
     }
   }
@@ -189,5 +190,31 @@ export function checkLegacyStartupFlags(output: string, expected: string, shadow
   const summary = `Startup shadow-stacks=${shadowStacks ? 1 : 0} callbacks=1`;
   if (flags.length !== 1 || flags[0] !== expected || lines.filter(line => line === summary).length !== 1) {
     throw new Error("Legacy startup policy mismatch");
+  }
+}
+
+export function legacyCetArtifacts(platform: string): ReadonlyArray<readonly [string, boolean]> {
+  return platform === "x64" ? [["v8jsi.dll", true], ["cetrun_legacy.exe", true], ["node_lite_legacy.exe", false]] : [];
+}
+
+export function checkLegacyHardeningProject(project: string): void {
+  const groups = [...project.matchAll(/<ItemDefinitionGroup\b([^>]*)>([\s\S]*?)<\/ItemDefinitionGroup>/g)]
+    .filter(group => group[2].includes("<ClCompile>"));
+  if (groups.length !== 2) throw new Error("Missing legacy compiler configurations");
+  for (const group of groups) {
+    const runtime = group[1].includes("Debug|") ? "MultiThreadedDebug" : "MultiThreaded";
+    for (const requirement of ["/ZH:SHA_256", "<BufferSecurityCheck>true</BufferSecurityCheck>",
+                               `<RuntimeLibrary>${runtime}</RuntimeLibrary>`]) {
+      if (!group[2].includes(requirement)) throw new Error(`Legacy compiler hardening missing: ${requirement}`);
+    }
+  }
+}
+
+export function checkLegacyIdentity(pe: Buffer, info: { OriginalFilename: string; ProductName: string; FileVersion: string }, version: string): void {
+  if (info.OriginalFilename !== "v8jsi.dll" || info.ProductName !== "React Native V8 JSI Adapter" || info.FileVersion !== version + ".0") {
+    throw new Error("Legacy version resource mismatch");
+  }
+  if (pe.includes(Buffer.from("v8jsi2")) || pe.includes(Buffer.from(".?AVV8Runtime@v8runtime@@"))) {
+    throw new Error("Legacy module identity/RTTI mismatch");
   }
 }

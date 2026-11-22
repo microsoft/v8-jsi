@@ -89,6 +89,7 @@ class NodeApiJsiBuffer : public facebook::jsi::Buffer {
 class NodeApiEnv;
 
 class V8RuntimeEnv : public v8runtime::V8Runtime {
+  friend class NodeApiEnv;
  public:
   V8RuntimeEnv(v8runtime::V8RuntimeArgs&& args)
       : v8runtime::V8Runtime(std::move(args)),
@@ -162,9 +163,14 @@ class NodeApiEnv : public napi_env__ {
     m_isDestructing = true;
     // Get the field before this instance is deleted.
     V8RuntimeEnv* runtime = m_runtime;
-    bool shouldDeleteRuntime = runtime->removeModuleEnv(this);
-    DrainFinalizerQueue();
-    napi_env__::DeleteMe();
+    bool shouldDeleteRuntime;
+    {
+      // V8 14.6: env finalizers and persistent handles need scoped isolate entry.
+      V8RuntimeEnv::IsolateLocker locker(runtime);
+      shouldDeleteRuntime = runtime->removeModuleEnv(this);
+      DrainFinalizerQueue();
+      napi_env__::DeleteMe();
+    }
     if (shouldDeleteRuntime) {
       delete runtime;
     }
@@ -194,6 +200,7 @@ class NodeApiEnv : public napi_env__ {
     }
   }
   void DrainFinalizerQueue() {
+    V8RuntimeEnv::IsolateLocker locker(m_runtime);
     // As userland code can delete additional references in one finalizer,
     // the list of pending finalizers may be mutated as we execute them, so
     // we keep iterating it until it is empty.
@@ -212,8 +219,7 @@ class NodeApiEnv : public napi_env__ {
       return;
     }
 
-    v8::HandleScope handle_scope(isolate);
-    v8::Context::Scope context_scope(context());
+    V8RuntimeEnv::IsolateLocker locker(m_runtime);
 
     CallIntoModule([&](napi_env env) { cb(env, data, hint); },
                    [](napi_env env, v8::Local<v8::Value> local_err) {
@@ -482,6 +488,7 @@ void V8RuntimeEnv::prepareForShutdown() {
 }
 
 NodeApiEnv* V8RuntimeEnv::createNodeApi(int32_t apiVersion) {
+  IsolateLocker locker(this);
   NodeApiEnv* env = new NodeApiEnv(this, apiVersion);
   m_moduleEnvList.push_back(env);
   return env;

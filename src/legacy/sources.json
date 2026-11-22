@@ -269,7 +269,7 @@
       "revision": "5424838ddaf",
       "kind": "ported",
       "sha256": "a6746e07b3456e7e00f1c6171b97d37264317cc8d9b364d9ec1606aa38a5487a",
-      "outputSha256": "8b7135c189247c1b04ed7c7104ee7087c38ffddb5c6acdbe787813ed87193d5b"
+      "outputSha256": "9687299c5bc363b8fa8848bdee0be23cb164e552db13597520097985b4d69ede"
     },
     {
       "path": "src/legacy/V8JsiRuntime_impl.h",
@@ -277,7 +277,7 @@
       "revision": "5424838ddaf",
       "kind": "ported",
       "sha256": "f3bc13d5e10dc5c20f165c71eead31823ddf1d00401e1799129bd737001d38d3",
-      "outputSha256": "8f1ba0819cf4072cf3ec0b6d7e811c945358124850fec5963b6c6899d8235ef2"
+      "outputSha256": "cf44a418760e2e079e8f9038535701f6d53496b4ff3b498de7860876f8ffe201"
     },
     {
       "path": "src/legacy/IsolateData.h",
@@ -285,7 +285,7 @@
       "revision": "5424838ddaf",
       "kind": "ported",
       "sha256": "712b1c1f3c2172349fd656606689e1d9efbcde9cdddbd8e63511305b7a8160dd",
-      "outputSha256": "df13ba796e88c0f77d962392a0e7ef7a7ab610a55615e4512036a287b974d409"
+      "outputSha256": "2950a52bb66341f80ebbe15762b4916d320f0517d2f048234795bd4199202247"
     },
     {
       "path": "src/legacy/V8Windows.h",
@@ -309,7 +309,7 @@
       "revision": "6c0f70bdfd9",
       "kind": "ported",
       "sha256": "7d986c9f204f035236f3523f21bc3febf36bca16f4fe531ab43910370a169061",
-      "outputSha256": "27a695d55d44c48c539320c9cc6728d6e0379d37cd5b426d6b23d0dd09f91efd"
+      "outputSha256": "df4d5552d5e9fb3960a3fe41f692ea5ce7c368420c3297e9d989c0c38f4b9625"
     },
     {
       "path": "src/legacy/node-api/js_native_api_v8.cc",
@@ -523,6 +523,103 @@
       "kind": "inspector",
       "sha256": "ffb45c551d4225b5e219c6c283b3eb2dd4f68ceb323eb95c2caa44954bf84c92",
       "outputSha256": "ffb45c551d4225b5e219c6c283b3eb2dd4f68ceb323eb95c2caa44954bf84c92"
+    },
+    {
+      "path": "src/legacy/testmain.cpp",
+      "origin": "src/testmain.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "1525c4271990bcfca4473a8fc8d35e4232be500b50217ec1d3384c60ebbb58f6",
+      "outputSha256": "ebb55613fe7c216b01d8a304fbfb676c9a3452c922af038a5fb9aecff057152e"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib.h",
+      "origin": "src/jsi/test/testlib.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "7291dc7681f285b2706523246052a6b727ef1ae93bed83d20faed99469c14ce6"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib_abi.h",
+      "origin": "src/jsi/test/testlib_abi.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "68d029b29f470146793e25b26061e8d96f24f161683ee84fa8f1a3315be391ac"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib_ext.cpp",
+      "origin": "src/jsi/test/testlib_ext.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "df65f6c658ba8f4a7f61720a592f1b9e2a8a7e11d21a129ca18ae0ca3c8c2681",
+      "outputSha256": "696ff470f98b687f3152eba6dc44fcc7ad7ea339b827526dfc46a5dce533dfe2"
+    },
+    {
+      "path": "src/legacy/node-api/test/child_process.cpp",
+      "origin": "src/node-api/test/child_process.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "751c4042215ee9298a1af7080db0a29b6a08e26c67211800d46919669bddd33f",
+      "outputSha256": "cde0744cf08c0dfbb3274c0e67491e46e59cab9f152bf93ca8da6a23b6c78099"
+    },
+    {
+      "path": "src/legacy/node-api/test/child_process.h",
+      "origin": "src/node-api/test/child_process.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "94cdb92325f9456215d0694c67756db70a610ece7b25ee6a751d8d1b539aa8a3"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test.cpp",
+      "origin": "src/node-api/test/node_api_test.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "8cfaf6a9abfab5a923a32c78b8c6832bfe1ec7dd64f85422869d6bab4cf591ad",
+      "outputSha256": "d79da862efa503de466a7c902acc7ebbfa9622718d59fbe9c6d10e0bbf8589d3"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test.h",
+      "origin": "src/node-api/test/node_api_test.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "250573a440390cef0b5f7b8dfe5891b3a60caacea7a2eb1fbb0add12bea1cd8d"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test_v8.cpp",
+      "origin": "src/node-api/test/node_api_test_v8.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "c33d83ff7f07a15a72576dfb66cec47dbed19fc1fd792406b2730595c504fda8"
+    },
+    {
+      "path": "src/legacy/node-api/test/testmain.cpp",
+      "origin": "src/node-api/test/testmain.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "f5a0fea4a5d66397e994c208a7c0913db158a6dd0ac841041c7eaf414b37d683",
+      "outputSha256": "3904e6782cd5839d76207c1e16f87237fcd454d52263f6c0122ff1392c42fa94"
+    },
+    {
+      "path": "src/legacy/cet_tests.cpp",
+      "origin": "src/cet_tests.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "d17660865dc63f56618cd9021de2260664af2b18da0a3c47970f80ab30e40315",
+      "outputSha256": "30079b12820628deec2319aa7e1b8a18883c4f84c307a7eac514ca8cbe7ebd50"
+    },
+    {
+      "path": "src/jsi/test/testlib.cpp",
+      "origin": "src/jsi/test/testlib.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "597f3562d5cdf9cb9779aaa315bf1e262eafdbb704a13316ea09ef4e2777eae4"
+    },
+    {
+      "path": "src/copy_test_js_files.ts",
+      "origin": "src/copy_test_js_files.ts",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "8fa1b6d0220640764feef2d36e07f83db79930380ac01d8fa4e7ab6fc4e501d3"
     }
   ]
 }

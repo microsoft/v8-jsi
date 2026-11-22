@@ -6,8 +6,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { repoRoot, run, ensureSupportedPython, ensureNasm, nasmRequiredForTarget,
-         prependToPath, findDumpbin, checkCetHeaders, dumpbinExportNames } from "./build-common.ts";
-import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags } from "./legacy-checks.ts";
+         prependToPath, findDumpbin, checkCetHeaders, dumpbinExportNames, ensureBinSkimExe, analyzeBinSkim, crtDependencyLines } from "./build-common.ts";
+import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags, legacyCetArtifacts, checkLegacyHardeningProject, checkLegacyIdentity } from "./legacy-checks.ts";
 
 import { stageLegacy, packLegacy } from "./legacy-package.ts";
 import { checkLegacyExports, checkLegacySources, checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
@@ -75,6 +75,16 @@ if (args.test) {
   }
   run(`"${path.join(output, "v8jsi_legacy_probe_runner.exe")}"`, [], { cwd: output });
   execFileSync(path.join(output, "v8jsi_legacy_task_tests.exe"), [], { cwd: output, stdio: "inherit", timeout: 60000 });
+  const suiteEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+    !/^(CETRUN_|V8JSI_TEST_)/i.test(key)));
+  // ETW's process-global initialization must see the requested instrumentation flags first.
+  execFileSync(path.join(output, "jsitests_legacy.exe"),
+    ["--gtest_filter=LegacyInstrumentation.*", "--gtest_brief=1"],
+    { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000 });
+  for (const name of ["jsitests_legacy", "node_api_tests_legacy", "inspector_tests_legacy", "layout_tests_legacy"]) {
+    execFileSync(path.join(output, name + ".exe"), ["--gtest_brief=1"],
+      { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 300000 });
+  }
   if (args.platform === "x64") {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       !/^(CETRUN_|V8JSI_TEST_)/i.test(key)));
@@ -103,6 +113,31 @@ if (args.test) {
       checkLegacyStartupFlags(result, expected, mode === "strict");
       console.log(`CET startup ${mode} ${flag || "default"}: ${expected}; initialized once`);
     }
+    for (const mode of ["off", "strict"]) {
+      const childEnv = { ...suiteEnv, V8JSI_TEST_CET: mode, CETRUN_TIMEOUT_MS: "300000",
+        ...(available ? { CETRUN_REQUIRE_CET: "1" } : {}) };
+      execFileSync(path.join(output, "cetrun_legacy.exe"),
+        [mode, path.join(output, "jsitests_legacy.exe"), "--gtest_filter=LegacyInstrumentation.*", "--gtest_brief=1"],
+        { cwd: output, env: childEnv, stdio: "inherit", timeout: 90000 });
+      for (const name of ["jsitests_legacy", "node_api_tests_legacy", "inspector_tests_legacy"]) {
+        execFileSync(path.join(output, "cetrun_legacy.exe"), [mode, path.join(output, name + ".exe"), "--gtest_brief=1"],
+          { cwd: output, env: childEnv, stdio: "inherit", timeout: 360000 });
+      }
+    }
+    if (available) {
+      execFileSync(path.join(output, "cetrun_legacy.exe"),
+        ["strict", path.join(output, "inspector_tests_legacy.exe"), "--gtest_brief=1", "--gtest_filter=*CetStepOver*"],
+        { cwd: output, env: { ...suiteEnv, CETRUN_REQUIRE_CET: "1", CETRUN_TIMEOUT_MS: "60000",
+          V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax --sparkplug" }, stdio: "inherit", timeout: 90000 });
+      for (const tier of ["", "--no-sparkplug", "--jitless"]) {
+        const env = { ...suiteEnv, CETRUN_REQUIRE_CET: "1", CETRUN_TIMEOUT_MS: "300000",
+          V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax " + tier };
+        const filter = tier ? ["--gtest_filter=*Interpreted*:*AsyncCatch*:*GeneratorCatch*"] : [];
+        execFileSync(path.join(output, "cetrun_legacy.exe"),
+          ["strict", path.join(output, "cet_tests_legacy.exe"), "--gtest_brief=1", ...filter],
+          { cwd: output, env, stdio: "inherit", timeout: 360000 });
+      }
+    }
   }
 }
 if (args.check) {
@@ -122,6 +157,7 @@ if (args.check) {
   checkIteratorConfiguration(config.target_defaults.configurations, args.platform, projects);
   const project = fs.readFileSync(path.join(nodeDir, "v8jsi_legacy.vcxproj"), "utf8");
   checkLegacyProject(project);
+  checkLegacyHardeningProject(project);
   const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "src/legacy/sources.json"), "utf8"));
   checkLegacyIncludes(fs.readFileSync(path.join(output, "obj/v8jsi_legacy/v8jsi_legacy.tlog/Microsoft.Build.CPPTasks.CL.read.1.tlog"), "utf16le"), repoRoot,
     manifest.files.filter((file: { kind: string }) => file.kind === "shared").map((file: { path: string }) => file.path));
@@ -145,6 +181,28 @@ if (args.check) {
         break;
       }
     }
+  }
+  const dumpbin = findDumpbin();
+  for (const [name, compatible] of legacyCetArtifacts(args.platform)) {
+    const binary = path.join(output, name);
+    checkCetHeaders(execFileSync(dumpbin, ["/headers", binary], { encoding: "utf8" }), compatible, binary, dumpbin);
+  }
+  const escapedDll = dll.replaceAll("'", "''");
+  const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
+    `(Get-Item '${escapedDll}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
+  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
+  checkLegacyIdentity(fs.readFileSync(dll), info, version);
+  const imports = crtDependencyLines(dll);
+  if (!imports.some(line => /api-ms-win-crt|ucrtbase/i.test(line)) || imports.some(line => /(?:msvcp|vcruntime)\d/i.test(line))) {
+    throw new Error("Legacy Hybrid CRT import mismatch");
+  }
+  // V8 archives retain MD5 records, buffer-less thunks lack GS metadata, and
+  // clang-cl cannot emit x86 SafeSEH. Non-x64 has no CET shadow stacks.
+  const residuals = new Set(["BA2004", "BA2014", "BA2018"]);
+  if (args.platform !== "x64") residuals.add("BA2025");
+  const binskim = process.env.BINSKIM_EXE ?? await ensureBinSkimExe(path.join(repoRoot, "out/tools"));
+  if (!analyzeBinSkim(binskim, [dll], path.join(output, "v8jsi.binskim.sarif"), "legacy engine", residuals)) {
+    throw new Error("Legacy BinSkim gate failed");
   }
   console.log("Legacy engine hardening checks passed");
 }

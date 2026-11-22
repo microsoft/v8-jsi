@@ -25,7 +25,7 @@ using namespace facebook;
 
 namespace v8runtime {
 
-thread_local uint16_t V8Runtime::tls_isolate_usage_counter_ = 0;
+thread_local std::weak_ptr<v8::Isolate> V8Runtime::tls_isolate_;
 
 struct ContextEmbedderIndex {
   constexpr static int Runtime = 0;
@@ -310,10 +310,28 @@ v8::Isolate *V8Runtime::CreateNewIsolate() {
   isolate_data_ = new v8runtime::IsolateData(isolate_, args_.foreground_task_runner);
   isolate_data_->array_buffer_allocator_ = create_params_.array_buffer_allocator;
   isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, isolate_data_);
+  isolate_data_->enable_multi_thread_ = args_.flags.enableMultiThread;
 
   v8::Isolate::Initialize(isolate_, create_params_);
   // V8 14.6: internalized strings require the pointer-compression isolate to be current.
-  isolate_->Enter();
+  auto locker = IsolateLocker::makeOptionalLocker(isolate_, isolate_data_->enable_multi_thread_);
+  v8::Isolate::Scope isolate_scope(isolate_);
+  // V8 14.6: ownership is independent of the thread that releases the last context.
+  isolate_owner_ = std::shared_ptr<v8::Isolate>(isolate_, [](v8::Isolate *isolate) {
+    auto data = static_cast<IsolateData *>(isolate->GetData(ISOLATE_DATA_SLOT));
+    data->foreground_task_runner_->close([] {});
+    auto allocator = data->array_buffer_allocator_;
+    {
+      auto locker = IsolateLocker::makeOptionalLocker(isolate, data->enable_multi_thread_);
+      v8::Isolate::Scope isolate_scope(isolate);
+      delete data;
+      isolate->SetData(ISOLATE_DATA_SLOT, nullptr);
+      isolate->SetData(ISOLATE_INSPECTOR_SLOT, nullptr);
+    }
+    isolate->Dispose();
+    delete allocator;
+  });
+  tls_isolate_ = isolate_owner_;
 
   isolate_data_->CreateProperties();
 
@@ -413,21 +431,23 @@ V8Runtime::V8Runtime(V8RuntimeArgs &&args) : args_(std::move(args)) {
   TRACEV8RUNTIME_VERBOSE("Initializing");
 
   // Try to reuse the already existing isolate in this thread.
-  if (tls_isolate_usage_counter_++ > 0) {
+  if ((isolate_owner_ = tls_isolate_.lock())) {
     TRACEV8RUNTIME_WARNING("Reusing existing V8 isolate in the current thread !");
-    isolate_ = v8::Isolate::GetCurrent();
+    isolate_ = isolate_owner_.get();
     isolate_data_ = reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
   } else {
     CreateNewIsolate();
   }
 
-  instrumentation_ = std::make_unique<V8Instrumentation>(isolate_);
+  if (args_.flags.enableMultiThread) isolate_data_->enable_multi_thread_ = true;
+  auto locker = IsolateLocker::makeOptionalLocker(isolate_, isolate_data_->enable_multi_thread_);
+  v8::Isolate::Scope isolate_scope(isolate_);
+  instrumentation_ = std::make_unique<ScopedInstrumentation>(this);
 
   if (args_.flags.explicitMicrotaskPolicy) {
     isolate_->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
   }
 
-  v8::Isolate::Scope isolate_scope(isolate_);
   v8::HandleScope handleScope(isolate_);
 
   auto context = CreateContext(isolate_);
@@ -478,50 +498,28 @@ void V8Runtime::StopForegroundTasks() {
 
 V8Runtime::~V8Runtime() {
   StopForegroundTasks();
-  // TODO: add check that destruction happens on the same thread id as
-  // construction
-
-#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
   {
-    if (inspector_agent_) {
-      IsolateLocker isolate_locker(this);
-      inspector_agent_->removeContext(GetContextLocal());
-    }
-  }
-#endif
-
-  host_object_constructor_.Reset();
-  context_.Reset();
-
-  for (std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker : host_object_lifetime_tracker_list_) {
-    hostObjectLifetimeTracker->ResetHostObject(false /*isGC*/);
-  }
-
-  host_object_lifetime_tracker_list_.clear();
-
-  GetAndClearLastUnhandledPromiseRejection();
-
+    IsolateLocker isolate_locker(this);
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
-  if (inspector_agent_) {
-    inspector_agent_.reset();
-  }
+    if (inspector_agent_) {
+      if (inspector_agent_->hasSingleContext()) isolate_->SetData(ISOLATE_INSPECTOR_SLOT, nullptr);
+      inspector_agent_->removeContext(GetContextLocal());
+      // V8 14.6: shutdown dispatch needs the isolate lock and a live context.
+      inspector_agent_.reset();
+    }
 #endif
 
-  if (--tls_isolate_usage_counter_ == 0) {
-    IsolateData *isolate_data = reinterpret_cast<IsolateData *>(isolate_->GetData(ISOLATE_DATA_SLOT));
-    // v8-jsi security: the isolate runner remains live while sibling contexts survive.
-    isolate_data->foreground_task_runner_->close([] {});
-    auto allocator = isolate_data->array_buffer_allocator_;
-    delete isolate_data;
+    host_object_constructor_.Reset();
+    context_.Reset();
 
-    isolate_->SetData(v8runtime::ISOLATE_DATA_SLOT, nullptr);
-    isolate_->SetData(v8runtime::ISOLATE_INSPECTOR_SLOT, nullptr);
+    for (std::shared_ptr<HostObjectLifetimeTracker> hostObjectLifetimeTracker : host_object_lifetime_tracker_list_) {
+      hostObjectLifetimeTracker->ResetHostObject(false /*isGC*/);
+    }
 
-    isolate_->Exit();
-    isolate_->Dispose();
-
-    delete allocator;
+    host_object_lifetime_tracker_list_.clear();
+    GetAndClearLastUnhandledPromiseRejection();
   }
+  isolate_owner_.reset();
 
   // Note :: We never dispose V8 here. Is it required ?
 }

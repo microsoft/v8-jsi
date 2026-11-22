@@ -741,12 +741,11 @@ class V8Runtime : public facebook::jsi::Runtime {
   // RAII wrapper for multi threaded support - order of the various scopes matters
   struct IsolateLocker {
     IsolateLocker(const V8Runtime *runtime)
-        : _locker(makeOptionalLocker(runtime->GetIsolate(), runtime->args_.flags.enableMultiThread)),
+        : _locker(makeOptionalLocker(runtime->GetIsolate(), runtime->isolate_data_->enable_multi_thread_)),
           _isolate_scope(runtime->GetIsolate()),
           _handle_scope(runtime->GetIsolate()),
           _context_scope(runtime->GetContextLocal()) {}
 
-   protected:
     static std::optional<v8::Locker> makeOptionalLocker(v8::Isolate *isolate, bool enabled) {
       if (enabled) {
         return std::make_optional<v8::Locker>(isolate);
@@ -755,10 +754,48 @@ class V8Runtime : public facebook::jsi::Runtime {
       return std::nullopt;
     }
 
+   protected:
     std::optional<v8::Locker> _locker;
     v8::Isolate::Scope _isolate_scope;
     v8::HandleScope _handle_scope;
     v8::Context::Scope _context_scope;
+  };
+
+  // V8 14.6: instrumentation calls have no surrounding JSI operation scope.
+  class ScopedInstrumentation final : public V8Instrumentation {
+   public:
+    explicit ScopedInstrumentation(const V8Runtime *runtime)
+        : V8Instrumentation(runtime->GetIsolate()), runtime_(runtime) {}
+    std::string getRecordedGCStats() override {
+      IsolateLocker locker(runtime_);
+      return V8Instrumentation::getRecordedGCStats();
+    }
+    std::unordered_map<std::string, int64_t> getHeapInfo(bool includeExpensive) override {
+      IsolateLocker locker(runtime_);
+      return V8Instrumentation::getHeapInfo(includeExpensive);
+    }
+    void collectGarbage(std::string cause) override {
+      IsolateLocker locker(runtime_);
+      V8Instrumentation::collectGarbage(std::move(cause));
+    }
+    void startHeapSampling(size_t samplingInterval) override {
+      IsolateLocker locker(runtime_);
+      V8Instrumentation::startHeapSampling(samplingInterval);
+    }
+    void stopHeapSampling(std::ostream &os) override {
+      IsolateLocker locker(runtime_);
+      V8Instrumentation::stopHeapSampling(os);
+    }
+    void createSnapshotToFile(const std::string &path, const HeapSnapshotOptions &options) override {
+      IsolateLocker locker(runtime_);
+      V8Instrumentation::createSnapshotToFile(path, options);
+    }
+    void createSnapshotToStream(std::ostream &os, const HeapSnapshotOptions &options) override {
+      IsolateLocker locker(runtime_);
+      V8Instrumentation::createSnapshotToStream(os, options);
+    }
+   private:
+    const V8Runtime *runtime_;
   };
 
   v8::Local<v8::Context> CreateContext(v8::Isolate *isolate);
@@ -816,7 +853,9 @@ class V8Runtime : public facebook::jsi::Runtime {
 
   std::string desc_;
 
-  static thread_local uint16_t tls_isolate_usage_counter_;
+  // V8 14.6: reuse an unentered isolate without retaining it on its creating thread.
+  static thread_local std::weak_ptr<v8::Isolate> tls_isolate_;
+  std::shared_ptr<v8::Isolate> isolate_owner_;
 
   bool ignore_unhandled_promises_{false};
   std::unique_ptr<UnhandledPromiseRejection> last_unhandled_promise_;
