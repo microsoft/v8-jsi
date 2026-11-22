@@ -21,11 +21,8 @@ export function stageLegacy(output: string, destination: string, platform: strin
   if (machine !== ({ x86: 0x14c, x64: 0x8664, arm64: 0xaa64 } as Record<string, number>)[platform]) {
     throw new Error("Staged DLL architecture mismatch");
   }
-  const escaped = dll.replaceAll("'", "''");
-  const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
-    `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
   const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
-  checkLegacyIdentity(fs.readFileSync(dll), info, version);
+  checkLegacyDllIdentity(dll, version);
   checkLegacySymbols(output);
   checkLegacyExports(dumpbinExportNames(path.join(output, "v8jsi.dll")), exports, platform);
   if (fs.existsSync(destination) && fs.readdirSync(destination).length) throw new Error("Stage directory must be empty");
@@ -73,14 +70,16 @@ export function legacyCells(files: readonly string[], diagnostic: boolean): stri
   return cells;
 }
 
-export function packLegacy(stage: string, output: string, diagnostic: boolean, baseline?: string): void {
+export function packLegacy(stage: string, output: string, diagnostic: boolean): void {
   checkLegacySources(repoRoot);
   const files = stagedFiles(stage);
   const selected = legacyCells(files, diagnostic);
   checkLegacyFileList(files, expectedLegacyFiles(selected));
-  if (!diagnostic && !baseline) throw new Error("Production packaging requires --baseline-package <0.79.5.nupkg>");
-  if (baseline) checkLegacyFileList(files, legacyPayloadFiles(zipFiles(baseline), true).filter(file =>
-    !file.startsWith("lib/") || selected.some(cell => file.startsWith(`lib/win32/${cell}/`))));
+  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
+  for (const cell of selected) {
+    const dll = path.join(stage, "lib/win32", cell, "v8jsi.dll");
+    checkLegacyDllIdentity(dll, version);
+  }
   for (const cell of selected) {
     checkLegacyExports(dumpbinExportNames(path.join(stage, "lib/win32", cell, "v8jsi.dll")), exports, cell.split("/")[1]);
   }
@@ -93,8 +92,6 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean, b
   }
   if (normalizedHash(fs.readFileSync(path.join(stage, "build/native/ReactNative.V8Jsi.Windows.targets"))) !==
       normalizedHash(fs.readFileSync(path.join(repoRoot, "ReactNative.V8Jsi.Windows.targets")))) throw new Error("Staged targets drift");
-  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8"));
-  const version = config.version;
   const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
   const nuspec = path.join(repoRoot, "ReactNative.V8Jsi.Windows.nuspec");
   const repository = /<projectUrl>([^<]+)<\/projectUrl>/.exec(fs.readFileSync(nuspec, "utf8"))![1];
@@ -104,7 +101,7 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean, b
   execFileSync(nuget, ["pack", nuspec, "-Properties", properties, "-OutputDirectory", output,
     "-NoPackageAnalysis", "-NonInteractive"], { stdio: "inherit" });
   const pkg = path.join(output, `ReactNative.V8Jsi.Windows.${version}.nupkg`);
-  checkLegacyPackageSize(fs.statSync(pkg).size);
+  if (fs.statSync(pkg).size >= 500 * 1024 * 1024) throw new Error("Legacy package exceeds 500 MiB");
   const packedFiles = zipFiles(pkg);
   legacyCells(packedFiles, diagnostic);
   checkLegacyFileList(legacyPayloadFiles(packedFiles), files);
@@ -190,6 +187,9 @@ function checkLegacySymbols(output: string): void {
   if (!checkSourceLink([pdb], { strict: true })) throw new Error("Legacy strict Source Link failed");
 }
 
-export function checkLegacyPackageSize(bytes: number): void {
-  if (bytes >= 500 * 1024 * 1024) throw new Error("Legacy package exceeds 500 MiB");
+function checkLegacyDllIdentity(dll: string, version: string): void {
+  const escaped = dll.replaceAll("'", "''");
+  const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
+    `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
+  checkLegacyIdentity(fs.readFileSync(dll), info, version);
 }

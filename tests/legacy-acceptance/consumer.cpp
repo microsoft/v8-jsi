@@ -302,12 +302,13 @@ void retainedCodeCache(const char *file, const char *mode) {
   v8runtime::V8RuntimeArgs args;
   args.preparedScriptStore = store;
   auto runtime = v8runtime::makeV8Runtime(std::move(args));
-  // Same-length source makes acceptance visible: an accepted cache returns 17.
-  const auto result = runtime->evaluateJavaScript(std::make_shared<jsi::StringBuffer>(produce ? "17" : "42"), "retained-cache.js").getNumber();
+  const bool sameSource = std::strcmp(mode, "--same-source-cache") == 0;
+  // Same-length changed source makes acceptance visible: an accepted cache returns 17.
+  const auto result = runtime->evaluateJavaScript(std::make_shared<jsi::StringBuffer>(produce || sameSource ? "17" : "42"), "retained-cache.js").getNumber();
   const bool accept = std::strcmp(mode, "--accept-cache") == 0;
-  require(result == (produce || accept ? 17 : 42), "retained code cache acceptance/rejection result wrong");
+  require(result == (produce || accept || sameSource ? 17 : 42), "retained code cache acceptance/rejection result wrong");
   require(store->loads == 1, "retained cache was not offered to V8");
-  if (!accept) require(store->stores == 1, "cache miss/rejection did not persist recompiled code");
+  if (!accept && !sameSource) require(store->stores == 1, "cache miss/rejection did not persist recompiled code");
   if (produce) {
     require(store->cache && store->cache->size() > 16, "runtime did not produce a code cache");
     std::ofstream output(file, std::ios::binary);
@@ -324,7 +325,8 @@ int main(int argc, char **argv) {
 #endif
   try {
     if (argc == 3 && (std::strcmp(argv[1], "--produce-cache") == 0 ||
-        std::strcmp(argv[1], "--accept-cache") == 0 || std::strcmp(argv[1], "--reject-cache") == 0)) retainedCodeCache(argv[2], argv[1]);
+        std::strcmp(argv[1], "--accept-cache") == 0 || std::strcmp(argv[1], "--reject-cache") == 0 ||
+        std::strcmp(argv[1], "--same-source-cache") == 0)) retainedCodeCache(argv[2], argv[1]);
     else if (argc == 1) { directRuntime(); jsrRuntime(false); }
     else if (std::strcmp(argv[1], "--finalizer-drain") == 0) jsrRuntime(true);
     else if (std::strcmp(argv[1], "--late-tasks") == 0) inspectorDispatchSurvivesContextAndAgentTeardown();

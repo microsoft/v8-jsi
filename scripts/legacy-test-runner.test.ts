@@ -55,3 +55,10 @@ test("isolated mandatory checks count only explicit filter matches", () => {
       { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 10000, countFilter: filter }), expected);
   }
 });
+
+test("negative-only filters match all tests except the exclusions", () => {
+  assert.equal(legacyTestMatches("Bar.Runs", "-Foo.*"), true);
+  assert.equal(legacyTestMatches("Foo.Excluded", "-Foo.*"), false);
+  assert.equal(legacyTestMatches("Bar.Runs", legacySuiteFilter("-Foo.*", "Isolated.*")), true);
+  assert.equal(legacyTestMatches("Isolated.Check", legacySuiteFilter("-Foo.*", "Isolated.*")), false);
+});

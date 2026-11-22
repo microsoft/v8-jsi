@@ -22,28 +22,27 @@ const { values: args } = parseArgs({ allowNegative: true, options: {
   stage: { type: "string" },
   pack: { type: "string" },
   aggregate: { type: "string", multiple: true },
-  "baseline-package": { type: "string" },
-  output: { type: "string", default: "out/legacy/pkg" },
+  output: { type: "string" },
   "diagnostic-pack": { type: "boolean", default: false },
   "gtest-filter": { type: "string" },
   help: { type: "boolean", default: false },
 } });
 if (args.help) {
-  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--gtest-filter <filter>] [--check] [--stage <dir>] | --pack <dir> [--output <dir>] [--diagnostic-pack] [--baseline-package <0.79.5.nupkg>] | --aggregate <cell-dir> (repeat for each cell) --output <dir>");
+  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--gtest-filter <filter>] [--check] [--stage <dir>] | --pack <dir> [--output <dir>] [--diagnostic-pack] | --aggregate <cell-dir> (repeat for each cell) --output <dir>");
   process.exit(0);
 }
 if (process.platform !== "win32" || !["x64", "x86", "arm64"].includes(args.platform) ||
     !["release", "debug"].includes(args.configuration)) throw new Error("Invalid Windows build configuration");
 if (args["diagnostic-pack"] && !args.pack) throw new Error("--diagnostic-pack requires --pack");
-if (args["baseline-package"] && !args.pack) throw new Error("--baseline-package requires --pack");
 if (args.aggregate) {
+  if (!args.output) throw new Error("--aggregate requires an explicit --output");
   if (args.pack || args.stage || args.test || args.check) throw new Error("Aggregate cannot be combined with build operations");
   aggregateLegacy(args.aggregate.map(input => path.resolve(input)), path.resolve(args.output));
   process.exit(0);
 }
 if (args.pack) {
   if (args.stage || args.test || args.check) throw new Error("Pack cannot be combined with build operations");
-  packLegacy(path.resolve(args.pack), path.resolve(args.output), args["diagnostic-pack"], args["baseline-package"]);
+  packLegacy(path.resolve(args.pack), path.resolve(args.output ?? "out/legacy/pkg"), args["diagnostic-pack"]);
   process.exit(0);
 }
 if (args.stage && args.build) throw new Error("Staging requires --no-build");

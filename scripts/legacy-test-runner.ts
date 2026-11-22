@@ -55,5 +55,5 @@ export function legacyTestMatches(name: string, filter: string): boolean {
   const negative = separator < 0 ? "" : filter.slice(separator + 1);
   const matches = (patterns: string) => patterns.split(":").some(pattern =>
     new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*").replaceAll("?", ".") + "$", "u").test(name));
-  return matches(positive) && (!negative || !matches(negative));
+  return matches(separator >= 0 && !positive ? "*" : positive) && (!negative || !matches(negative));
 }

@@ -6,11 +6,12 @@ param(
   [ValidateSet('x64', 'x86', 'arm64')][string]$Platform = 'x64',
   [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
   [string]$ModernDll,
-  [switch]$BuildOnly,
   [string]$WorkDir = 'out\legacy\acceptance'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$hostArch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+if ($Platform -eq 'arm64' -and $hostArch -ne 'arm64') { throw 'ARM64 acceptance must run natively on an ARM64 host.' }
 $PkgDir = (Resolve-Path $PkgDir).Path
 $baseline = Get-ChildItem $BaselinePackageDir -Filter '*0.79.5.nupkg' | Select-Object -First 1
 $candidate = Get-ChildItem $PkgDir -Filter 'ReactNative.V8Jsi.Windows.*.nupkg' | Select-Object -First 1
@@ -33,8 +34,6 @@ $expectedMachine = switch ($Platform) { 'x86' { 0x14c } 'arm64' { 0xaa64 } defau
 if ($machine -ne $expectedMachine) {
   throw ('Modern DLL PE machine 0x{0:x} does not match {1}. Supply -ModernDll with a matching v8jsi2.dll.' -f $machine, $Platform)
 }
-$hostArch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-if (!$BuildOnly -and $Platform -eq 'arm64' -and $hostArch -ne 'arm64') { throw 'ARM64 acceptance must run natively on an ARM64 host.' }
 $work = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkDir)
 if (Test-Path $work) { throw 'Acceptance work directory must not already exist' }
 New-Item -ItemType Directory $work | Out-Null
@@ -50,7 +49,6 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
 }
 function Run-Consumer([string]$Exe, [string[]]$Arguments, [string]$ExpectedFailureMessage) {
-  if ($BuildOnly) { Write-Host "PENDING native execution: $Exe $Arguments"; return }
   $options = [Diagnostics.ProcessStartInfo]::new($Exe)
   $options.UseShellExecute = $false
   $options.RedirectStandardOutput = $true
@@ -113,16 +111,19 @@ $arch = if ($hostArch -eq 'arm64') {
   switch ($Platform) { 'x86' { 'x64_x86' } 'arm64' { 'x64_arm64' } default { 'x64' } }
 }
 Invoke-Checked $env:ComSpec @('/c', "call `"$vcvars`" $arch && cl /nologo /std:c++17 /EHsc /W4 /WX /I`"$PSScriptRoot\..\..\src`" /I`"$PSScriptRoot\..\..\src\public`" /I`"$PSScriptRoot\..\..\src\jsi_abi`" `"$PSScriptRoot\modern-cache.cpp`" /Fo`"$work\modern-cache.obj`" /Fe`"$work\modern-cache.exe`"")
-Run-Consumer "$work\modern-cache.exe" @($ModernDll, "$work\modern.cache")
-Run-Consumer "$dropin\consumer.exe" @('--reject-cache', "$work\modern.cache")
+Run-Consumer "$work\modern-cache.exe" @($ModernDll, "$work\modern-same-source.cache", 'same-source')
+Run-Consumer "$dropin\consumer.exe" @('--same-source-cache', "$work\modern-same-source.cache")
+Run-Consumer "$work\modern-cache.exe" @($ModernDll, "$work\modern-flag-mismatch.cache", 'flag-mismatch')
+Run-Consumer "$dropin\consumer.exe" @('--reject-cache', "$work\modern-flag-mismatch.cache")
 $rebuilt = "$work\rebuilt"
 Build-Consumer $new $rebuilt
 Run-Consumer "$rebuilt\consumer.exe" @()
 Run-Consumer "$rebuilt\consumer.exe" @('--reject-cache', $cache)
-Run-Consumer "$rebuilt\consumer.exe" @('--reject-cache', "$work\modern.cache")
+Run-Consumer "$rebuilt\consumer.exe" @('--reject-cache', "$work\modern-flag-mismatch.cache")
+Run-Consumer "$rebuilt\consumer.exe" @('--same-source-cache', "$work\modern-same-source.cache")
 Run-Consumer "$rebuilt\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$rebuilt\consumer.exe" @('--late-tasks')
-if (!$BuildOnly) { Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild" }
+Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild"
 
 $coexistence = "$work\coexistence"
 Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$new", "/p:OutDir=$coexistence\", '/p:Coexistence=true')

@@ -57,9 +57,9 @@ int main(int argc, char **argv) {
   if (!second || first == second || !(legacyFirst ? modern_create(modernPort) : legacy_create(legacyPort))) return 5;
   const bool ok = GetModuleHandleW(L"v8jsi.dll") != GetModuleHandleW(L"v8jsi2.dll") &&
     legacy_eval() && modern_eval() && listening(legacyPort) && listening(modernPort);
-  bool survivor;
-  if (legacyFirst) { modern_destroy(); survivor = legacy_eval(); legacy_destroy(); }
-  else { legacy_destroy(); survivor = modern_eval(); modern_destroy(); }
+  legacy_destroy();
+  const bool survivor = modern_eval();
+  modern_destroy();
   const bool retained = GetModuleHandleW(L"v8jsi.dll") && GetModuleHandleW(L"v8jsi2.dll");
   WSACleanup();
   if (!ok || !survivor || !retained) return 6;

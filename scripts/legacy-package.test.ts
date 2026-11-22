@@ -4,9 +4,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { repoRoot } from "./build-common.ts";
 import { tmpdir } from "node:os";
 import { aggregateLegacy, expectedLegacyFiles, checkLegacyFileList, legacyCells,
-  legacyPayloadFiles, checkLegacyPdbIdentity, checkLegacyPackageSize } from "./legacy-package.ts";
+  legacyPayloadFiles, checkLegacyPdbIdentity, packLegacy } from "./legacy-package.ts";
 
 const cells = ["Debug/x86", "Debug/x64", "Debug/arm64", "Release/x86", "Release/x64", "Release/arm64"];
 function fixture(action: (root: string, inputs: string[]) => void): void {
@@ -48,13 +50,13 @@ test("aggregation rejects conflicting headers and unexpected payloads", () => fi
   assert.throws(() => aggregateLegacy(inputs, path.join(root, "merged")), /file list mismatch/);
 }));
 
-// Each forbidden payload has a different accidental producer in the build pipeline.
-for (const file of ["probe.dll", "v8jsi.dll.pdb", "args.gn", "v8jsi2.dll", "WinRT.dll", "UWP.dll", "sandbox.dll"]) {
-  test(`package rejects ${file} rather than silently excluding it`, () => {
+test("package rejects forbidden payloads rather than silently excluding them", () => {
+  // Each payload has a different accidental producer in the build pipeline.
+  for (const file of ["probe.dll", "v8jsi.dll.pdb", "args.gn", "v8jsi2.dll", "WinRT.dll", "UWP.dll", "sandbox.dll"]) {
     assert.throws(() => legacyCells([...expectedLegacyFiles(cells), file], false), /forbidden/);
     assert.throws(() => checkLegacyFileList(legacyPayloadFiles([...expectedLegacyFiles(cells), file]), expectedLegacyFiles(cells)), /mismatch/);
-  });
-}
+  }
+});
 test("baseline ZIP comparison permits only symbol and build-argument removal", () => {
   const payload = expectedLegacyFiles(cells);
   const old = [...payload, "lib/win32/Debug/x64/v8jsi.dll.pdb", "lib/win32/Debug/x64/args.gn",
@@ -71,9 +73,40 @@ test("symbol pairing requires matching GUID and age", () => {
   }
 });
 
-test("compressed package size must be strictly below 500 MiB", () => {
-  // Boundary sizes exercise the ZIP ceiling without allocating a large fixture.
-  checkLegacyPackageSize(500 * 1024 * 1024 - 1);
-  assert.throws(() => checkLegacyPackageSize(500 * 1024 * 1024), /500 MiB/);
-  assert.throws(() => checkLegacyPackageSize(500 * 1024 * 1024 + 1), /500 MiB/);
+test("packing checks every cell version against the package version before invoking NuGet", () => fixture((root, inputs) => {
+  const stage = path.join(root, "merged");
+  aggregateLegacy(inputs, stage);
+  const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version + ".0";
+  const vswhere = path.join(process.env["ProgramFiles(x86)"]!, "Microsoft Visual Studio/Installer/vswhere.exe");
+  const vs = execFileSync(vswhere, ["-latest", "-prerelease", "-products", "*", "-property", "installationPath"], { encoding: "utf8" }).trim();
+  // Resource-only DLLs exercise real FileVersion reads without engine binaries.
+  for (const [name, value] of [["current", version], ["stale", "0.0.0.0"]]) {
+    fs.writeFileSync(path.join(root, name + ".rc"), `1 VERSIONINFO
+FILEVERSION ${value.replaceAll(".", ",")}
+BEGIN
+  BLOCK "StringFileInfo" BEGIN
+    BLOCK "040904b0" BEGIN
+      VALUE "OriginalFilename", "v8jsi.dll"
+      VALUE "ProductName", "React Native V8 JSI Adapter"
+      VALUE "FileVersion", "${value}"
+    END
+  END
+  BLOCK "VarFileInfo" BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END`);
+    const result = spawnSync(process.env.ComSpec!, ["/c", `call "${vs}\\VC\\Auxiliary\\Build\\vcvarsall.bat" x64 && rc /nologo ${name}.rc && link /nologo /dll /noentry /out:${name}.dll ${name}.res`], { cwd: root, encoding: "utf8", windowsVerbatimArguments: true });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  }
+  for (const cell of cells) fs.copyFileSync(path.join(root, "current.dll"), path.join(stage, "lib/win32", cell, "v8jsi.dll"));
+  fs.copyFileSync(path.join(root, "stale.dll"), path.join(stage, "lib/win32/Debug/arm64/v8jsi.dll"));
+  const output = path.join(root, "pkg");
+  assert.throws(() => packLegacy(stage, output, false), /version resource mismatch/);
+  assert.equal(fs.existsSync(output), false);
+}));
+
+test("aggregation requires an explicit output directory", () => {
+  const result = spawnSync(process.execPath, [path.join(repoRoot, "scripts/legacy-build.ts"), "--aggregate", "missing-cell"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--aggregate requires an explicit --output/);
 });
