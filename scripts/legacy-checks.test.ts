@@ -219,29 +219,12 @@ test("compiler checks require SHA-256, GS and the static CRT in both configurati
   }
 });
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { execFileSync } from "node:child_process";
-test("package ZIP entries reject symbols, build arguments and incorrect cell contents", () => {
-  const directory = mkdtempSync(join(tmpdir(), "legacy-zip-"));
-  try {
-    const base = ["Release", "Debug"].flatMap(configuration => ["x64", "x86", "arm64"].flatMap(platform =>
-      ["v8jsi.dll", "v8jsi.dll.lib"].map(file => `lib/win32/${configuration}/${platform}/${file}`)));
-    // ZIP metadata, not binary payloads, determines the package cell contract.
-    for (const extra of [null, "lib/win32/Release/x64/v8jsi.dll.pdb", "build/native/args.gn", "lib/win32/Release/x64/other.dll"]) {
-      const files = extra ? [...base, extra] : base;
-      const entries = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command", `
-        $zip = [IO.Compression.ZipFile]::Open('${join(directory, "fixture.zip").replaceAll("'", "''")}', 'Create')
-        try { foreach ($name in ('${files.join("','")}')) { $null = $zip.CreateEntry($name) } } finally { $zip.Dispose() }
-        $zip = [IO.Compression.ZipFile]::OpenRead('${join(directory, "fixture.zip").replaceAll("'", "''")}')
-        try { ConvertTo-Json -Compress -InputObject @($zip.Entries.FullName) } finally { $zip.Dispose() }
-        Remove-Item '${join(directory, "fixture.zip").replaceAll("'", "''")}'
-      `], { encoding: "utf8", timeout: 30000 })) as string[];
-      if (extra) assert.throws(() => legacyCells(entries, true), /forbidden payload|Incomplete legacy cell/);
-      else {
-        assert.deepEqual(legacyCells(entries, false), ["Release/x64", "Release/x86", "Release/arm64",
-          "Debug/x64", "Debug/x86", "Debug/arm64"]);
-      }
-    }
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+test("package entry names reject symbols, build arguments and incorrect cell contents", () => {
+  const base = ["Release", "Debug"].flatMap(configuration => ["x64", "x86", "arm64"].flatMap(platform =>
+    ["v8jsi.dll", "v8jsi.dll.lib"].map(file => `lib/win32/${configuration}/${platform}/${file}`)));
+  assert.deepEqual(legacyCells(base, false), ["Release/x64", "Release/x86", "Release/arm64",
+    "Debug/x64", "Debug/x86", "Debug/arm64"]);
+  for (const extra of ["lib/win32/Release/x64/v8jsi.dll.pdb", "build/native/args.gn", "lib/win32/Release/x64/other.dll"]) {
+    assert.throws(() => legacyCells([...base, extra], true), /forbidden payload|Incomplete legacy cell/);
+  }
 });

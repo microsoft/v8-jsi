@@ -2,6 +2,9 @@
 // Licensed under the MIT license.
 #define NAPI_EXPERIMENTAL
 #include <V8JsiRuntime.h>
+#include <ScriptStore.h>
+#include <fstream>
+#include <iterator>
 #include <node-api/js_runtime_api.h>
 #include <winsock2.h>
 #include <windows.h>
@@ -264,6 +267,55 @@ void inspectorDispatchSurvivesContextAndAgentTeardown() {
   auto replacement = create();
   require(eval(*replacement, "42").getNumber() == 42, "inspector teardown affected a replacement runtime");
 }
+class RetainedCacheBuffer final : public jsi::Buffer {
+ public:
+  std::vector<uint8_t> bytes;
+  const uint8_t *data() const override { return bytes.data(); }
+  size_t size() const override { return bytes.size(); }
+};
+struct RetainedCacheStore final : jsi::PreparedScriptStore {
+  std::shared_ptr<RetainedCacheBuffer> cache;
+  int loads{0}, stores{0};
+  std::shared_ptr<const jsi::Buffer> tryGetPreparedScript(
+      const jsi::ScriptSignature &, const jsi::JSRuntimeSignature &, const char *) noexcept override {
+    ++loads;
+    // Deliberately ignore the runtime signature to exercise V8's rejection boundary.
+    return cache;
+  }
+  void persistPreparedScript(std::shared_ptr<const jsi::Buffer> buffer,
+      const jsi::ScriptSignature &, const jsi::JSRuntimeSignature &, const char *) noexcept override {
+    ++stores;
+    cache = std::make_shared<RetainedCacheBuffer>();
+    cache->bytes.assign(buffer->data(), buffer->data() + buffer->size());
+  }
+};
+void retainedCodeCache(const char *file, const char *mode) {
+  auto store = std::make_shared<RetainedCacheStore>();
+  const bool produce = std::strcmp(mode, "--produce-cache") == 0;
+  if (!produce) {
+    std::ifstream input(file, std::ios::binary);
+    require(input.good(), "retained cache file missing");
+    store->cache = std::make_shared<RetainedCacheBuffer>();
+    store->cache->bytes.assign(std::istreambuf_iterator<char>(input), {});
+    require(store->cache->size() > 16, "retained code cache is empty");
+  }
+  v8runtime::V8RuntimeArgs args;
+  args.preparedScriptStore = store;
+  auto runtime = v8runtime::makeV8Runtime(std::move(args));
+  // Same-length source makes acceptance visible: an accepted cache returns 17.
+  const auto result = runtime->evaluateJavaScript(std::make_shared<jsi::StringBuffer>(produce ? "17" : "42"), "retained-cache.js").getNumber();
+  const bool accept = std::strcmp(mode, "--accept-cache") == 0;
+  require(result == (produce || accept ? 17 : 42), "retained code cache acceptance/rejection result wrong");
+  require(store->loads == 1, "retained cache was not offered to V8");
+  if (!accept) require(store->stores == 1, "cache miss/rejection did not persist recompiled code");
+  if (produce) {
+    require(store->cache && store->cache->size() > 16, "runtime did not produce a code cache");
+    std::ofstream output(file, std::ios::binary);
+    output.write(reinterpret_cast<const char *>(store->cache->data()), static_cast<std::streamsize>(store->cache->size()));
+    require(output.good(), "code cache write failed");
+  }
+  std::cout << "Retained code cache " << mode << ": " << result << '\n';
+}
 int main(int argc, char **argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #ifdef _DEBUG
@@ -271,7 +323,9 @@ int main(int argc, char **argv) {
   _CrtSetReportHook([](int, char *message, int *) { std::cerr << message; ExitProcess(1); return 0; });
 #endif
   try {
-    if (argc == 1) { directRuntime(); jsrRuntime(false); }
+    if (argc == 3 && (std::strcmp(argv[1], "--produce-cache") == 0 ||
+        std::strcmp(argv[1], "--accept-cache") == 0 || std::strcmp(argv[1], "--reject-cache") == 0)) retainedCodeCache(argv[2], argv[1]);
+    else if (argc == 1) { directRuntime(); jsrRuntime(false); }
     else if (std::strcmp(argv[1], "--finalizer-drain") == 0) jsrRuntime(true);
     else if (std::strcmp(argv[1], "--late-tasks") == 0) inspectorDispatchSurvivesContextAndAgentTeardown();
     else throw std::runtime_error("unknown consumer mode");

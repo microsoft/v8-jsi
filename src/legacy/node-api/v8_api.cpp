@@ -252,6 +252,7 @@ class NodeApiEnv : public napi_env__ {
   }
 
   napi_status collectGarbage() {
+    V8RuntimeEnv::IsolateLocker locker(m_runtime);
     isolate->RequestGarbageCollectionForTesting(
         v8::Isolate::kFullGarbageCollection);
     return napi_status::napi_ok;

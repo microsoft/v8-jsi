@@ -398,8 +398,13 @@ void V8Runtime::initializeV8() {
     if (args_.flags.enableGCApi)
       argv.push_back("--expose_gc");
 
-    if (args_.flags.enableSystemInstrumentation)
-      argv.push_back("--enable-system-instrumentation");
+#ifdef _WIN32
+    if (args_.flags.enableSystemInstrumentation) {
+      // --enable-system-instrumentation is a d8 option, not a V8 engine flag.
+      argv.push_back("--enable-etw-stack-walking");
+      argv.push_back("--no-enable-etw-by-custom-filter-only");
+    }
+#endif
 
     if (args_.flags.sparkplug)
       argv.push_back("--sparkplug");
@@ -498,6 +503,9 @@ void V8Runtime::StopForegroundTasks() {
 
 V8Runtime::~V8Runtime() {
   StopForegroundTasks();
+#if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
+  if (inspector_agent_ && inspector_agent_->hasSingleContext()) inspector_agent_->closeTasks();
+#endif
   {
     IsolateLocker isolate_locker(this);
 #if defined(_WIN32) && defined(V8JSI_ENABLE_INSPECTOR)
@@ -674,7 +682,8 @@ V8Runtime::ExecuteString(const v8::Local<v8::String> &source, const std::string 
     } else {
       assert(!try_catch.HasCaught());
 
-      if (args_.preparedScriptStore && options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache) {
+      if (args_.preparedScriptStore &&
+          (options != v8::ScriptCompiler::CompileOptions::kConsumeCodeCache || cached_data->rejected)) {
         v8::ScriptCompiler::CachedData *codeCache = v8::ScriptCompiler::CreateCodeCache(script->GetUnboundScript());
 
         jsi::ScriptSignature scriptSignature = {sourceURL, hash};

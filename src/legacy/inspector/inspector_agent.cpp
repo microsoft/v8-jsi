@@ -22,6 +22,7 @@
 #include <array>
 #include <random>
 #include <algorithm>
+#include <optional>
 
 #include "V8Windows.h"
 #include "../TaskRunner.h"
@@ -243,10 +244,14 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
     info.auxData = aux_data_buffer->string();
 
     inspector_->contextCreated(info);
+    contexts_.emplace_back(agent_.isolate_, context);
   }
 
   void tearDownContext(v8::Local<v8::Context> context) {
     inspector_->contextDestroyed(context);
+    contexts_.erase(std::remove_if(contexts_.begin(), contexts_.end(), [&](auto &entry) {
+      return entry.Get(agent_.isolate_) == context;
+    }), contexts_.end());
   }
 
   void runMessageLoopOnPause(int context_group_id) override {
@@ -314,7 +319,8 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
 
   v8::Local<v8::Context> ensureDefaultContextInGroup(
       int contextGroupId) override {
-    return v8::Isolate::GetCurrent()->GetCurrentContext();
+    auto current = agent_.isolate_->GetCurrentContext();
+    return !current.IsEmpty() || contexts_.empty() ? current : contexts_.front().Get(agent_.isolate_);
   }
 
   V8Inspector *inspector() {
@@ -330,6 +336,7 @@ class V8NodeInspector : public v8_inspector::V8InspectorClient {
   std::atomic<bool> waiting_for_resume_ {false};
   bool running_nested_loop_;
   std::unique_ptr<V8Inspector> inspector_;
+  std::vector<v8::Global<v8::Context>> contexts_;
   // The channel outlives the session, which can use it during destruction.
   std::shared_ptr<ChannelImpl> channel_;
 
@@ -694,6 +701,11 @@ void AgentImpl::NotifyMessageReceived() {
 }
 
 void AgentImpl::DispatchMessages() {
+  auto data = static_cast<v8runtime::IsolateData *>(isolate_->GetData(v8runtime::ISOLATE_DATA_SLOT));
+  std::optional<v8::Locker> locker;
+  if (data->enable_multi_thread_) locker.emplace(isolate_);
+  v8::Isolate::Scope isolate_scope(isolate_);
+  v8::HandleScope handle_scope(isolate_);
   // This function can be reentered if there was an incoming message while
   // V8 was processing another inspector request (e.g. if the user is
   // evaluating a long-running JS code snippet). This can happen only at
@@ -793,7 +805,7 @@ Agent::Agent(
 }
 
 Agent::~Agent() {
-  impl->task_gate_->close([this] { impl->PrepareForShutdown(); });
+  closeTasks();
   if (IsStarted()) {
     stop();
   }
@@ -807,6 +819,10 @@ Agent::~Agent() {
 
 void Agent::waitForDebugger() {
   impl->waitForDebugger();
+}
+
+void Agent::closeTasks() {
+  impl->task_gate_->close([this] { impl->PrepareForShutdown(); });
 }
 
 void Agent::prepareForShutdown() {

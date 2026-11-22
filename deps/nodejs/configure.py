@@ -2349,6 +2349,8 @@ def configure_v8(o, configs):
   # === END v8jsisb.dll sandbox variant ===
   # v8-jsi: preserve the 0.79.x engine ABI, independently of sandbox defaults.
   if options.build_v8jsi_legacy:
+    o['variables']['v8_enable_system_instrumentation'] = 1 if flavor == 'win' else 0
+    o['variables']['v8_enable_etw_stack_walking'] = 1 if flavor == 'win' else 0
     compressed = 1 if o['variables']['target_arch'] in ('x64', 'arm64') else 0
     o['variables']['v8_enable_pointer_compression'] = compressed
     o['variables']['v8_enable_pointer_compression_shared_cage'] = compressed

@@ -59,12 +59,12 @@ struct DeferredHostQueue {
     auto task = std::move(tasks.front()); tasks.pop_front(); return task;
   }
   void drain(bool run) { while (auto task = take()) if (run) task->run(); }
-  auto runtime(int port = 0, const char *name = "") {
+  auto runtime(int port = 0, const char *name = "", bool multiThread = true) {
     v8runtime::V8RuntimeArgs args;
     args.foreground_task_runner = std::make_shared<Runner>(*this);
     args.flags.enableInspector = port != 0;
     args.flags.enableGCApi = true;
-    args.flags.enableMultiThread = true;
+    args.flags.enableMultiThread = multiThread;
     args.debuggerRuntimeName = name;
     args.inspectorPort = static_cast<uint16_t>(port);
     return v8runtime::makeV8Runtime(std::move(args));
@@ -329,59 +329,6 @@ void checkInspectorOrigins(bool upgrade) {
 }
 } // namespace
 
-TEST(LegacyInspectorAccess, ListenerIsLoopbackAndRefusesNonLoopbackInterfaces) {
-  DeferredHostQueue queue;
-  auto port = freeInspectorPort();
-  auto runtime = queue.runtime(port);
-  ASSERT_NE(inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n")
-      .find("200 OK"), std::string::npos);
-  expectInspectorListener(port, true);
-  ULONG size = 0;
-  std::vector<BYTE> storage;
-  ULONG status;
-  do {
-    storage.resize(size);
-    status = GetAdaptersAddresses(AF_INET, 0, nullptr, storage.empty() ? nullptr :
-        reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data()), &size);
-  } while (status == ERROR_BUFFER_OVERFLOW);
-  ASSERT_EQ(status, NO_ERROR);
-  auto adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
-  unsigned checked = 0;
-  for (auto adapter = adapters; adapter; adapter = adapter->Next) {
-    if (adapter->OperStatus != IfOperStatusUp) continue;
-    for (auto unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next) {
-      if (unicast->Address.lpSockaddr->sa_family != AF_INET) continue;
-      auto address = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr)->sin_addr.s_addr;
-      if (!address || (ntohl(address) >> 24) == 127) continue;
-      SCOPED_TRACE(ntohl(address));
-      expectInspectorConnectionRefused(address, port);
-      ++checked;
-    }
-  }
-  EXPECT_GT(checked, 0u) << "An operational non-loopback IPv4 interface is required";
-}
-
-TEST(LegacyInspectorAccess, UpgradeAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(true); }
-TEST(LegacyInspectorAccess, DiscoveryAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(false); }
-
-TEST(LegacyInspectorAccess, LoopbackDiscoversAttachesAndEvaluates) {
-  DeferredHostQueue queue;
-  auto port = freeInspectorPort();
-  auto runtime = queue.runtime(port);
-  checkInspectorEvaluation(*runtime, queue, port);
-}
-
-TEST(LegacyInspectorAccess, DisabledInspectorDoesNotListen) {
-  auto port = freeInspectorPort();
-  v8runtime::V8RuntimeArgs args;
-  args.inspectorPort = static_cast<uint16_t>(port);
-  args.flags.enableInspector = false;
-  auto runtime = v8runtime::makeV8Runtime(std::move(args));
-  EXPECT_EQ(runtime->evaluateJavaScript(std::make_shared<StringBuffer>("1+1"), "disabled.js").getNumber(), 2);
-  expectInspectorListener(port, false);
-  expectInspectorConnectionRefused(htonl(INADDR_LOOPBACK), port);
-}
-
 namespace {
 template<class Predicate>
 bool awaitTransport(Predicate predicate, int seconds = 5) {
@@ -429,6 +376,81 @@ bool drainInspectorToEof(SOCKET socket, int seconds = 5) {
   return done && closed && !unexpected;
 }
 } // namespace
+
+#ifndef V8JSI_LEGACY_STATIC_TESTS
+TEST(LegacyInspectorAccess, ListenerIsLoopbackAndRefusesNonLoopbackInterfaces) {
+  DeferredHostQueue queue;
+  auto port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  ASSERT_NE(inspectorRequest(port, "GET /json/list HTTP/1.1\r\nHost: localhost\r\n\r\n")
+      .find("200 OK"), std::string::npos);
+  expectInspectorListener(port, true);
+  ULONG size = 0;
+  std::vector<BYTE> storage;
+  ULONG status;
+  do {
+    storage.resize(size);
+    status = GetAdaptersAddresses(AF_INET, 0, nullptr, storage.empty() ? nullptr :
+        reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data()), &size);
+  } while (status == ERROR_BUFFER_OVERFLOW);
+  ASSERT_EQ(status, NO_ERROR);
+  auto adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+  unsigned checked = 0;
+  for (auto adapter = adapters; adapter; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp) continue;
+    for (auto unicast = adapter->FirstUnicastAddress; unicast; unicast = unicast->Next) {
+      if (unicast->Address.lpSockaddr->sa_family != AF_INET) continue;
+      auto address = reinterpret_cast<sockaddr_in *>(unicast->Address.lpSockaddr)->sin_addr.s_addr;
+      if (!address || (ntohl(address) >> 24) == 127) continue;
+      SCOPED_TRACE(ntohl(address));
+      expectInspectorConnectionRefused(address, port);
+      ++checked;
+    }
+  }
+  EXPECT_GT(checked, 0u) << "An operational non-loopback IPv4 interface is required";
+}
+
+TEST(LegacyInspectorAccess, UpgradeAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(true); }
+TEST(LegacyInspectorAccess, DiscoveryAllowsOnlyNativeAndDevToolsOrigins) { checkInspectorOrigins(false); }
+
+TEST(LegacyInspectorAccess, LoopbackDiscoversAttachesAndEvaluates) {
+  DeferredHostQueue queue;
+  auto port = freeInspectorPort();
+  auto runtime = queue.runtime(port);
+  checkInspectorEvaluation(*runtime, queue, port);
+}
+
+TEST(LegacyInspectorAccess, HostQueueEvaluatesOutsideRuntimeEntry) {
+  // Both policies must enter V8 when the host drains tasks without a JSI call.
+  for (bool multiThread : {false, true}) {
+    SCOPED_TRACE(multiThread);
+    DeferredHostQueue queue;
+    const auto port = freeInspectorPort();
+    auto runtime = queue.runtime(port, "queued evaluation", multiThread);
+    InspectorClient client;
+    ASSERT_NE(connectInspector(port, &client).find("101 Switching"), std::string::npos);
+    ASSERT_TRUE(queue.wait()); queue.drain(true);
+    ASSERT_TRUE(sendInspectorMessage(client.socket,
+        R"({"id":1,"method":"Runtime.evaluate","params":{"expression":"6 * 7","returnByValue":true}})"));
+    ASSERT_TRUE(queue.wait()); queue.drain(true);
+    auto result = readInspectorMessage(client.socket);
+    EXPECT_NE(result.find(R"("value":42)"), std::string::npos) << result;
+    runtime.reset(); queue.drain(true);
+  }
+}
+
+TEST(LegacyInspectorAccess, DisabledInspectorDoesNotListen) {
+  auto port = freeInspectorPort();
+  v8runtime::V8RuntimeArgs args;
+  args.inspectorPort = static_cast<uint16_t>(port);
+  args.flags.enableInspector = false;
+  auto runtime = v8runtime::makeV8Runtime(std::move(args));
+  EXPECT_EQ(runtime->evaluateJavaScript(std::make_shared<StringBuffer>("1+1"), "disabled.js").getNumber(), 2);
+  expectInspectorListener(port, false);
+  expectInspectorConnectionRefused(htonl(INADDR_LOOPBACK), port);
+}
+
+
 
 TEST(LegacyInspectorTransport, FourMiBReplyArrivesIntact) {
   DeferredHostQueue queue;
@@ -523,6 +545,8 @@ TEST(LegacyInspectorTransport, IdleConnectionCapRejectsUpgradeAndReusesReleasedS
 
 }
 
+
+#endif
 
 #ifdef V8JSI_LEGACY_STATIC_TESTS
 #include "V8JsiRuntime_impl.h"
@@ -1055,6 +1079,16 @@ TEST(LegacyInspector, CetStepOverRecursiveBaselineFrames) {
 #else
   GTEST_SKIP() << "Windows inspector transport required";
 #endif
+}
+
+TEST(LegacyInstrumentationFlags, EtwStackWalkingFlagsAreAccepted) {
+  char program[] = "instrumentation";
+  char enable[] = "--enable-etw-stack-walking";
+  char unfiltered[] = "--no-enable-etw-by-custom-filter-only";
+  char *argv[] = {program, enable, unfiltered};
+  int argc = 3;
+  v8::V8::SetFlagsFromCommandLine(&argc, argv, true);
+  EXPECT_EQ(argc, 1);
 }
 
 int main(int argc, char **argv) {

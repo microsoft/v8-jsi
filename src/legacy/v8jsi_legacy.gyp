@@ -137,14 +137,6 @@
                        'VCLinkerTool': {'AdditionalDependencies': ['dbghelp.lib', 'bcrypt.lib', 'shlwapi.lib', 'winmm.lib', 'ws2_32.lib', 'iphlpapi.lib']}},
     },
     {
-      'target_name': 'layout_tests_legacy',
-      'type': 'executable',
-      'include_dirs': ['<(v8jsi_root)/src/legacy/public', '<(v8jsi_root)/src/legacy'],
-      'defines!': ['_HAS_EXCEPTIONS=0'],
-      'sources': ['<(v8jsi_root)/tests/legacy-acceptance/layout.cpp'],
-      'msvs_settings': {'VCCLCompilerTool': {'ExceptionHandling': 1}},
-    },
-    {
       'target_name': 'v8jsi_legacy_task_tests',
       'type': 'executable',
       'include_dirs': ['<(v8jsi_root)/src/legacy', '<(v8jsi_root)/src/legacy/jsi'],

@@ -30,6 +30,8 @@ class Agent : public std::enable_shared_from_this<Agent> {
   void stop();
   // Thread-safe cancellation before waiting for foreground tasks at teardown.
   void prepareForShutdown();
+  // Close and drain dispatch before acquiring the isolate lock.
+  void closeTasks();
 
   bool hasSingleContext();
   bool IsStarted();

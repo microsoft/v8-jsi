@@ -130,6 +130,22 @@ TEST(Basic, DestroyLastRuntimeOnWorkerAllowsFreshRuntimeOnCreatingThread) {
 }
 
 #ifdef _WIN32 // Node-API not supported on POSIX (LibLoader not implemented)
+TEST(Basic, CollectGarbageOutsideNodeApiScope) {
+  auto api = V8Api::fromLib();
+  V8Api::setCurrent(api);
+  jsr_config config{};
+  jsr_runtime runtime{};
+  napi_env env{};
+  ASSERT_EQ(api->jsr_create_config(&config), napi_ok);
+  ASSERT_EQ(api->jsr_config_enable_gc_api(config, true), napi_ok);
+  ASSERT_EQ(api->v8_config_enable_multithreading(config, true), napi_ok);
+  ASSERT_EQ(api->jsr_create_runtime(config, &runtime), napi_ok);
+  ASSERT_EQ(api->jsr_delete_config(config), napi_ok);
+  ASSERT_EQ(api->jsr_runtime_get_node_api_env(runtime, &env), napi_ok);
+  EXPECT_EQ(api->jsr_collect_garbage(env), napi_ok);
+  EXPECT_EQ(api->jsr_delete_runtime(runtime), napi_ok);
+}
+
 TEST(Basic, MultiThreadIsolateNodeApi) {
   V8Api *v8Api = V8Api::fromLib();
   V8Api::setCurrent(v8Api);

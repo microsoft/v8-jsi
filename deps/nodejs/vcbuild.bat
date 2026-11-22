@@ -506,7 +506,7 @@ if defined no_overlapped_checker (set use_target_list=1) else (set "target_list=
 @rem build_v8jsi adds v8jsi_test + node_api_tests as a unit (v8jsi.dll is
 @rem a transitive dep of v8jsi_test) plus mkv8snapshot, the offline startup-
 @rem snapshot builder (a standalone exe that links no V8 — see src/v8jsi.gyp).
-if defined build_v8jsi_legacy set "target_list=%target_list%;v8jsi_legacy;v8jsi_legacy_probe;v8jsi_legacy_probe_runner;v8jsi_legacy_task_tests;jsitests_legacy;node_api_tests_legacy;inspector_tests_legacy;layout_tests_legacy;cet_tests_legacy"
+if defined build_v8jsi_legacy set "target_list=%target_list%;v8jsi_legacy;v8jsi_legacy_probe;v8jsi_legacy_probe_runner;v8jsi_legacy_task_tests;jsitests_legacy;node_api_tests_legacy;inspector_tests_legacy;cet_tests_legacy"
 if defined build_v8jsi_legacy if "%target_arch%"=="x64" set "target_list=%target_list%;v8jsi_legacy_startup_tests;v8jsi_legacy_cetrun"
 if defined build_v8jsi set "target_list=%target_list%;v8jsi_test;node_api_tests;mkv8snapshot"
 

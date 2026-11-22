@@ -269,7 +269,8 @@
       "revision": "5424838ddaf",
       "kind": "ported",
       "sha256": "a6746e07b3456e7e00f1c6171b97d37264317cc8d9b364d9ec1606aa38a5487a",
-      "outputSha256": "9687299c5bc363b8fa8848bdee0be23cb164e552db13597520097985b4d69ede"
+      "outputSha256": "99b6337dac157a5a2c55ef846ea2b683f6029d66631b518ba019d42ec16f6fa0",
+      "adaptations": "Drain the last inspector dispatch gate before isolate entry; use engine ETW stack-walking flags; replace rejected code caches after recompilation."
     },
     {
       "path": "src/legacy/V8JsiRuntime_impl.h",
@@ -309,7 +310,8 @@
       "revision": "6c0f70bdfd9",
       "kind": "ported",
       "sha256": "7d986c9f204f035236f3523f21bc3febf36bca16f4fe531ab43910370a169061",
-      "outputSha256": "df4d5552d5e9fb3960a3fe41f692ea5ce7c368420c3297e9d989c0c38f4b9625"
+      "outputSha256": "1a5d8d5aeb63fbf05abf6d7cb6f667c8e7ce0317336f1ca76b6ecb60e1265148",
+      "adaptations": "Enter and lock the runtime around garbage collection outside an environment scope."
     },
     {
       "path": "src/legacy/node-api/js_native_api_v8.cc",
@@ -365,7 +367,8 @@
       "revision": "b98f3c0ba6d",
       "kind": "inspector",
       "sha256": "9c5c9f9ee98597cc547390c54ad4ac7561e5902cf9b58efb50ccf24f2b5049c5",
-      "outputSha256": "c802b6438e9044947891dc5f0ce449d5bd62b90c62b08d7bf44dd1ae4741db03"
+      "outputSha256": "ce66c2f5c498981443dc28cf101381b71162e324cc6196dd9173b4dc625648b3",
+      "adaptations": "Enter and optionally lock the isolate for message dispatch; retain registered contexts for default-context lookup outside JSI calls; expose dispatch draining before isolate entry."
     },
     {
       "path": "src/legacy/inspector/inspector_agent.h",
@@ -373,7 +376,8 @@
       "revision": "b98f3c0ba6d",
       "kind": "inspector",
       "sha256": "e2f8a5116fe50a1cb886d55da2587f572e23d95436017cc172f48e3e6c9407c3",
-      "outputSha256": "12ea87cf0ff10fcbe6af37180384c98f2639b13c1bd465e992d0f30fd7d014fa"
+      "outputSha256": "ea604c08a2ffa61c5dadbcd045f5b4f59abea6478f6018b0af5060ac095e86c6",
+      "adaptations": "Allow runtime teardown to drain inspector dispatch before acquiring the isolate lock."
     },
     {
       "path": "src/legacy/inspector/inspector_socket.cpp",
@@ -530,7 +534,7 @@
       "revision": "6c0f70bdfd9",
       "kind": "test",
       "sha256": "1525c4271990bcfca4473a8fc8d35e4232be500b50217ec1d3384c60ebbb58f6",
-      "outputSha256": "ebb55613fe7c216b01d8a304fbfb676c9a3452c922af038a5fb9aecff057152e"
+      "outputSha256": "d3784b1de6fcbe37d48bbd7d6c262462aef0cac3c6a034dcd0e0df8111f3a290"
     },
     {
       "path": "src/legacy/jsi/test/testlib.h",
