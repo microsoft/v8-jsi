@@ -10,7 +10,7 @@
   <PropertyGroup Label="Globals"><ProjectGuid>{DE15C04B-4732-48D2-BC19-0564F90B5E7A}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType><PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset Condition="'$(PlatformToolset)' == ''">$(DefaultPlatformToolset)</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup><TargetName Condition="'$(Coexistence)' != 'true'">consumer</TargetName><TargetName Condition="'$(Coexistence)' == 'true'">coexistence</TargetName><IntDir>$(OutDir)obj\</IntDir></PropertyGroup>

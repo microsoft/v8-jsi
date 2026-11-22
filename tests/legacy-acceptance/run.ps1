@@ -42,7 +42,7 @@ $requiredTools = if ($hostArch -eq 'arm64') { 'Microsoft.VisualStudio.Component.
 $vs = & $vswhere -latest -products '*' -requires $requiredTools -property installationPath
 if (!$vs) { throw "Visual Studio with $requiredTools is required" }
 $msbuild = Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe'
-$toolset = if (Test-Path (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt')) { 'v143' } else { 'v145' }
+$toolsetArguments = if (Test-Path (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt')) { @('/p:PlatformToolset=v143') } else { @() }
 $msplatform = switch ($Platform) { 'x86' { 'Win32' } 'arm64' { 'ARM64' } default { 'x64' } }
 function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   & $Exe @Arguments | Out-Host
@@ -85,10 +85,13 @@ function Restore-Package([string]$Name, [string]$Version, [string]$Package) {
   return "$dir\packages\ReactNative.V8Jsi.Windows.$Version"
 }
 function Build-Consumer([string]$PackageRoot, [string]$Output) {
-  Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$PackageRoot", "/p:OutDir=$Output\")
+  Invoke-Checked $msbuild (@("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PackageRoot=$PackageRoot", "/p:OutDir=$Output\") + $toolsetArguments)
 }
 $old = Restore-Package 'baseline' '0.79.5' $baseline.FullName
 $new = Restore-Package 'candidate' $version $candidate.FullName
+$toolset = & $msbuild "$PSScriptRoot\consumer.vcxproj" '/getProperty:PlatformToolset' "/p:PackageRoot=$old" "/p:Configuration=$Configuration" "/p:Platform=$msplatform" @toolsetArguments
+if ($LASTEXITCODE) { throw "Toolset evaluation failed: $LASTEXITCODE" }
+Write-Host "Acceptance PlatformToolset: $toolset"
 $dropin = "$work\dropin"
 Build-Consumer $old $dropin
 Run-Consumer "$dropin\consumer.exe" @()
@@ -126,7 +129,7 @@ Run-Consumer "$rebuilt\consumer.exe" @('--late-tasks')
 Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild"
 
 $coexistence = "$work\coexistence"
-Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$new", "/p:OutDir=$coexistence\", '/p:Coexistence=true')
+Invoke-Checked $msbuild (@("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PackageRoot=$new", "/p:OutDir=$coexistence\", '/p:Coexistence=true') + $toolsetArguments)
 Copy-Item -LiteralPath $ModernDll -Destination "$coexistence\v8jsi2.dll"
 foreach ($loadOrder in @('legacy-first', 'modern-first')) {
   foreach ($destroyOrder in @('legacy-first', 'modern-first')) {

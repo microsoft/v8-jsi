@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #ifdef _DEBUG
   // A failed cross-module allocation check must fail, not wait on a dialog in CI.
-  _CrtSetReportHook([](int, char *message, int *) { std::cerr << message; ExitProcess(1); return 0; });
+  _CrtSetReportHook([](int, char *message, int *) -> int { std::cerr << message; ExitProcess(1); });
 #endif
   try {
     if (argc == 3 && (std::strcmp(argv[1], "--produce-cache") == 0 ||
