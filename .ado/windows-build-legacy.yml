@@ -6,41 +6,31 @@ parameters:
 - name: isPublish
   type: boolean
   default: false
-- name: fakeBuild
-  type: boolean
-  default: false
 
 steps:
 - template: /.ado/overlay-version-config.yml@self
-- ${{ if eq(parameters.fakeBuild, false) }}:
+- pwsh: |
+    node scripts/legacy-build.ts --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Build v8jsi.dll
+  workingDirectory: $(Build.SourcesDirectory)
+- pwsh: |
+    node scripts/legacy-build.ts --no-build --test --check --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Legacy suites and hardening gates
+  workingDirectory: $(Build.SourcesDirectory)
+- pwsh: |
+    node scripts/legacy-build.ts --no-build --stage "$(Build.StagingDirectory)\out\pkg-staging" --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Stage legacy DLL, import library, and separate full PDB
+  workingDirectory: $(Build.SourcesDirectory)
+- ${{ if parameters.isPublish }}:
+  - template: /.ado/templates/esrp-codesign-binaries.yml@self
+    parameters:
+      folderPath: $(Build.StagingDirectory)\out\pkg-staging
+      pattern: '**\v8jsi.dll'
+      keyCode: CP-230012
   - pwsh: |
-      node scripts/legacy-build.ts --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
-    displayName: Build v8jsi.dll
-    workingDirectory: $(Build.SourcesDirectory)
-  - pwsh: |
-      node scripts/legacy-build.ts --no-build --test --check --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
-    displayName: Legacy suites and hardening gates
-    workingDirectory: $(Build.SourcesDirectory)
-  - pwsh: |
-      node scripts/legacy-build.ts --no-build --stage "$(Build.StagingDirectory)\out\pkg-staging" --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
-    displayName: Stage legacy DLL, import library, and separate full PDB
-    workingDirectory: $(Build.SourcesDirectory)
-  - ${{ if parameters.isPublish }}:
-    - template: /.ado/templates/esrp-codesign-binaries.yml@self
-      parameters:
-        folderPath: $(Build.StagingDirectory)\out\pkg-staging
-        pattern: '**\v8jsi.dll'
-        keyCode: CP-230012
-    - pwsh: |
-        $dll = "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ parameters.buildConfiguration }}\${{ parameters.buildPlatform }}\v8jsi.dll"
-        $signature = Get-AuthenticodeSignature $dll
-        if ($signature.Status -ne 'Valid') { throw 'Legacy DLL signature is not valid' }
-        # The symbol image must be the exact signed DLL that goes into the package.
-        Copy-Item $dll "$(Build.StagingDirectory)\out\symbols\${{ parameters.buildPlatform }}-${{ parameters.buildConfiguration }}\v8jsi.dll" -Force
-      displayName: Verify signing and synchronize symbol image
-  - pwsh: |
-      $diagnostics = "$(Build.StagingDirectory)\out\diagnostics"
-      New-Item -ItemType Directory -Force $diagnostics | Out-Null
-      Copy-Item "deps\nodejs\out\${{ parameters.buildConfiguration }}\v8jsi.binskim.sarif" $diagnostics
-    displayName: Preserve binary-specific BinSkim evidence
-    workingDirectory: $(Build.SourcesDirectory)
+      $dll = "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ parameters.buildConfiguration }}\${{ parameters.buildPlatform }}\v8jsi.dll"
+      $signature = Get-AuthenticodeSignature $dll
+      if ($signature.Status -ne 'Valid') { throw 'Legacy DLL signature is not valid' }
+      # The symbol image must be the exact signed DLL that goes into the package.
+      Copy-Item $dll "$(Build.StagingDirectory)\out\symbols\${{ parameters.buildPlatform }}-${{ parameters.buildConfiguration }}\v8jsi.dll" -Force
+    displayName: Verify signing and synchronize symbol image

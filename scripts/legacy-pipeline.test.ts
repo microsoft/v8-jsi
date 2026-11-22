@@ -2,7 +2,9 @@
 // Licensed under the MIT license.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 
@@ -19,6 +21,8 @@ test("legacy builds cover six cells on every run with native ARM64", () => {
   assert.match(cell, /hostArchitecture: arm64/);
   assert.match(cell, /ensure-node10-shim/);
   assert.match(cell, /artifactName: \$\{\{ matrix.Name \}\}-legacy/);
+  assert.doesNotMatch(cell, /fakeBuild/);
+  assert.doesNotMatch(build, /fakeBuild|diagnostics|sarif/);
   assert.match(build, /overlay-version-config/);
   assert.match(build, /--no-build --test --check/);
   assert.match(build, /--no-build --stage/);
@@ -42,6 +46,33 @@ test("legacy pack consumes all cells and verifies the final signed package", () 
   assert.match(pack, /PDB in final legacy package/);
 });
 
+test("legacy Guardian receives adjacent PDBs only after packaging", () => {
+  const pack = job("V8JsiCreateNugetLegacy");
+  assert.match(jobs, /analyzeTarget: \|\n          \$\(Build.StagingDirectory\)\\out\\pkg-staging\\\*\*\\\*\.dll/);
+  const copy = pack.match(/Copy-Item .*v8jsi\.dll\.pdb.*-ErrorAction Stop/)![0];
+  assert.ok(pack.indexOf(copy) > pack.indexOf("if ($LASTEXITCODE -ne 0) { throw 'Legacy pack failed' }"));
+  const root = mkdtempSync(path.join(tmpdir(), "legacy-guardian-"));
+  try {
+    // One-byte symbols in all six cells verify the expanded pipeline paths without binary fixtures.
+    for (const platform of ["x64", "x86", "arm64"]) for (const configuration of ["Debug", "Release"]) {
+      const name = `Desktop_${platform === "arm64" ? "ARM64" : platform}_${configuration}`;
+      const source = path.join(root, "legacy-cells", name, "symbols", `${platform}-${configuration}`, "v8jsi.dll.pdb");
+      const destination = path.join(root, "out/pkg-staging/lib/win32", configuration, platform, "v8jsi.dll.pdb");
+      mkdirSync(path.dirname(source), { recursive: true });
+      mkdirSync(path.dirname(destination), { recursive: true });
+      writeFileSync(source, platform[0]);
+      const script = copy.replaceAll("$(Build.StagingDirectory)", root)
+        .replaceAll("${{ matrix.Name }}", name).replaceAll("${{ matrix.BuildPlatform }}", platform)
+        .replaceAll("${{ matrix.BuildConfiguration }}", configuration);
+      const result = runPowerShell(script);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(destination, "utf8"), platform[0]);
+      rmSync(source);
+      assert.notEqual(runPowerShell(script).status, 0, "Missing symbols must fail the job");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("legacy acceptance runs unsigned PRs and signed publishing packages", () => {
   assert.match(job("V8JsiAcceptanceLegacy_x64host"), /platforms: \[x64, x86\]/);
   assert.match(job("V8JsiAcceptanceLegacy_ARM64"), /hostArchitecture: arm64/);
@@ -56,20 +87,21 @@ test("legacy acceptance runs unsigned PRs and signed publishing packages", () =>
   assert.match(acceptance, /-ModernDll \$modern/);
 });
 
-test("legacy failures gate modern tags and release completion", () => {
+test("legacy acceptance gates modern and legacy tags", () => {
   for (const name of ["V8JsiTagRelease", "V8JsiTagReleaseLegacy"]) {
     assert.match(job(name), /V8JsiAcceptanceLegacy_x64host/);
     assert.match(job(name), /V8JsiAcceptanceLegacy_ARM64/);
   }
+  for (const name of ["V8JsiAcceptanceLegacy_x64host", "V8JsiAcceptanceLegacy_ARM64"]) {
+    assert.match(job(name), /dependsOn:\n        - V8JsiCreateNugetLegacy/);
+  }
   const tag = job("V8JsiTagReleaseLegacy");
+  assert.doesNotMatch(tag, /- V8JsiCreateNugetLegacy\n/);
   assert.match(tag, /condition: and\(succeeded\(\), eq\(variables\['Build.SourceBranch'\], 'refs\/heads\/main'\)\)/);
   assert.match(tag, /ReactNative.V8Jsi.Windows/);
   assert.match(tag, /\$config.version/);
   assert.match(tag, /git ls-remote --tags origin/);
   assert.match(tag, /if \(\$existing\)/);
-  const release = read(".ado/windows-release.yml").split("  repositories:")[0];
-  assert.match(release, /source: microsoft.v8-jsi.ci/);
-  assert.doesNotMatch(release, /stages:|succeededOrFailed|always\(/);
 });
 
 const release = read(".ado/windows-release.yml");

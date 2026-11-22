@@ -210,7 +210,6 @@ extends:
               buildPlatform: ${{ matrix.BuildPlatform }}
               buildConfiguration: ${{ matrix.BuildConfiguration }}
               isPublish: ${{ parameters.isPublish }}
-              fakeBuild: ${{ parameters.fakeBuild }}
 
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
@@ -782,6 +781,11 @@ extends:
             if ($LASTEXITCODE -ne 0) { throw 'Legacy pack failed' }
           displayName: Aggregate six cells and pack (file list, version, zero PDB, size gates)
           workingDirectory: $(Build.SourcesDirectory)
+        # Guardian scans pkg-staging; add matching PDBs only after the PDB-free package is sealed.
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - pwsh: |
+              Copy-Item "$(Build.StagingDirectory)\legacy-cells\${{ matrix.Name }}\symbols\${{ matrix.BuildPlatform }}-${{ matrix.BuildConfiguration }}\v8jsi.dll.pdb" "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ matrix.BuildConfiguration }}\${{ matrix.BuildPlatform }}\v8jsi.dll.pdb" -ErrorAction Stop
+            displayName: Stage ${{ matrix.Name }} PDB for Guardian
         - ${{ if parameters.isPublish }}:
           - template: /.ado/templates/esrp-codesign-nuget.yml@self
             parameters:
@@ -1036,7 +1040,6 @@ extends:
         - job: V8JsiTagReleaseLegacy
           condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
           dependsOn:
-          - V8JsiCreateNugetLegacy
           - V8JsiAcceptanceLegacy_x64host
           - V8JsiAcceptanceLegacy_ARM64
           - V8JsiComputeVersion
