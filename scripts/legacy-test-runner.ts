@@ -13,21 +13,35 @@ export function legacyTestEnvironment(env: NodeJS.ProcessEnv, filter?: string): 
     !/^(CETRUN_|V8JSI_TEST_|GTEST_FILTER$|GTEST_OUTPUT$)/i.test(key)));
 }
 
+export function legacySuiteFilter(filter: string, exclusion: string): string {
+  const [positive, negative] = filter.split("-", 2);
+  return `${positive}-${negative ? negative + ":" : ""}${exclusion}`;
+}
+
+export function requireLegacyTests(count: number): void {
+  if (!count) throw new Error("Legacy test run matched zero tests across all suites");
+}
+
 export function runLegacySuite(exe: string, args: string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit"; timeout: number }): void {
+    options: { cwd: string; env: NodeJS.ProcessEnv; stdio: "inherit"; timeout: number; allowEmpty?: boolean }): number {
   const directory = mkdtempSync(join(tmpdir(), "legacy-gtest-"));
   const report = join(directory, "result.xml");
   try {
-    const child = spawnSync(exe, [...args, "--gtest_output=xml:" + report],
+    const child = spawnSync(exe, [...args, "--gtest_brief=0", "--gtest_output=xml:" + report],
       { ...options, stdio: "pipe", encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
     process.stdout.write(child.stdout ?? "");
     process.stderr.write(child.stderr ?? "");
-    if (child.error) throw child.error;
-    if (child.status !== 0) throw new Error(`Legacy suite failed: ${exe} (exit ${child.status})`);
-    if (child.stderr.includes("SKIP: user CET not available")) return;
+    const running = [...(child.stdout ?? "").matchAll(/\[ RUN      \] (.+)/g)].at(-1)?.[1] ?? "before first test";
+    if (child.error || child.status !== 0) {
+      throw new Error(`Legacy suite failed: ${exe} (exit ${child.status}; last running test: ${running})`,
+        { cause: child.error });
+    }
+    if (child.stderr.includes("SKIP: user CET not available")) return 0;
     const xml = readFileSync(report, "utf8");
-    if (!/<testsuites\s[^>]*tests="[1-9]\d*"/.test(xml)) {
+    const count = Number(/<testsuites\s[^>]*tests="(\d+)"/.exec(xml)?.[1] ?? 0);
+    if (!count && !options.allowEmpty) {
       throw new Error(`Legacy suite ran zero tests: ${exe} ${args.join(" ")}`);
     }
+    return count;
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }

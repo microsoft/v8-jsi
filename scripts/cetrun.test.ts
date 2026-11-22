@@ -4,7 +4,7 @@
 // Real Windows x64 process tests; no mocked policy, process, or handle APIs.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, linkSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, linkSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test, type TestContext } from "node:test";
@@ -100,6 +100,10 @@ test("timeout kills child and descendants", () => {
   const r = invoke("off", ["--cetrun-child", "tree"], { CETRUN_TIMEOUT_MS: "5000" });
   assert.equal(r.status, 5, r.stderr);
   assert.match(r.stderr, /timeout; terminating child job/);
+  const dump = /timeout minidump=(.+)/.exec(r.stderr);
+  assert.ok(dump, r.stderr);
+  try { assert.equal(readFileSync(dump[1].trim()).subarray(0, 4).toString(), "MDMP"); }
+  finally { rmSync(dump[1].trim(), { force: true }); }
   const descendant = /descendant=(\d+)/.exec(r.stdout);
   const parent = /parent=(\d+)/.exec(r.stdout);
   assert.ok(descendant, r.stdout);

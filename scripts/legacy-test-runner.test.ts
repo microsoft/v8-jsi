@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { legacyTestEnvironment, runLegacySuite } from "./legacy-test-runner.ts";
+import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests } from "./legacy-test-runner.ts";
 
 test("ambient test filters require an explicit command-line choice", () => {
   assert.throws(() => legacyTestEnvironment({ GTEST_FILTER: "NoSuchLegacyTest.*" }), /Inherited GTEST_FILTER/);
@@ -11,9 +11,34 @@ test("ambient test filters require an explicit command-line choice", () => {
 test("successful children must report at least one executed test", () => {
   // A tiny child simulates Google Test XML without depending on a native build.
   for (const count of [0, 1]) {
-    const script = `const fs=require('node:fs'); const p=process.argv[1].slice('--gtest_output=xml:'.length); fs.writeFileSync(p, '<testsuites tests="${count}"></testsuites>');`;
+    const script = `const fs=require('node:fs'); const p=process.argv.find(a=>a.startsWith('--gtest_output=xml:')).slice('--gtest_output=xml:'.length); fs.writeFileSync(p, '<testsuites tests="${count}"></testsuites>');`;
     const run = () => runLegacySuite(process.execPath, ["-e", script, "--"],
       { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 10000 });
     if (count) run(); else assert.throws(run, /zero tests/);
   }
+});
+
+test("explicit filters allow empty suites but require an aggregate match", () => {
+  const script = `const fs=require('node:fs'); const p=process.argv.find(a=>a.startsWith('--gtest_output=xml:')).slice('--gtest_output=xml:'.length); fs.writeFileSync(p, '<testsuites tests="0"></testsuites>');`;
+  const count = runLegacySuite(process.execPath, ["-e", script, "--"],
+    { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 10000, allowEmpty: true });
+  assert.equal(count, 0);
+  assert.throws(() => requireLegacyTests(count), /across all suites/);
+  requireLegacyTests(count + 1);
+});
+test("explicit filters retain isolated instrumentation exclusions", () => {
+  assert.equal(legacySuiteFilter("*", "LegacyInstrumentationFlags.*"), "*-LegacyInstrumentationFlags.*");
+  assert.equal(legacySuiteFilter("Wanted.*-Other.*", "LegacyInstrumentationFlags.*"),
+    "Wanted.*-Other.*:LegacyInstrumentationFlags.*");
+});
+test("failed children identify the last running test", () => {
+  assert.throws(() => runLegacySuite(process.execPath,
+    ["-e", "console.log('[ RUN      ] Example.Hangs'); process.exit(5)", "--"],
+    { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 10000 }), /last running test: Example.Hangs/);
+});
+
+test("timed-out children identify the last running test", () => {
+  assert.throws(() => runLegacySuite(process.execPath,
+    ["-e", "console.log('[ RUN      ] Example.Timeout'); setTimeout(()=>{},60000)", "--"],
+    { cwd: process.cwd(), env: process.env, stdio: "inherit", timeout: 1000 }), /last running test: Example.Timeout/);
 });

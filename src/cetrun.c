@@ -5,6 +5,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <intrin.h>
+#include <dbghelp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <wchar.h>
@@ -74,6 +75,33 @@ static BOOL FileIdentity(const wchar_t* path, BY_HANDLE_FILE_INFORMATION* info) 
   CloseHandle(file);
   SetLastError(error);
   return ok;
+}
+
+static void TimeoutDump(const PROCESS_INFORMATION* child, const wchar_t* target) {
+  typedef BOOL(WINAPI * WriteDump)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
+      PMINIDUMP_EXCEPTION_INFORMATION, PMINIDUMP_USER_STREAM_INFORMATION,
+      PMINIDUMP_CALLBACK_INFORMATION);
+  wchar_t directory[MAX_PATH], path[MAX_PATH];
+  HMODULE library = LoadLibraryExW(L"dbghelp.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  WriteDump writeDump = library ? (WriteDump)GetProcAddress(library, "MiniDumpWriteDump") : NULL;
+  HANDLE file = INVALID_HANDLE_VALUE;
+  DWORD error = 0;
+  fwprintf(stderr, L"cetrun: timed out target=%ls pid=%lu\n", target, child->dwProcessId);
+  if (!writeDump) { error = GetLastError(); goto done; }
+  if (!GetTempPathW(MAX_PATH, directory)) { error = GetLastError(); goto done; }
+  if (swprintf(path, MAX_PATH, L"%lscetrun-%lu-%lu.dmp", directory,
+        child->dwProcessId, GetTickCount()) < 0) { error = ERROR_FILENAME_EXCED_RANGE; goto done; }
+  file = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (file == INVALID_HANDLE_VALUE) { error = GetLastError(); goto done; }
+  if (!writeDump(child->hProcess, child->dwProcessId, file,
+        (MINIDUMP_TYPE)(MiniDumpWithThreadInfo | MiniDumpWithIndirectlyReferencedMemory), NULL, NULL, NULL)) {
+    error = GetLastError(); goto done;
+  }
+  fwprintf(stderr, L"cetrun: timeout minidump=%ls\n", path);
+done:
+  if (error) fwprintf(stderr, L"cetrun: timeout minidump failed: %lu\n", error);
+  if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+  if (library) FreeLibrary(library);
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -197,6 +225,7 @@ int wmain(int argc, wchar_t** argv) {
       goto done;
     case WAIT_TIMEOUT:
       fwprintf(stderr, L"cetrun: timeout; terminating child job\n");
+      TimeoutDump(&child, target);
       code = 5;
       if (!TerminateJobObject(job, code)) goto failed;
       goto done;

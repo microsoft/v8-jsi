@@ -387,7 +387,7 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
                   }
-                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts
+                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts scripts/legacy-test-runner.test.ts
                   if ($LASTEXITCODE -ne 0) {
                     throw "Prerequisite and CET header tooling tests FAILED (exit $LASTEXITCODE)"
                   }

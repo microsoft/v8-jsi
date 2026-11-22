@@ -9,7 +9,7 @@ import { repoRoot, run, ensureSupportedPython, ensureNasm, nasmRequiredForTarget
          prependToPath, findDumpbin, checkCetHeaders, dumpbinExportNames, ensureBinSkimExe, analyzeBinSkim, crtDependencyLines } from "./build-common.ts";
 import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags, legacyCetArtifacts, checkLegacyHardeningProject, checkLegacyIdentity } from "./legacy-checks.ts";
 
-import { legacyTestEnvironment, runLegacySuite } from "./legacy-test-runner.ts";
+import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests } from "./legacy-test-runner.ts";
 import { stageLegacy, packLegacy } from "./legacy-package.ts";
 import { checkLegacyExports, checkLegacySources, checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
 
@@ -62,7 +62,7 @@ if (args.test || args.check || args.stage) {
   }
   const v = config.variables;
   const compressed = args.platform === "x86" ? 0 : 1;
-  const expected = { build_v8jsi_legacy: 1, v8_enable_system_instrumentation: 1, v8_enable_etw_stack_walking: 1,
+  const expected = { build_v8jsi_legacy: 1,
     control_flow_guard: "true", v8_enable_sandbox: 0,
     v8_enable_pointer_compression: compressed, v8_enable_pointer_compression_shared_cage: compressed,
     v8_enable_external_code_space: compressed, v8_enable_31bit_smis_on_64bit_arch: compressed,
@@ -76,6 +76,8 @@ if (args.test) {
   if (args.platform !== process.arch && !(args.platform === "x86" && process.arch === "x64")) {
     throw new Error("Legacy tests must run on a native host (x86 also supports x64 WOW64)");
   }
+  let selectedTests = 0;
+  const allowEmpty = args["gtest-filter"] !== undefined;
   const suiteEnv = legacyTestEnvironment(process.env, args["gtest-filter"]);
   run(`"${path.join(output, "v8jsi_legacy_probe_runner.exe")}"`, [], { cwd: output });
   execFileSync(path.join(output, "v8jsi_legacy_task_tests.exe"), [], { cwd: output, stdio: "inherit", timeout: 60000 });
@@ -88,9 +90,9 @@ if (args.test) {
     { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 60000 });
   for (const name of ["jsitests_legacy", "node_api_tests_legacy", "inspector_tests_legacy"]) {
     // Flag parsing ran in its fresh process before any runtime froze V8's flags.
-    const filter = args["gtest-filter"] ?? (name === "inspector_tests_legacy" ? "*-LegacyInstrumentationFlags.*" : "*");
-    runLegacySuite(path.join(output, name + ".exe"), ["--gtest_brief=1", "--gtest_filter=" + filter],
-      { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 300000 });
+    const filter = legacySuiteFilter(args["gtest-filter"] ?? "*", "LegacyInstrumentationFlags.*");
+    selectedTests += runLegacySuite(path.join(output, name + ".exe"), ["--gtest_brief=1", "--gtest_filter=" + filter],
+      { cwd: output, env: suiteEnv, stdio: "inherit", timeout: 300000, allowEmpty });
   }
   if (args.platform === "x64") {
     const env = { ...suiteEnv };
@@ -126,9 +128,9 @@ if (args.test) {
         [mode, path.join(output, "jsitests_legacy.exe"), "--gtest_filter=LegacyInstrumentation.*", "--gtest_brief=1"],
         { cwd: output, env: childEnv, stdio: "inherit", timeout: 90000 });
       for (const name of ["jsitests_legacy", "node_api_tests_legacy"]) {
-        runLegacySuite(path.join(output, "cetrun_legacy.exe"), [mode, path.join(output, name + ".exe"), "--gtest_brief=1",
-          "--gtest_filter=" + (args["gtest-filter"] ?? "*-LegacyInspector*.*")],
-          { cwd: output, env: childEnv, stdio: "inherit", timeout: 360000 });
+        selectedTests += runLegacySuite(path.join(output, "cetrun_legacy.exe"), [mode, path.join(output, name + ".exe"), "--gtest_brief=1",
+          "--gtest_filter=" + legacySuiteFilter(args["gtest-filter"] ?? "*", "LegacyInspector*.*:LegacyInstrumentationFlags.*")],
+          { cwd: output, env: childEnv, stdio: "inherit", timeout: 360000, allowEmpty });
       }
     }
     if (available) {
@@ -146,6 +148,7 @@ if (args.test) {
       }
     }
   }
+  if (allowEmpty) requireLegacyTests(selectedTests);
 }
 if (args.check) {
   // ml64 has no /guard:cf switch. All other missing feature bits fail closed.

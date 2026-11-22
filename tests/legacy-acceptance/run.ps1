@@ -15,6 +15,23 @@ $baseline = Get-ChildItem $BaselinePackageDir -Filter '*0.79.5.nupkg' | Select-O
 $candidate = Get-ChildItem $PkgDir -Filter 'ReactNative.V8Jsi.Windows.*.nupkg' | Select-Object -First 1
 if (!$baseline -or !$candidate) { throw 'Both baseline and candidate packages are required' }
 $version = $candidate.Name -replace '^ReactNative.V8Jsi.Windows\.', '' -replace '\.nupkg$', ''
+if (!$ModernDll) { $ModernDll = "$PSScriptRoot\..\..\deps\nodejs\out\$Configuration\v8jsi2.dll" }
+if (!(Test-Path -LiteralPath $ModernDll -PathType Leaf)) {
+  throw 'Modern DLL not found. Supply -ModernDll with a v8jsi2.dll built for the target architecture.'
+}
+$ModernDll = (Resolve-Path -LiteralPath $ModernDll).Path
+$pe = [IO.File]::ReadAllBytes($ModernDll)
+$machine = 0
+if ($pe.Length -ge 64 -and [BitConverter]::ToUInt16($pe, 0) -eq 0x5a4d) {
+  $offset = [BitConverter]::ToInt32($pe, 60)
+  if ($offset -ge 0 -and $offset -le $pe.Length - 6 -and [BitConverter]::ToUInt32($pe, $offset) -eq 0x4550) {
+    $machine = [BitConverter]::ToUInt16($pe, $offset + 4)
+  }
+}
+$expectedMachine = switch ($Platform) { 'x86' { 0x14c } 'arm64' { 0xaa64 } default { 0x8664 } }
+if ($machine -ne $expectedMachine) {
+  throw ('Modern DLL PE machine 0x{0:x} does not match {1}. Supply -ModernDll with a matching v8jsi2.dll.' -f $machine, $Platform)
+}
 $work = [IO.Path]::GetFullPath($WorkDir)
 if (Test-Path $work) { throw 'Acceptance work directory must not already exist' }
 New-Item -ItemType Directory $work | Out-Null
@@ -83,8 +100,6 @@ Run-Consumer "$dropin\consumer.exe" @()
 Run-Consumer "$dropin\consumer.exe" @('--reject-cache', $cache)
 Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$dropin\consumer.exe" @('--late-tasks')
-if (!$ModernDll) { $ModernDll = "$PSScriptRoot\..\..\deps\nodejs\out\$Configuration\v8jsi2.dll" }
-$ModernDll = (Resolve-Path $ModernDll).Path
 $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvarsall.bat'
 $arch = switch ($Platform) { 'x86' { 'x64_x86' } 'arm64' { 'x64_arm64' } default { 'x64' } }
 Invoke-Checked $env:ComSpec @('/c', "call `"$vcvars`" $arch && cl /nologo /std:c++17 /EHsc /W4 /WX /I`"$PSScriptRoot\..\..\src`" /I`"$PSScriptRoot\..\..\src\public`" /I`"$PSScriptRoot\..\..\src\jsi_abi`" `"$PSScriptRoot\modern-cache.cpp`" /Fo`"$work\modern-cache.obj`" /Fe`"$work\modern-cache.exe`"")

@@ -624,6 +624,15 @@
       "revision": "b98f3c0ba6d",
       "kind": "shared",
       "sha256": "8fa1b6d0220640764feef2d36e07f83db79930380ac01d8fa4e7ab6fc4e501d3"
+    },
+    {
+      "path": "src/cetrun.c",
+      "origin": "src/cetrun.c",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "7c68670e0333bacc40dd604c7b9f96b017c0b16c2206f14e36e55ca51e4f8ebf",
+      "outputSha256": "2e89f79b0de84e46fdfa4ff01254cc77619683a955883dcaa9b379dfa63dcf3d",
+      "adaptations": "Capture a thread minidump before terminating a timed-out test child."
     }
   ]
 }
