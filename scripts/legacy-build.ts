@@ -41,12 +41,12 @@ const nodeDir = path.join(repoRoot, "deps/nodejs");
 const output = path.join(nodeDir, "out", args.configuration === "release" ? "Release" : "Debug");
 if (args.build) {
   const started = Date.now();
+  fs.mkdirSync(path.join(repoRoot, "out", "legacy"), { recursive: true });
   execFileSync(process.execPath, [path.join(repoRoot, "src/generate_source_link.ts"),
     "--output", path.join(repoRoot, "out/legacy/source_link_gen.json")], { stdio: "inherit" });
   const env = { ...process.env };
   ensureSupportedPython(env);
   if (nasmRequiredForTarget(args.platform)) prependToPath(env, ensureNasm(env));
-  fs.mkdirSync(path.join(repoRoot, "out", "legacy"), { recursive: true });
   run("cmd.exe", ["/c", ".\\vcbuild.bat", args.configuration, args.platform, "v8jsilegacy", "cfg", "without-intl",
                  "no-node", "no-cctest", "no-embedtest", "no-openssl-cli", "no-fuzzers", "no-nop", "no-overlapped-checker"],
       { cwd: nodeDir, env });

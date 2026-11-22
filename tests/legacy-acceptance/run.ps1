@@ -26,12 +26,20 @@ function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   & $Exe @Arguments | Out-Host
   if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
 }
-function Run-Consumer([string]$Exe, [string[]]$Arguments) {
+function Run-Consumer([string]$Exe, [string[]]$Arguments, [switch]$ExpectFailure) {
   $options = @{ FilePath = $Exe; NoNewWindow = $true; PassThru = $true }
   if ($Arguments.Count) { $options.ArgumentList = $Arguments }
   $child = Start-Process @options
-  if (!$child.WaitForExit(60000)) { Stop-Process -Id $child.Id; throw 'Consumer timed out' }
-  if ($child.ExitCode) { throw "Consumer failed: $($child.ExitCode)" }
+  if (!$child.WaitForExit(60000)) {
+    Stop-Process -Id $child.Id
+    # The old inspector can deadlock during teardown instead of crashing.
+    if ($ExpectFailure) { Write-Host "PASS: expected control timeout for $Arguments"; return }
+    throw 'Consumer timed out'
+  }
+  if ($ExpectFailure) {
+    if (!$child.ExitCode) { throw 'Negative control unexpectedly passed' }
+    Write-Host "PASS: expected control failure for $Arguments (exit $($child.ExitCode))"
+  } elseif ($child.ExitCode) { throw "Consumer failed: $($child.ExitCode)" }
 }
 function Restore-Package([string]$Name, [string]$Version, [string]$Package) {
   $dir = Join-Path $work $Name
@@ -50,12 +58,17 @@ $new = Restore-Package 'candidate' $version $candidate.FullName
 $dropin = "$work\dropin"
 Build-Consumer $old $dropin
 Run-Consumer "$dropin\consumer.exe" @()
+Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain') -ExpectFailure
+Run-Consumer "$dropin\consumer.exe" @('--late-tasks') -ExpectFailure
 $hash = (Get-FileHash "$dropin\consumer.exe").Hash
 Copy-Item "$new\lib\win32\$Configuration\$Platform\v8jsi.dll" "$dropin\v8jsi.dll" -Force
 if ((Get-FileHash "$dropin\consumer.exe").Hash -ne $hash) { throw 'DLL swap changed the consumer executable' }
 Run-Consumer "$dropin\consumer.exe" @()
+Run-Consumer "$dropin\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$dropin\consumer.exe" @('--late-tasks')
 $rebuilt = "$work\rebuilt"
 Build-Consumer $new $rebuilt
+Run-Consumer "$rebuilt\consumer.exe" @()
+Run-Consumer "$rebuilt\consumer.exe" @('--finalizer-drain')
 Run-Consumer "$rebuilt\consumer.exe" @('--late-tasks')
 Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild"

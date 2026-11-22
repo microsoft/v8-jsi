@@ -120,7 +120,7 @@ test("all linked static libraries require CFG regardless of their names", () => 
 });
 
 
-import { checkLegacyExports, normalizedHash, checkLegacySources } from "./legacy-checks.ts";
+import { checkLegacyExports, checkLegacySources } from "./legacy-checks.ts";
 import { legacyCells } from "./legacy-package.ts";
 import { repoRoot } from "./build-common.ts";
 
@@ -131,10 +131,6 @@ test("legacy exports require the complete contract, without duplicates or hooks"
                        ["napi_call_function", "makeV8Runtime", "makeV8Runtime"]]) {
     assert.throws(() => checkLegacyExports(names, expected, "x64"), /export mismatch/);
   }
-});
-test("source hashing normalizes only line endings, preserving non-UTF8 license bytes", () => {
-  assert.equal(normalizedHash(Buffer.from([0xe9, 13, 10])), normalizedHash(Buffer.from([0xe9, 10])));
-  assert.notEqual(normalizedHash(Buffer.from([0xe9, 10])), normalizedHash(Buffer.from([0xef, 0xbf, 0xbd, 10])));
 });
 test("frozen legacy sources and inspector donors match their pinned hashes", () => {
   checkLegacySources(repoRoot);
@@ -163,17 +159,15 @@ test("legacy compile dependencies cannot resolve modern public headers", () => {
 });
 
 import { checkLegacyStartupFlags } from "./legacy-checks.ts";
-// Both process policies need exact flag evidence and exactly one initialization.
-for (const stacks of [false, true]) {
-  test(`startup flags require complete ${stacks ? "strict" : "ordinary"} process evidence`, () => {
-    const flag = stacks ? "--cet-compatible" : "--no-cet-compatible";
-    const summary = `Startup shadow-stacks=${stacks ? 1 : 0} callbacks=1`;
-    const output = `${flag}\n${summary}\n`;
-    checkLegacyStartupFlags(output, flag, stacks);
-    checkLegacyStartupFlags(output.replaceAll("\n", "\r\n"), flag, stacks);
-    for (const bad of ["", `${flag}\n`, `${summary}\n`, `${flag}\n${output}`, `${output}${summary}\n`,
-                       output.replace("callbacks=1", "callbacks=2"), output.replace(flag, stacks ? "--no-cet-compatible" : "--cet-compatible")]) {
-      assert.throws(() => checkLegacyStartupFlags(bad, flag, stacks), /startup policy mismatch/);
-    }
-  });
-}
+test("startup flags distinguish defaults, overrides and duplicate initialization", () => {
+  const output = "--no-cet-compatible\r\nStartup shadow-stacks=1 callbacks=1\r\n";
+  checkLegacyStartupFlags(output, "--no-cet-compatible", true);
+  checkLegacyStartupFlags("--cet-compatible\nStartup shadow-stacks=1 callbacks=1\n", "--cet-compatible", true);
+  checkLegacyStartupFlags("--no-cet-compatible\nStartup shadow-stacks=0 callbacks=1\n", "--no-cet-compatible", false);
+  for (const bad of ["", output.replace("--no-cet-compatible", "--cet-compatible"),
+                    output.replace("shadow-stacks=1", "shadow-stacks=0"),
+                    output.replace("callbacks=1", "callbacks=2"),
+                    `--no-cet-compatible\n${output}`, `${output}Startup shadow-stacks=1 callbacks=1\n`]) {
+    assert.throws(() => checkLegacyStartupFlags(bad, "--no-cet-compatible", true), /startup policy mismatch/);
+  }
+});

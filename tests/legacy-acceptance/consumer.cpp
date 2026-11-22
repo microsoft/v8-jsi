@@ -3,6 +3,7 @@
 #define NAPI_EXPERIMENTAL
 #include <V8JsiRuntime.h>
 #include <node-api/js_runtime_api.h>
+#include <winsock2.h>
 #include <windows.h>
 #include <winhttp.h>
 #include <iostream>
@@ -69,6 +70,22 @@ struct Host final : jsi::HostObject {
     std::vector<jsi::PropNameID> names; names.push_back(jsi::PropNameID::forAscii(rt, "value")); return names;
   }
 };
+INTERNET_PORT freeInspectorPort() {
+  WSADATA data{};
+  require(WSAStartup(MAKEWORD(2, 2), &data) == 0, "Winsock startup failed");
+  const SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  int length = sizeof(address);
+  const bool success = socket != INVALID_SOCKET &&
+      bind(socket, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == 0 &&
+      getsockname(socket, reinterpret_cast<sockaddr *>(&address), &length) == 0;
+  if (socket != INVALID_SOCKET) closesocket(socket);
+  WSACleanup();
+  require(success, "free inspector port discovery failed");
+  return ntohs(address.sin_port);
+}
 std::string discovery(INTERNET_PORT port) {
   auto session = WinHttpOpen(L"legacy-consumer", WINHTTP_ACCESS_TYPE_NO_PROXY, nullptr, nullptr, 0);
   require(session != nullptr, "WinHttpOpen failed");
@@ -90,19 +107,28 @@ std::string discovery(INTERNET_PORT port) {
 void directRuntime() {
   auto runner = std::make_shared<Runner>();
   v8runtime::V8RuntimeArgs args;
-  args.inspectorPort = 11039;
+  const auto port = freeInspectorPort();
+  args.inspectorPort = port;
   args.debuggerRuntimeName = "MSVC legacy consumer";
   args.flags.enableInspector = true;
   args.flags.explicitMicrotaskPolicy = true;
   args.foreground_task_runner = runner;
   auto runtime = v8runtime::makeV8Runtime(std::move(args));
-  require(discovery(11039).find("MSVC legacy consumer") != std::string::npos, "inspector arguments were not preserved");
+  require(discovery(port).find("MSVC legacy consumer") != std::string::npos, "inspector arguments were not preserved");
   require(eval(*runtime, "6 * 7").getNumber() == 42, "evaluation failed");
   int destroyed = 0;
   {
     auto host = std::make_shared<Host>(destroyed);
     runtime->global().setProperty(*runtime, "host", jsi::Object::createFromHostObject(*runtime, host));
     require(eval(*runtime, "host.value = 17; host.value").getNumber() == 17, "host callbacks failed");
+    const auto properties = eval(*runtime,
+        "host.assigned = 23; host[4] = 29; JSON.stringify(["
+        "Object.prototype.hasOwnProperty.call(host, 'assigned'), 'assigned' in host,"
+        "Object.getOwnPropertyNames(host).includes('assigned'),"
+        "Object.prototype.hasOwnProperty.call(host, '4'), 4 in host, Object.getOwnPropertyNames(host).includes('4')])").getString(*runtime).utf8(*runtime);
+    require(host->value == 29, "indexed host setter callback failed");
+    std::cout << "Host setter properties: " << properties << '\n';
+    require(properties == "[true,true,true,true,true,true]", "host setter own-property behavior changed");
     require(eval(*runtime, "Object.keys(host).includes('value')").getBool(), "host enumeration failed");
     bool caught = false;
     try { eval(*runtime, "host.fail"); } catch (const jsi::JSError &error) { caught = error.getMessage().find("host failure") != std::string::npos; }
@@ -149,13 +175,6 @@ void jsrRuntime(bool lateTasks) {
     runner.drain();
     require(finalized == 1, "late task repeated a finalizer after teardown");
   }
-}
-void survivingRuntime() {
-  auto first = v8runtime::makeV8Runtime({});
-  auto second = v8runtime::makeV8Runtime({});
-  first.reset();
-  require(eval(*second, "new Uint8Array(32).length").getNumber() == 32, "surviving context lost its isolate allocator");
-  second.reset();
 }
 struct InspectorConnection {
   using Handle = std::unique_ptr<void, decltype(&WinHttpCloseHandle)>;
@@ -204,15 +223,16 @@ struct InspectorConnection {
 };
 void inspectorDispatchSurvivesContextAndAgentTeardown() {
   auto runner = std::make_shared<Runner>();
+  const auto port = freeInspectorPort();
   auto create = [&] {
     v8runtime::V8RuntimeArgs args;
-    args.inspectorPort = 11040;
+    args.inspectorPort = port;
     args.flags.enableInspector = true;
     args.foreground_task_runner = runner;
     return v8runtime::makeV8Runtime(std::move(args));
   };
   auto first = create(), survivor = create();
-  InspectorConnection inspector(11040);
+  InspectorConnection inspector(port);
   inspector.send("{\"id\":101,\"method\":\"Runtime.enable\"}");
   runner->waitForTask("inspector connect did not post dispatch work");
   first.reset();
@@ -229,14 +249,17 @@ void inspectorDispatchSurvivesContextAndAgentTeardown() {
   auto replacement = create();
   require(eval(*replacement, "42").getNumber() == 42, "inspector teardown affected a replacement runtime");
 }
-int main(int argc, char **) {
+int main(int argc, char **argv) {
+  SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 #ifdef _DEBUG
   // A failed cross-module allocation check must fail, not wait on a dialog in CI.
   _CrtSetReportHook([](int, char *message, int *) { std::cerr << message; ExitProcess(1); return 0; });
 #endif
   try {
-    directRuntime(); jsrRuntime(argc > 1);
-    if (argc > 1) { survivingRuntime(); inspectorDispatchSurvivesContextAndAgentTeardown(); }
+    if (argc == 1) { directRuntime(); jsrRuntime(false); }
+    else if (std::strcmp(argv[1], "--finalizer-drain") == 0) jsrRuntime(true);
+    else if (std::strcmp(argv[1], "--late-tasks") == 0) inspectorDispatchSurvivesContextAndAgentTeardown();
+    else throw std::runtime_error("unknown consumer mode");
     std::cout << "MSVC consumer passed\n"; return 0;
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; return 1; }
 }

@@ -383,7 +383,8 @@ class V8Runtime : public facebook::jsi::Runtime {
       } else {
         std::abort();
       }
-      return v8::Intercepted::kYes;
+      // The legacy setter also lets V8 define an own property after the host callback.
+      return v8::Intercepted::kNo;
     }
 
     // V8 14.6: interceptors explicitly report whether the property was handled.
@@ -395,7 +396,7 @@ class V8Runtime : public facebook::jsi::Runtime {
           facebook::jsi::PropNameID::forString(runtime, facebook::jsi::String::createFromUtf8(runtime, propName)),
           value,
           info);
-      return v8::Intercepted::kYes;
+      return v8::Intercepted::kNo;
     }
 
     // V8 14.6: enumeration receives the interceptor holder, not the receiver.
