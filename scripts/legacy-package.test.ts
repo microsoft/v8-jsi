@@ -57,14 +57,6 @@ test("package rejects forbidden payloads rather than silently excluding them", (
     assert.throws(() => checkLegacyFileList(legacyPayloadFiles([...expectedLegacyFiles(cells), file]), expectedLegacyFiles(cells)), /mismatch/);
   }
 });
-test("baseline ZIP comparison permits only symbol and build-argument removal", () => {
-  const payload = expectedLegacyFiles(cells);
-  const old = [...payload, "lib/win32/Debug/x64/v8jsi.dll.pdb", "lib/win32/Debug/x64/args.gn",
-    "ReactNative.V8Jsi.Windows.nuspec", "_rels/.rels", "[Content_Types].xml", "package/services/metadata/core-properties/a.psmdcp", ".signature.p7s"];
-  checkLegacyFileList(payload, legacyPayloadFiles(old, true));
-  assert.throws(() => checkLegacyFileList(payload.slice(1), legacyPayloadFiles(old, true)), /missing/);
-  assert.throws(() => checkLegacyFileList([...payload, payload[0]], payload), /mismatch/);
-});
 test("symbol pairing requires matching GUID and age", () => {
   const headers = "Format: RSDS, {AABB-CCDD}, 1, v8jsi.dll.pdb";
   checkLegacyPdbIdentity(headers, "GUID: {aabb-ccdd}\nAge: 1");
@@ -101,7 +93,7 @@ END`);
   for (const cell of cells) fs.copyFileSync(path.join(root, "current.dll"), path.join(stage, "lib/win32", cell, "v8jsi.dll"));
   fs.copyFileSync(path.join(root, "stale.dll"), path.join(stage, "lib/win32/Debug/arm64/v8jsi.dll"));
   const output = path.join(root, "pkg");
-  assert.throws(() => packLegacy(stage, output, false), /version resource mismatch/);
+  assert.throws(() => packLegacy(stage, output, false), /Legacy cell Debug\/arm64: Legacy version resource mismatch/);
   assert.equal(fs.existsSync(output), false);
 }));
 

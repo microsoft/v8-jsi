@@ -389,7 +389,7 @@ extends:
                   }
                   node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts scripts/legacy-test-runner.test.ts scripts/legacy-package.test.ts scripts/legacy-targets.test.ts
                   if ($LASTEXITCODE -ne 0) {
-                    throw "Prerequisite and CET header tooling tests FAILED (exit $LASTEXITCODE)"
+                    throw "Prerequisite, CET header, and legacy tooling tests FAILED (exit $LASTEXITCODE)"
                   }
                 displayName: C ABI header and native RID gates (Stela vendor check, Stela tests, header, layout, lint, ABI diff, and native RID checks)
                 workingDirectory: $(Build.SourcesDirectory)

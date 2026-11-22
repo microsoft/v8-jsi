@@ -128,5 +128,8 @@ Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidat
 $coexistence = "$work\coexistence"
 Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$new", "/p:OutDir=$coexistence\", '/p:Coexistence=true')
 Copy-Item -LiteralPath $ModernDll -Destination "$coexistence\v8jsi2.dll"
-Run-Consumer "$coexistence\coexistence.exe" @('legacy-first')
-Run-Consumer "$coexistence\coexistence.exe" @('modern-first')
+foreach ($loadOrder in @('legacy-first', 'modern-first')) {
+  foreach ($destroyOrder in @('legacy-first', 'modern-first')) {
+    Run-Consumer "$coexistence\coexistence.exe" @($loadOrder, $destroyOrder)
+  }
+}

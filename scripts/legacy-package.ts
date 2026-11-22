@@ -78,7 +78,9 @@ export function packLegacy(stage: string, output: string, diagnostic: boolean): 
   const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
   for (const cell of selected) {
     const dll = path.join(stage, "lib/win32", cell, "v8jsi.dll");
-    checkLegacyDllIdentity(dll, version);
+    try { checkLegacyDllIdentity(dll, version); } catch (error) {
+      throw new Error(`Legacy cell ${cell}: ${(error as Error).message}`, { cause: error });
+    }
   }
   for (const cell of selected) {
     checkLegacyExports(dumpbinExportNames(path.join(stage, "lib/win32", cell, "v8jsi.dll")), exports, cell.split("/")[1]);
@@ -130,9 +132,9 @@ export function checkLegacyFileList(actual: readonly string[], expected: readonl
   }
 }
 
-export function legacyPayloadFiles(files: readonly string[], baseline = false): string[] {
+export function legacyPayloadFiles(files: readonly string[]): string[] {
   return files.filter(file => !/^(?:_rels\/|package\/|\[Content_Types\]\.xml$|\.signature\.p7s$)/.test(file) &&
-    !/^[^/]+\.nuspec$/.test(file) && (!baseline || !/(?:\.pdb|args\.gn)$/.test(file)));
+    !/^[^/]+\.nuspec$/.test(file));
 }
 
 function zipFiles(file: string): string[] {
