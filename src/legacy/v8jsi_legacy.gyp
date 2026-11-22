@@ -2,7 +2,31 @@
 # Licensed under the MIT license.
 {
   'includes': ['../v8jsi_settings.gypi'],
-  'variables': {'v8jsi_root': '../..'},
+  'variables': {
+    'v8jsi_root': '../..',
+    'legacy_include_dirs': ['<(v8jsi_root)/deps/nodejs/deps/v8/include', '<(v8jsi_root)/src/legacy',
+                       '<(v8jsi_root)/src/legacy/public', '<(v8jsi_root)/src/legacy/jsi',
+                       '<(v8jsi_root)/src/legacy/node-api', '<(v8jsi_root)/src',
+                       '<(v8jsi_root)/deps/asio/include'],
+    'legacy_runtime_sources': [
+        '<(v8jsi_root)/src/legacy/V8JsiRuntime.cpp',
+        '<(v8jsi_root)/src/legacy/jsi/jsi.cpp',
+        '<(v8jsi_root)/src/legacy/jsi/jsilib-windows.cpp',
+        '<(v8jsi_root)/src/legacy/node-api/v8_api.cpp',
+        '<(v8jsi_root)/src/legacy/node-api/js_native_api_v8.cc',
+        '<(v8jsi_root)/src/legacy/inspector/inspector_agent.cpp',
+        '<(v8jsi_root)/src/legacy/inspector/inspector_socket.cpp',
+        '<(v8jsi_root)/src/legacy/inspector/inspector_socket_server.cpp',
+        '<(v8jsi_root)/src/legacy/inspector/inspector_tcp.cpp',
+        '<(v8jsi_root)/src/legacy/inspector/inspector_utils.cpp',
+        '<(v8jsi_root)/src/inspector/llhttp.c',
+        '<(v8jsi_root)/src/inspector/llhttp_api.c',
+        '<(v8jsi_root)/src/inspector/llhttp_http.c',
+        '<(v8jsi_root)/src/MurmurHash.cpp',
+        '<(v8jsi_root)/src/V8Instrumentation.cpp',
+        '<(v8jsi_root)/src/etw/tracing.cpp',
+      ],
+  },
   'targets': [
     {
       'target_name': 'v8jsi_legacy_probe_source_link',
@@ -23,7 +47,7 @@
         'tools/v8_gypfiles/v8.gyp:v8_libplatform',
         'v8jsi_legacy_probe_source_link',
       ],
-      'include_dirs': ['deps/v8/include'],
+      'include_dirs': ['<(v8jsi_root)/deps/nodejs/deps/v8/include'],
       'sources': ['<(v8jsi_root)/src/legacy/engine_probe.cpp'],
       'msvs_settings': {
         'VCLinkerTool': {
@@ -33,6 +57,49 @@
       },
     },
     {
+      'target_name': 'v8jsi_legacy_version',
+      'type': 'none',
+      'actions': [{
+        'action_name': 'version_resource',
+        'inputs': ['<(v8jsi_root)/config.json', '<(v8jsi_root)/src/version.rc',
+                   '<(v8jsi_root)/src/generate_version_rc.ts'],
+        'outputs': ['<(SHARED_INTERMEDIATE_DIR)/v8jsi_legacy/version.rc'],
+        'action': ['node', '<(v8jsi_root)/src/generate_version_rc.ts',
+                   '--output', '<(SHARED_INTERMEDIATE_DIR)/v8jsi_legacy/version.rc'],
+      }],
+    },
+    {
+      'target_name': 'v8jsi_legacy',
+      'product_name': 'v8jsi',
+      'type': 'shared_library',
+      'dependencies': ['tools/v8_gypfiles/v8.gyp:v8_snapshot',
+                       'tools/v8_gypfiles/v8.gyp:v8_libplatform',
+                       'v8jsi_legacy_probe_source_link', 'v8jsi_legacy_version'],
+      'include_dirs': ['<@(legacy_include_dirs)'],
+      # JSError crosses the consumer boundary with std::exception's enabled layout.
+      'defines!': ['_HAS_EXCEPTIONS=0'],
+      'defines': ['BUILDING_V8JSI_SHARED', 'V8JSI_ENABLE_INSPECTOR', 'V8JSI_ENABLE_NODE_API'],
+      'sources': ['<@(legacy_runtime_sources)', '<(SHARED_INTERMEDIATE_DIR)/v8jsi_legacy/version.rc'],
+      'conditions': [['v8_enable_cet_shadow_stack==1', {'defines': ['V8JSI_CET_STARTUP_CHECK']}]],
+      'msvs_settings': {
+        'VCCLCompilerTool': {'ExceptionHandling': 1, 'RuntimeTypeInfo': 'false'},
+        'VCLinkerTool': {
+          'ImportLibrary': '$(OutDir)$(TargetName)$(TargetExt).lib',
+          'ProgramDatabaseFile': '$(OutDir)$(TargetName)$(TargetExt).pdb',
+          'AdditionalDependencies': ['dbghelp.lib', 'bcrypt.lib', 'shlwapi.lib', 'winmm.lib', 'ws2_32.lib'],
+          'AdditionalOptions': ['/DEBUG:FULL', '/pdbstream:sourcelink=<(v8jsi_source_link_json)'],
+        },
+      },
+    },
+    {
+      'target_name': 'v8jsi_legacy_task_tests',
+      'type': 'executable',
+      'include_dirs': ['<(v8jsi_root)/src/legacy', '<(v8jsi_root)/src/legacy/jsi'],
+      'defines!': ['_HAS_EXCEPTIONS=0'],
+      'sources': ['<(v8jsi_root)/tests/legacy-acceptance/task-runner.cpp'],
+      'msvs_settings': {'VCCLCompilerTool': {'ExceptionHandling': 1}},
+    },
+    {
       'target_name': 'v8jsi_legacy_probe_runner',
       'type': 'executable',
       'dependencies': ['v8jsi_legacy_probe'],
@@ -40,4 +107,28 @@
       'defines': ['V8JSI_PROBE_RUNNER'],
     },
   ],
+  'conditions': [['target_arch=="x64"', {
+    'targets': [
+      {
+        'target_name': 'v8jsi_legacy_startup_tests',
+        'type': 'executable',
+        # Static linkage permits flag inspection without extending the shipped ABI.
+        'dependencies': ['tools/v8_gypfiles/v8.gyp:v8_snapshot', 'tools/v8_gypfiles/v8.gyp:v8_libplatform'],
+        'include_dirs': ['<@(legacy_include_dirs)'],
+        'defines!': ['_HAS_EXCEPTIONS=0'],
+        'defines': ['V8JSI_ENABLE_INSPECTOR', 'V8JSI_ENABLE_NODE_API', 'V8JSI_CET_STARTUP_CHECK'],
+        'sources': ['<@(legacy_runtime_sources)', '<(v8jsi_root)/tests/legacy-acceptance/startup-policy.cpp'],
+        'msvs_settings': {
+          'VCCLCompilerTool': {'ExceptionHandling': 1, 'RuntimeTypeInfo': 'false'},
+          'VCLinkerTool': {'AdditionalDependencies': ['dbghelp.lib', 'bcrypt.lib', 'shlwapi.lib', 'winmm.lib', 'ws2_32.lib']},
+        },
+      },
+      {
+        'target_name': 'v8jsi_legacy_cetrun',
+        'product_name': 'cetrun_legacy',
+        'type': 'executable',
+        'sources': ['<(v8jsi_root)/src/cetrun.c'],
+      },
+    ],
+  }]],
 }

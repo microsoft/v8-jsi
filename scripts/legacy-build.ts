@@ -2,12 +2,15 @@
 // Licensed under the MIT license.
 
 import { parseArgs } from "node:util";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { repoRoot, run, ensureSupportedPython, ensureNasm, nasmRequiredForTarget,
          prependToPath, findDumpbin, checkCetHeaders, dumpbinExportNames } from "./build-common.ts";
-import { checkArchiveFileCfg, checkPeFlags, checkProbeExports, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks } from "./legacy-checks.ts";
+import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags } from "./legacy-checks.ts";
+
+import { stageLegacy, packLegacy } from "./legacy-package.ts";
+import { checkLegacyExports, checkLegacySources, checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
 
 const { values: args } = parseArgs({ allowNegative: true, options: {
   platform: { type: "string", default: "x64" },
@@ -15,18 +18,31 @@ const { values: args } = parseArgs({ allowNegative: true, options: {
   build: { type: "boolean", default: true },
   test: { type: "boolean", default: false },
   check: { type: "boolean", default: false },
+  stage: { type: "string" },
+  pack: { type: "string" },
+  output: { type: "string", default: "out/legacy/pkg" },
+  "diagnostic-pack": { type: "boolean", default: false },
   help: { type: "boolean", default: false },
 } });
 if (args.help) {
-  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--check]");
+  console.log("Usage: node scripts/legacy-build.ts --platform x64|x86|arm64 --configuration release|debug [--no-build] [--test] [--check] [--stage <dir>] | --pack <dir> [--output <dir>] [--diagnostic-pack]");
   process.exit(0);
 }
 if (process.platform !== "win32" || !["x64", "x86", "arm64"].includes(args.platform) ||
     !["release", "debug"].includes(args.configuration)) throw new Error("Invalid Windows build configuration");
+if (args.pack) {
+  if (args.stage || args.test || args.check) throw new Error("Pack cannot be combined with build operations");
+  packLegacy(path.resolve(args.pack), path.resolve(args.output), args["diagnostic-pack"]);
+  process.exit(0);
+}
+if (args["diagnostic-pack"]) throw new Error("--diagnostic-pack requires --pack");
+if (args.stage && args.build) throw new Error("Staging requires --no-build");
 const nodeDir = path.join(repoRoot, "deps/nodejs");
 const output = path.join(nodeDir, "out", args.configuration === "release" ? "Release" : "Debug");
 if (args.build) {
   const started = Date.now();
+  execFileSync(process.execPath, [path.join(repoRoot, "src/generate_source_link.ts"),
+    "--output", path.join(repoRoot, "out/legacy/source_link_gen.json")], { stdio: "inherit" });
   const env = { ...process.env };
   ensureSupportedPython(env);
   if (nasmRequiredForTarget(args.platform)) prependToPath(env, ensureNasm(env));
@@ -37,7 +53,7 @@ if (args.build) {
   const seconds = Math.floor((Date.now() - started) / 1000);
   console.log(`Build took ${Math.floor(seconds / 60)}m ${seconds % 60}s`);
 }
-if (args.test || args.check) {
+if (args.test || args.check || args.stage) {
   const config = JSON.parse(fs.readFileSync(path.join(nodeDir, "config.gypi"), "utf8").replace(/^#.*$/mg, ""));
   if (config.target_defaults.default_configuration.toLowerCase() !== args.configuration) {
     throw new Error("Legacy configuration mismatch: default_configuration");
@@ -55,9 +71,39 @@ if (args.test || args.check) {
 }
 if (args.test) {
   if (args.platform !== process.arch && !(args.platform === "x86" && process.arch === "x64")) {
-    throw new Error("Probe must run on a native host (x86 also supports x64 WOW64)");
+    throw new Error("Legacy tests must run on a native host (x86 also supports x64 WOW64)");
   }
   run(`"${path.join(output, "v8jsi_legacy_probe_runner.exe")}"`, [], { cwd: output });
+  execFileSync(path.join(output, "v8jsi_legacy_task_tests.exe"), [], { cwd: output, stdio: "inherit", timeout: 60000 });
+  if (args.platform === "x64") {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+      !/^(CETRUN_|V8JSI_TEST_)/i.test(key)));
+    env.CETRUN_TIMEOUT_MS = "60000";
+    let available = false;
+    // Fresh policy children keep V8's frozen flags and startup defaults independent.
+    for (const [mode, flag, expected] of [
+      ["off", "", "--no-cet-compatible"],
+      ["off", "--cet-compatible", "--cet-compatible"],
+      ["strict", "", "--cet-compatible"],
+      ["strict", "--no-cet-compatible", "--no-cet-compatible"],
+    ]) {
+      if (mode === "strict" && available) env.CETRUN_REQUIRE_CET = "1";
+      const child = spawnSync(path.join(output, "cetrun_legacy.exe"),
+        [mode, path.join(output, "v8jsi_legacy_startup_tests.exe"), ...(flag ? [flag] : [])],
+        { cwd: output, env, encoding: "utf8", timeout: 90000 });
+      if (child.error) throw child.error;
+      if (child.status !== 0) throw new Error(`Legacy startup child failed: ${child.status} ${child.stdout} ${child.stderr}`);
+      console.error(child.stderr.trim());
+      if (child.stderr.includes("user_cet=yes")) available = true;
+      const result = child.stdout;
+      if (child.stderr.includes("SKIP: user CET not available")) {
+        console.log("CET startup coverage pending: user CET not available");
+        continue;
+      }
+      checkLegacyStartupFlags(result, expected, mode === "strict");
+      console.log(`CET startup ${mode} ${flag || "default"}: ${expected}; initialized once`);
+    }
+  }
 }
 if (args.check) {
   // ml64 has no /guard:cf switch. All other missing feature bits fail closed.
@@ -72,9 +118,13 @@ if (args.check) {
       readProject(path.resolve(path.dirname(file), ref[1]));
     }
   }
-  readProject(path.join(nodeDir, "v8jsi_legacy_probe_runner.vcxproj"));
+  readProject(path.join(nodeDir, "v8jsi_legacy.vcxproj"));
   checkIteratorConfiguration(config.target_defaults.configurations, args.platform, projects);
-  const project = fs.readFileSync(path.join(nodeDir, "v8jsi_legacy_probe.vcxproj"), "utf8");
+  const project = fs.readFileSync(path.join(nodeDir, "v8jsi_legacy.vcxproj"), "utf8");
+  checkLegacyProject(project);
+  const manifest = JSON.parse(fs.readFileSync(path.join(repoRoot, "src/legacy/sources.json"), "utf8"));
+  checkLegacyIncludes(fs.readFileSync(path.join(output, "obj/v8jsi_legacy/v8jsi_legacy.tlog/Microsoft.Build.CPPTasks.CL.read.1.tlog"), "utf16le"), repoRoot,
+    manifest.files.filter((file: { kind: string }) => file.kind === "shared").map((file: { path: string }) => file.path));
   const libraries = linkedArchiveNames(project, (ref) => fs.readFileSync(path.join(nodeDir, ref), "utf8"));
   for (const required of ["v8_snapshot.lib", "v8_libplatform.lib"]) {
     if (!libraries.includes(required)) throw new Error(`Missing linked archive: ${required}`);
@@ -82,10 +132,12 @@ if (args.check) {
   for (const lib of new Set(libraries)) {
     console.log(`CFG ${lib}: ${checkArchiveFileCfg(path.join(output, "lib", lib), assembler)} objects`);
   }
-  const dll = path.join(output, "v8jsi_legacy_probe.dll");
+  checkLegacySources(repoRoot);
+  const dll = path.join(output, "v8jsi.dll");
+  const expectedExports = JSON.parse(fs.readFileSync(path.join(repoRoot, "src/legacy/exports.json"), "utf8"));
   for (const check of legacyBinaryChecks(args.platform)) {
     switch (check) {
-      case "exports": checkProbeExports(dumpbinExportNames(dll), args.platform); break;
+      case "exports": checkLegacyExports(dumpbinExportNames(dll), expectedExports, args.platform); break;
       case "pe": checkPeFlags(fs.readFileSync(dll), args.platform !== "x86"); break;
       case "cet": {
         const dumpbin = findDumpbin();
@@ -96,3 +148,5 @@ if (args.check) {
   }
   console.log("Legacy engine hardening checks passed");
 }
+
+if (args.stage) stageLegacy(output, path.resolve(args.stage), args.platform, args.configuration === "release" ? "Release" : "Debug");

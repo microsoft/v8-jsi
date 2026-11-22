@@ -1,0 +1,104 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+// This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
+#pragma once
+
+#include "inspector_agent.h"
+#include "inspector_socket.h"
+
+#include <map>
+#include <string>
+#include <vector>
+#include <unordered_map>
+
+namespace inspector {
+
+inline constexpr char TAG_CONNECT[] = "#connect";
+inline constexpr char TAG_DISCONNECT[] = "#disconnect";
+
+class InspectorSocketServer;
+class SocketSession;
+class ServerSocket;
+
+class InspectorAgentDelegate {
+ public:
+  InspectorAgentDelegate();
+  std::shared_ptr<AgentImpl> StartSession(int session_id, const std::string &target_id);
+  std::shared_ptr<AgentImpl> GetSession(int session_id);
+  std::shared_ptr<AgentImpl> EndSession(int session_id);
+  static void PostIncomingMessage(std::shared_ptr<AgentImpl> agent,
+                                  int session_id, const std::string &message);
+  std::vector<std::string> GetTargetIds();
+  std::string GetTargetTitle(const std::string &id);
+  std::string GetTargetUrl(const std::string &id);
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
+  std::vector<int> RemoveTarget(std::shared_ptr<AgentImpl> agent);
+  bool HasTargets();
+
+ private:
+  std::unordered_map<std::string, std::shared_ptr<AgentImpl>> targets_map_;
+  std::unordered_map<int, std::shared_ptr<AgentImpl>> session_targets_map_;
+};
+
+// HTTP Server, writes messages requested as TransportActions, and responds
+// to HTTP requests and WS upgrades.
+
+class InspectorSocketServer : public std::enable_shared_from_this<InspectorSocketServer> {
+  // Declared first: session destruction can reenter SessionTerminated.
+  std::mutex mutex_;
+public:
+  InspectorSocketServer(std::unique_ptr<InspectorAgentDelegate>&& delegate, int port,
+    FILE* out = stderr);
+  ~InspectorSocketServer();
+
+  // Start listening on host/port
+  bool Start();
+
+  void Stop();
+  void Send(int session_id, const std::string& message);
+  int Port() const;
+
+  void AddTarget(std::shared_ptr<AgentImpl> agent);
+  void RemoveTarget(std::shared_ptr<AgentImpl> agent);
+  bool HasTargets();
+
+  // Session connection lifecycle
+  void Accept(std::shared_ptr<tcp_connection> connection, int server_port/*, uv_stream_t* server_socket*/);
+  bool HandleGetRequest(int session_id, const std::string& host, const std::string& path);
+  void SessionStarted(int session_id, const std::string& target_id, const std::string& ws_id);
+  void SessionTerminated(int session_id);
+  void MessageReceived(int session_id, const std::string& message);
+  SocketSession* Session(int session_id);
+
+  static void SocketConnectedCallback(std::shared_ptr<tcp_connection> connection, void* callbackData_);
+#ifdef JSI_TESTING_ONLY
+  static SendDispatchObservations TestSendBeforeDispatch();
+#endif
+
+private:
+  static void CloseServerSocket(ServerSocket*);
+  
+  void SendListResponse(InspectorSocket* socket, const std::string& host, SocketSession* session);
+  std::string GetFrontendURL(bool is_compat, const std::string &formatted_address);
+  bool TargetExists(const std::string& id);
+
+  enum class ServerState { kNew, kRunning, kStopping, kStopped };
+  std::unique_ptr<InspectorAgentDelegate> delegate_;
+  const std::string host_;
+  int port_;
+
+  std::mutex mutex_tcp_server_;
+  std::mutex mutex_session_accounts_;
+  std::map<int, std::weak_ptr<ConnectionAccount>> session_accounts_;
+  std::shared_ptr<tcp_server> tcp_server_;
+  bool tcp_server_stopped_{false};
+  
+  int next_session_id_;
+  FILE* out_;
+  ServerState state_;
+
+  std::map<int, std::pair<std::string, std::unique_ptr<SocketSession>>> connected_sessions_;
+
+  };
+
+}  // namespace inspector

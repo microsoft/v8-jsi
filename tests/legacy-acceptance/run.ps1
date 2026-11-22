@@ -1,0 +1,61 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+param(
+  [Parameter(Mandatory)][string]$PkgDir,
+  [Parameter(Mandatory)][string]$BaselinePackageDir,
+  [ValidateSet('x64', 'x86', 'arm64')][string]$Platform = 'x64',
+  [ValidateSet('Release', 'Debug')][string]$Configuration = 'Release',
+  [string]$WorkDir = 'out\legacy\acceptance'
+)
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$PkgDir = (Resolve-Path $PkgDir).Path
+$baseline = Get-ChildItem $BaselinePackageDir -Filter '*0.79.5.nupkg' | Select-Object -First 1
+$candidate = Get-ChildItem $PkgDir -Filter 'ReactNative.V8Jsi.Windows.*.nupkg' | Select-Object -First 1
+if (!$baseline -or !$candidate) { throw 'Both baseline and candidate packages are required' }
+$version = $candidate.Name -replace '^ReactNative.V8Jsi.Windows\.', '' -replace '\.nupkg$', ''
+$work = [IO.Path]::GetFullPath($WorkDir)
+if (Test-Path $work) { throw 'Acceptance work directory must not already exist' }
+New-Item -ItemType Directory $work | Out-Null
+$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$msbuild = Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe'
+$toolset = if (Test-Path (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt')) { 'v143' } else { 'v145' }
+$msplatform = switch ($Platform) { 'x86' { 'Win32' } 'arm64' { 'ARM64' } default { 'x64' } }
+function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
+  & $Exe @Arguments | Out-Host
+  if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
+}
+function Run-Consumer([string]$Exe, [string[]]$Arguments) {
+  $options = @{ FilePath = $Exe; NoNewWindow = $true; PassThru = $true }
+  if ($Arguments.Count) { $options.ArgumentList = $Arguments }
+  $child = Start-Process @options
+  if (!$child.WaitForExit(60000)) { Stop-Process -Id $child.Id; throw 'Consumer timed out' }
+  if ($child.ExitCode) { throw "Consumer failed: $($child.ExitCode)" }
+}
+function Restore-Package([string]$Name, [string]$Version, [string]$Package) {
+  $dir = Join-Path $work $Name
+  New-Item -ItemType Directory $dir, "$dir\feed" | Out-Null
+  Copy-Item $Package "$dir\feed"
+  [IO.File]::WriteAllText("$dir\NuGet.Config", '<configuration><packageSources><clear/><add key="local" value="feed"/></packageSources></configuration>')
+  [IO.File]::WriteAllText("$dir\packages.config", "<packages><package id=`"ReactNative.V8Jsi.Windows`" version=`"$Version`" /></packages>")
+  Invoke-Checked 'nuget.exe' @('restore', "$dir\packages.config", '-ConfigFile', "$dir\NuGet.Config", '-PackagesDirectory', "$dir\packages", '-NoHttpCache', '-NonInteractive')
+  return "$dir\packages\ReactNative.V8Jsi.Windows.$Version"
+}
+function Build-Consumer([string]$PackageRoot, [string]$Output) {
+  Invoke-Checked $msbuild @("$PSScriptRoot\consumer.vcxproj", '/t:Rebuild', '/m', '/v:minimal', "/p:Configuration=$Configuration", "/p:Platform=$msplatform", "/p:PlatformToolset=$toolset", "/p:PackageRoot=$PackageRoot", "/p:OutDir=$Output\")
+}
+$old = Restore-Package 'baseline' '0.79.5' $baseline.FullName
+$new = Restore-Package 'candidate' $version $candidate.FullName
+$dropin = "$work\dropin"
+Build-Consumer $old $dropin
+Run-Consumer "$dropin\consumer.exe" @()
+$hash = (Get-FileHash "$dropin\consumer.exe").Hash
+Copy-Item "$new\lib\win32\$Configuration\$Platform\v8jsi.dll" "$dropin\v8jsi.dll" -Force
+if ((Get-FileHash "$dropin\consumer.exe").Hash -ne $hash) { throw 'DLL swap changed the consumer executable' }
+Run-Consumer "$dropin\consumer.exe" @()
+Run-Consumer "$dropin\consumer.exe" @('--late-tasks')
+$rebuilt = "$work\rebuilt"
+Build-Consumer $new $rebuilt
+Run-Consumer "$rebuilt\consumer.exe" @('--late-tasks')
+Write-Host "PASS: 0.79.5 control, DLL-only swap (EXE SHA256 $hash), and candidate rebuild"

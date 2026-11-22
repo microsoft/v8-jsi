@@ -1,0 +1,54 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+// This code is based on the old node inspector implementation. See LICENSE_NODE for Node.js' project license details
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "inspector_tcp.h"
+
+namespace inspector {
+
+class ProtocolHandler;
+size_t WsFrameSize(size_t payload_size);
+std::shared_ptr<OutboundBuffer> EncodeWsFrame(std::shared_ptr<ConnectionAccount> account,
+                                            const char* data, size_t size);
+
+class InspectorSocket {
+ public:
+  InspectorSocket() = default;
+  ~InspectorSocket();
+
+  class Delegate {
+   public:
+    virtual void OnHttpGet(const std::string& host,
+                           const std::string& path) = 0;
+    virtual void OnSocketUpgrade(const std::string& host,
+                                 const std::string& path,
+                                 const std::string& accept_key) = 0;
+    virtual void OnWsFrame(const std::vector<char>& frame) = 0;
+    virtual ~Delegate() {}
+  };
+
+  static std::unique_ptr<InspectorSocket> Accept(std::shared_ptr<tcp_connection> connection, std::unique_ptr<Delegate>&& delegate);
+
+  void AcceptUpgrade(const std::string& accept_key);
+  void CancelHandshake();
+  void Write(const char* data, size_t len);
+  void WriteEncoded(std::shared_ptr<OutboundBuffer> buffer);
+  void Abort();
+  void SwitchProtocol(std::unique_ptr<ProtocolHandler>&& handler);
+  std::string GetHost();
+
+ private:
+  std::unique_ptr<ProtocolHandler> protocol_handler_;
+  std::weak_ptr<tcp_connection> connection_;
+  bool upgraded_{false};
+
+  InspectorSocket(const InspectorSocket&) = delete;
+  InspectorSocket& operator=(const InspectorSocket&) = delete;
+};
+
+}  // namespace inspector

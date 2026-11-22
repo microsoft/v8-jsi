@@ -118,3 +118,62 @@ test("all linked static libraries require CFG regardless of their names", () => 
     ? "<ConfigurationType>Application</ConfigurationType>"
     : "<ConfigurationType>StaticLibrary</ConfigurationType>"), libraries.map((name) => name + ".lib"));
 });
+
+
+import { checkLegacyExports, normalizedHash, checkLegacySources } from "./legacy-checks.ts";
+import { legacyCells } from "./legacy-package.ts";
+import { repoRoot } from "./build-common.ts";
+
+test("legacy exports require the complete contract, without duplicates or hooks", () => {
+  const expected = { common: ["napi_call_function"], platforms: { x64: ["makeV8Runtime"] } };
+  checkLegacyExports(["makeV8Runtime", "napi_call_function"], expected, "x64");
+  for (const names of [[], ["napi_call_function"], ["napi_call_function", "makeV8Runtime", "test_hook"],
+                       ["napi_call_function", "makeV8Runtime", "makeV8Runtime"]]) {
+    assert.throws(() => checkLegacyExports(names, expected, "x64"), /export mismatch/);
+  }
+});
+test("source hashing normalizes only line endings, preserving non-UTF8 license bytes", () => {
+  assert.equal(normalizedHash(Buffer.from([0xe9, 13, 10])), normalizedHash(Buffer.from([0xe9, 10])));
+  assert.notEqual(normalizedHash(Buffer.from([0xe9, 10])), normalizedHash(Buffer.from([0xef, 0xbf, 0xbd, 10])));
+});
+test("frozen legacy sources and inspector donors match their pinned hashes", () => {
+  checkLegacySources(repoRoot);
+});
+test("a diagnostic legacy package accepts one complete cell, never a probe or symbols", () => {
+  const files = ["lib/win32/Release/x64/v8jsi.dll", "lib/win32/Release/x64/v8jsi.dll.lib"];
+  assert.deepEqual(legacyCells(files, true), ["Release/x64"]);
+  assert.throws(() => legacyCells(files, false), /six cells/);
+  assert.throws(() => legacyCells(files.slice(0, 1), true), /Incomplete/);
+  for (const extra of ["v8jsi.dll.pdb", "args.gn", "v8jsi_legacy_probe.dll", "v8jsi2.dll"]) {
+    assert.throws(() => legacyCells([...files, extra], true), /forbidden/);
+  }
+});
+
+import { checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
+test("legacy exception support must change the STL layout as well as compiler unwinding", () => {
+  const valid = "<ItemDefinitionGroup><ClCompile><ExceptionHandling>Sync</ExceptionHandling><RuntimeTypeInfo>false</RuntimeTypeInfo></ClCompile></ItemDefinitionGroup>";
+  checkLegacyProject(valid);
+  assert.throws(() => checkLegacyProject(valid.replace("<ClCompile>", "<ClCompile>_HAS_EXCEPTIONS=0")), /contract mismatch/);
+  assert.throws(() => checkLegacyProject(valid.replace("Sync", "false")), /contract mismatch/);
+});
+test("legacy compile dependencies cannot resolve modern public headers", () => {
+  checkLegacyIncludes("C:/repo/src/legacy/jsi/jsi.h\nC:/repo/src/MurmurHash.h", "C:/repo", ["src/MurmurHash.h"]);
+  assert.throws(() => checkLegacyIncludes("C:/repo/src/jsi/jsi.h", "C:/repo", []), /include leakage/);
+  assert.throws(() => checkLegacyIncludes("", "C:/repo", []), /empty/);
+});
+
+import { checkLegacyStartupFlags } from "./legacy-checks.ts";
+// Both process policies need exact flag evidence and exactly one initialization.
+for (const stacks of [false, true]) {
+  test(`startup flags require complete ${stacks ? "strict" : "ordinary"} process evidence`, () => {
+    const flag = stacks ? "--cet-compatible" : "--no-cet-compatible";
+    const summary = `Startup shadow-stacks=${stacks ? 1 : 0} callbacks=1`;
+    const output = `${flag}\n${summary}\n`;
+    checkLegacyStartupFlags(output, flag, stacks);
+    checkLegacyStartupFlags(output.replaceAll("\n", "\r\n"), flag, stacks);
+    for (const bad of ["", `${flag}\n`, `${summary}\n`, `${flag}\n${output}`, `${output}${summary}\n`,
+                       output.replace("callbacks=1", "callbacks=2"), output.replace(flag, stacks ? "--no-cet-compatible" : "--cet-compatible")]) {
+      assert.throws(() => checkLegacyStartupFlags(bad, flag, stacks), /startup policy mismatch/);
+    }
+  });
+}

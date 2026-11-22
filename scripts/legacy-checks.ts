@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { win32 } from "node:path";
-import { openSync, closeSync, fstatSync, readSync } from "node:fs";
+import { join, win32 } from "node:path";
+import { readFileSync, openSync, closeSync, fstatSync, readSync } from "node:fs";
+
+import { createHash } from "node:crypto";
 
 interface ArchiveSource { length: number; read(start: number, end: number): Buffer; }
 
@@ -130,4 +132,62 @@ export function linkedArchiveNames(project: string, readProject: (reference: str
     .map((match) => match[1])
     .filter((reference) => readProject(reference).includes("<ConfigurationType>StaticLibrary</ConfigurationType>"))
     .map((reference) => win32.basename(reference, ".vcxproj") + ".lib");
+}
+
+export interface LegacyExports { common: string[]; platforms: Record<string, string[]>; }
+export function checkLegacyExports(names: readonly string[], expected: LegacyExports, platform: string): void {
+  const allowed = [...expected.common, ...expected.platforms[platform]].sort();
+  if (JSON.stringify([...names].sort()) !== JSON.stringify(allowed)) {
+    throw new Error(`Legacy export mismatch (${platform}): expected ${allowed.length}, got ${names.length}`);
+  }
+}
+
+export function normalizedHash(data: Buffer): string {
+  return createHash("sha256").update(Buffer.from(data.toString("latin1").replaceAll("\r\n", "\n"), "latin1")).digest("hex");
+}
+
+export function checkLegacySources(root: string): void {
+  const manifest = JSON.parse(readFileSync(join(root, "src/legacy/sources.json"), "utf8"));
+  for (const file of manifest.files) {
+    const expected = file.outputSha256 ?? file.sha256;
+    if (normalizedHash(readFileSync(join(root, file.path))) !== expected) {
+      throw new Error(`Legacy source drift: ${file.path}`);
+    }
+    if (file.kind === "inspector" && normalizedHash(readFileSync(join(root, file.origin))) !== file.sha256) {
+      throw new Error(`Inspector donor drift: ${file.origin}`);
+    }
+  }
+}
+
+export function checkLegacyProject(project: string): void {
+  for (const group of project.matchAll(/<ItemDefinitionGroup\b[^>]*>([\s\S]*?)<\/ItemDefinitionGroup>/g)) {
+    if (!group[1].includes("<ClCompile>")) continue;
+    if (group[1].includes("_HAS_EXCEPTIONS=0") || !group[1].includes("<ExceptionHandling>Sync</ExceptionHandling>") ||
+        !group[1].includes("<RuntimeTypeInfo>false</RuntimeTypeInfo>")) {
+      throw new Error("Legacy C++ exception/RTTI contract mismatch");
+    }
+  }
+}
+
+export function checkLegacyIncludes(log: string, root: string, shared: readonly string[]): void {
+  const prefix = root.replaceAll("\\", "/").toLowerCase() + "/src/";
+  const allowed = new Set(shared.map(file => file.toLowerCase()));
+  let count = 0;
+  for (const raw of log.split(/\r?\n/)) {
+    const file = raw.replace(/^\^/, "").replaceAll("\\", "/").trim().toLowerCase();
+    if (!file.startsWith(prefix)) continue;
+    count++;
+    const relative = "src/" + file.slice(prefix.length);
+    if (!relative.startsWith("src/legacy/") && !allowed.has(relative)) throw new Error(`Legacy include leakage: ${relative}`);
+  }
+  if (!count) throw new Error("Legacy compile dependency log is empty");
+}
+
+export function checkLegacyStartupFlags(output: string, expected: string, shadowStacks: boolean): void {
+  const lines = output.split(/\r?\n/);
+  const flags = lines.filter(line => /^--(?:no-)?cet-compatible$/.test(line));
+  const summary = `Startup shadow-stacks=${shadowStacks ? 1 : 0} callbacks=1`;
+  if (flags.length !== 1 || flags[0] !== expected || lines.filter(line => line === summary).length !== 1) {
+    throw new Error("Legacy startup policy mismatch");
+  }
 }

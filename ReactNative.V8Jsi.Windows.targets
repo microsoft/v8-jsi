@@ -22,6 +22,5 @@
   </Target>
   <ItemGroup Condition="'$(V8JsiNoDLLCopy)' == ''">
     <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\win32\$(Configuration)\$(V8Platform)\v8jsi.dll" />
-    <ReferenceCopyLocalPaths Include="$(MSBuildThisFileDirectory)..\..\lib\win32\$(Configuration)\$(V8Platform)\v8jsi.dll.pdb" />
   </ItemGroup>
 </Project>
