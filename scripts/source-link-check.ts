@@ -56,7 +56,7 @@ let cachedPdbUtil: string | undefined;
 
 // llvm-pdbutil from the Visual Studio LLVM tools (the clang-cl component the
 // builds already need), for the host architecture first.
-function findPdbUtil(): string {
+export function findPdbUtil(): string {
   if (cachedPdbUtil) return cachedPdbUtil;
   const vswhere = vswhereExe();
   if (vswhere) {

@@ -57,6 +57,17 @@ test("package rejects forbidden payloads rather than silently excluding them", (
     assert.throws(() => checkLegacyFileList(legacyPayloadFiles([...expectedLegacyFiles(cells), file]), expectedLegacyFiles(cells)), /mismatch/);
   }
 });
+test("a diagnostic package accepts one complete cell but production requires six", () => {
+  const files = ["lib/win32/Release/x64/v8jsi.dll", "lib/win32/Release/x64/v8jsi.dll.lib"];
+  assert.deepEqual(legacyCells(files, true), ["Release/x64"]);
+  assert.throws(() => legacyCells(files, false), /six cells/);
+  assert.throws(() => legacyCells(files.slice(0, 1), true), /Incomplete/);
+});
+
+test("package cells reject unexpected contents", () => {
+  assert.throws(() => legacyCells([...expectedLegacyFiles(cells), "lib/win32/Release/x64/other.dll"], true), /Incomplete legacy cell/);
+});
+
 test("symbol pairing requires matching GUID and age", () => {
   const headers = "Format: RSDS, {AABB-CCDD}, 1, v8jsi.dll.pdb";
   checkLegacyPdbIdentity(headers, "GUID: {aabb-ccdd}\nAge: 1");

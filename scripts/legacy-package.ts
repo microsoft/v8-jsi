@@ -5,7 +5,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { repoRoot, dumpbinExportNames, findDumpbin } from "./build-common.ts";
-import { checkSourceLink } from "./source-link-check.ts";
+import { checkSourceLink, findPdbUtil } from "./source-link-check.ts";
 import { checkLegacyExports, checkLegacySources, normalizedHash, checkLegacyIdentity } from "./legacy-checks.ts";
 
 const configurations = ["Release", "Debug"];
@@ -180,16 +180,12 @@ export function checkLegacyPdbIdentity(headers: string, summary: string): void {
 
 function checkLegacySymbols(output: string): void {
   const pdb = path.join(output, "v8jsi.dll.pdb");
-  const vswhere = path.join(process.env["ProgramFiles(x86)"]!, "Microsoft Visual Studio/Installer/vswhere.exe");
-  const util = execFileSync(vswhere, ["-latest", "-prerelease", "-products", "*", "-find",
-    `VC\\Tools\\Llvm\\${process.arch === "arm64" ? "ARM64" : "x64"}\\bin\\llvm-pdbutil.exe`], { encoding: "utf8" }).trim().split(/\r?\n/)[0];
-  if (!util) throw new Error("Visual Studio llvm-pdbutil is required to check legacy symbols");
   checkLegacyPdbIdentity(execFileSync(findDumpbin(), ["/headers", path.join(output, "v8jsi.dll")], { encoding: "utf8" }),
-    execFileSync(util, ["dump", "--summary", pdb], { encoding: "utf8" }));
+    execFileSync(findPdbUtil(), ["dump", "--summary", pdb], { encoding: "utf8" }));
   if (!checkSourceLink([pdb], { strict: true })) throw new Error("Legacy strict Source Link failed");
 }
 
-function checkLegacyDllIdentity(dll: string, version: string): void {
+export function checkLegacyDllIdentity(dll: string, version: string): void {
   const escaped = dll.replaceAll("'", "''");
   const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
     `(Get-Item '${escaped}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));

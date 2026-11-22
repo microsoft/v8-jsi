@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkArchiveCfg, checkPeFlags, checkProbeExports, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks } from "./legacy-checks.ts";
+import { checkArchiveCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames } from "./legacy-checks.ts";
 
 function object(feature: number | undefined, big = false): Buffer {
   const header = big ? 56 : 20;
@@ -67,28 +67,6 @@ test("PE hardening requires each independent mitigation", () => {
   assert.throws(() => checkPeFlags(Buffer.alloc(64), true), /Invalid PE/);
 });
 
-test("probe exports exclude the V8 C++ API", () => {
-  const probe = "v8jsi_legacy_engine_probe";
-  checkProbeExports([probe], "x64");
-  for (const names of [[], [probe, "V8_Initialize"], [probe, probe]]) {
-    assert.throws(() => checkProbeExports(names, "x64"), /Unexpected probe exports/);
-  }
-});
-
-test("CET is required only by the x64 binary check set", () => {
-  assert.deepEqual(legacyBinaryChecks("x64"), ["exports", "pe", "cet"]);
-  assert.deepEqual(legacyBinaryChecks("x86"), ["exports", "pe"]);
-  assert.deepEqual(legacyBinaryChecks("arm64"), ["exports", "pe"]);
-});
-
-test("exception range export is allowed only on x64 and ARM64", () => {
-  const names = ["v8jsi_legacy_engine_probe", "CrashForExceptionInNonABICompliantCodeRange"];
-  checkProbeExports(names, "x64");
-  checkProbeExports(names, "arm64");
-  checkProbeExports(names.slice(0, 1), "x86");
-  assert.throws(() => checkProbeExports(names, "x86"), /Unexpected probe exports/);
-});
-
 // ARM64 Debug differs from every non-ARM64 cell; x64 represents the latter.
 for (const platform of ["arm64", "x64"]) {
   test(`iterator override reaches only ${platform} Debug when required`, () => {
@@ -121,7 +99,6 @@ test("all linked static libraries require CFG regardless of their names", () => 
 
 
 import { checkLegacyExports, checkLegacySources } from "./legacy-checks.ts";
-import { legacyCells } from "./legacy-package.ts";
 import { repoRoot } from "./build-common.ts";
 
 test("legacy exports require the complete contract, without duplicates or hooks", () => {
@@ -134,15 +111,6 @@ test("legacy exports require the complete contract, without duplicates or hooks"
 });
 test("frozen legacy sources and inspector donors match their pinned hashes", () => {
   checkLegacySources(repoRoot);
-});
-test("a diagnostic legacy package accepts one complete cell, never a probe or symbols", () => {
-  const files = ["lib/win32/Release/x64/v8jsi.dll", "lib/win32/Release/x64/v8jsi.dll.lib"];
-  assert.deepEqual(legacyCells(files, true), ["Release/x64"]);
-  assert.throws(() => legacyCells(files, false), /six cells/);
-  assert.throws(() => legacyCells(files.slice(0, 1), true), /Incomplete/);
-  for (const extra of ["v8jsi.dll.pdb", "args.gn", "v8jsi_legacy_probe.dll", "v8jsi2.dll"]) {
-    assert.throws(() => legacyCells([...files, extra], true), /forbidden/);
-  }
 });
 
 import { checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
@@ -216,15 +184,5 @@ test("compiler checks require SHA-256, GS and the static CRT in both configurati
   checkLegacyHardeningProject(valid);
   for (const bad of ["", valid.replace("/ZH:SHA_256", ""), valid.replace("true", "false"), valid.replace("MultiThreadedDebug", "MultiThreadedDebugDLL")]) {
     assert.throws(() => checkLegacyHardeningProject(bad), /Missing|missing/);
-  }
-});
-
-test("package entry names reject symbols, build arguments and incorrect cell contents", () => {
-  const base = ["Release", "Debug"].flatMap(configuration => ["x64", "x86", "arm64"].flatMap(platform =>
-    ["v8jsi.dll", "v8jsi.dll.lib"].map(file => `lib/win32/${configuration}/${platform}/${file}`)));
-  assert.deepEqual(legacyCells(base, false), ["Release/x64", "Release/x86", "Release/arm64",
-    "Debug/x64", "Debug/x86", "Debug/arm64"]);
-  for (const extra of ["lib/win32/Release/x64/v8jsi.dll.pdb", "build/native/args.gn", "lib/win32/Release/x64/other.dll"]) {
-    assert.throws(() => legacyCells([...base, extra], true), /forbidden payload|Incomplete legacy cell/);
   }
 });

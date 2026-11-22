@@ -7,10 +7,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { repoRoot, run, ensureSupportedPython, ensureNasm, nasmRequiredForTarget,
          prependToPath, findDumpbin, checkCetHeaders, dumpbinExportNames, ensureBinSkimExe, analyzeBinSkim, crtDependencyLines } from "./build-common.ts";
-import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, legacyBinaryChecks, checkLegacyStartupFlags, legacyCetArtifacts, checkLegacyHardeningProject, checkLegacyIdentity } from "./legacy-checks.ts";
+import { checkArchiveFileCfg, checkPeFlags, checkIteratorConfiguration, linkedArchiveNames, checkLegacyStartupFlags, legacyCetArtifacts, checkLegacyHardeningProject } from "./legacy-checks.ts";
 
 import { legacyTestEnvironment, runLegacySuite, legacySuiteFilter, requireLegacyTests } from "./legacy-test-runner.ts";
-import { stageLegacy, packLegacy, aggregateLegacy } from "./legacy-package.ts";
+import { stageLegacy, packLegacy, aggregateLegacy, checkLegacyDllIdentity } from "./legacy-package.ts";
 import { checkLegacyExports, checkLegacySources, checkLegacyProject, checkLegacyIncludes } from "./legacy-checks.ts";
 
 const { values: args } = parseArgs({ allowNegative: true, options: {
@@ -86,7 +86,6 @@ if (args.test) {
   let selectedTests = 0;
   const allowEmpty = args["gtest-filter"] !== undefined;
   const suiteEnv = legacyTestEnvironment(process.env, args["gtest-filter"]);
-  run(`"${path.join(output, "v8jsi_legacy_probe_runner.exe")}"`, [], { cwd: output });
   execFileSync(path.join(output, "v8jsi_legacy_task_tests.exe"), [], { cwd: output, stdio: "inherit", timeout: 60000 });
   selectedTests += runLegacySuite(path.join(output, "inspector_tests_legacy.exe"),
     ["--gtest_filter=LegacyInstrumentationFlags.*"],
@@ -188,27 +187,15 @@ if (args.check) {
   checkLegacySources(repoRoot);
   const dll = path.join(output, "v8jsi.dll");
   const expectedExports = JSON.parse(fs.readFileSync(path.join(repoRoot, "src/legacy/exports.json"), "utf8"));
-  for (const check of legacyBinaryChecks(args.platform)) {
-    switch (check) {
-      case "exports": checkLegacyExports(dumpbinExportNames(dll), expectedExports, args.platform); break;
-      case "pe": checkPeFlags(fs.readFileSync(dll), args.platform !== "x86"); break;
-      case "cet": {
-        const dumpbin = findDumpbin();
-        checkCetHeaders(execFileSync(dumpbin, ["/headers", dll], { encoding: "utf8" }), true, dll, dumpbin);
-        break;
-      }
-    }
-  }
+  checkLegacyExports(dumpbinExportNames(dll), expectedExports, args.platform);
+  checkPeFlags(fs.readFileSync(dll), args.platform !== "x86");
   const dumpbin = findDumpbin();
   for (const [name, compatible] of legacyCetArtifacts(args.platform)) {
     const binary = path.join(output, name);
     checkCetHeaders(execFileSync(dumpbin, ["/headers", binary], { encoding: "utf8" }), compatible, binary, dumpbin);
   }
-  const escapedDll = dll.replaceAll("'", "''");
-  const info = JSON.parse(execFileSync("pwsh", ["-NoProfile", "-Command",
-    `(Get-Item '${escapedDll}').VersionInfo | Select-Object OriginalFilename,ProductName,FileVersion | ConvertTo-Json -Compress`], { encoding: "utf8" }));
   const version = JSON.parse(fs.readFileSync(path.join(repoRoot, "config.json"), "utf8")).version;
-  checkLegacyIdentity(fs.readFileSync(dll), info, version);
+  checkLegacyDllIdentity(dll, version);
   const imports = crtDependencyLines(dll);
   if (!imports.some(line => /api-ms-win-crt|ucrtbase/i.test(line)) || imports.some(line => /(?:msvcp|vcruntime)\d/i.test(line))) {
     throw new Error("Legacy Hybrid CRT import mismatch");

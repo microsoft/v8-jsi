@@ -1854,7 +1854,7 @@
        },
      ],
    }], # end win section
-    # v8-jsi: direct-runtime engine and probe, separate from the JSI ABI build.
+    # v8-jsi: direct-runtime engine, separate from the JSI ABI build.
     ['build_v8jsi_legacy==1', {
       'includes': ['../../src/legacy/v8jsi_legacy.gyp'],
     }],

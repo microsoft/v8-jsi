@@ -93,17 +93,6 @@ export function checkPeFlags(pe: Buffer, highEntropy: boolean): void {
   }
 }
 
-export function legacyBinaryChecks(platform: string): Array<"exports" | "pe" | "cet"> {
-  return platform === "x64" ? ["exports", "pe", "cet"] : ["exports", "pe"];
-}
-
-export function checkProbeExports(names: readonly string[], platform: string): void {
-  const allowed = new Set(["v8jsi_legacy_engine_probe"]);
-  if (platform === "x64" || platform === "arm64") allowed.add("CrashForExceptionInNonABICompliantCodeRange");
-  if (!names.includes("v8jsi_legacy_engine_probe") || names.some((name) => !allowed.has(name)) ||
-      new Set(names).size !== names.length) throw new Error(`Unexpected probe exports: ${names.length} entries (${names.slice(0, 5).join(", ")})`);
-}
-
 export function checkIteratorConfiguration(
   configurations: Record<string, { defines?: string[] }>, platform: string,
   projects: Iterable<readonly [string, string]>,
