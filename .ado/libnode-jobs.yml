@@ -95,11 +95,9 @@ jobs:
     variables:
     - name: Packaging.EnableSBOMSigning
       value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
-    # Temporary diagnostics, including resource samples in injected post-steps.
+    # Temporary diagnostics: verbose logs for the macOS disk budget run.
     - ${{ if eq(p.Os, 'osx') }}:
       - name: system.debug
-        value: 'true'
-      - name: AZP_ENABLE_RESOURCE_MONITOR_DEBUG_OUTPUT
         value: 'true'
 
     templateContext:
