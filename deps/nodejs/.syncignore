@@ -185,6 +185,10 @@
 # report the packages they pin as if we shipped them.
 /deps/undici/src/package-lock.json
 /deps/minimatch/package-lock.json
+# Vendored crates' lockfiles pin their dev/test graphs, not shipped dependencies.
+# Cargo ignores a dependency's lockfile and uses the root Cargo.lock;
+# scanners would otherwise report those dev/test graphs as shipped.
+/deps/crates/vendor/*/Cargo.lock
 # NOTE: deps/merve/ stays — it has merve.gyp which node.gypi:230
 #   references as a libnode dep. Pruning it would break gyp configure
 #   even though merve never compiles in narrow mode.

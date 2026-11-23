@@ -134,7 +134,8 @@ the API, compiler phase, or default that our patch originally extended.
   header, `test/common`, `test/testpy`,
   `test/root.status`, and the four fixtures the embedding tests load are
   synced in full (see `.syncignore`), except the npm lockfiles in undici and
-  minimatch and everything in `deps/openssl/openssl/apps` other than its C
+  minimatch, the vendored crates' lockfiles (`deps/crates/vendor/*/Cargo.lock`),
+  and everything in `deps/openssl/openssl/apps` other than its C
   sources and headers (sample keys, certificates, SRP verifiers,
   configuration files, and scripts), which are not build inputs. Never restore
   key or certificate files that the build doesn't use. The inputs were copied
