@@ -42,8 +42,8 @@ $requiredTools = if ($hostArch -eq 'arm64') { 'Microsoft.VisualStudio.Component.
 $vs = & $vswhere -latest -products '*' -requires $requiredTools -property installationPath
 if (!$vs) { throw "Visual Studio with $requiredTools is required" }
 $msbuild = Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe'
-$toolsetArguments = if (Test-Path (Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.v143.default.txt')) { @('/p:PlatformToolset=v143') } else { @() }
 $msplatform = switch ($Platform) { 'x86' { 'Win32' } 'arm64' { 'ARM64' } default { 'x64' } }
+$toolsetArguments = if (Test-Path (Join-Path $vs "MSBuild\Microsoft\VC\*\Platforms\$msplatform\PlatformToolsets\v143") -PathType Container) { @('/p:PlatformToolset=v143') } else { @() }
 function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
   & $Exe @Arguments | Out-Host
   if ($LASTEXITCODE) { throw "$Exe failed: $LASTEXITCODE" }
