@@ -76,7 +76,6 @@ if ($MyInvocation.InvocationName -ne '.') {
             Invoke-CetCommand 'icacls.exe' @($sandboxOut, '/grant',
                 '*S-1-15-2-1:(OI)(CI)(RX)', '*S-1-15-2-2:(OI)(CI)(RX)', '/T', '/Q')
             $broker = Join-Path $sandboxOut 'v8sbhost_broker_tests.exe'
-            Invoke-CetCommand $broker @('--suite=client', '--case=cet-catch-stress') -Broker
             foreach ($suite in 'topology', 'security', 'boundary', 'failure', 'client', 'launch') {
                 Invoke-CetCommand $broker @("--suite=$suite") -Broker
             }

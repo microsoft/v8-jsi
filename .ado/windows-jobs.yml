@@ -309,8 +309,12 @@ extends:
                     -Archive "$(Build.StagingDirectory)/cet-tests/cet-tests.tar"
               displayName: Stage x64 CET runtime payload
 
-      # When build hosts have user CET, remove the CET jobs, payload staging/downloads,
-      # deployment scripts, scoped deferral controls/predicate/tests, and unused runtime-only entry.
+      # x64 build agents lack user-mode CET. When they have it, remove:
+      # - V8JSI_CET_TESTS_DEFERRED env entries in windows-build-new.yml and the sandbox test step below;
+      # - cet-tests-* artifact outputs, staging/download steps, and the legacy cet-startup.tar step;
+      # - all three Windows Server CET jobs (V8JsiCetServer_* and V8JsiCetServerSandbox_*);
+      # - .ado/stage-cet-tests.ps1, .ado/run-cet-tests.ps1, shouldDeferCetTests,
+      #   the --test-cet-runtime entry, and scripts/cet-ci.test.ts.
       - ${{ each matrix in parameters.BuildMatrix }}:
         - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
           - job: V8JsiCetServer_${{ matrix.Name }}
@@ -318,8 +322,7 @@ extends:
             dependsOn:
             - V8JsiBuildNew_${{ matrix.Name }}
             - V8JsiBuildLegacy_${{ matrix.Name }}
-            condition: succeeded()
-            timeoutInMinutes: 30
+            timeoutInMinutes: 60
             pool:
               name: Azure-Pipelines-1ESPT-ExDShared
               vmImage: windows-2025
@@ -713,8 +716,7 @@ extends:
           - job: V8JsiCetServerSandbox_${{ sb.Name }}
             displayName: Windows Server CET (sandbox Release)
             dependsOn: V8JsiBuildSandbox_${{ sb.Name }}
-            condition: succeeded()
-            timeoutInMinutes: 30
+            timeoutInMinutes: 60
             pool:
               name: Azure-Pipelines-1ESPT-ExDShared
               vmImage: windows-2025

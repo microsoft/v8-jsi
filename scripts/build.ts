@@ -478,6 +478,9 @@ function runCetTests(outDir: string, sandbox: boolean, requireCet: boolean): voi
     if (name.toUpperCase().startsWith("CETRUN_") ||
         ["V8JSI_TEST_CET", "V8JSI_TEST_V8_FLAGS"].includes(name.toUpperCase())) delete cetEnv[name];
   }
+  console.log("\n=== CET launcher contract tests ===");
+  if (!runCetSuite(process.execPath, ["--test", path.join(repoRoot, "scripts", "cetrun.test.ts")],
+    { ...cetEnv, CETRUN_TEST_OUT: outDir })) throw new Error("CET launcher tests failed");
   // Probe once with a bounded, tiny child; the full suites stream uncapped.
   const probe = spawnSync(path.join(outDir, "cetrun.exe"),
     ["off", path.join(outDir, "v8jsi_test.exe"), "--cetrun-child", "echo"],
@@ -493,9 +496,6 @@ function runCetTests(outDir: string, sandbox: boolean, requireCet: boolean): voi
   }
   if (requireCet && !cetAvailable) throw new Error("User CET is required on this test host");
   if (cetAvailable) cetEnv.CETRUN_REQUIRE_CET = "1";
-  console.log("\n=== CET launcher contract tests ===");
-  if (!runCetSuite(process.execPath, ["--test", path.join(repoRoot, "scripts", "cetrun.test.ts")],
-    { ...cetEnv, CETRUN_TEST_OUT: outDir })) throw new Error("CET launcher tests failed");
   cetEnv.CETRUN_TIMEOUT_MS = String(30 * 60 * 1000);
   // Death-test children do not inherit policy: the CETCOMPAT test exe runs
   // them in compat mode on CET hosts, which is intentional.

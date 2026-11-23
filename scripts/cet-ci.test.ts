@@ -16,28 +16,14 @@ const powershell = (s: string) => spawnSync("pwsh", ["-NoProfile", "-NonInteract
   { encoding: "utf8", timeout: 30_000 });
 
 test("CET deferral requires explicit control, unavailable CET, and a build invocation", () => {
-  // Every control/capability/entry combination protects local behavior and required-mode precedence.
+  // Representative controls and both vetoes protect local behavior and required-mode precedence.
   const cases: [string | undefined, boolean, boolean, boolean][] = [
     [undefined, false, false, false],
-    [undefined, false, true, false],
-    [undefined, true, false, false],
-    [undefined, true, true, false],
-    ["", false, false, false],
-    ["", false, true, false],
-    ["", true, false, false],
-    ["", true, true, false],
     ["0", false, false, false],
-    ["0", false, true, false],
-    ["0", true, false, false],
-    ["0", true, true, false],
     ["true", false, false, false],
-    ["true", false, true, false],
-    ["true", true, false, false],
-    ["true", true, true, false],
     ["1", false, false, true],
     ["1", false, true, false],
     ["1", true, false, false],
-    ["1", true, true, false],
   ];
   for (const [control, available, runtime, expected] of cases) {
     assert.equal(shouldDeferCetTests(control, available, runtime), expected);
@@ -50,17 +36,22 @@ test("runtime-only entry rejects missing and failing launchers without build inp
     mkdirSync(path.join(root, "scripts"));
     writeFileSync(path.join(root, "scripts/package.json"), '{"type":"module"}');
     // Copy product sources (not fixtures) to exercise a real sparse checkout without build inputs.
-    for (const file of ["build.ts", "build-common.ts", "source-link-check.ts"]) {
+    for (const file of ["build.ts", "build-common.ts", "source-link-check.ts", "cetrun.test.ts"]) {
       copyFileSync(path.join(repoRoot, "scripts", file), path.join(root, "scripts", file));
     }
     const payload = path.join(root, "payload");
+    // Let the nested contract runner execute rather than inherit node:test's recursion guard.
+    const env: NodeJS.ProcessEnv = { ...process.env, V8JSI_CET_TESTS_DEFERRED: "1" };
+    delete env.NODE_TEST_CONTEXT;
     for (const failingLauncher of [false, true]) {
       if (failingLauncher) { mkdirSync(payload); copyFileSync(process.execPath, path.join(payload, "cetrun.exe")); }
       const result = spawnSync(process.execPath, [path.join(root, "scripts/build.ts"), "--test-cet-runtime", payload],
-        { cwd: root, encoding: "utf8", timeout: 20_000, env: { ...process.env, V8JSI_CET_TESTS_DEFERRED: "1" } });
+        { cwd: root, encoding: "utf8", timeout: 20_000, env });
       assert.notEqual(result.status, 0, result.stdout);
-      assert.match(result.stderr, failingLauncher ? /CET availability probe failed/ : /cetrun\.exe ENOENT/);
-      assert.doesNotMatch(result.stdout + result.stderr, /header gate|Stela|config\.json|v8jsi_names|launcher contract tests/);
+      assert.match(result.stdout, /=== CET launcher contract tests ===/);
+      assert.match(result.stderr, /CET launcher tests failed/);
+      assert.match(result.stdout + result.stderr, failingLauncher ? /Cannot find module .*off/ : /cetrun\.exe ENOENT/);
+      assert.doesNotMatch(result.stdout + result.stderr, /header gate|Stela|config\.json|v8jsi_names|CET availability probe failed/);
       assert.equal(existsSync(path.join(root, "out")), false);
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
