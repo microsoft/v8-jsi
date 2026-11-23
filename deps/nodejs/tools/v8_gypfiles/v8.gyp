@@ -56,7 +56,7 @@
       # including unnecessary internal symbols, which may lead to run-time fixups.
       # This is not done on AIX where symbols are exported by tools/create_expfile.sh
       # see https://github.com/nodejs/node/pull/56290#issuecomment-2582703109
-      ['OS!="aix" and OS!="os400"', {
+      ['OS!="aix" and OS!="os400" and build_v8jsi_legacy==0', {
         'defines': [
           'BUILDING_V8_SHARED',  # Make V8_EXPORT visible.
           'BUILDING_V8_PLATFORM_SHARED',  # Make V8_PLATFORM_EXPORT visible.

@@ -1,0 +1,57 @@
+parameters:
+- name: platforms
+  type: object
+- name: isPublish
+  type: boolean
+  default: false
+
+steps:
+- task: UseNode@1
+  inputs:
+    version: '24.x'
+- task: NuGetToolInstaller@1
+  inputs:
+    versionSpec: ">=4.6.0"
+- task: DownloadPipelineArtifact@2
+  inputs:
+    artifact: published-packages-legacy
+    path: $(Build.StagingDirectory)\legacy-acceptance\pkg
+- ${{ if parameters.isPublish }}:
+  - pwsh: |
+      $package = Get-ChildItem "$(Build.StagingDirectory)\legacy-acceptance\pkg" -Filter 'ReactNative.V8Jsi.Windows.*.nupkg'
+      nuget verify -Signatures $package.FullName -NonInteractive
+      if ($LASTEXITCODE -ne 0) { throw 'Legacy package signature verification failed' }
+      $images = "$(Build.StagingDirectory)\legacy-acceptance\signed-images"
+      [IO.Compression.ZipFile]::ExtractToDirectory($package.FullName, $images)
+      $dlls = @(Get-ChildItem "$images\lib\win32" -Recurse -Filter 'v8jsi.dll')
+      if ($dlls.Count -ne 6) { throw 'Expected six signed legacy DLLs' }
+      foreach ($dll in $dlls) {
+        if ((Get-AuthenticodeSignature $dll.FullName).Status -ne 'Valid') { throw "Invalid signature: $($dll.FullName)" }
+      }
+    displayName: Verify final package and all six DLL signatures
+- pwsh: |
+    $root = "$(Build.StagingDirectory)\legacy-acceptance\baseline"
+    # Explicit source and no authentication: never fall back to machine/user feeds.
+    nuget install ReactNative.V8Jsi.Windows -Version 0.79.5 -Source 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json' -OutputDirectory $root -PackageSaveMode nupkg -NonInteractive -NoHttpCache
+    if ($LASTEXITCODE -ne 0) { throw '0.79.5 baseline restore failed' }
+  displayName: Restore anonymous 0.79.5 control from react-native-public
+- ${{ each platform in parameters.platforms }}:
+  - task: DownloadPipelineArtifact@2
+    inputs:
+      ${{ if eq(platform, 'arm64') }}:
+        artifact: Desktop_ARM64_Release-new
+      ${{ else }}:
+        artifact: Desktop_${{ platform }}_Release-new
+      path: $(Build.StagingDirectory)\legacy-acceptance\modern\${{ platform }}
+  - pwsh: |
+      $root = "$(Build.StagingDirectory)\legacy-acceptance"
+      $modern = "$root\modern\${{ platform }}\build\native\win-${{ platform }}\v8jsi2.dll"
+      if ('${{ parameters.isPublish }}' -eq 'True' -and (Get-AuthenticodeSignature $modern).Status -ne 'Valid') { throw 'Invalid modern DLL signature' }
+      foreach ($configuration in 'Debug', 'Release') {
+        .\tests\legacy-acceptance\run.ps1 -PkgDir "$root\pkg" `
+            -BaselinePackageDir "$root\baseline\ReactNative.V8Jsi.Windows.0.79.5" `
+            -Platform ${{ platform }} -Configuration $configuration -ModernDll $modern `
+            -WorkDir "$root\work\${{ platform }}-$configuration"
+      }
+    displayName: 0.79.5 control, DLL swap, rebuild, caches, and coexistence (${{ platform }})
+    workingDirectory: $(Build.SourcesDirectory)

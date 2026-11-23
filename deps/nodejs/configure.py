@@ -1198,6 +1198,13 @@ parser.add_argument('--build-v8jsisb',
          'sandbox + pointer compression (shared cage) + build-time jitless/lite '
          'mode. Implies --build-v8jsi. The mainline v8jsi.dll build is unaffected.')
 
+# v8-jsi: the direct-runtime build has a separate engine configuration.
+parser.add_argument('--build-v8jsi-legacy',
+    action='store_true',
+    dest='build_v8jsi_legacy',
+    default=None,
+    help='build the legacy v8jsi engine with pointer compression, without sandbox')
+
 parser.add_argument('--libdir',
     action='store',
     dest='libdir',
@@ -1332,8 +1339,12 @@ parser.add_argument('--use-ccache-win',
 
 (options, args) = parser.parse_known_args()
 
+# v8-jsi: legacy and ABI-backed engines cannot share build settings.
+if options.build_v8jsi_legacy and (options.build_v8jsi or options.build_v8jsisb):
+  parser.error('--build-v8jsi-legacy is exclusive with --build-v8jsi/--build-v8jsisb')
+
 # Keep the narrow engine build independent of Rust and Node's SEA tooling.
-if options.build_v8jsi or options.build_v8jsisb:
+if options.build_v8jsi or options.build_v8jsisb or options.build_v8jsi_legacy:
   if options.v8_enable_temporal_support:
     parser.error('Temporal support is disabled for v8-jsi builds.')
   options.v8_disable_temporal_support = True
@@ -2336,9 +2347,20 @@ def configure_v8(o, configs):
       o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1
       o['variables']['v8_enable_sandbox'] = 1
   # === END v8jsisb.dll sandbox variant ===
+  # v8-jsi: preserve the 0.79.x engine ABI, independently of sandbox defaults.
+  if options.build_v8jsi_legacy:
+    compressed = 1 if o['variables']['target_arch'] in ('x64', 'arm64') else 0
+    o['variables']['v8_enable_pointer_compression'] = compressed
+    o['variables']['v8_enable_pointer_compression_shared_cage'] = compressed
+    o['variables']['v8_enable_external_code_space'] = compressed
+    o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = compressed
+    o['variables']['v8_enable_sandbox'] = 0
+    if o['variables']['target_arch'] == 'arm64':
+      # Match the legacy ARM64 STL ABI in engine, host tools, and DLL.
+      configs['Debug'].setdefault('defines', []).append('_HAS_ITERATOR_DEBUGGING=0')
   # v8-jsi: Enable CET shadow stacks only for Windows x64 engine builds.
   o['variables']['v8_enable_cet_shadow_stack'] = 1 if (
-      (options.build_v8jsi or options.build_v8jsisb) and flavor == 'win'
+      (options.build_v8jsi or options.build_v8jsisb or options.build_v8jsi_legacy) and flavor == 'win'
       and o['variables']['target_arch'] == 'x64') else 0
   o['variables']['v8_enable_temporal_support'] = 0 if options.v8_disable_temporal_support else 1
   o['variables']['v8_trace_maps'] = 1 if options.trace_maps else 0
@@ -3101,6 +3123,13 @@ if options.build_v8jsi or options.build_v8jsisb:
   output['variables']['v8jsi_source_link_json'] = os.path.join(
       os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
       'src', 'source_link_gen_gyp.json')
+
+# v8-jsi: emit the legacy selector and map only for the direct-runtime build.
+if options.build_v8jsi_legacy:
+  output['variables']['build_v8jsi_legacy'] = 1
+  output['variables']['v8jsi_source_link_json'] = os.path.join(
+      os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+      'out', 'legacy', 'source_link_gen.json')
 
 # variables should be a root level element,
 # move everything else to target_defaults

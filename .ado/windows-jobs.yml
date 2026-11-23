@@ -174,6 +174,43 @@ extends:
           workingDirectory: $(Build.SourcesDirectory)
 
 
+      # Legacy uses isolated agents/output directories, including Debug artifacts.
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - job: V8JsiBuildLegacy_${{ matrix.Name }}
+          displayName: Build legacy V8-JSI ${{ matrix.Name }}
+          dependsOn: V8JsiComputeVersion
+          timeoutInMinutes: 1200
+          ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+            pool:
+              name: windows-2025-1espt-arm64
+              image: windows-2025-1espt-arm64
+              os: windows
+              hostArchitecture: arm64
+          variables:
+          - name: Packaging.EnableSBOMSigning
+            value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+          templateContext:
+            outputs:
+            - output: pipelineArtifact
+              artifactName: ${{ matrix.Name }}-legacy
+              targetPath: $(Build.StagingDirectory)\out
+          steps:
+          - ${{ if eq(matrix.BuildPlatform, 'arm64') }}:
+            - template: /.ado/ensure-node10-shim.yml@self
+          - task: UseNode@1
+            inputs:
+              version: '24.x'
+          - task: NuGetToolInstaller@1
+            inputs:
+              versionSpec: ">=4.6.0"
+          - task: NuGetAuthenticate@1
+            displayName: Authenticate NuGet (BinSkim feed)
+          - template: /.ado/windows-build-legacy.yml@self
+            parameters:
+              buildPlatform: ${{ matrix.BuildPlatform }}
+              buildConfiguration: ${{ matrix.BuildConfiguration }}
+              isPublish: ${{ parameters.isPublish }}
+
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
           displayName: Build V8-JSI (Node.js source) ${{ matrix.Name }}
@@ -368,9 +405,9 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
                   }
-                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts
+                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts scripts/legacy-test-runner.test.ts scripts/legacy-package.test.ts scripts/legacy-targets.test.ts scripts/legacy-pipeline.test.ts
                   if ($LASTEXITCODE -ne 0) {
-                    throw "Prerequisite and CET header tooling tests FAILED (exit $LASTEXITCODE)"
+                    throw "Prerequisite, CET header, and legacy tooling tests FAILED (exit $LASTEXITCODE)"
                   }
                 displayName: C ABI header and native RID gates (Stela vendor check, Stela tests, header, layout, lint, ABI diff, and native RID checks)
                 workingDirectory: $(Build.SourcesDirectory)
@@ -707,6 +744,96 @@ extends:
               pattern: |
                 Microsoft.JavaScript.V8.*.nupkg
 
+      - job: V8JsiCreateNugetLegacy
+        displayName: Create legacy NuGet
+        dependsOn:
+        - V8JsiComputeVersion
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - V8JsiBuildLegacy_${{ matrix.Name }}
+        variables:
+        - name: Packaging.EnableSBOMSigning
+          value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+        templateContext:
+          outputs:
+          - output: pipelineArtifact
+            artifactName: published-packages-legacy
+            targetPath: $(Build.StagingDirectory)\out\pkg
+        steps:
+        - template: /.ado/overlay-version-config.yml@self
+        - task: UseNode@1
+          inputs:
+            version: '24.x'
+        - task: NuGetToolInstaller@1
+          inputs:
+            versionSpec: ">=4.6.0"
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              artifact: ${{ matrix.Name }}-legacy
+              path: $(Build.StagingDirectory)\legacy-cells\${{ matrix.Name }}
+        - pwsh: |
+            $cells = Get-ChildItem "$(Build.StagingDirectory)\legacy-cells" -Directory
+            $arguments = @()
+            foreach ($cell in $cells) { $arguments += '--aggregate', (Join-Path $cell.FullName 'pkg-staging') }
+            node scripts/legacy-build.ts @arguments --output "$(Build.StagingDirectory)\out\pkg-staging"
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy aggregation failed' }
+            node scripts/legacy-build.ts --pack "$(Build.StagingDirectory)\out\pkg-staging" --output "$(Build.StagingDirectory)\out\pkg"
+            if ($LASTEXITCODE -ne 0) { throw 'Legacy pack failed' }
+          displayName: Aggregate six cells and pack (file list, version, zero PDB, size gates)
+          workingDirectory: $(Build.SourcesDirectory)
+        # Guardian scans pkg-staging; add matching PDBs only after the PDB-free package is sealed.
+        - ${{ each matrix in parameters.BuildMatrix }}:
+          - pwsh: |
+              Copy-Item "$(Build.StagingDirectory)\legacy-cells\${{ matrix.Name }}\symbols\${{ matrix.BuildPlatform }}-${{ matrix.BuildConfiguration }}\v8jsi.dll.pdb" "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ matrix.BuildConfiguration }}\${{ matrix.BuildPlatform }}\v8jsi.dll.pdb" -ErrorAction Stop
+            displayName: Stage ${{ matrix.Name }} PDB for Guardian
+        - ${{ if parameters.isPublish }}:
+          - template: /.ado/templates/esrp-codesign-nuget.yml@self
+            parameters:
+              folderPath: $(Build.StagingDirectory)\out\pkg
+              pattern: ReactNative.V8Jsi.Windows.*.nupkg
+          - pwsh: |
+              Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg" -Filter "CodeSignSummary-*.md" -File -ErrorAction Stop | Remove-Item -Force -ErrorAction Stop
+            displayName: Remove NuGet signing summary
+        - pwsh: |
+            $packages = @(Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg" -Force -ErrorAction Stop)
+            if ($packages.Count -ne 1 -or $packages[0].PSIsContainer -or $packages[0].Name -notlike 'ReactNative.V8Jsi.Windows.*.nupkg' -or $packages[0].Length -ge 500MB) { throw 'Invalid final legacy package count or size' }
+            $zip = [IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
+            try {
+              if ($zip.Entries.FullName -match '\.pdb$') { throw 'PDB in final legacy package' }
+            } finally { $zip.Dispose() }
+          displayName: Check final package after signing
+
+      - job: V8JsiAcceptanceLegacy_x64host
+        displayName: Legacy acceptance (x64 and x86, Debug and Release)
+        timeoutInMinutes: 120
+        dependsOn:
+        - V8JsiCreateNugetLegacy
+        - V8JsiBuildNew_Desktop_x64_Release
+        - V8JsiBuildNew_Desktop_x86_Release
+        steps:
+        - template: /.ado/windows-acceptance-legacy.yml@self
+          parameters:
+            platforms: [x64, x86]
+            isPublish: ${{ parameters.isPublish }}
+
+      - job: V8JsiAcceptanceLegacy_ARM64
+        displayName: Legacy acceptance (native ARM64, Debug and Release)
+        timeoutInMinutes: 120
+        dependsOn:
+        - V8JsiCreateNugetLegacy
+        - V8JsiBuildNew_Desktop_ARM64_Release
+        pool:
+          name: windows-2025-1espt-arm64
+          image: windows-2025-1espt-arm64
+          os: windows
+          hostArchitecture: arm64
+        steps:
+        - template: /.ado/ensure-node10-shim.yml@self
+        - template: /.ado/windows-acceptance-legacy.yml@self
+          parameters:
+            platforms: [arm64]
+            isPublish: ${{ parameters.isPublish }}
+
         # =====================================================================
         # Signed-pack acceptance (CI only). After the 4-pack is built and ESRP-
         # signed, restore the final per-RID Microsoft.JavaScript.V8.<rid>
@@ -818,6 +945,8 @@ extends:
       - ${{ if eq(parameters.isPublish, true) }}:
         - job: V8JsiTagRelease
           dependsOn:
+          - V8JsiAcceptanceLegacy_x64host
+          - V8JsiAcceptanceLegacy_ARM64
           - V8JsiCreateNugetNew
           - ${{ each matrix in parameters.BuildMatrix }}:
             - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
@@ -892,6 +1021,83 @@ extends:
                 $tag = "${id}_v${version}"
 
                 # Idempotent: never move an existing tag.
+                $existing = git ls-remote --tags origin "refs/tags/$tag"
+                if ($LASTEXITCODE -ne 0) { Write-Error "ls-remote failed for $tag"; exit 1 }
+                if ($existing) {
+                  Write-Host "  tag '$tag' already exists -- no-op."
+                  continue
+                }
+
+                Write-Host "  creating tag '$tag' at $commit"
+                git tag $tag $commit
+                if ($LASTEXITCODE -ne 0) { Write-Error "git tag failed for $tag"; exit 1 }
+                git push origin "refs/tags/$tag"
+                if ($LASTEXITCODE -ne 0) { Write-Error "git push failed for $tag"; exit 1 }
+                Write-Host "  pushed $tag"
+              }
+            displayName: Create and push release tags
+            env:
+              GIT_TERMINAL_PROMPT: '0'
+              GCM_INTERACTIVE: Never
+
+        - job: V8JsiTagReleaseLegacy
+          condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+          dependsOn:
+          - V8JsiAcceptanceLegacy_x64host
+          - V8JsiAcceptanceLegacy_ARM64
+          - V8JsiComputeVersion
+          displayName: Tag legacy published version
+          steps:
+          - checkout: self
+            persistCredentials: true
+
+          - template: /.ado/overlay-version-config.yml@self
+
+          - pwsh: |
+              $ErrorActionPreference = 'Stop'
+
+              $feedUrl = 'https://pkgs.dev.azure.com/ms/react-native/_packaging/react-native-public/nuget/v3/index.json'
+
+              $index = Invoke-RestMethod -Uri $feedUrl
+              $baseAddress = ($index.resources |
+                Where-Object { $_.'@type' -like 'PackageBaseAddress*' } |
+                Select-Object -First 1).'@id'
+              if (-not $baseAddress) { throw "No PackageBaseAddress in $feedUrl" }
+              if (-not $baseAddress.EndsWith('/')) { $baseAddress += '/' }
+
+              $config = Get-Content "$(Build.SourcesDirectory)\config.json" | ConvertFrom-Json
+              $commit = "$(Build.SourceVersion)"
+
+              $families = @(
+                @{ Id = 'ReactNative.V8Jsi.Windows'; Version = [string]$config.version }
+              )
+
+              foreach ($f in $families) {
+                $id = $f.Id
+                $version = $f.Version
+                Write-Host "=== $id $version ==="
+                if ([string]::IsNullOrWhiteSpace($version)) { throw "Missing version for $id in config.json" }
+
+                if ($version -match '-') {
+                  Write-Host "  $version is a prerelease build -- no release tag."
+                  continue
+                }
+
+                $versionsUrl = "$baseAddress$($id.ToLower())/index.json"
+                $published = $false
+                try {
+                  $result = Invoke-RestMethod -Uri $versionsUrl -ErrorAction Stop
+                  if ($version.ToLower() -in $result.versions) { $published = $true }
+                } catch {
+                  if ($_.Exception.Response.StatusCode -ne [System.Net.HttpStatusCode]::NotFound) { throw }
+                }
+                if ($published) {
+                  Write-Host "  $version already on the feed -- no tag needed."
+                  continue
+                }
+
+                $tag = "${id}_v${version}"
+
                 $existing = git ls-remote --tags origin "refs/tags/$tag"
                 if ($LASTEXITCODE -ne 0) { Write-Error "ls-remote failed for $tag"; exit 1 }
                 if ($existing) {

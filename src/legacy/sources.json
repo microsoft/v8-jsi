@@ -1,0 +1,638 @@
+{
+  "contract": "5424838ddaf",
+  "files": [
+    {
+      "path": "src/legacy/public/Readme.md",
+      "origin": "src/public/Readme.md",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "4c0f73a85ee7d4dd7235ee796c6a992acd6c261f4d1a68333a6d74f34b085d6e",
+      "packagePath": "build/native/include/Readme.md"
+    },
+    {
+      "path": "src/legacy/public/ScriptStore.h",
+      "origin": "src/public/ScriptStore.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "a611da9f6beb0da737b2132696c5acf9a7b0e0da923cd9f5a0cb37c92970f561",
+      "packagePath": "build/native/include/ScriptStore.h"
+    },
+    {
+      "path": "src/legacy/public/V8JsiRuntime.h",
+      "origin": "src/public/V8JsiRuntime.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "d7a9347c1f1e45d6bc0dd69f37814c5317f048f6d18b42ff53ef3f36f3b7c510",
+      "packagePath": "build/native/include/V8JsiRuntime.h"
+    },
+    {
+      "path": "src/legacy/public/compat.h",
+      "origin": "src/public/compat.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "ff39b683c69c4429e4cb5433e983f9de8dec5082004d73dfc62754bf0a306069",
+      "packagePath": "build/native/include/compat.h"
+    },
+    {
+      "path": "src/legacy/public/v8_api.h",
+      "origin": "src/public/v8_api.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "d3eee389d8e46e284483839dcbf47539c1a0abd38e7f59936bb8ab54acc6b61d",
+      "packagePath": "build/native/include/v8_api.h"
+    },
+    {
+      "path": "src/legacy/jsi/JSIDynamic.cpp",
+      "origin": "src/jsi/JSIDynamic.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "03a9fbff4c903618dba2e6d763d9f9738c1be091aede971436a08fc244f8f12c"
+    },
+    {
+      "path": "src/legacy/jsi/JSIDynamic.h",
+      "origin": "src/jsi/JSIDynamic.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "fdc9f35484b06d77e0ac1dbc8a8ffa8c7d73b888897b87ebf68f329b025b6eb5"
+    },
+    {
+      "path": "src/legacy/jsi/README.md",
+      "origin": "src/jsi/README.md",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "4c01717e7c42f906881a21406a188f3086e12d04d4fbcad877a69a5f09cc365c"
+    },
+    {
+      "path": "src/legacy/jsi/decorator.h",
+      "origin": "src/jsi/decorator.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "19fa375141c779db94ff7e54c700325c1ed50a74825f9dc11f6600e77d09275f"
+    },
+    {
+      "path": "src/legacy/jsi/instrumentation.h",
+      "origin": "src/jsi/instrumentation.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "d094c95b30d0a43d6d6ea8c01f1bf943cde6a2443142c5bf36a4f8e8364321b6",
+      "packagePath": "build/native/jsi/jsi/instrumentation.h"
+    },
+    {
+      "path": "src/legacy/jsi/jsi-inl.h",
+      "origin": "src/jsi/jsi-inl.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "851e19e02cd6052b08802f315df6d407fa6ea9b57cc54dff3ecd0e2788146346",
+      "packagePath": "build/native/jsi/jsi/jsi-inl.h"
+    },
+    {
+      "path": "src/legacy/jsi/jsi.cpp",
+      "origin": "src/jsi/jsi.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "a99fc03cb5df5bccc5ce50144a6f4205f15d229a46c48109b35d594148166a98",
+      "packagePath": "build/native/jsi/jsi/jsi.cpp"
+    },
+    {
+      "path": "src/legacy/jsi/jsi.h",
+      "origin": "src/jsi/jsi.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "77617414464cc683acdcda15e59452253f384e99b8aac7d60240902efad65bf9",
+      "packagePath": "build/native/jsi/jsi/jsi.h"
+    },
+    {
+      "path": "src/legacy/jsi/jsilib-posix.cpp",
+      "origin": "src/jsi/jsilib-posix.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "2d48c1bbabb6ac41610898f5f5c618e1a271dc657f615020702e5e9485d4ed58"
+    },
+    {
+      "path": "src/legacy/jsi/jsilib-windows.cpp",
+      "origin": "src/jsi/jsilib-windows.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "fdf932b5794eb982367603694adbc621687eb02fc48284ed46fe3ba81ec6c28c"
+    },
+    {
+      "path": "src/legacy/jsi/jsilib.h",
+      "origin": "src/jsi/jsilib.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "76d9a7c2725ead3898bf7bee5ce343442ea8b4ad1a74300a2a253bcd428c46f7"
+    },
+    {
+      "path": "src/legacy/jsi/threadsafe.h",
+      "origin": "src/jsi/threadsafe.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "c1733397f6af144fa5d2ddd1cf67f97974d2267a934977cc23e8e19d101566ca"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
+      "origin": "src/node-api-jsi/ApiLoaders/JSRuntimeApi.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "0243d0f3413b96521f237de82ed32ebafdc373baef90385662c2287aac8057f1",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/JSRuntimeApi.cpp"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/JSRuntimeApi.h",
+      "origin": "src/node-api-jsi/ApiLoaders/JSRuntimeApi.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "d622dedbcd3130ed1081ac9ec860376112c34874b9cd144e2ef493df8921f4f8",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/JSRuntimeApi.h"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/JSRuntimeApi.inc",
+      "origin": "src/node-api-jsi/ApiLoaders/JSRuntimeApi.inc",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "bc4df9fe093aaeaf8c4040d7a21e9102e3e6f9d6f0571129ea933a93272567cb",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/JSRuntimeApi.inc"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/NodeApi.cpp",
+      "origin": "src/node-api-jsi/ApiLoaders/NodeApi.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "f42dbbfeccf81c93d7615af85cb425ae204d8e41339dd32519d4bbdc76636049",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/NodeApi.cpp"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/NodeApi.h",
+      "origin": "src/node-api-jsi/ApiLoaders/NodeApi.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "97ca3213e38f623264774b650355316f96a09effc2fbd0d9ad8eaf507cb48c37",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/NodeApi.h"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/NodeApi.inc",
+      "origin": "src/node-api-jsi/ApiLoaders/NodeApi.inc",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "f651d185c4db4439d0a17df52d02096b38231889fdcfd5a46e6f1ffcc2745840",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/NodeApi.inc"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/NodeApi_posix.cpp",
+      "origin": "src/node-api-jsi/ApiLoaders/NodeApi_posix.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "522323dc77aa816eae647197850881e6f80d99977d2cb530179a3bcaad9d8a80"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/NodeApi_win.cpp",
+      "origin": "src/node-api-jsi/ApiLoaders/NodeApi_win.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "cae556647d21e963e765fba87bb081cca1c011c1b8d03ec2cad4fcfa4e1a3336",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/NodeApi_win.cpp"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/V8Api.cpp",
+      "origin": "src/node-api-jsi/ApiLoaders/V8Api.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "4a7bf2d846e4c8cba9bc6b996beb469289202b241c0600a5eb89b52330f96eae",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/V8Api.cpp"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/V8Api.h",
+      "origin": "src/node-api-jsi/ApiLoaders/V8Api.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "eba16067754c92872b044c1abca2ab7a3c04383557a33c130c8f9d3dae018f1a",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/V8Api.h"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/ApiLoaders/V8Api.inc",
+      "origin": "src/node-api-jsi/ApiLoaders/V8Api.inc",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "83e0f37616a926a1fd106c33fd13a8956bc970f5687d4b7088982b8dce6a5cfc",
+      "packagePath": "build/native/include/node-api-jsi/ApiLoaders/V8Api.inc"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/NodeApiJsiRuntime.cpp",
+      "origin": "src/node-api-jsi/NodeApiJsiRuntime.cpp",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "181040d35891ca1ed668edb653f926457a96240a9096b89d2f2c0f758dd8d939",
+      "packagePath": "build/native/include/node-api-jsi/NodeApiJsiRuntime.cpp"
+    },
+    {
+      "path": "src/legacy/node-api-jsi/NodeApiJsiRuntime.h",
+      "origin": "src/node-api-jsi/NodeApiJsiRuntime.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "365436f1390089c8b4dc881d9dcd2efef7980388cf8d1095367ca35b95a48280",
+      "packagePath": "build/native/include/node-api-jsi/NodeApiJsiRuntime.h"
+    },
+    {
+      "path": "src/legacy/node-api/Readme.md",
+      "origin": "src/node-api/Readme.md",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "4d743876522aef86bb227c8da09f8e98aa67aeeeb1bae11f6130f1448cc4baf7"
+    },
+    {
+      "path": "src/legacy/node-api/js_native_api.h",
+      "origin": "src/node-api/js_native_api.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "9ce921212ad046a444b1792b2277b0fa1b11ec340a5ca0b3b2ec2de31758d8ec",
+      "packagePath": "build/native/include/node-api/js_native_api.h"
+    },
+    {
+      "path": "src/legacy/node-api/js_native_api_types.h",
+      "origin": "src/node-api/js_native_api_types.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "014b828cd88decce87dc796f56508160451be66a8069d949dda543d46dd0ecee",
+      "packagePath": "build/native/include/node-api/js_native_api_types.h"
+    },
+    {
+      "path": "src/legacy/node-api/js_runtime_api.h",
+      "origin": "src/node-api/js_runtime_api.h",
+      "revision": "5424838ddaf",
+      "kind": "frozen",
+      "sha256": "5a0e6d425b5b9f07c6f5abc020c2d99302f07ae71344bf40473aa8f67c3d6552",
+      "packagePath": "build/native/include/node-api/js_runtime_api.h"
+    },
+    {
+      "path": "src/legacy/V8JsiRuntime.cpp",
+      "origin": "src/V8JsiRuntime.cpp",
+      "revision": "5424838ddaf",
+      "kind": "ported",
+      "sha256": "a6746e07b3456e7e00f1c6171b97d37264317cc8d9b364d9ec1606aa38a5487a",
+      "outputSha256": "99b6337dac157a5a2c55ef846ea2b683f6029d66631b518ba019d42ec16f6fa0",
+      "adaptations": "Drain the last inspector dispatch gate before isolate entry; use engine ETW stack-walking flags; replace rejected code caches after recompilation."
+    },
+    {
+      "path": "src/legacy/V8JsiRuntime_impl.h",
+      "origin": "src/V8JsiRuntime_impl.h",
+      "revision": "5424838ddaf",
+      "kind": "ported",
+      "sha256": "f3bc13d5e10dc5c20f165c71eead31823ddf1d00401e1799129bd737001d38d3",
+      "outputSha256": "cf44a418760e2e079e8f9038535701f6d53496b4ff3b498de7860876f8ffe201"
+    },
+    {
+      "path": "src/legacy/IsolateData.h",
+      "origin": "src/IsolateData.h",
+      "revision": "5424838ddaf",
+      "kind": "ported",
+      "sha256": "712b1c1f3c2172349fd656606689e1d9efbcde9cdddbd8e63511305b7a8160dd",
+      "outputSha256": "2950a52bb66341f80ebbe15762b4916d320f0517d2f048234795bd4199202247"
+    },
+    {
+      "path": "src/legacy/V8Windows.h",
+      "origin": "src/V8Windows.h",
+      "revision": "5424838ddaf",
+      "kind": "ported",
+      "sha256": "b0eb1d2167c6b66bdb8ba386a772175db26437d0927e30d1a19c4d120794ea5a",
+      "outputSha256": "b0eb1d2167c6b66bdb8ba386a772175db26437d0927e30d1a19c4d120794ea5a"
+    },
+    {
+      "path": "src/legacy/node-api/env-inl.h",
+      "origin": "src/node-api/env-inl.h",
+      "revision": "5424838ddaf",
+      "kind": "ported",
+      "sha256": "880595aa9f32e28bf942e47e15ce58b2040e192dd8d288d992bfaac530bd5408",
+      "outputSha256": "880595aa9f32e28bf942e47e15ce58b2040e192dd8d288d992bfaac530bd5408"
+    },
+    {
+      "path": "src/legacy/node-api/v8_api.cpp",
+      "origin": "src/node-api/v8_api.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "ported",
+      "sha256": "7d986c9f204f035236f3523f21bc3febf36bca16f4fe531ab43910370a169061",
+      "outputSha256": "1a5d8d5aeb63fbf05abf6d7cb6f667c8e7ce0317336f1ca76b6ecb60e1265148",
+      "adaptations": "Enter and lock the runtime around garbage collection outside an environment scope."
+    },
+    {
+      "path": "src/legacy/node-api/js_native_api_v8.cc",
+      "origin": "src/node-api/js_native_api_v8.cc",
+      "revision": "6c0f70bdfd9",
+      "kind": "ported",
+      "sha256": "0529311afddd6a3cb9e3edab9413e7c0c0513a4335901f89bad9ec51135c7b31",
+      "outputSha256": "55cbcf1bb1113adda30ae1feb8edb3c61106e817fa007d0edab848cd71ca1fc1"
+    },
+    {
+      "path": "src/legacy/node-api/js_native_api_v8.h",
+      "origin": "src/node-api/js_native_api_v8.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "ported",
+      "sha256": "3f1b9c4423a9d6ace8de5340705c064e4a0caa092b4f0962ed8ad62f5141a92a",
+      "outputSha256": "3f1b9c4423a9d6ace8de5340705c064e4a0caa092b4f0962ed8ad62f5141a92a"
+    },
+    {
+      "path": "src/legacy/node-api/js_native_api_v8_internals.h",
+      "origin": "src/node-api/js_native_api_v8_internals.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "ported",
+      "sha256": "b67f2cfa43c64791573dc3af9ae82198842cca18e9beae1ef73dd8d7ad1ba726",
+      "outputSha256": "b67f2cfa43c64791573dc3af9ae82198842cca18e9beae1ef73dd8d7ad1ba726"
+    },
+    {
+      "path": "src/legacy/node-api/util-inl.h",
+      "origin": "src/node-api/util-inl.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "ported",
+      "sha256": "1b9adbd99977d1ff372bdc1f4b046ae04271e0610bbcc8a9c9cccab1b7d2626d",
+      "outputSha256": "1b9adbd99977d1ff372bdc1f4b046ae04271e0610bbcc8a9c9cccab1b7d2626d"
+    },
+    {
+      "path": "src/legacy/inspector/LICENSE_LLHTTP",
+      "origin": "src/inspector/LICENSE_LLHTTP",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "a33a11b5c39bca1738d3957ee519d6cf0d63a18325509bf9263358f5c42bdc55",
+      "outputSha256": "a33a11b5c39bca1738d3957ee519d6cf0d63a18325509bf9263358f5c42bdc55"
+    },
+    {
+      "path": "src/legacy/inspector/LICENSE_NODE",
+      "origin": "src/inspector/LICENSE_NODE",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "9248b91d3cee18551aa7386215f61578c3484a6d47bfbcd5a3b05ebe8998b7cb",
+      "outputSha256": "9248b91d3cee18551aa7386215f61578c3484a6d47bfbcd5a3b05ebe8998b7cb"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_agent.cpp",
+      "origin": "src/inspector/inspector_agent.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "9c5c9f9ee98597cc547390c54ad4ac7561e5902cf9b58efb50ccf24f2b5049c5",
+      "outputSha256": "ce66c2f5c498981443dc28cf101381b71162e324cc6196dd9173b4dc625648b3",
+      "adaptations": "Enter and optionally lock the isolate for message dispatch; retain registered contexts for default-context lookup outside JSI calls; expose dispatch draining before isolate entry."
+    },
+    {
+      "path": "src/legacy/inspector/inspector_agent.h",
+      "origin": "src/inspector/inspector_agent.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "e2f8a5116fe50a1cb886d55da2587f572e23d95436017cc172f48e3e6c9407c3",
+      "outputSha256": "ea604c08a2ffa61c5dadbcd045f5b4f59abea6478f6018b0af5060ac095e86c6",
+      "adaptations": "Allow runtime teardown to drain inspector dispatch before acquiring the isolate lock."
+    },
+    {
+      "path": "src/legacy/inspector/inspector_socket.cpp",
+      "origin": "src/inspector/inspector_socket.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "b946108374cbe265bf4b247102418c4b0ce3678660c3b7c86f80cdb3b4eac0b4",
+      "outputSha256": "b946108374cbe265bf4b247102418c4b0ce3678660c3b7c86f80cdb3b4eac0b4"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_socket.h",
+      "origin": "src/inspector/inspector_socket.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "b4fa48bb5962d317367f5a926913b962f674a5797d347fc6a9f9534edb3162a2",
+      "outputSha256": "b4fa48bb5962d317367f5a926913b962f674a5797d347fc6a9f9534edb3162a2"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_socket_server.cpp",
+      "origin": "src/inspector/inspector_socket_server.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "33f9ed48e90e398f7170bbbd732030dcd7a224645766d02a6e3c5ab7cb39d965",
+      "outputSha256": "33f9ed48e90e398f7170bbbd732030dcd7a224645766d02a6e3c5ab7cb39d965"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_socket_server.h",
+      "origin": "src/inspector/inspector_socket_server.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "32588d59f1c1c10898541f9ac924a6ee6b6ae6a22f226153476c9d2b0988db9b",
+      "outputSha256": "32588d59f1c1c10898541f9ac924a6ee6b6ae6a22f226153476c9d2b0988db9b"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_tcp.cpp",
+      "origin": "src/inspector/inspector_tcp.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "c14a1874398794e043ecf00a8e240dce9f36f9fd2536e6ce7a9388a660b04905",
+      "outputSha256": "c14a1874398794e043ecf00a8e240dce9f36f9fd2536e6ce7a9388a660b04905"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_tcp.h",
+      "origin": "src/inspector/inspector_tcp.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "2b71bc63a99273825a71ee0383780fbe20570c6b6cba6a369877b2e2a8b3c97b",
+      "outputSha256": "2b71bc63a99273825a71ee0383780fbe20570c6b6cba6a369877b2e2a8b3c97b"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_utils.cpp",
+      "origin": "src/inspector/inspector_utils.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "ebd4ed7588c879e2312474f622d1c86625abc373a6e2380d41908b6719628069",
+      "outputSha256": "ebd4ed7588c879e2312474f622d1c86625abc373a6e2380d41908b6719628069"
+    },
+    {
+      "path": "src/legacy/inspector/inspector_utils.h",
+      "origin": "src/inspector/inspector_utils.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "e5d5c756dcfd36f77584932d83a87f00163b73c562bb093725999fc3d1fd6962",
+      "outputSha256": "e5d5c756dcfd36f77584932d83a87f00163b73c562bb093725999fc3d1fd6962"
+    },
+    {
+      "path": "src/MurmurHash.cpp",
+      "origin": "src/MurmurHash.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "881411892f658e44cd0a8f6b7134168404e05e11886171285f710b283bcec67d"
+    },
+    {
+      "path": "src/MurmurHash.h",
+      "origin": "src/MurmurHash.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "a0879c1d454fa0809d4ff87511aff1d538863ac7510c04bf38e6afdff3fc2570"
+    },
+    {
+      "path": "src/V8Instrumentation.cpp",
+      "origin": "src/V8Instrumentation.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "95e3b4b0def9a50123face515362f496d42fe85e8330c2d065f0b00428732bad"
+    },
+    {
+      "path": "src/V8Instrumentation.h",
+      "origin": "src/V8Instrumentation.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "d547f1128f47306942caa392a2e3ee1e32b746136efee029e1dc825778414fa9"
+    },
+    {
+      "path": "src/etw/tracing.cpp",
+      "origin": "src/etw/tracing.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "0f49fcc845e6cad5907b0c60222b21a31e3dd2c00ec93a63f68e4b02b7720fd1"
+    },
+    {
+      "path": "src/etw/tracing.h",
+      "origin": "src/etw/tracing.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "4e83dfc4a884b3568f81b7733b8c1f5560fb75b20e733d12bf25c7ad4dcbe788"
+    },
+    {
+      "path": "src/etw/tracing.man",
+      "origin": "src/etw/tracing.man",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "7cebf11246aaf149635a86944f62a56c67de2d44f4d619ada4f555680ac03798"
+    },
+    {
+      "path": "src/inspector/llhttp.c",
+      "origin": "src/inspector/llhttp.c",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "8268b32dc29fe2c8cb067400d5d68e052afcf88ab04dd188c2883de20f54c8c2"
+    },
+    {
+      "path": "src/inspector/llhttp.h",
+      "origin": "src/inspector/llhttp.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "ffb45c551d4225b5e219c6c283b3eb2dd4f68ceb323eb95c2caa44954bf84c92"
+    },
+    {
+      "path": "src/inspector/llhttp_api.c",
+      "origin": "src/inspector/llhttp_api.c",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "8a97c1387d740803406a6fc88bb3806c1c89cc75936708f586824da04fd07dbd"
+    },
+    {
+      "path": "src/inspector/llhttp_http.c",
+      "origin": "src/inspector/llhttp_http.c",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "764424e7a85a97b799ac1bc0605a0b25177214d0c8ef88c10c088049ee7f3ac1"
+    },
+    {
+      "path": "src/legacy/inspector/llhttp.h",
+      "origin": "src/inspector/llhttp.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "inspector",
+      "sha256": "ffb45c551d4225b5e219c6c283b3eb2dd4f68ceb323eb95c2caa44954bf84c92",
+      "outputSha256": "ffb45c551d4225b5e219c6c283b3eb2dd4f68ceb323eb95c2caa44954bf84c92"
+    },
+    {
+      "path": "src/legacy/testmain.cpp",
+      "origin": "src/testmain.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "1525c4271990bcfca4473a8fc8d35e4232be500b50217ec1d3384c60ebbb58f6",
+      "outputSha256": "d3784b1de6fcbe37d48bbd7d6c262462aef0cac3c6a034dcd0e0df8111f3a290"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib.h",
+      "origin": "src/jsi/test/testlib.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "7291dc7681f285b2706523246052a6b727ef1ae93bed83d20faed99469c14ce6"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib_abi.h",
+      "origin": "src/jsi/test/testlib_abi.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "68d029b29f470146793e25b26061e8d96f24f161683ee84fa8f1a3315be391ac"
+    },
+    {
+      "path": "src/legacy/jsi/test/testlib_ext.cpp",
+      "origin": "src/jsi/test/testlib_ext.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "df65f6c658ba8f4a7f61720a592f1b9e2a8a7e11d21a129ca18ae0ca3c8c2681",
+      "outputSha256": "696ff470f98b687f3152eba6dc44fcc7ad7ea339b827526dfc46a5dce533dfe2"
+    },
+    {
+      "path": "src/legacy/node-api/test/child_process.cpp",
+      "origin": "src/node-api/test/child_process.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "751c4042215ee9298a1af7080db0a29b6a08e26c67211800d46919669bddd33f",
+      "outputSha256": "cde0744cf08c0dfbb3274c0e67491e46e59cab9f152bf93ca8da6a23b6c78099"
+    },
+    {
+      "path": "src/legacy/node-api/test/child_process.h",
+      "origin": "src/node-api/test/child_process.h",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "94cdb92325f9456215d0694c67756db70a610ece7b25ee6a751d8d1b539aa8a3"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test.cpp",
+      "origin": "src/node-api/test/node_api_test.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "8cfaf6a9abfab5a923a32c78b8c6832bfe1ec7dd64f85422869d6bab4cf591ad",
+      "outputSha256": "d79da862efa503de466a7c902acc7ebbfa9622718d59fbe9c6d10e0bbf8589d3"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test.h",
+      "origin": "src/node-api/test/node_api_test.h",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "250573a440390cef0b5f7b8dfe5891b3a60caacea7a2eb1fbb0add12bea1cd8d"
+    },
+    {
+      "path": "src/legacy/node-api/test/node_api_test_v8.cpp",
+      "origin": "src/node-api/test/node_api_test_v8.cpp",
+      "revision": "6c0f70bdfd9",
+      "kind": "test",
+      "sha256": "c33d83ff7f07a15a72576dfb66cec47dbed19fc1fd792406b2730595c504fda8"
+    },
+    {
+      "path": "src/legacy/node-api/test/testmain.cpp",
+      "origin": "src/node-api/test/testmain.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "f5a0fea4a5d66397e994c208a7c0913db158a6dd0ac841041c7eaf414b37d683",
+      "outputSha256": "3904e6782cd5839d76207c1e16f87237fcd454d52263f6c0122ff1392c42fa94"
+    },
+    {
+      "path": "src/legacy/cet_tests.cpp",
+      "origin": "src/cet_tests.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "test",
+      "sha256": "d17660865dc63f56618cd9021de2260664af2b18da0a3c47970f80ab30e40315",
+      "outputSha256": "30079b12820628deec2319aa7e1b8a18883c4f84c307a7eac514ca8cbe7ebd50"
+    },
+    {
+      "path": "src/jsi/test/testlib.cpp",
+      "origin": "src/jsi/test/testlib.cpp",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "597f3562d5cdf9cb9779aaa315bf1e262eafdbb704a13316ea09ef4e2777eae4"
+    },
+    {
+      "path": "src/copy_test_js_files.ts",
+      "origin": "src/copy_test_js_files.ts",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "8fa1b6d0220640764feef2d36e07f83db79930380ac01d8fa4e7ab6fc4e501d3"
+    },
+    {
+      "path": "src/cetrun.c",
+      "origin": "src/cetrun.c",
+      "revision": "b98f3c0ba6d",
+      "kind": "shared",
+      "sha256": "7c68670e0333bacc40dd604c7b9f96b017c0b16c2206f14e36e55ca51e4f8ebf",
+      "outputSha256": "2e89f79b0de84e46fdfa4ff01254cc77619683a955883dcaa9b379dfa63dcf3d",
+      "adaptations": "Capture a thread minidump before terminating a timed-out test child."
+    }
+  ]
+}

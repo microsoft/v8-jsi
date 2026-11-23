@@ -1,0 +1,37 @@
+parameters:
+- name: buildPlatform
+  type: string
+- name: buildConfiguration
+  type: string
+- name: isPublish
+  type: boolean
+  default: false
+
+steps:
+- template: /.ado/overlay-version-config.yml@self
+- pwsh: |
+    node scripts/legacy-build.ts --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Build v8jsi.dll
+  workingDirectory: $(Build.SourcesDirectory)
+- pwsh: |
+    node scripts/legacy-build.ts --no-build --test --check --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Legacy suites and hardening gates
+  workingDirectory: $(Build.SourcesDirectory)
+- pwsh: |
+    node scripts/legacy-build.ts --no-build --stage "$(Build.StagingDirectory)\out\pkg-staging" --platform ${{ parameters.buildPlatform }} --configuration ${{ lower(parameters.buildConfiguration) }}
+  displayName: Stage legacy DLL, import library, and separate full PDB
+  workingDirectory: $(Build.SourcesDirectory)
+- ${{ if parameters.isPublish }}:
+  - template: /.ado/templates/esrp-codesign-binaries.yml@self
+    parameters:
+      folderPath: $(Build.StagingDirectory)\out\pkg-staging
+      pattern: '**\v8jsi.dll'
+      keyCode: CP-230012
+  - pwsh: |
+      Get-ChildItem -LiteralPath "$(Build.StagingDirectory)\out\pkg-staging" -Filter "CodeSignSummary-*.md" -File -ErrorAction Stop | Remove-Item -Force -ErrorAction Stop
+      $dll = "$(Build.StagingDirectory)\out\pkg-staging\lib\win32\${{ parameters.buildConfiguration }}\${{ parameters.buildPlatform }}\v8jsi.dll"
+      $signature = Get-AuthenticodeSignature $dll
+      if ($signature.Status -ne 'Valid') { throw 'Legacy DLL signature is not valid' }
+      # The symbol image must be the exact signed DLL that goes into the package.
+      Copy-Item $dll "$(Build.StagingDirectory)\out\symbols\${{ parameters.buildPlatform }}-${{ parameters.buildConfiguration }}\v8jsi.dll" -Force
+    displayName: Remove signing summary, verify signature, and synchronize symbol image

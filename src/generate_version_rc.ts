@@ -25,7 +25,8 @@ const result = template
   .replaceAll("V8JSIVER_MAJOR", major ?? "0")
   .replaceAll("V8JSIVER_MINOR", minor ?? "0")
   .replaceAll("V8JSIVER_BUILD", build ?? "0")
-  .replaceAll("V8JSIVER_V8REF", "0");
+  .replaceAll("V8JSIVER_V8REF", "0")
+  .replaceAll("V8JSIVER_PRODUCT_VERSION", config.version);
 
 writeFileSync(values.output!, result);
 console.log(`Generated ${values.output} (version ${major}.${minor}.${build})`);

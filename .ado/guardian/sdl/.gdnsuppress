@@ -110,6 +110,50 @@
       "target": "out/pkg-staging/build/native/win-x64/mkv8snapshot.exe",
       "tool": "binskim",
       "ruleId": "BA2025"
+    },
+    "a6a7a0ecbe67480ed4f94861ea50f32bc2217e0c0f84523d38243bbe17500cca": {
+      "signature": "a6a7a0ecbe67480ed4f94861ea50f32bc2217e0c0f84523d38243bbe17500cca",
+      "target": "out/symbols/x86-Release/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-11-22 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on legacy x86 v8jsi.dll, Release symbol copy (out/symbols/x86-Release/v8jsi.dll). clang-cl emits no SafeSEH tables (.sxdata), and V8's x86 hand-written asm is not SafeSEH-aware, so the linker cannot produce a /SAFESEH image. An x86 toolchain limitation, not a v8-jsi defect; accepted as a residual. Signature is per binary and per configuration."
+    },
+    "3d563c78b4e84db706cc660747ac6392bd22e65161adc32552c9c70c0c5419b4": {
+      "signature": "3d563c78b4e84db706cc660747ac6392bd22e65161adc32552c9c70c0c5419b4",
+      "target": "out/pkg-staging/lib/win32/Release/x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-11-22 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on legacy x86 v8jsi.dll, Release package staging copy (out/pkg-staging/lib/win32/Release/x86/v8jsi.dll). clang-cl emits no SafeSEH tables (.sxdata), and V8's x86 hand-written asm is not SafeSEH-aware, so the linker cannot produce a /SAFESEH image. An x86 toolchain limitation, not a v8-jsi defect; accepted as a residual. Signature is per binary and per configuration."
+    },
+    "721b4497b2d9c85b6e59a9672538b86cf01f028d9581759c48804a15350967a3": {
+      "signature": "721b4497b2d9c85b6e59a9672538b86cf01f028d9581759c48804a15350967a3",
+      "target": "out/symbols/x86-Debug/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-11-22 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on legacy x86 v8jsi.dll, Debug symbol copy (out/symbols/x86-Debug/v8jsi.dll). clang-cl emits no SafeSEH tables (.sxdata), and V8's x86 hand-written asm is not SafeSEH-aware, so the linker cannot produce a /SAFESEH image. An x86 toolchain limitation, not a v8-jsi defect; accepted as a residual. Signature is per binary and per configuration."
+    },
+    "86eb43e0ce1aae00c85130b72aeb4c1bf8511aa05a11f93f8dbfe122514a9f59": {
+      "signature": "86eb43e0ce1aae00c85130b72aeb4c1bf8511aa05a11f93f8dbfe122514a9f59",
+      "target": "out/pkg-staging/lib/win32/Debug/x86/v8jsi.dll",
+      "memberOf": [
+        "default"
+      ],
+      "tool": "binskim",
+      "ruleId": "BA2018",
+      "createdDate": "2026-11-22 00:00:00Z",
+      "justification": "BA2018 (EnableSafeSEH) on legacy x86 v8jsi.dll, Debug package staging copy (out/pkg-staging/lib/win32/Debug/x86/v8jsi.dll). clang-cl emits no SafeSEH tables (.sxdata), and V8's x86 hand-written asm is not SafeSEH-aware, so the linker cannot produce a /SAFESEH image. An x86 toolchain limitation, not a v8-jsi defect; accepted as a residual. Signature is per binary and per configuration."
     }
   }
 }

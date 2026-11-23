@@ -5,6 +5,7 @@
   "type": "module",
   "description": "TypeScript build/tooling scripts for v8-jsi. Run directly with Node.js v24+ (strip-types); no build step. Types are for editor/CI type-checking only.",
   "scripts": {
+    "test": "node --test legacy-checks.test.ts cet-headers.test.ts legacy-test-runner.test.ts legacy-package.test.ts legacy-targets.test.ts legacy-pipeline.test.ts",
     "header-check": "node --test header-check.ts",
     "native-rid-test": "node --test native-rid.test.ts",
     "typecheck": "tsc --noEmit"

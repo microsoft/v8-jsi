@@ -1,0 +1,260 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+#include "child_process.h"
+
+#include <strsafe.h>
+#include <windows.h>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <iostream>
+#include <sstream>
+#include <future>
+
+#ifndef VerifyElseExit
+#define VerifyElseExit(condition)                                              \
+  do {                                                                         \
+    if (!(condition)) {                                                        \
+      exitOnError(#condition);                                                 \
+    }                                                                          \
+  } while (false)
+#endif
+
+namespace node_api_tests {
+
+std::string readFromPipe(HANDLE pipeHandle);
+void exitOnError(const char* message);
+
+struct AutoHandle {
+  HANDLE handle{NULL};
+
+  AutoHandle() = default;
+  AutoHandle(HANDLE handle) : handle(handle) {}
+  ~AutoHandle() { ::CloseHandle(handle); }
+
+  AutoHandle(const AutoHandle&) = delete;
+  AutoHandle& operator=(const AutoHandle&) = delete;
+
+  void Close() {
+    ::CloseHandle(handle);
+    handle = NULL;
+  }
+};
+
+// The CET path accepts raw argv (fixture paths and JS child_process arguments).
+// Quote with CRT rules, including empty args and backslashes before quotes.
+static std::string QuoteArgument(std::string_view value) {
+  std::string quoted = "\"";
+  size_t slashes = 0;
+  for (char c : value) {
+    if (c == '\\') { ++slashes; continue; }
+    quoted.append(c == '"' ? slashes * 2 + 1 : slashes, '\\');
+    slashes = 0;
+    quoted += c;
+  }
+  quoted.append(slashes * 2, '\\');
+  return quoted + "\"";
+}
+
+// Create a child process that uses the previously created pipes for STDIN and
+// STDOUT.
+ProcessResult spawnSync(std::string_view command,
+                        std::vector<std::string> args) {
+  ProcessResult result{};
+  const char* cetMode = std::getenv("V8JSI_TEST_CET");
+  std::string wrappedCommand;
+  if (cetMode) {
+    if (std::string_view(cetMode) != "off" &&
+        std::string_view(cetMode) != "compat" &&
+        std::string_view(cetMode) != "strict") {
+      return {2, {}, "Invalid V8JSI_TEST_CET: expected off|compat|strict\n"};
+    }
+    // Shared by the gtest fixtures AND node_lite's JS spawnSync implementation:
+    // Windows does not inherit CET policy, so every nested child needs cetrun.
+    char module[32768];
+    DWORD length = GetModuleFileNameA(nullptr, module, sizeof(module));
+    if (!length || length >= sizeof(module)) return {3, {}, "Cannot locate cetrun_legacy.exe beside test runner\n"};
+    auto launcher = std::filesystem::path(module).replace_filename("cetrun_legacy.exe");
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(launcher, error)) {
+      return {3, {}, "V8JSI_TEST_CET requires launcher: " + launcher.string() + "\n"};
+    }
+    wrappedCommand = QuoteArgument(launcher.string());
+    std::vector<std::string> wrappedArgs{cetMode, QuoteArgument(command)};
+    for (const auto& arg : args) wrappedArgs.push_back(QuoteArgument(arg));
+    command = wrappedCommand;
+    args = std::move(wrappedArgs);
+  }
+
+  AutoHandle job{::CreateJobObjectW(nullptr, nullptr)};
+  VerifyElseExit(job.handle != nullptr);
+  JOBOBJECT_EXTENDED_LIMIT_INFORMATION job_info{};
+  job_info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+  VerifyElseExit(::SetInformationJobObject(job.handle,
+                                           JobObjectExtendedLimitInformation,
+                                           &job_info,
+                                           sizeof(job_info)));
+
+  // Set the bInheritHandle flag so pipe handles are inherited.
+
+  SECURITY_ATTRIBUTES handles_are_inheritable = {
+      sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+
+  AutoHandle out_read_handle, out_write_handle;
+  VerifyElseExit(CreatePipe(&out_read_handle.handle,
+                            &out_write_handle.handle,
+                            &handles_are_inheritable,
+                            0));
+  // Ensure the read handle to the pipe for STDOUT is not inherited.
+  VerifyElseExit(
+      SetHandleInformation(out_read_handle.handle, HANDLE_FLAG_INHERIT, 0));
+
+  AutoHandle err_read_handle, err_write_handle;
+  VerifyElseExit(CreatePipe(&err_read_handle.handle,
+                            &err_write_handle.handle,
+                            &handles_are_inheritable,
+                            0));
+  // Ensure the read handle to the pipe for STDERR is not inherited.
+  VerifyElseExit(
+      SetHandleInformation(err_read_handle.handle, HANDLE_FLAG_INHERIT, 0));
+
+  // Set up members of the STARTUPINFO structure.
+  // This structure specifies the STDIN and STDOUT handles for redirection.
+  STARTUPINFOA startup_info{};
+  startup_info.cb = sizeof(STARTUPINFOA);
+  startup_info.dwFlags |= STARTF_USESTDHANDLES;
+  startup_info.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
+  startup_info.hStdOutput = out_write_handle.handle;
+  startup_info.hStdError = err_write_handle.handle;
+
+  // Create the child process.
+
+  std::string commandLine = std::string(command);
+  for (std::string& arg : args) {
+    commandLine += " " + arg;
+  }
+  PROCESS_INFORMATION process_info{};
+  VerifyElseExit(
+      CreateProcessA(nullptr,
+                     const_cast<char*>(commandLine.c_str()),  // command line
+                     nullptr,  // process security attributes
+                     nullptr,  // primary thread security attributes
+                     TRUE,     // handles are inherited
+                     CREATE_DEFAULT_ERROR_MODE |
+                         CREATE_SUSPENDED,  // creation flags
+                     nullptr,                    // use parent's environment
+                     nullptr,          // use parent's current directory
+                     &startup_info,    // STARTUPINFO pointer
+                     &process_info));  // receives PROCESS_INFORMATION
+
+  VerifyElseExit(
+      ::AssignProcessToJobObject(job.handle, process_info.hProcess));
+  VerifyElseExit(::ResumeThread(process_info.hThread) != static_cast<DWORD>(-1));
+
+  // Only the child keeps the write handles. Drain both pipes concurrently so
+  // neither can fill up and block the child before it exits.
+  out_write_handle.Close();
+  err_write_handle.Close();
+  std::future<std::string> std_output = std::async(
+      std::launch::async, readFromPipe, out_read_handle.handle);
+  std::future<std::string> std_error = std::async(
+      std::launch::async, readFromPipe, err_read_handle.handle);
+
+  constexpr DWORD childProcessTimeoutMs = 5 * 60 * 1000;
+  DWORD wait_result =
+      ::WaitForSingleObject(process_info.hProcess, childProcessTimeoutMs);
+  bool timed_out = wait_result == WAIT_TIMEOUT;
+  if (timed_out) {
+    VerifyElseExit(::TerminateJobObject(job.handle, ERROR_TIMEOUT));
+    VerifyElseExit(
+        WAIT_OBJECT_0 == ::WaitForSingleObject(process_info.hProcess, 5000));
+  } else {
+    VerifyElseExit(WAIT_OBJECT_0 == wait_result);
+  }
+
+  DWORD exit_code;
+  VerifyElseExit(::GetExitCodeProcess(process_info.hProcess, &exit_code));
+
+  // Close handles to the child process and its primary thread.
+  // Some applications might keep these handles to monitor the status
+  // of the child process, for example.
+  ::CloseHandle(process_info.hProcess);
+  ::CloseHandle(process_info.hThread);
+
+  // The primary process may have exited after spawning descendants that still
+  // hold inherited pipe handles. Closing the job terminates those descendants
+  // before the reader tasks wait for EOF.
+  job.Close();
+
+  result.status = timed_out ? ERROR_TIMEOUT : exit_code;
+  result.std_output = std_output.get();
+  result.std_error = std_error.get();
+  if (timed_out) {
+    if (!result.std_error.empty()) result.std_error += '\n';
+    result.std_error += "Child process exceeded the 5-minute timeout.";
+  }
+
+  if (cetMode) {
+    // Keep diagnostics visible in CI without changing JS stderr assertions or
+    // the fixture's file/line failure protocol. Retain the exact SKIP line.
+    std::istringstream lines(result.std_error);
+    std::string line, childError;
+    while (std::getline(lines, line)) {
+      if (line.starts_with("cetrun:")) std::cerr << line << '\n';
+      else childError += line + (lines.eof() ? "" : "\n");
+    }
+    result.std_error = std::move(childError);
+  }
+  return result;
+}
+
+std::string readFromPipe(HANDLE pipeHandle) {
+  std::string result;
+  constexpr size_t bufferSize = 4096;
+  char buffer[bufferSize];
+
+  for (;;) {
+    DWORD bytesRead;
+    BOOL isSuccess =
+        ::ReadFile(pipeHandle, buffer, bufferSize, &bytesRead, nullptr);
+    if (!isSuccess || bytesRead == 0) break;
+
+    result.append(buffer, bytesRead);
+  }
+
+  return result;
+}
+
+// Format a readable error message, display a message box,
+// and exit from the application.
+void exitOnError(const char* message) {
+  LPVOID lpMsgBuf;
+  LPVOID lpDisplayBuf;
+  DWORD dw = GetLastError();
+
+  ::FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                       FORMAT_MESSAGE_IGNORE_INSERTS,
+                   nullptr,
+                   dw,
+                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                   (LPSTR)&lpMsgBuf,
+                   0,
+                   nullptr);
+
+  lpDisplayBuf = (LPVOID)LocalAlloc(
+      LMEM_ZEROINIT, (lstrlenA((LPCSTR)lpMsgBuf) + lstrlenA(message) + 40));
+  ::StringCchPrintfA((LPSTR)lpDisplayBuf,
+                     LocalSize(lpDisplayBuf),
+                     "%s failed with error %d: %s",
+                     message,
+                     dw,
+                     lpMsgBuf);
+  fprintf(stderr, "%s\n", (const char*)lpDisplayBuf);
+
+  ::LocalFree(lpMsgBuf);
+  ::LocalFree(lpDisplayBuf);
+  ::ExitProcess(1);
+}
+}  // namespace node_api_tests

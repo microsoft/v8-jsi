@@ -183,6 +183,8 @@ if /i "%1"=="doc"           set doc=1&goto arg-ok
 if /i "%1"=="binlog"        set extra_msbuild_args=/binaryLogger:out\%config%\node.binlog&goto arg-ok
 if /i "%1"=="compile-commands" set compile_commands=1&goto arg-ok
 if /i "%1"=="cfg"           set cfg=1&goto arg-ok
+@rem v8-jsi: separate legacy engine configuration and narrow targets.
+if /i "%1"=="v8jsilegacy"   set build_v8jsi_legacy=1&goto arg-ok
 if /i "%1"=="v8jsi"         set build_v8jsi=1&goto arg-ok
 if /i "%1"=="v8jsisb"       set build_v8jsi=1&set build_v8jsisb=1&goto arg-ok
 if /i "%1"=="no-node"             set no_node=1&goto arg-ok
@@ -286,6 +288,7 @@ if defined compile_commands set configure_flags=%configure_flags% -C
 if defined cfg              set configure_flags=%configure_flags% --control-flow-guard
 if defined v8temporal       set configure_flags=%configure_flags% --v8-enable-temporal-support
 if defined v8windbg         set configure_flags=%configure_flags% --enable-v8windbg
+if defined build_v8jsi_legacy set configure_flags=%configure_flags% --build-v8jsi-legacy
 if defined build_v8jsi      set configure_flags=%configure_flags% --build-v8jsi
 if defined build_v8jsisb    set configure_flags=%configure_flags% --build-v8jsisb
 
@@ -503,6 +506,8 @@ if defined no_overlapped_checker (set use_target_list=1) else (set "target_list=
 @rem build_v8jsi adds v8jsi_test + node_api_tests as a unit (v8jsi.dll is
 @rem a transitive dep of v8jsi_test) plus mkv8snapshot, the offline startup-
 @rem snapshot builder (a standalone exe that links no V8 — see src/v8jsi.gyp).
+if defined build_v8jsi_legacy set "target_list=%target_list%;v8jsi_legacy;v8jsi_legacy_task_tests;jsitests_legacy;node_api_tests_legacy;inspector_tests_legacy;cet_tests_legacy"
+if defined build_v8jsi_legacy if "%target_arch%"=="x64" set "target_list=%target_list%;v8jsi_legacy_startup_tests;v8jsi_legacy_cetrun"
 if defined build_v8jsi set "target_list=%target_list%;v8jsi_test;node_api_tests;mkv8snapshot"
 
 @rem strip leading ';' (flattened to top-level so each %target_list% re-expands fresh)

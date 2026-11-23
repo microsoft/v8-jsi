@@ -1,0 +1,37 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32"><Configuration>Release</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32"><Configuration>Debug</Configuration><Platform>Win32</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64"><Configuration>Release</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64"><Configuration>Debug</Configuration><Platform>ARM64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals"><ProjectGuid>{DE15C04B-4732-48D2-BC19-0564F90B5E7A}</ProjectGuid><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion></PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><PlatformToolset Condition="'$(PlatformToolset)' == ''">$(DefaultPlatformToolset)</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup><TargetName Condition="'$(Coexistence)' != 'true'">consumer</TargetName><TargetName Condition="'$(Coexistence)' == 'true'">coexistence</TargetName><IntDir>$(OutDir)obj\</IntDir></PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile><WarningLevel>Level4</WarningLevel><TreatWarningAsError>true</TreatWarningAsError><LanguageStandard>stdcpp17</LanguageStandard><ExceptionHandling>Sync</ExceptionHandling><RuntimeTypeInfo>false</RuntimeTypeInfo><RuntimeLibrary Condition="'$(Configuration)' == 'Release'">MultiThreaded</RuntimeLibrary><RuntimeLibrary Condition="'$(Configuration)' == 'Debug'">MultiThreadedDebug</RuntimeLibrary><PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions><DisableSpecificWarnings>4127;4100;%(DisableSpecificWarnings)</DisableSpecificWarnings><PreprocessorDefinitions Condition="'$(Platform)' == 'ARM64' and '$(Configuration)' == 'Debug'">_HAS_ITERATOR_DEBUGGING=0;%(PreprocessorDefinitions)</PreprocessorDefinitions><AdditionalIncludeDirectories>$(PackageRoot)\build\native\jsi;$(PackageRoot)\build\native\include\node-api;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <Link>
+      <AdditionalDependencies>winhttp.lib;ws2_32.lib;delayimp.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- Share the UCRT heap with the Hybrid-CRT DLL, including Debug STL proxies. -->
+      <IgnoreSpecificDefaultLibraries Condition="'$(Configuration)' == 'Release'">libucrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <AdditionalDependencies Condition="'$(Configuration)' == 'Release'">ucrt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries Condition="'$(Configuration)' == 'Debug'">libucrtd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <AdditionalDependencies Condition="'$(Configuration)' == 'Debug'">ucrtd.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="consumer.cpp" Condition="'$(Coexistence)' != 'true'" />
+    <ClCompile Include="coexistence.cpp" Condition="'$(Coexistence)' == 'true'" />
+    <ClCompile Include="coexistence-legacy.cpp" Condition="'$(Coexistence)' == 'true'" />
+    <ClCompile Include="coexistence-modern.cpp" Condition="'$(Coexistence)' == 'true'"><AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\..\src;$(MSBuildThisFileDirectory)..\..\src\public;$(MSBuildThisFileDirectory)..\..\src\jsi_abi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+    <ClCompile Include="$(PackageRoot)\build\native\jsi\jsi\jsi.cpp" />
+  </ItemGroup>
+  <Import Project="$(PackageRoot)\build\native\ReactNative.V8Jsi.Windows.targets" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
