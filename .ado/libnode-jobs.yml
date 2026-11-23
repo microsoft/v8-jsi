@@ -95,6 +95,12 @@ jobs:
     variables:
     - name: Packaging.EnableSBOMSigning
       value: ${{ startsWith(variables['System.CollectionUri'], 'https://dev.azure.com/microsoft') }}
+    # Temporary diagnostics, including resource samples in injected post-steps.
+    - ${{ if eq(p.Os, 'osx') }}:
+      - name: system.debug
+        value: 'true'
+      - name: AZP_ENABLE_RESOURCE_MONITOR_DEBUG_OUTPUT
+        value: 'true'
 
     templateContext:
       # CodeQL runs only on main. The Windows LibNode jobs analyze the same
@@ -213,6 +219,16 @@ jobs:
           LIBNODE_DOCKER_MOUNTS: $(Build.StagingDirectory)
 
     - ${{ if eq(p.Os, 'osx') }}:
+      # Temporary diagnostics for the macOS disk budget.
+      - bash: |
+          bash .ado/macos-disk-report.sh boundary after-checkout
+          bash .ado/macos-disk-report.sh sampler-start
+        displayName: "Disk report: after checkout"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
       - task: UseNode@1
         displayName: Use Node.js 24.x
         inputs:
@@ -224,26 +240,72 @@ jobs:
         - bash: rustup target add x86_64-apple-darwin
           displayName: Add the x86_64 Rust target
 
+      - bash: bash .ado/macos-disk-report.sh boundary after-tool-setup
+        displayName: "Disk report: after tool setup"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
       - bash: |
           node scripts/libnode-build.ts --platform ${{ p.Platform }} --configuration release
         displayName: Build libnode.dylib
         workingDirectory: $(Build.SourcesDirectory)
 
       - bash: |
+          bash .ado/macos-disk-report.sh boundary after-build
+          bash .ado/macos-disk-report.sh sampler-report after-build
+        displayName: "Disk report: after build"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
+      - bash: |
           node scripts/libnode-build.ts --no-build --test --platform ${{ p.Platform }} --configuration release
         displayName: Embedding tests
         workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: bash .ado/macos-disk-report.sh boundary after-tests
+        displayName: "Disk report: after tests"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
 
       - bash: |
           node scripts/libnode-build.ts --no-build --check --platform ${{ p.Platform }} --configuration release
         displayName: Check dependencies, install name, minimum macOS, and exports
         workingDirectory: $(Build.SourcesDirectory)
 
+      - bash: bash .ado/macos-disk-report.sh boundary after-check
+        displayName: "Disk report: after check"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
       - bash: |
           node scripts/libnode-build.ts --no-build --platform ${{ p.Platform }} --configuration release \
               --stage "$(Build.StagingDirectory)/libnode/${{ p.Rid }}"
         displayName: Stage libnode.dylib and headers
         workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: |
+          bash .ado/macos-disk-report.sh boundary after-stage
+          bash .ado/macos-disk-report.sh sampler-report after-stage
+        displayName: "Disk report: after stage"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
+      - bash: bash .ado/macos-disk-report.sh inventory
+        displayName: "Disk report: inventory"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 30
 
   # The six per-RID packages and the meta package, which depends on all six.
 - job: LibNodePack
@@ -318,6 +380,15 @@ jobs:
               enabled: false
 
     steps:
+    # Temporary diagnostics for the macOS smoke job disk budget.
+    - ${{ if eq(p.Os, 'osx') }}:
+      - bash: bash .ado/macos-disk-report.sh boundary smoke-start
+        displayName: "Disk report: smoke start"
+        workingDirectory: $(Build.SourcesDirectory)
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
+
     - ${{ if and(eq(p.Os, 'win'), eq(p.Platform, 'arm64')) }}:
       - template: /.ado/ensure-node10-shim.yml@self
 
@@ -361,4 +432,11 @@ jobs:
       - bash: |
           node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)/libnode-packages" --platform ${{ p.Platform }}
         displayName: Smoke test
+        workingDirectory: $(Build.SourcesDirectory)
+
+      - bash: bash .ado/macos-disk-report.sh boundary smoke-end
+        displayName: "Disk report: smoke end"
+        condition: succeededOrFailed()
+        continueOnError: true
+        timeoutInMinutes: 5
         workingDirectory: $(Build.SourcesDirectory)
