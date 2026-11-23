@@ -358,6 +358,14 @@ jobs:
           LIBNODE_DOCKER_MOUNTS: $(Build.StagingDirectory)
 
     - ${{ if eq(p.Os, 'osx') }}:
+      - ${{ if eq(p.Rid, 'osx-x64') }}:
+        - task: UseDotNet@2
+          displayName: Use .NET 10 SDK
+          inputs:
+            packageType: sdk
+            version: 10.0.x
+            includePreviewVersions: false
+
       - bash: |
           node scripts/libnode-build.ts --smoke "$(Build.StagingDirectory)/libnode-packages" --platform ${{ p.Platform }}
         displayName: Smoke test

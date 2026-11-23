@@ -31,6 +31,7 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        Console.Error.WriteLine($"LibNodeSmoke: running on {RuntimeInformation.FrameworkDescription}");
         // Node.js takes UTF-8 arguments.
         IntPtr[] argv = new IntPtr[args.Length + 1];
         int status;
