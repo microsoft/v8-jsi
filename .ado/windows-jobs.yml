@@ -313,8 +313,12 @@ extends:
       # - V8JSI_CET_TESTS_DEFERRED env entries in windows-build-new.yml and the sandbox test step below;
       # - cet-tests-* artifact outputs, staging/download steps, and the legacy cet-startup.tar step;
       # - all three Windows Server CET jobs (V8JsiCetServer_* and V8JsiCetServerSandbox_*);
-      # - .ado/stage-cet-tests.ps1, .ado/run-cet-tests.ps1, shouldDeferCetTests,
-      #   the --test-cet-runtime entry, and scripts/cet-ci.test.ts.
+      # - .ado/stage-cet-tests.ps1, .ado/run-cet-tests.ps1, shouldDeferCetTests and its import/branch;
+      # - scripts/build.ts's --test-cet-runtime option/help/dispatch and runCetTests'
+      #   requireCet parameter, call arguments, and guard;
+      # - scripts/cet-ci.test.ts and its entries in scripts/package.json's "test" script
+      #   and this file's tooling-test node --test command;
+      # - the Windows Server CET coverage sentence in AGENTS.md.
       - ${{ each matrix in parameters.BuildMatrix }}:
         - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
           - job: V8JsiCetServer_${{ matrix.Name }}
