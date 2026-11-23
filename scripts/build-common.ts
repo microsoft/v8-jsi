@@ -22,6 +22,10 @@ import * as https from "node:https";
 // Repo root (this file lives in scripts/).
 export const repoRoot = path.resolve(import.meta.dirname, "..");
 
+export function shouldDeferCetTests(control: string | undefined, cetAvailable: boolean, runtimeOnly: boolean): boolean {
+  return control === "1" && !cetAvailable && !runtimeOnly;
+}
+
 // DLL names are literals so C/C++ consumers and package staging share one source.
 export type V8JsiNames = Record<
   "V8JSI_DLL_NAME" | "V8JSI_SB_DLL_NAME" | "V8SBHOST_DLL_NAME", string>;

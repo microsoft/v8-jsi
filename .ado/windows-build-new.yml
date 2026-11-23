@@ -43,6 +43,9 @@ steps:
           --configuration ${{parameters.buildConfiguration}}
     displayName: Run tests via scripts/build.ts
     workingDirectory: $(Build.SourcesDirectory)
+    ${{ if eq(parameters.buildPlatform, 'x64') }}:
+      env:
+        V8JSI_CET_TESTS_DEFERRED: '1'
 
     # ---------------------------------------------------------------------
     # Release cells: stage the per-RID NuGet content (Microsoft.JavaScript.V8).

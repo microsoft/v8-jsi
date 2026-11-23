@@ -210,6 +210,13 @@ extends:
               buildPlatform: ${{ matrix.BuildPlatform }}
               buildConfiguration: ${{ matrix.BuildConfiguration }}
               isPublish: ${{ parameters.isPublish }}
+          - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+            - pwsh: |
+                ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                    -Destination "$(Agent.TempDirectory)/cet-startup" -Legacy `
+                    -Configuration ${{ matrix.BuildConfiguration }} `
+                    -Archive "$(Build.StagingDirectory)/out/cet-startup.tar"
+              displayName: Stage legacy CET startup payload
 
       - ${{ each matrix in parameters.BuildMatrix }}:
         - job: V8JsiBuildNew_${{ matrix.Name }}
@@ -243,14 +250,17 @@ extends:
             outputs:
               # Only Release cells stage a NuGet artifact: build.ts --pack lays
               # out-new/pkg-staging for the V8JsiCreateNugetNew aggregator. Debug
-              # cells just build + run gtests (no NuGet ships from Debug), so the
-              # outputs list is empty for them. Publishing only pkg-staging (not
+              # cells do not ship a NuGet package. Publishing only pkg-staging (not
               # the whole out-new) keeps the per-cell artifact to the binaries +
               # headers the aggregator needs — it omits the unused per-cell .nupkg.
             - ${{ if eq(matrix.BuildConfiguration, 'Release') }}:
               - output: pipelineArtifact
                 artifactName: ${{ matrix.Name }}-new
                 targetPath: $(Build.StagingDirectory)\out-new\pkg-staging
+            - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+              - output: pipelineArtifact
+                artifactName: cet-tests-${{ matrix.Name }}
+                targetPath: $(Build.StagingDirectory)/cet-tests
 
           steps:
             # ARM64 agents ship no externals\node10, but the mandatory 1ES build-
@@ -291,6 +301,52 @@ extends:
                 folderPath: $(Build.StagingDirectory)\out-new\pkg-staging
                 pattern: |
                   **\v8jsi2.dll
+
+          - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+            - pwsh: |
+                ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                    -Destination "$(Agent.TempDirectory)/cet-tests" -Configuration ${{ matrix.BuildConfiguration }} `
+                    -Archive "$(Build.StagingDirectory)/cet-tests/cet-tests.tar"
+              displayName: Stage x64 CET runtime payload
+
+      # When build hosts have user CET, remove the CET jobs, payload staging/downloads,
+      # deployment scripts, scoped deferral controls/predicate/tests, and unused runtime-only entry.
+      - ${{ each matrix in parameters.BuildMatrix }}:
+        - ${{ if and(eq(matrix.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+          - job: V8JsiCetServer_${{ matrix.Name }}
+            displayName: Windows Server CET (${{ matrix.BuildConfiguration }})
+            dependsOn:
+            - V8JsiBuildNew_${{ matrix.Name }}
+            - V8JsiBuildLegacy_${{ matrix.Name }}
+            condition: succeeded()
+            timeoutInMinutes: 30
+            pool:
+              name: Azure-Pipelines-1ESPT-ExDShared
+              vmImage: windows-2025
+              os: windows
+            steps:
+            - checkout: self
+              fetchDepth: 1
+              lfs: false
+              sparseCheckoutDirectories: .ado scripts
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                buildType: current
+                artifactName: cet-tests-${{ matrix.Name }}
+                targetPath: $(Pipeline.Workspace)/cet-tests
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                buildType: current
+                artifactName: ${{ matrix.Name }}-legacy
+                itemPattern: cet-startup.tar
+                targetPath: $(Pipeline.Workspace)/cet-startup
+            - pwsh: |
+                ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                    -Archive "$(Pipeline.Workspace)/cet-tests/cet-tests.tar" `
+                    -LegacyArchive "$(Pipeline.Workspace)/cet-startup/cet-startup.tar" `
+                    -Configuration ${{ matrix.BuildConfiguration }}
+              displayName: Run required CET runtime and legacy startup tests
+              workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Sandbox binaries. One job PER RID (x64/x86/arm64) builds that arch's
@@ -352,6 +408,10 @@ extends:
             - output: pipelineArtifact
               artifactName: sandbox-binaries-${{ sb.Rid }}
               targetPath: $(Build.StagingDirectory)\sandbox
+            - ${{ if and(eq(sb.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+              - output: pipelineArtifact
+                artifactName: cet-tests-sandbox-${{ sb.Rid }}
+                targetPath: $(Build.StagingDirectory)/cet-tests
 
           steps:
             # The vendored gn (deps/gn/gn.exe) is a Git LFS object; the default
@@ -405,7 +465,7 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
                   }
-                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/legacy-checks.test.ts scripts/legacy-test-runner.test.ts scripts/legacy-package.test.ts scripts/legacy-targets.test.ts scripts/legacy-pipeline.test.ts
+                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts scripts/cet-ci.test.ts scripts/legacy-checks.test.ts scripts/legacy-test-runner.test.ts scripts/legacy-package.test.ts scripts/legacy-targets.test.ts scripts/legacy-pipeline.test.ts
                   if ($LASTEXITCODE -ne 0) {
                     throw "Prerequisite, CET header, and legacy tooling tests FAILED (exit $LASTEXITCODE)"
                   }
@@ -481,6 +541,9 @@ extends:
                     --platform ${{ sb.BuildPlatform }} --configuration release
               displayName: Run JSI + Node-API gtests against v8jsi2sb.dll
               workingDirectory: $(Build.SourcesDirectory)
+              ${{ if eq(sb.BuildPlatform, 'x64') }}:
+                env:
+                  V8JSI_CET_TESTS_DEFERRED: '1'
 
               # Hygiene gates: export allowlist + Hybrid CRT + Source Link +
               # BinSkim, over this arch's out dir (--target-cpu resolves it).
@@ -522,6 +585,13 @@ extends:
                 if ($LASTEXITCODE -ne 0) { throw "v8sbhost_protocol_fuzz FAILED (exit $LASTEXITCODE)" }
               displayName: Sandbox suites (--all; trust-transition on x64 only)
               workingDirectory: $(Build.SourcesDirectory)
+
+            - ${{ if eq(sb.BuildPlatform, 'x64') }}:
+              - pwsh: |
+                  ./.ado/stage-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                      -Destination "$(Agent.TempDirectory)/cet-tests" -Sandbox `
+                      -Archive "$(Build.StagingDirectory)/cet-tests/cet-tests.tar"
+                displayName: Stage sandbox CET runtime payload
 
             - ${{ if eq(sb.BuildPlatform, 'x64') }}:
               - pwsh: |
@@ -637,6 +707,33 @@ extends:
                   **\sbox.exe
                   **\v8sbhost.dll
                   **\mkv8snapshot.exe
+
+      - ${{ each sb in parameters.SandboxMatrix }}:
+        - ${{ if and(eq(sb.BuildPlatform, 'x64'), eq(parameters.fakeBuild, false)) }}:
+          - job: V8JsiCetServerSandbox_${{ sb.Name }}
+            displayName: Windows Server CET (sandbox Release)
+            dependsOn: V8JsiBuildSandbox_${{ sb.Name }}
+            condition: succeeded()
+            timeoutInMinutes: 30
+            pool:
+              name: Azure-Pipelines-1ESPT-ExDShared
+              vmImage: windows-2025
+              os: windows
+            steps:
+            - checkout: self
+              fetchDepth: 1
+              lfs: false
+              sparseCheckoutDirectories: .ado scripts
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                buildType: current
+                artifactName: cet-tests-sandbox-${{ sb.Rid }}
+                targetPath: $(Pipeline.Workspace)/cet-tests
+            - pwsh: |
+                ./.ado/run-cet-tests.ps1 -RepoRoot "$(Build.SourcesDirectory)" `
+                    -Archive "$(Pipeline.Workspace)/cet-tests/cet-tests.tar" -Sandbox
+              displayName: Run required sandbox CET runtime and broker tests
+              workingDirectory: $(Build.SourcesDirectory)
 
         # =====================================================================
         # Microsoft.JavaScript.LibNode: build, test, check, sign, pack, and
