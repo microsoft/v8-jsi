@@ -123,6 +123,10 @@ the API, compiler phase, or default that our patch originally extended.
   which Windows ARM64 builds need). Otherwise, on a native Windows ARM64 host,
   the asm dispatch headers fall back to the pruned `linux-elf` configuration,
   the probe fails, and ncrypto is built for a pre-3.0 OpenSSL.
+- **minimatch security floor:** our `deps/minimatch` 11.0.9 (nodejs/node#67713,
+  CVE-2026-118764) is ahead of upstream v26.x. Keep our copy while upstream is
+  below 11.0.9; once upstream is 11.0.9 or later, take its whole directory and
+  drop this contract. Accept the removal if a Node.js major removes minimatch.
 - **Full-Node inputs for libnode:** ICU (`deps/icu-small`), LIEF, amaro,
   undici, acorn, minimatch, `deps/uv/src/unix`, the Linux and macOS OpenSSL
   configurations, the OpenSSL command-line sources (`deps/openssl/openssl/apps`,
