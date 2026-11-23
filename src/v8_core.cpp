@@ -7,6 +7,9 @@
 #include "v8_core.h"
 
 #include <cstdio>
+#ifdef V8JSI_CET_STARTUP_CHECK
+#include <windows.h>
+#endif
 
 #include "jsi_abi/v8_snapshot_container.h"
 
@@ -20,6 +23,37 @@ std::mutex V8PlatformHolder::mutex_;
 v8::Platform* V8PlatformHolder::platform_ = nullptr;
 bool V8PlatformHolder::is_initialized_ = false;
 bool V8PlatformHolder::is_disposed_ = false;
+
+#ifdef V8JSI_CET_STARTUP_CHECK
+namespace {
+// Mirrors V8's UserShadowStackEnabled() in base/platform/platform-win32.cc.
+// Resolve both queries dynamically: our sources target an older _WIN32_WINNT.
+bool UserShadowStackEnabled() {
+  using QueryCet = BOOL(WINAPI*)(DWORD);
+  using QueryPolicy = BOOL(WINAPI*)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+  const auto kernel = GetModuleHandleW(L"kernel32.dll");
+  const auto available = reinterpret_cast<QueryCet>(
+      GetProcAddress(kernel, "IsUserCetAvailableInEnvironment"));
+  const auto query = reinterpret_cast<QueryPolicy>(
+      GetProcAddress(kernel, "GetProcessMitigationPolicy"));
+  if (!available || !query || !available(0)) // USER_CET_ENVIRONMENT_WIN32_PROCESS
+    return false;
+  PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy{};
+  return query(GetCurrentProcess(), ProcessUserShadowStackPolicy, &policy, sizeof(policy)) &&
+      policy.EnableUserShadowStack;
+}
+} // namespace
+#endif
+
+void V8PlatformHolder::applyProcessFlagDefaults() {
+  static bool applied = false; // Guarded by mutex_, just like initialization.
+  if (applied) return;
+  applied = true;
+#ifdef V8JSI_CET_STARTUP_CHECK
+  if (!UserShadowStackEnabled())
+    v8::V8::SetFlagsFromString("--no-cet-compatible");
+#endif
+}
 
 //==============================================================================
 // Runtime Context Tag

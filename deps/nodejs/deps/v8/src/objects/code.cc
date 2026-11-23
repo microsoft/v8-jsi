@@ -230,13 +230,21 @@ void Code::SetMarkedForDeoptimization(Isolate* isolate,
     // Ensure we don't try to patch the entry multiple times.
     set_js_dispatch_handle(kNullJSDispatchHandle);
   }
-  Tagged<ProtectedFixedArray> tmp = deoptimization_data();
   // TODO(422951610): Zapping code discovered a bug in
   // --maglev-inline-api-calls. Remove the flag check here once the bug is
   // fixed.
-  if (tmp->length() > 0 && !v8_flags.maglev_inline_api_calls) {
+  if (!v8_flags.maglev_inline_api_calls) {
+    // v8-jsi: Backport 490dba4bd5e2; baseline code has no deoptimization data.
+    // Zap executable instructions, preserving any optimized deoptimization
+    // exits.
     Address start = instruction_start();
-    Address end = start + deoptimization_data()->DeoptExitStart().value();
+    Address end = instruction_end();
+    if (uses_deoptimization_data()) {
+      Tagged<DeoptimizationData> data = deoptimization_data();
+      if (data->length() > 0) {
+        end = start + data->DeoptExitStart().value();
+      }
+    }
     RelocIterator it(instruction_stream(), RelocIterator::kAllModesMask);
     Deoptimizer::ZapCode(start, end, it);
   }

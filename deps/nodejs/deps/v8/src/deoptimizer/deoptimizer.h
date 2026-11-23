@@ -188,6 +188,14 @@ class Deoptimizer : public Malloced {
   // Patch the generated code to jump to a safepoint entry. This is used only
   // when Shadow Stack is enabled.
   static void PatchToJump(Address pc, Address new_pc);
+#if V8_TARGET_ARCH_X64
+  // v8-jsi: Reserve the root-relative far builtin jump at baseline return PCs.
+  static constexpr int kFarBuiltinJumpSize = 7;
+
+  // v8-jsi: Baseline code may be outside rel32 reach of embedded builtins.
+  static void PatchToBuiltinJump(Isolate* isolate, Tagged<Code> code,
+                                 Address pc, Builtin builtin);
+#endif
 
   // Overwrites the code range from start to end with trapping instructions. The
   // RelocIterator is needed to avoid overwriting GC-relevant reloc info. If the

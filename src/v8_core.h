@@ -75,6 +75,7 @@ class V8PlatformHolder {
     if (is_initialized_) {
       return;
     }
+    applyProcessFlagDefaults();
     is_initialized_ = true;
     init_callback();
     platform_ = v8::platform::NewDefaultPlatform(thread_pool_size).release();
@@ -112,6 +113,7 @@ class V8PlatformHolder {
     if (is_initialized_) {
       return false;
     }
+    applyProcessFlagDefaults();
     callback();
     return true;
   }
@@ -121,6 +123,8 @@ class V8PlatformHolder {
   V8PlatformHolder& operator=(const V8PlatformHolder&) = delete;
 
  private:
+  // Called only under mutex_, before initialization freezes V8 flags.
+  static void applyProcessFlagDefaults();
   static std::mutex mutex_;
   // Owned, but deleted only by disposePlatform(), never by a static
   // destructor. If the process exits without disposing, ExitProcess has already

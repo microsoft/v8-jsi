@@ -99,6 +99,17 @@
       "ruleId": "BA2014",
       "createdDate": "2026-11-13 00:00:00Z",
       "justification": "BA2014 on win-arm64 libnode.dll -- the same compiler-generated, buffer-less V8 closure thunks as the existing v8jsi2.dll suppression. libnode.dll's Rust code, including the Rust standard library, is built with Microsoft Rust and is not listed. No stack protection is disabled in Node.js or v8-jsi code. Per-binary and per-RID signature."
+    },
+    "7a09093c1d968e9b839fc19819cec0fa4024e28749e8bdc557a79046d3292d4b": {
+      "signature": "7a09093c1d968e9b839fc19819cec0fa4024e28749e8bdc557a79046d3292d4b",
+      "memberOf": [
+        "default"
+      ],
+      "justification": "The x64 snapshot tool intentionally links /CETCOMPAT:NO to create blobs for ordinary hosts. V8 includes the CET mode in the blob version tag; hosts with shadow stacks create matching blobs in-process. Scoped to the packaged tool scanned by CI; the x64 engine is not suppressed.",
+      "createdDate": "2026-11-20 19:25:26Z",
+      "target": "out/pkg-staging/build/native/win-x64/mkv8snapshot.exe",
+      "tool": "binskim",
+      "ruleId": "BA2025"
     }
   }
 }

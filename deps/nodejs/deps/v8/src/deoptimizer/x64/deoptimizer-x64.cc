@@ -88,6 +88,54 @@ void Deoptimizer::PatchToJump(Address pc, Address new_pc) {
   FlushInstructionCache(pc, kSize);
 }
 
+// v8-jsi: Use the root-relative builtin table when embedded builtins are far
+// from baseline code. The root register is live at baseline return PCs.
+void Deoptimizer::PatchToBuiltinJump(Isolate* isolate, Tagged<Code> code,
+                                     Address pc, Builtin builtin) {
+  Address target = isolate->builtins()->code(builtin)->instruction_start();
+  intptr_t displacement =
+      target - (pc + MacroAssembler::kIntraSegmentJmpInstrSize);
+  bool near = is_int32(displacement);
+  Operand entry(kRootRegister, IsolateData::BuiltinEntrySlotOffset(builtin));
+  constexpr int kBufferSize = 32;
+  uint8_t jump[kBufferSize];
+  Assembler scratch(AssemblerOptions{},
+                    ExternalAssemblerBuffer(jump, kBufferSize));
+  scratch.jmp(entry);
+  CHECK_EQ(scratch.pc_offset(), kFarBuiltinJumpSize);
+  int size =
+      near ? MacroAssembler::kIntraSegmentJmpInstrSize : kFarBuiltinJumpSize;
+  CHECK_WITH_MSG(pc >= code->instruction_start() &&
+                     pc <= code->instruction_end() &&
+                     code->instruction_end() - pc >= static_cast<Address>(size),
+                 "Baseline builtin jump exceeds instruction range");
+  // Match the GC slots preserved by ZapCode, including partially overlapping
+  // slots. Never overwrite a pointer that the concurrent GC can still visit.
+  for (RelocIterator it(code->instruction_stream(),
+                        RelocIterator::kAllModesMask);
+       !it.done(); it.next()) {
+    RelocInfo* info = it.rinfo();
+    if (!RelocInfo::IsGCRelocMode(info->rmode())) continue;
+    Address slot = info->target_address_address_for_gc();
+    CHECK_WITH_MSG(
+        pc + size <= slot || pc >= slot + info->target_address_size_for_gc(),
+        "Baseline builtin jump overlaps a GC relocation slot");
+  }
+  if (!near && memcmp(reinterpret_cast<void*>(pc), jump, size) == 0) {
+    return;
+  }
+  if (near) {
+    PatchToJump(pc, target);
+    return;
+  }
+  RwxMemoryWriteScope rwx_write_scope("Patch baseline jump to builtin table");
+  Assembler masm(
+      AssemblerOptions{},
+      ExternalAssemblerBuffer(reinterpret_cast<uint8_t*>(pc), kBufferSize));
+  masm.jmp(entry);
+  FlushInstructionCache(pc, size);
+}
+
 Float32 RegisterValues::GetFloatRegister(unsigned n) const {
   return base::ReadUnalignedValue<Float32>(
       reinterpret_cast<Address>(simd128_registers_ + n));

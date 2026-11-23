@@ -5,7 +5,7 @@
 // Usage: node scripts/build.ts [options]
 
 import { parseArgs } from "node:util";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -20,6 +20,8 @@ import {
   nasmRequiredForTarget,
   analyzeBinSkim,
   dumpbinExportNames,
+  findDumpbin,
+  checkCetHeaders,
   crtDependencyLines,
   ensureSupportedPython,
   prependToPath,
@@ -46,19 +48,18 @@ function runStela(stelaArgs: string[]): void {
   run(`"${process.execPath}"`, [stelaCli, ...stelaArgs].map((a) => `"${a}"`), { cwd: repoRoot });
 }
 
-// BinSkim rules accepted as residuals on the engine binaries (full rationale in the
-// per-RID suppressions in .ado/guardian/sdl/.gdnsuppress -- keep in sync). The
+// BinSkim rules accepted as residuals on the engine binaries (rationale for these
+// rules is in .ado/guardian/sdl/.gdnsuppress's per-RID suppressions). The
 // --binskim gate fails on any finding whose rule is NOT listed, so a real
 // regression (CFG/ASLR/Spectre dropping off) still breaks the build.
 //   BA2004 - MD5 source hashing in vendored V8 libs (our objs are SHA-256).
 //   BA2014 - false-positive stack-protector flag on buffer-less V8 thunks.
 //   BA2018 - x86 SafeSEH unsupported by clang-cl.
-//   BA2025 - CET shadow stack off (reverted; crashed V8 snapshot).
-const acceptedBinSkimRules = new Set(["BA2004", "BA2014", "BA2018", "BA2025"]);
-
-// mkv8snapshot.exe links no V8 code or hand-written assembly. Its x86 target
-// enables SafeSEH, so BA2018 is not an accepted residual for this binary.
-const acceptedSnapshotToolBinSkimRules = new Set(["BA2025"]);
+// The x64 engine needs V8's CET switch for deopt/unwind shadow-stack adjustments;
+// BA2025 acceptance for non-x64 engines is per call below, not in Guardian.
+// The x64 snapshot-tool BA2025 suppression used by CI is in
+// .ado/guardian/sdl/.gdnsuppress; the x64 engine is not suppressed.
+const acceptedBinSkimRules = new Set(["BA2004", "BA2014", "BA2018"]);
 
 // =============================================================================
 // CLI Parsing
@@ -377,7 +378,47 @@ async function runBuild(
 // Test Operation
 // =============================================================================
 
+// No shell: preserve Windows argv and the full unsigned child exit code. Keep
+// launcher stderr (including the host diagnostic and SKIP) visible in CI logs.
+function runCetSuite(exe: string, args: string[], env = process.env): boolean {
+  console.log(`> ${exe} ${args.join(" ")}`);
+  const result = spawnSync(exe, args, { env, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    console.error(`CET suite FAILED: exit=${result.status} signal=${result.signal}`);
+    return false;
+  }
+  return true;
+}
+
+let loggedDumpbin = false;
+function checkBinaryHeaders(platform: string, configuration: string): void {
+  const dumpbin = findDumpbin();
+  if (!loggedDumpbin) {
+    console.log(`CET header gate: using ${dumpbin}`);
+    loggedDumpbin = true;
+  }
+  const binaries: [string, boolean][] = [
+    [v8jsiDllName(), platform === "x64"],
+    ["mkv8snapshot.exe", false],
+  ];
+  if (platform === "x64" && !isCrossPlatformBuild(platform)) {
+    binaries.push(["v8jsi_test.exe", true], ["cetrun.exe", true]);
+  }
+  for (const [name, expected] of binaries) {
+    const binary = path.join(buildOutputDir(configuration), name);
+    // vcbuild's v8jsi target list always includes mkv8snapshot, even for cross builds.
+    if (!fs.existsSync(binary)) {
+      throw new Error(`CET header gate: required binary not found: ${binary}. Build ${platform} ${configuration} first.`);
+    }
+    const headers = execSync(`"${dumpbin}" /headers "${binary}"`, { encoding: "utf8" });
+    checkCetHeaders(headers, expected, binary, dumpbin);
+    console.log(`CET header gate passed: ${name} (${platform}, CET compatible=${expected})`);
+  }
+}
+
 function runTests(platform: string, configuration: string): void {
+  checkBinaryHeaders(platform, configuration);
   const engineName = v8jsiDllName();
   console.log(`\n=== Testing ${engineName} (${platform} ${configuration}) ===\n`);
 
@@ -392,7 +433,7 @@ function runTests(platform: string, configuration: string): void {
   // on GitHub through Source Link.
   const pdbs = [pdbOf(engine)];
   const snapshotTool = path.join(buildOutputDir(configuration), "mkv8snapshot.exe");
-  if (fs.existsSync(snapshotTool)) pdbs.push(pdbOf(snapshotTool));
+  pdbs.push(pdbOf(snapshotTool)); // Required by the header gate above.
   if (!checkSourceLink(pdbs)) {
     console.error("Source Link check FAILED.");
     process.exit(1);
@@ -407,14 +448,81 @@ function runTests(platform: string, configuration: string): void {
 
   // Run both gtest binaries: the JSI suite and the Node-API conformance suite.
   const outDir = buildOutputDir(configuration);
+  // Explicit child environments leave the caller's environment untouched.
+  const ordinaryEnv = { ...process.env };
+  for (const name of Object.keys(ordinaryEnv)) {
+    if (["V8JSI_TEST_CET", "V8JSI_TEST_V8_FLAGS"].includes(name.toUpperCase())) delete ordinaryEnv[name];
+  }
   for (const exeName of ["v8jsi_test.exe", "node_api_tests.exe"]) {
     const testExe = path.join(outDir, exeName);
     if (!fs.existsSync(testExe)) {
       console.error(`Test executable not found: ${testExe}`);
       process.exit(1);
     }
-    run(testExe, ["--gtest_brief=1"]);
+    run(testExe, ["--gtest_brief=1"], { env: ordinaryEnv });
   }
+  if (platform !== "x64") return;
+
+  const cetEnv = { ...ordinaryEnv };
+  // Never re-add ambient CETRUN_* passthrough to strict CI evidence rows
+  // (including nested node_lite launches); set their controls explicitly.
+  for (const name of Object.keys(cetEnv)) {
+    if (name.toUpperCase().startsWith("CETRUN_")) delete cetEnv[name];
+  }
+  console.log("\n=== CET launcher contract tests ===");
+  if (!runCetSuite(process.execPath, ["--test", path.join(repoRoot, "scripts", "cetrun.test.ts")],
+    { ...cetEnv, CETRUN_TEST_OUT: outDir })) throw new Error("CET launcher tests failed");
+  // Probe once with a bounded, tiny child; the full suites stream uncapped.
+  const probe = spawnSync(path.join(outDir, "cetrun.exe"),
+    ["off", path.join(outDir, "v8jsi_test.exe"), "--cetrun-child", "echo"],
+    { env: cetEnv, encoding: "utf8", timeout: 15000 });
+  if (probe.error) throw probe.error;
+  if (probe.status !== 0 || !/user_cet=(yes|no) forced_unavailable=0/.test(probe.stderr)) {
+    throw new Error(`CET availability probe failed: ${probe.status} ${probe.stderr}`);
+  }
+  const cetAvailable = /user_cet=yes/.test(probe.stderr);
+  if (cetAvailable) cetEnv.CETRUN_REQUIRE_CET = "1";
+  cetEnv.CETRUN_TIMEOUT_MS = String(30 * 60 * 1000);
+  // Death-test children do not inherit policy: the CETCOMPAT test exe runs
+  // them in compat mode on CET hosts, which is intentional.
+  let passed = true;
+  console.log("\n=== CET off: full JSI suite (no extra flags) ===");
+  passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+    ["off", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"], cetEnv);
+  console.log("\n=== Strict CET: full JSI suite (flags: --allow-natives-syntax) ===");
+  passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+    ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"],
+    { ...cetEnv, V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax" }) && passed;
+  // The sandbox engine is jitless; run its full suites, not the flag matrix.
+  if (!args["build-v8jsisb"]) {
+    const interpreterFlags = "--allow-natives-syntax --no-sparkplug --no-maglev --no-turbofan";
+    // Explicit policies cover both process behavior and host-flag overrides.
+    // Only the JSPI row opts out of compatible code in a shadow-stack process.
+    const rows = [
+      ["interpreter", "strict", interpreterFlags, "*CetShadowStack.*"],
+      ["jitless", "strict", "--allow-natives-syntax --jitless", "*CetShadowStack.*"],
+      ["native-stack", "strict", `${interpreterFlags} --interpreted-frames-native-stack`, "*CetShadowStack.*"],
+      ["Wasm", "off", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+      ["Wasm", "compat", "--allow-natives-syntax", "*CetShadowStack.Jspi*:*CetShadowStack.Wasm*"],
+      ["compatible code", "off", "--allow-natives-syntax --cet-compatible", "*CetShadowStack.*:*JsiAbiInspector.Cet*"],
+      ["JSPI override", "strict", "--allow-natives-syntax --no-cet-compatible", "*CetShadowStack.Jspi*"],
+    ];
+    for (const [name, mode, flags, filter] of rows) {
+      console.log(`\n=== CET ${name}: ${mode} (flags: ${flags}) ===`);
+      passed = runCetSuite(path.join(outDir, "cetrun.exe"),
+        [mode, path.join(outDir, "v8jsi_test.exe"), `--gtest_filter=${filter}`,
+          "--gtest_fail_if_no_test_selected=1", "--gtest_brief=1"],
+        { ...cetEnv, V8JSI_TEST_V8_FLAGS: flags }) && passed;
+    }
+  }
+  console.log("\n=== Strict CET: per-child Node-API suite ===");
+  passed = runCetSuite(path.join(outDir, "node_api_tests.exe"), ["--gtest_brief=1"],
+    { ...cetEnv, V8JSI_TEST_CET: "strict" }) && passed;
+  if (!passed) throw new Error("CET tests failed");
+  const summary = cetAvailable ? "Strict CET summary: JSI and Node-API rows passed" :
+    "Strict CET summary: JSI and Node-API rows SKIPPED (SKIP: user CET not available)";
+  console.log(summary);
+  if (!cetAvailable) console.log(`##vso[task.logissue type=warning]${summary}`);
 }
 
 // =============================================================================
@@ -436,12 +544,18 @@ async function runBinSkim(
     console.log("No binaries found to scan");
     return;
   }
+  // Local copies prevent one architecture's residuals leaking into another.
+  const engineRules = new Set(acceptedBinSkimRules);
+  if (platform !== "x64") engineRules.add("BA2025");
+  // The tool links no V8/assembly and enables x86 SafeSEH (no BA2018 residual).
+  // Non-x64 lacks CET; x64 intentionally opts out to make ordinary-host blobs.
+  const snapshotToolRules = new Set(["BA2025"]);
   const engineOk = analyzeBinSkim(
     binskimExe,
     [dllPath],
     path.join(outDir, `${path.parse(dllName).name}.binskim.sarif`),
     `${path.parse(dllName).name} ${platform} ${configuration}`,
-    acceptedBinSkimRules,
+    engineRules,
   );
 
   const snapshotTool = path.join(outDir, "mkv8snapshot.exe");
@@ -452,7 +566,7 @@ async function runBinSkim(
       [snapshotTool],
       path.join(outDir, "mkv8snapshot.binskim.sarif"),
       `mkv8snapshot ${platform} ${configuration}`,
-      acceptedSnapshotToolBinSkimRules,
+      snapshotToolRules,
     );
   }
   if (!engineOk || !snapshotToolOk) {
@@ -1083,6 +1197,7 @@ async function main(): Promise<void> {
       }
       if (args.build) {
         await runBuild(platform, configuration);
+        if (!args.test) checkBinaryHeaders(platform, configuration);
       }
       if (args.test) {
         runTests(platform, configuration);

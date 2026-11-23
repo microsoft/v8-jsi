@@ -10,6 +10,7 @@
 #include "src/codegen/assembler.h"
 #include "src/codegen/x64/assembler-x64.h"
 #include "src/codegen/x64/register-x64.h"
+#include "src/deoptimizer/deoptimizer.h"
 #include "src/objects/feedback-vector.h"
 #include "src/objects/literal-objects-inl.h"
 #include "src/roots/static-roots.h"
@@ -578,7 +579,8 @@ void BaselineAssembler::Switch(Register reg, int case_value_base,
 #ifdef V8_ENABLE_CET_SHADOW_STACK
 void BaselineAssembler::MaybeEmitPlaceHolderForDeopt() {
   if (v8_flags.cet_compatible) {
-    __ Nop(Assembler::kIntraSegmentJmpInstrSize);
+    // v8-jsi: A far builtin can require more space than a rel32 jump.
+    __ Nop(Deoptimizer::kFarBuiltinJumpSize);
   }
 }
 #endif  // V8_ENABLE_CET_SHADOW_STACK

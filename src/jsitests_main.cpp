@@ -20,6 +20,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -2143,6 +2144,168 @@ TEST(JsiAbiInspector, RemovingTargetClosesPendingConnectionsAndPreservesSharedPo
   queueB.drain(true);
 }
 
+namespace {
+void checkCetBaselineStepOver(int depth) {
+  const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS");
+  if (!flags || std::string(flags).find("--allow-natives-syntax") == std::string::npos)
+    GTEST_SKIP() << "Requires --allow-natives-syntax and Sparkplug";
+  DeferredHostQueue queue;
+  InspectorRuntimeThread js;
+  auto port = freeInspectorPort();
+  auto runtime = js.call([&] { return queue.runtime(port); });
+  auto eval = [&](const std::string& source) {
+    return runtime->evaluateJavaScript(std::make_shared<StringBuffer>(source), "cet-inspector.js");
+  };
+  if (!js.call([&] { return eval("%IsSparkplugEnabled()").getBool(); })) {
+    destroyInspectorRuntime(runtime); queue.drain(true);
+    GTEST_SKIP() << "Required tier Sparkplug disabled by flags/build";
+  }
+  InspectorClient client;
+  ASSERT_NO_FATAL_FAILURE(connectAndEnableDebugger(*runtime, queue, js, port, client));
+  // The tier assertion runs in every live recursive frame before the debugger
+  // discards baseline code. Depth 2 uses a different call site; depths 3 and 1
+  // share a return PC, covering the mark-once guard and jump idempotence.
+  js.call([&] {
+    eval(R"JS(function cetBaseline(depth) {
+  if (!(%GetOptimizationStatus(cetBaseline) & (1 << 16))) throw Error('not baseline');
+  if (depth > 0) {
+    if (depth == 2) return 1 + cetBaseline(depth - 1);
+    return 1 + cetBaseline(depth - 1);
+  }
+  debugger;
+  let result = 40;
+  result += 2;
+  return result;
+}
+%CompileBaseline(cetBaseline);
+)JS");
+  });
+  auto expression = "cetBaseline(" + std::to_string(depth) + ")";
+  ASSERT_TRUE(sendInspectorMessage(client.socket,
+      "{\"id\":101,\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"" + expression +
+      "\",\"returnByValue\":true}}"));
+  ASSERT_TRUE(queue.wait());
+  auto dispatch = js.submit([&] { pumpInspector(*runtime, queue); });
+  auto expectPause = [&](int line) {
+    auto message = inspectorUntil(client.socket, "Debugger.paused");
+    EXPECT_NE(message.find("Debugger.paused"), std::string::npos) << message;
+    auto location = message.find("\"location\":");
+    auto locationEnd = message.find('}', location);
+    auto topLocation = message.substr(location == std::string::npos ? 0 : location,
+        locationEnd == std::string::npos ? 0 : locationEnd - location);
+    EXPECT_NE(topLocation.find("\"lineNumber\":" + std::to_string(line) + ","), std::string::npos) << message;
+    size_t frames = 0;
+    for (size_t pos = 0; (pos = message.find("\"functionName\":\"cetBaseline\"", pos)) != std::string::npos; ++pos)
+      ++frames;
+    EXPECT_EQ(frames, static_cast<size_t>(depth + 1)) << message;
+  };
+  expectPause(6);
+  EXPECT_TRUE(sendInspectorMessage(client.socket, R"({"id":102,"method":"Debugger.stepOver"})"));
+  expectPause(7);
+  EXPECT_TRUE(sendInspectorMessage(client.socket, R"({"id":103,"method":"Debugger.resume"})"));
+  auto result = inspectorUntil(client.socket, R"("id":101,)");
+  EXPECT_EQ(result.find("exceptionDetails"), std::string::npos) << result;
+  EXPECT_NE(result.find("\"value\":" + std::to_string(42 + depth) + ","), std::string::npos) << result;
+  waitForFuture(dispatch, 5, "Baseline stepOver did not finish outer frames");
+  dispatch.get();
+  destroyInspectorRuntime(runtime); queue.drain(true);
+}
+} // namespace
+
+TEST(JsiAbiInspector, CetStepOverRecursiveBaselineFrames) {
+#ifdef _WIN32
+  checkCetBaselineStepOver(3);
+#else
+  GTEST_SKIP() << "Windows inspector transport required";
+#endif
+}
+
+TEST(JsiAbiInspector, CetRepeatedDiscardAtBaselineFunctionEndingThrow) {
+#ifdef _WIN32
+  const char* flags = std::getenv("V8JSI_TEST_V8_FLAGS");
+  if (!flags || std::string(flags).find("--allow-natives-syntax") == std::string::npos)
+    GTEST_SKIP() << "Requires --allow-natives-syntax and Sparkplug";
+  // Use several body lengths chosen to cover instruction-end alignment paddings.
+  for (int length = 0; length < 8; ++length) {
+    SCOPED_TRACE(length);
+    DeferredHostQueue queue;
+    InspectorRuntimeThread js;
+    auto port = freeInspectorPort();
+    auto runtime = js.call([&] { return queue.runtime(port); });
+    auto eval = [&](const std::string& source) {
+      return runtime->evaluateJavaScript(std::make_shared<StringBuffer>(source), "cet-throw-end.js");
+    };
+    if (!js.call([&] { return eval("%IsSparkplugEnabled()").getBool(); })) {
+      destroyInspectorRuntime(runtime); queue.drain(true);
+      GTEST_SKIP() << "Required tier Sparkplug disabled by flags/build";
+    }
+    InspectorClient client;
+    ASSERT_NO_FATAL_FAILURE(connectAndEnableDebugger(*runtime, queue, js, port, client));
+    std::string source = "function cetThrowEnd(value) {\n";
+    for (int i = 0; i < length; ++i) source += "value += 0;\n";
+    source += "throw value;\n}\n%CompileBaseline(cetThrowEnd);\n"
+        "function runThrowEnd() { try { cetThrowEnd(42); } catch (value) { return value; } }";
+    EXPECT_TRUE(js.call([&] {
+      eval(source);
+      return eval("!!(%GetOptimizationStatus(cetThrowEnd) & (1 << 14))").getBool();
+    })) << "Throwing function must start in baseline code";
+    ASSERT_TRUE(sendInspectorMessage(client.socket,
+        R"({"id":100,"method":"Debugger.setPauseOnExceptions","params":{"state":"all"}})"));
+    ASSERT_TRUE(queue.wait()); js.call([&] { pumpInspector(*runtime, queue); });
+    auto enabled = inspectorUntil(client.socket, R"("id":100,)");
+    ASSERT_NE(enabled.find(R"("result":{})"), std::string::npos) << enabled;
+    ASSERT_TRUE(sendInspectorMessage(client.socket,
+        R"json({"id":101,"method":"Runtime.evaluate","params":{"expression":"runThrowEnd()","returnByValue":true}})json"));
+    ASSERT_TRUE(queue.wait());
+    auto dispatch = js.submit([&] { pumpInspector(*runtime, queue); });
+    auto paused = inspectorUntil(client.socket, "Debugger.paused");
+    EXPECT_NE(paused.find(R"("reason":"exception")"), std::string::npos) << paused;
+    EXPECT_NE(paused.find(R"("functionName":"cetThrowEnd")"), std::string::npos) << paused;
+    auto location = paused.find(R"("location":)");
+    auto topLocation = paused.substr(location == std::string::npos ? 0 : location,
+        location == std::string::npos ? 0 : paused.find('}', location) - location);
+    EXPECT_NE(topLocation.find("\"lineNumber\":" + std::to_string(length + 1) + ","),
+        std::string::npos) << paused;
+    auto stringField = [](const std::string& message, const std::string& name) {
+      auto key = "\"" + name + "\":\"";
+      auto start = message.find(key);
+      EXPECT_NE(start, std::string::npos) << message;
+      if (start == std::string::npos) return std::string{};
+      start += key.size();
+      auto end = message.find('"', start);
+      EXPECT_NE(end, std::string::npos) << message;
+      return message.substr(start, end - start);
+    };
+    // First discard: prepare the paused function at its final throw's return PC.
+    EXPECT_TRUE(sendInspectorMessage(client.socket,
+        "{\"id\":102,\"method\":\"Debugger.setBreakpoint\",\"params\":{\"location\":{\"scriptId\":\"" +
+        stringField(topLocation, "scriptId") + "\",\"lineNumber\":" + std::to_string(length + 1) + "}}}"));
+    auto breakpoint = inspectorUntil(client.socket, R"("id":102,)");
+    EXPECT_NE(breakpoint.find("breakpointId"), std::string::npos) << breakpoint;
+    // A native entry breakpoint calls DiscardAllBaselineCode, revisiting the
+    // already-marked code and the same return PC without resuming its frame.
+    EXPECT_TRUE(sendInspectorMessage(client.socket,
+        R"({"id":103,"method":"Runtime.evaluate","params":{"expression":"Math.abs"}})"));
+    auto function = inspectorUntil(client.socket, R"("id":103,)");
+    EXPECT_NE(function.find(R"("type":"function")"), std::string::npos) << function;
+    EXPECT_TRUE(sendInspectorMessage(client.socket,
+        "{\"id\":104,\"method\":\"Debugger.setBreakpointOnFunctionCall\",\"params\":{\"objectId\":\"" +
+        stringField(function, "objectId") + "\"}}"));
+    auto entryBreakpoint = inspectorUntil(client.socket, R"("id":104,)");
+    EXPECT_NE(entryBreakpoint.find("breakpointId"), std::string::npos) << entryBreakpoint;
+    EXPECT_TRUE(sendInspectorMessage(client.socket, R"({"id":105,"method":"Debugger.resume"})"));
+    auto result = inspectorUntil(client.socket, R"("id":101,)");
+    EXPECT_EQ(result.find("exceptionDetails"), std::string::npos) << result;
+    EXPECT_NE(result.find(R"("value":42,)"), std::string::npos) << result;
+    waitForFuture(dispatch, 5, "Exception-tail discard did not resume");
+    dispatch.get();
+    destroyInspectorRuntime(runtime); queue.drain(true);
+  }
+#else
+  GTEST_SKIP() << "Windows inspector transport required";
+#endif
+}
+
 TEST(JsiAbiInspector, BatchedCommandsReplyWhilePausedAndResume) {
   DeferredHostQueue queue;
   InspectorRuntimeThread js;
@@ -3206,7 +3369,33 @@ TEST(V8RuntimeFlagsDeathTest, LoneFlagIsApplied) {
 #endif
 }
 
+// Snapshot creation precedes runtime creation; main may already have applied
+// V8JSI_TEST_V8_FLAGS. CetStartupFlags separately covers no-prior-flag startup.
+TEST(JsiAbiFlagsDeathTest, SnapshotCanInitializeBeforeRuntime) {
+  EXPECT_EXIT(
+      {
+        uint8_t* blob = nullptr;
+        size_t size = 0;
+        auto created = v8_jsi_abi_snapshot_create("", 0, "empty.js", false, &blob, &size);
+        v8_jsi_abi_snapshot_destroy(blob);
+        auto runtime = ::jsi::abi::makeJsiAbiRuntime(&v8_jsi_abi_runtime_create);
+        char program[] = "v8jsi";
+        char flag[] = "--no-cet-compatible";
+        char* argv[2] = {program};
+        argv[1] = flag;
+        size_t argc = 2;
+        auto late = v8_jsi_abi_set_v8_flags(&argc, argv, false);
+        runtime.reset();
+        std::_Exit(created == jsi_status_ok && size > 0 &&
+                           late == jsi_status_invalid_arg && argc == 2 ? 0 : 1);
+      },
+      ::testing::ExitedWithCode(0),
+      "");
+}
+
 // Disposal is process-global and irreversible, so isolate it from other tests.
+// V8::Dispose forbids reinitialization: only late flag rejection is supported,
+// not runtime creation after platform disposal.
 TEST(JsiAbiFlagsDeathTest, SetV8FlagsFailsAfterDispose) {
   EXPECT_EXIT(
       {
@@ -3602,7 +3791,70 @@ TEST(JsiAbiMicrotaskPolicy, NodeApiDrainEntersEnvironmentWithoutAnOpenScope) {
   }
 }
 
+#if defined(_WIN32) && defined(_M_X64)
+// A real child for the launcher contract tests; no runtime or gtest is started.
+static int CetRunChild(int argc, char** argv) {
+  if (argc < 3) return 2;
+  if (!strcmp(argv[2], "echo")) {
+    for (int i = 3; i < argc; ++i) printf("%zu:%s\n", strlen(argv[i]), argv[i]);
+    fprintf(stderr, "child stderr\n");
+  } else if (!strcmp(argv[2], "exit") && argc == 4) {
+    ExitProcess(static_cast<DWORD>(strtoul(argv[3], nullptr, 0)));
+  } else if (!strcmp(argv[2], "sleep")) {
+    printf("pid=%lu\n", GetCurrentProcessId());
+    fflush(stdout);
+    Sleep(60000);
+  } else if (!strcmp(argv[2], "tree")) {
+    char exe[MAX_PATH];
+    if (!GetModuleFileNameA(nullptr, exe, MAX_PATH)) return 3;
+    std::string command = "\"" + std::string(exe) + "\" --cetrun-child sleep";
+    STARTUPINFOA si{sizeof(si)};
+    PROCESS_INFORMATION child{};
+    if (!CreateProcessA(nullptr, command.data(), nullptr, nullptr, TRUE, 0,
+                        nullptr, nullptr, &si, &child)) return 3;
+    printf("parent=%lu\ndescendant=%lu\n", GetCurrentProcessId(), child.dwProcessId);
+    fflush(stdout);
+    CloseHandle(child.hThread);
+    CloseHandle(child.hProcess);
+    Sleep(60000);
+  } else if (!strcmp(argv[2], "policy")) {
+    PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy{};
+    using QueryPolicy = BOOL(WINAPI*)(HANDLE, PROCESS_MITIGATION_POLICY, PVOID, SIZE_T);
+    auto query = reinterpret_cast<QueryPolicy>(GetProcAddress(
+        GetModuleHandleW(L"kernel32.dll"), "GetProcessMitigationPolicy"));
+    if (!query || !query(GetCurrentProcess(), ProcessUserShadowStackPolicy,
+                         &policy, sizeof(policy))) return 3;
+    printf("child: shadowstack=%lu strict=%lu\n",
+           static_cast<DWORD>(policy.EnableUserShadowStack),
+           static_cast<DWORD>(policy.EnableUserShadowStackStrictMode));
+  } else return 2;
+  return 0;
+}
+#endif
+
 int main(int argc, char **argv) {
+#if defined(_WIN32) && defined(_M_X64)
+  if (argc >= 2 && !strcmp(argv[1], "--cetrun-child")) return CetRunChild(argc, argv);
+#endif
+  // This child must reach snapshot creation before ANY engine flag call.
+  const bool snapshotFirst = argc >= 2 && !strcmp(argv[1], "--cet-snapshot-first");
+  if (snapshotFirst) {
+    for (int i = 1; i < argc; ++i) argv[i] = argv[i + 1];
+    --argc;
+  }
+  if (const char* flags = snapshotFirst ? nullptr : std::getenv("V8JSI_TEST_V8_FLAGS")) {
+    std::istringstream input(flags);
+    std::vector<std::string> storage{argv[0]};
+    for (std::string flag; input >> flag;) storage.push_back(std::move(flag));
+    std::vector<char*> flagArgs;
+    for (auto& flag : storage) flagArgs.push_back(flag.data());
+    size_t count = flagArgs.size();
+    jsi_status status = v8_jsi_abi_set_v8_flags(&count, flagArgs.data(), false);
+    if (status != jsi_status_ok) {
+      fprintf(stderr, "V8JSI_TEST_V8_FLAGS rejected (status=%d): %s\n", static_cast<int>(status), flags);
+      return 1;
+    }
+  }
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

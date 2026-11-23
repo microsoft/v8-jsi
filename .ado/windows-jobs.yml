@@ -368,9 +368,9 @@ extends:
                   if ($LASTEXITCODE -ne 0) {
                     throw "Native RID package checks FAILED (exit $LASTEXITCODE)"
                   }
-                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts
+                  node --test scripts/nasm.test.ts scripts/install-prerequisites.test.ts scripts/cet-headers.test.ts
                   if ($LASTEXITCODE -ne 0) {
-                    throw "Prerequisite tooling tests FAILED (exit $LASTEXITCODE)"
+                    throw "Prerequisite and CET header tooling tests FAILED (exit $LASTEXITCODE)"
                   }
                 displayName: C ABI header and native RID gates (Stela vendor check, Stela tests, header, layout, lint, ABI diff, and native RID checks)
                 workingDirectory: $(Build.SourcesDirectory)

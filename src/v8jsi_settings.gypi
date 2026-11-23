@@ -5,18 +5,18 @@
 #
 # This file is the GYP forward-port of PR #233 (commits c3d219a9d1c and
 # a1b7255b342) onto the Node.js-sources/GYP build pipeline. PR #233 lands two
-# related hardening blocks: the Hybrid CRT swap (Stage B1) and the BinSkim
-# compliance flags (Stage B3). Both live here so v8jsi.dll's "shipping
+# related hardening blocks: the Hybrid CRT swap and the BinSkim
+# compliance flags. Both live here so v8jsi.dll's "shipping
 # substrate" -- CRT layout + compliance flags -- is set in one place.
 #
-# Hybrid CRT (Stage B1)
-# ---------------------
+# Hybrid CRT
+# ----------
 # Node.js's deps/nodejs/common.gypi defaults `MSVC_runtimeType` to /MT[d]
 # (`RuntimeLibrary = 0/1`) whenever `node_shared != "true"`, which is the
 # case for our `vcbuild.bat ... v8jsi without-intl` invocation. So the App
 # CRT (vcruntime, libcpmt) is already statically linked into v8jsi.dll by
 # default -- `dumpbin /DEPENDENTS v8jsi.dll` shows no vcruntime140.dll /
-# msvcp140.dll on the pre-B1 baseline.
+# msvcp140.dll before the UCRT swap.
 #
 # What `/MT[d]` also pulls in by default is the **static UCRT**
 # (libucrt.lib / libucrtd.lib). The Hybrid CRT model swaps that static UCRT
@@ -25,8 +25,7 @@
 # v8jsi.dll keeps its private static App CRT (so STL/allocator state never
 # crosses the DLL boundary) but binds to the same shared ucrtbase.dll that
 # every other binary on the box uses (so Debug-CRT consumers and a Release
-# Hybrid-CRT v8jsi.dll agree on UCRT-managed state -- the basis for B2's
-# Debug-drop).
+# Hybrid-CRT v8jsi.dll agree on UCRT-managed state).
 #
 # The swap is two linker flags per config:
 #   Release: /NODEFAULTLIB:libucrt.lib  + /DEFAULTLIB:ucrt.lib
@@ -36,8 +35,8 @@
 # `IgnoreDefaultLibraryNames`; using `IgnoreSpecificDefaultLibraries` makes
 # GYP drop the setting silently.)
 #
-# BinSkim compliance (Stage B3)
-# -----------------------------
+# BinSkim compliance
+# ------------------
 # v8jsi.dll must pass BinSkim with CFG +
 # Spectre verified. PR #233's `:win_msvc_cfg` GN config gives the
 # canonical flag set: `/guard:cf` (compile + link) and `/W3` (already
@@ -47,9 +46,10 @@
 # runtime libraries linked below, as in Hermes.
 #
 # We extend that with two defensive additions for BinSkim coverage:
-#   - `/CETCOMPAT` (link) -- BA2025 EnableShadowStack. Arch-independent
-#     metadata; the linker accepts the flag on arm64/x86 and the bit just
-#     isn't honored at runtime there.
+#   - v8-jsi: `/CETCOMPAT` (link) -- BA2025 EnableShadowStack, x64 only
+#     (see the x64 block in target_defaults). The x64 engine is built with
+#     V8's CET switch for deopt/unwind shadow-stack adjustments;
+#     arm64/x86 stay non-CETCOMPAT.
 #   - Pin `RandomizedBaseAddress` (/DYNAMICBASE) and
 #     `DataExecutionPrevention` (/NXCOMPAT) explicitly. MSBuild v143 +
 #     x64 defaults both to true; pinning means BinSkim sees the flags in
@@ -82,8 +82,9 @@
 # binaries that don't ship; BinSkim compliance is a *shipping* gate, so
 # applying it to test-only targets would expand blast radius for no
 # acceptance-gate benefit. (PR #233 did extend the Hybrid CRT swap to
-# the test addons; we diverge here intentionally to match B1's scope
-# decision.)
+# the test addons; those do not need shipping BinSkim settings.)
+# node.gyp's target_defaults can still propagate these settings to test
+# targets; node_lite explicitly overrides /CETCOMPAT as described below.
 {
   'target_defaults': {
     'msvs_settings': {
@@ -99,14 +100,10 @@
       },
       'VCLinkerTool': {
         # /guard:cf -- Control Flow Guard link-side instrumentation.
-        # NOTE: /CETCOMPAT was tried and reverted -- V8's heap-snapshot
-        # serialization calls a virtual OutputStream::WriteAsciiChunk
-        # through an indirect call that lands in code V8 doesn't mark as
-        # shadow-stack-safe; CET enforcement triggers a FAST_FAIL
-        # (0xC0000409 STATUS_STACK_BUFFER_OVERRUN) in
-        # JSITestExt.V8Instrumentation_CreateHeapSnapshotToFile.
-        # BA2025 (EnableShadowStack) accepted as a residual finding --
-        # blocked by V8 upstream; see impl-b3-results.md.
+        # v8-jsi: x64 /CETCOMPAT below requires V8's CET switch so deopt
+        # and unwinding adjust the shadow stack. node_lite (ordinary test
+        # host) and mkv8snapshot (ordinary-host blobs) override it with
+        # /CETCOMPAT:NO in their target settings.
         'AdditionalOptions': [ '/guard:cf' ],
         # /DYNAMICBASE -- ASLR opt-in (BA2009). GYP takes the MSVS
         # enumeration index here: 2 is "true".
@@ -147,6 +144,7 @@
       ['target_arch=="x64"', {
         'msvs_settings': {
           'VCLinkerTool': {
+            'AdditionalOptions': [ '/CETCOMPAT' ],
             'AdditionalLibraryDirectories': [ '$(VCToolsInstallDir)lib\\spectre\\x64' ],
           },
         },

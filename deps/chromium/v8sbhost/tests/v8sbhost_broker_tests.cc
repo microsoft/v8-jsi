@@ -59,6 +59,8 @@ V8SBHOST_SAME_VALUE(v8sbhost_broker_mode_shared, sbox_broker_mode_shared);
 
 namespace {
 
+constexpr char kCetUnavailable[] = "SKIP: user CET not available";
+
 using v8sbhost::BrokerConnection;
 using v8sbhost::BrokerMode;
 using v8sbhost::BrokerRendezvous;
@@ -5585,6 +5587,99 @@ bool PublicRealJsMode(int32_t mode, std::string* detail, bool lpac = false, bool
       "JS transforms; readiness/FIFO; one COMPLETED/OK per run; callback close; one worker reaped";
   return capture.valid && capture.terminal == 2 && capture.disconnects == 0;
 }
+bool PublicCetCatchStress(std::string* detail) {
+  using UserCetAvailable = BOOL(WINAPI*)(DWORD);
+  const auto available = reinterpret_cast<UserCetAvailable>(
+      ::GetProcAddress(::GetModuleHandleW(L"kernel32.dll"), "IsUserCetAvailableInEnvironment"));
+  if (!available || !available(0)) {
+    *detail = kCetUnavailable; return true;
+  }
+  // The trusted pass uses naturally warmed code; optimized frames are not asserted.
+  // The untrusted pass is jitless; depth 300 exceeds incsspq's 255-entry limit.
+  for (bool trusted : {false, true}) {
+    PublicDedicatedProcesses dedicated;
+    auto& client = PublicClient();
+    if (!client.Load() || !dedicated.Prepare()) { *detail = "CET client/identity setup"; return false; }
+    PublicCapture capture; capture.client = &client;
+    bool policy_ok = false;
+    DWORD policy_error = 0;
+    capture.observe_worker = [&] {
+      if (!dedicated.Observe()) return false;
+      HANDLE query = ::OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, ::GetProcessId(dedicated.worker));
+      PROCESS_MITIGATION_USER_SHADOW_STACK_POLICY policy = {};
+      const bool queried = query && ::GetProcessMitigationPolicy(
+          query, ProcessUserShadowStackPolicy, &policy, sizeof(policy));
+      if (!queried) policy_error = ::GetLastError();
+      if (query) ::CloseHandle(query);
+      policy_ok = queried && policy.EnableUserShadowStack;
+      std::printf("[client CET] worker=%lu trusted=%d queried=%d enabled=%d strict=%d flags=0x%lx error=%lu\n",
+          ::GetProcessId(dedicated.worker), trusted, queried, policy.EnableUserShadowStack,
+          policy.EnableUserShadowStackStrictMode, policy.Flags, policy_error);
+      return policy_ok;
+    };
+    v8sbhost::test::TestSessionConfig config;
+    config.broker_mode = v8sbhost_broker_mode_dedicated;
+    config.tier = trusted ? v8sbhost_tier_trusted : v8sbhost_tier_untrusted;
+    config.prohibit_dynamic_code = trusted ? 0 : 1;
+    config.initial_token = sbox_token_level_restricted_same_access;
+    config.delayed_integrity = sbox_integrity_level_untrusted;
+    if (client.Open(&config, &capture.session) != v8sbhost_status_ok || !capture.session) {
+      *detail = "CET public create"; return false;
+    }
+    auto callbacks = capture.Table();
+    if (client.callbacks(capture.session, &callbacks) != v8sbhost_status_ok) {
+      *detail = "CET callbacks"; return false;
+    }
+    const std::string guest = R"JS(
+      let count = 0;
+      function catches() {
+        try {
+          try { throw 7; } catch (e) { if (e !== 7) throw e; ++count; throw e; }
+          finally { ++count; }
+        } catch (e) { if (e !== 7) throw e; ++count; }
+        finally { ++count; }
+      }
+      function deep(n) { if (n === 0) throw 9; return 1 + deep(n - 1); }
+      host.onmessage = async function(m) {
+        if (m !== 'go') throw new Error('unexpected input');
+        for (let i = 0; i < 300000; ++i) catches();
+        for (let i = 0; i < 1024; ++i) {
+          try { deep(300); } catch (e) { if (e !== 9) throw e; ++count; }
+          try { await Promise.reject(11); } catch (e) { if (e !== 11) throw e; ++count; }
+          await Promise.reject(13).catch(e => { if (e !== 13) throw e; ++count; });
+        }
+        host.postMessage('count=' + count);
+        host.complete();
+      };
+      host.postMessage('ready');
+    )JS";
+    v8sbhost::test::TestRunInputs input; input.tier_override = -1;
+    input.payload = guest.data(); input.payload_len = guest.size();
+    if (client.Start(capture.session, &input, &capture.run) != v8sbhost_status_ok || !capture.run ||
+        !PumpPublic([&] { return !capture.messages.empty() || capture.terminal || capture.disconnects; }) ||
+        !capture.valid || !policy_ok || capture.messages.size() != 1 ||
+        std::string(capture.messages[0].begin(), capture.messages[0].end()) != "ready") {
+      *detail = "CET worker readiness/policy error=" + std::to_string(policy_error) + " " + dedicated.observation_failure;
+      return false;
+    }
+    if (client.post(capture.run, v8sbhost_message_kind_string, "go", 2) != v8sbhost_status_ok ||
+        !PumpPublic([&] { return capture.terminal || capture.disconnects; }, 30000) ||
+        !capture.valid || capture.disconnects || capture.terminal != 1 || !capture.closed ||
+        capture.events != std::vector<int32_t>{v8sbhost_run_event_started, v8sbhost_run_event_completed} ||
+        capture.statuses != std::vector<v8sbhost_status>(2, v8sbhost_status_ok) ||
+        capture.kinds != std::vector<int32_t>(2, v8sbhost_message_kind_string) || capture.messages.size() != 2 ||
+        std::string(capture.messages[1].begin(), capture.messages[1].end()) != "count=1203072") {
+      *detail = "CET catch count/reply/COMPLETED invariant"; return false;
+    }
+    DWORD exit_code = STILL_ACTIVE;
+    if (!dedicated.Reaped() || !::GetExitCodeProcess(dedicated.worker, &exit_code) || exit_code != 0) {
+      *detail = "CET worker clean exit=" + std::to_string(exit_code); return false;
+    }
+    std::printf("[client CET] trusted=%d count=1203072 worker_exit=%lu\n", trusted, exit_code);
+  }
+  *detail = "CET worker policies; jitless + warmed JIT catches/finally/rethrow/deep/async; exact counts; clean exits";
+  return true;
+}
 bool PublicRealCancelAndProfileBody(std::string* detail) {
   *detail = "public profile/cancel/admission/reap check";
   CapturedBroker broker;
@@ -7188,7 +7283,12 @@ bool BuildOutputPublicCase(const char* name, std::string* detail, const std::wst
   }
   *detail = "build-output child exit=" + std::to_string(result.code) + " error=" + std::to_string(result.error) +
       " job_empty=" + std::to_string(result.empty) + " profile_removed=" + std::to_string(removed);
-  return removed && ChildPassed(result, name);
+  const bool passed = removed && ChildPassed(result, name);
+  if (passed && std::strcmp(name, "cet-catch-stress") == 0 &&
+      result.output.find(std::string("child/cet-catch-stress: PASS - ") + kCetUnavailable) != std::string::npos) {
+    *detail = std::string(kCetUnavailable) + "; " + *detail;
+  }
+  return passed;
 }
 bool ImmutableWorkerHold(std::string* detail) {
   v8sbhost::HeldFile verified, worker, denied;
@@ -7514,6 +7614,7 @@ bool InstalledIdenticalRoots(std::string* detail) {
   }
   return ok;
 }
+bool PublicCetCatchStressCase(std::string* detail) { return BuildOutputPublicCase("cet-catch-stress", detail); }
 bool PublicRealTrustedJs(std::string* detail) { return BuildOutputPublicCase("real-trusted-js", detail); }
 bool TimingSamples(std::string* detail) { return BuildOutputPublicCase("timing-samples", detail); }
 // Worker startup (run start to security_ready) for each tier; samples only, no threshold.
@@ -7537,7 +7638,7 @@ bool TimingSamplesBody(std::string* detail) {
 bool IsSharedLegacyCase(const std::string& name) {
   for (const char* legacy : {"real-noncooperative-fallback", "real-idle-lifecycle", "real-inbound-aggregate",
       "real-js", "real-dedicated-js", "real-cancel-and-profile", "broker-kill-no-replay", "disconnect-orderings",
-      "worker-exit-isolation", "same-connection-worker-exit", "n-session-n-pid", "real-trusted-js", "timing-samples"}) {
+      "worker-exit-isolation", "same-connection-worker-exit", "n-session-n-pid", "real-trusted-js", "timing-samples", "cet-catch-stress"}) {
     if (name == legacy) return true;
   }
   return false;
@@ -7550,6 +7651,7 @@ bool SharedLegacyBody(const std::string& name, std::string* detail) {
       name == "real-dedicated-js" ? PublicRealJsMode(v8sbhost_broker_mode_dedicated, detail) :
       name == "real-trusted-js" ? PublicRealJsMode(v8sbhost_broker_mode_dedicated, detail, false, true) :
       name == "timing-samples" ? TimingSamplesBody(detail) :
+      name == "cet-catch-stress" ? PublicCetCatchStress(detail) :
       name == "real-cancel-and-profile" ? PublicRealCancelAndProfileBody(detail) :
       name == "n-session-n-pid" ? PublicNSessionBody(detail) :
       name == "worker-exit-isolation" ? PublicWorkerExitBody(detail) :
@@ -7650,6 +7752,7 @@ int main(int argc, char** argv) {
       {"no-crosstalk", "same-connection-worker-exit", SameConnectionWorkerExit},
       {"worker-crash", "same-connection-worker-exit", SameConnectionWorkerExit},
       {"crash", "same-connection-worker-exit", SameConnectionWorkerExit},
+      {"client", "cet-catch-stress", PublicCetCatchStressCase},
       {"client", "real-js", PublicRealJs},
       {"client", "real-dedicated-js", PublicRealDedicatedJs},
       {"client", "real-trusted-js", PublicRealTrustedJs},

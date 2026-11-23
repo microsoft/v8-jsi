@@ -3906,6 +3906,18 @@ void MacroAssembler::IncsspqIfSupported(Register number_of_words,
       ExternalReferenceAsOperand(supports_cetss, scratch);
   cmpb(supports_cetss_operand, Immediate(0));
   j(equal, &not_supported, Label::kNear);
+  // v8-jsi: INCSSPQ uses only the low 8 bits; pop at most 255 words at a time.
+  Label loop, last;
+  bind(&loop);
+  cmpq(number_of_words, Immediate(255));
+  j(below_equal, &last, Label::kNear);
+  movl(scratch, Immediate(255));
+  incsspq(scratch);
+  subq(number_of_words, Immediate(255));
+  jmp(&loop, Label::kNear);
+  bind(&last);
+  testq(number_of_words, number_of_words);
+  j(zero, &not_supported, Label::kNear);
   incsspq(number_of_words);
   bind(&not_supported);
 }

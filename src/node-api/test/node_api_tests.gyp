@@ -129,6 +129,16 @@
             },
           },
         }],
+        # v8-jsi: node_lite is the Node-API test host; it stays non-CETCOMPAT so
+        # ordinary Node-API runs keep today's no-shadow-stack behavior. CET runs
+        # use cetrun. Overrides /CETCOMPAT from target_defaults.
+        ['OS=="win" and target_arch=="x64"', {
+          'msvs_settings': {
+            'VCLinkerTool': {
+              'AdditionalOptions': [ '/CETCOMPAT:NO' ],
+            },
+          },
+        }],
       ],
     },
 
@@ -689,6 +699,9 @@
         '<(v8jsi_root)/src/node-api/test/testmain.cpp',
       ],
       'conditions': [
+        ['OS=="win" and target_arch=="x64"', {
+          'dependencies': [ 'cetrun' ],
+        }],
         ['OS=="win"', {
           'msvs_settings': {
             'VCCLCompilerTool': {
