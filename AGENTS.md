@@ -149,6 +149,7 @@ policy, verifies it, and resumes it. `off` disables shadow stacks; `compat`
 and `strict` enable them. `SKIP: user CET not available` is a coverage gap,
 not a pass. `CETRUN_REQUIRE_CET=1` turns unavailability into failure;
 `build.ts` sets it for evidence rows after probing a capable host.
+CI CET coverage runs on Windows Server agents with required user-mode CET.
 Death-test children do not inherit the launcher's policy: the CETCOMPAT
 JSI test executable runs those children in compat mode on capable hosts.
 Startup-policy tests instead launch explicit-policy children through cetrun.
@@ -167,7 +168,8 @@ All focused rows allow natives syntax and reject an empty selection.
 Off/compat rows exercise Wasm and JSPI. Off plus `--cet-compatible` covers
 `*CetShadowStack.*` and `*JsiAbiInspector.Cet*`, including debugger code generation
 without hardware CET. Strict plus `--no-cet-compatible` tests JSPI policy gating
-only, not unsafe deopt. Unavailable strict coverage also emits a CI warning.
+only, not unsafe deopt. Unavailable strict coverage prints a message locally
+and emits a pipeline warning in Azure Pipelines.
 The per-child strict Node-API suite follows, without JSI V8 flags. The jitless
 sandbox engine runs its full JSI suite once under `off` and once under
 `strict`, plus its per-child strict Node-API suite once, not the normal-engine

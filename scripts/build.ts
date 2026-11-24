@@ -27,6 +27,7 @@ import {
   prependToPath,
   readV8JsiNames,
   checkV8JsiPayload,
+  shouldDeferCetTests,
 } from "./build-common.ts";
 import { checkSourceLink, pdbOf } from "./source-link-check.ts";
 
@@ -71,6 +72,7 @@ const options = {
   test: { type: "boolean" as const, default: false },
   pack: { type: "boolean" as const, default: false },
   smoke: { type: "boolean" as const, default: false },
+  "test-cet-runtime": { type: "string" as const },
   "test-e2e": { type: "boolean" as const, default: false },
   "test-acceptance": { type: "boolean" as const, default: false },
   binskim: { type: "boolean" as const, default: false },
@@ -306,6 +308,8 @@ Boolean flags (all support --no- prefix):
   --clean-pkg         Delete pkg and pkg-staging folders
 
 String arguments:
+  --test-cet-runtime <dir> Run only CET runtime rows from a payload; requires CET,
+                           no build or static tools. --build-v8jsisb selects sandbox.
   --platform <p>      Target platform: x64, x86, arm64 (default: x64, multiple allowed)
   --configuration <c> Build config: debug, release (default: release, multiple allowed)
   --output-path <dir> Output directory (default: ./out)
@@ -463,11 +467,16 @@ function runTests(platform: string, configuration: string): void {
   }
   if (platform !== "x64") return;
 
-  const cetEnv = { ...ordinaryEnv };
+  runCetTests(outDir, args["build-v8jsisb"], false);
+}
+
+function runCetTests(outDir: string, sandbox: boolean, requireCet: boolean): void {
+  const cetEnv = { ...process.env };
   // Never re-add ambient CETRUN_* passthrough to strict CI evidence rows
   // (including nested node_lite launches); set their controls explicitly.
   for (const name of Object.keys(cetEnv)) {
-    if (name.toUpperCase().startsWith("CETRUN_")) delete cetEnv[name];
+    if (name.toUpperCase().startsWith("CETRUN_") ||
+        ["V8JSI_TEST_CET", "V8JSI_TEST_V8_FLAGS"].includes(name.toUpperCase())) delete cetEnv[name];
   }
   console.log("\n=== CET launcher contract tests ===");
   if (!runCetSuite(process.execPath, ["--test", path.join(repoRoot, "scripts", "cetrun.test.ts")],
@@ -481,6 +490,11 @@ function runTests(platform: string, configuration: string): void {
     throw new Error(`CET availability probe failed: ${probe.status} ${probe.stderr}`);
   }
   const cetAvailable = /user_cet=yes/.test(probe.stderr);
+  if (shouldDeferCetTests(process.env.V8JSI_CET_TESTS_DEFERRED, cetAvailable, requireCet)) {
+    console.log("CET rows run in the Windows Server CET jobs");
+    return;
+  }
+  if (requireCet && !cetAvailable) throw new Error("User CET is required on this test host");
   if (cetAvailable) cetEnv.CETRUN_REQUIRE_CET = "1";
   cetEnv.CETRUN_TIMEOUT_MS = String(30 * 60 * 1000);
   // Death-test children do not inherit policy: the CETCOMPAT test exe runs
@@ -494,7 +508,7 @@ function runTests(platform: string, configuration: string): void {
     ["strict", path.join(outDir, "v8jsi_test.exe"), "--gtest_brief=1"],
     { ...cetEnv, V8JSI_TEST_V8_FLAGS: "--allow-natives-syntax" }) && passed;
   // The sandbox engine is jitless; run its full suites, not the flag matrix.
-  if (!args["build-v8jsisb"]) {
+  if (!sandbox) {
     const interpreterFlags = "--allow-natives-syntax --no-sparkplug --no-maglev --no-turbofan";
     // Explicit policies cover both process behavior and host-flag overrides.
     // Only the JSPI row opts out of compatible code in a shadow-stack process.
@@ -1143,6 +1157,11 @@ async function main(): Promise<void> {
 
   if (args.help) {
     showHelp();
+    return;
+  }
+
+  if (args["test-cet-runtime"] !== undefined) {
+    runCetTests(path.resolve(args["test-cet-runtime"]), args["build-v8jsisb"], true);
     return;
   }
 
