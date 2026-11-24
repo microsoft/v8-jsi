@@ -108,10 +108,10 @@ the API, compiler phase, or default that our patch originally extended.
   `../../src/libnode_settings.gypi` for every shared build. That file sets the
   Windows Hybrid CRT and hardening, links libstdc++, libgcc, and libatomic
   privately into the Linux libnode.so (replacing node.gyp's `-latomic` for
-  it), and names the Linux and macOS libraries `libnode.so` and
-  `libnode.dylib`. Its `target_conditions` match node.gyp's `libnode` target
-  by name and override the versioned `product_extension` that node.gyp's
-  conditions set.
+  it), disables default debug information in macOS Release builds, and names
+  the Linux and macOS libraries `libnode.so` and `libnode.dylib`. Its
+  `target_conditions` match node.gyp's `libnode` target by name and override
+  the versioned `product_extension` that node.gyp's conditions set.
 - **Windows Temporal:** `deps/crates/crates.gyp` links `synchronization.lib` for
   Rust's `WaitOnAddress` and `WakeByAddress*` imports. Keep this link setting
   for both host tools (including `mksnapshot`) and the target library. Since

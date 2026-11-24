@@ -42,6 +42,11 @@
 # install name) instead of Node.js's libnode.so.<NODE_MODULE_VERSION> and
 # libnode.<NODE_MODULE_VERSION>.dylib. target_conditions run after node.gyp's
 # conditions, which set the versioned name.
+#
+# macOS: Release objects otherwise carry full DWARF that no package ships,
+# and its copies in static archives nearly fill the CI disk. Disable the
+# default debug information, as deps/nodejs/tools/v8_gypfiles/v8.gyp
+# does for v8_snapshot.
 {
   'conditions': [
     ['OS=="win"', {
@@ -126,6 +131,13 @@
     }],
     ['OS=="mac"', {
       'target_defaults': {
+        'configurations': {
+          'Release': {
+            'xcode_settings': {
+              'GCC_GENERATE_DEBUGGING_SYMBOLS': 'NO',
+            },
+          },
+        },
         'target_conditions': [
           ['_target_name=="libnode"', {
             'product_extension': 'dylib',
