@@ -239,6 +239,9 @@ node scripts\libnode-build.ts --smoke out\libnode\packages
   (with `src/libnode.version`), so the library needs only glibc 2.35 (Ubuntu
   22.04). Linux and macOS build the library as `libnode.so` and
   `libnode.dylib` (SONAME and install name), the names the packages ship.
+  macOS Release builds compile without debug information (GYP's Xcode default
+  would put DWARF in every object and fill the CI agents' disk), so source-level
+  debugging of a local macOS LibNode build needs `--configuration debug`.
 - Linux runs every step in the Ubuntu 22.04 containers that the Linux agent
   images provide: `bash scripts/libnode-docker.sh build node scripts/libnode-build.ts ...`
   for the build, tests, checks, and staging, and `... smoke ...` for

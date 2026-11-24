@@ -45,7 +45,7 @@
 #
 # macOS: Release objects otherwise carry full DWARF that no package ships,
 # and its copies in static archives fill the CI disk. Disable the default
-# debug information, as tools/v8_gypfiles/v8.gyp does for v8_snapshot.
+# debug information, as deps/nodejs/tools/v8_gypfiles/v8.gyp does for v8_snapshot.
 {
   'conditions': [
     ['OS=="win"', {
