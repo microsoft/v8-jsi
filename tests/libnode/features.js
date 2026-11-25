@@ -10,6 +10,8 @@
 
 const assert = require('node:assert');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const tls = require('node:tls');
 const { parseArgs } = require('node:util');
 
@@ -59,6 +61,13 @@ const features = {
     decipher.setAuthTag(cipher.getAuthTag());
     const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
     assert.strictEqual(decrypted.toString(), 'libnode');
+  },
+
+  'glob matching': () => {
+    assert.deepStrictEqual(
+      fs.globSync('{features.js,smoke.c}', { cwd: __dirname }).sort(),
+      ['features.js', 'smoke.c']);
+    assert.ok(path.matchesGlob('features.js', '*.{js,c}'));
   },
 
   'root certificates': () => {
